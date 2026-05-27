@@ -163,6 +163,7 @@ function buildMobileManifest(req) {
       artifactCleanupUrl: `${origin}/api/artifacts/cleanup`,
       artifactCleanupScheduleUrl: `${origin}/api/artifacts/cleanup/schedule`,
       artifactCleanupNowUrl: `${origin}/api/artifacts/cleanup/run-now`,
+      executorProfilesUrl: `${origin}/api/executors/profiles`,
       apiTokenRequired: Boolean(API_TOKEN),
       projects: projects.map((project) => {
       const sessions = registry.listSessions(project.id);
@@ -226,6 +227,13 @@ async function handleApi(req, res, pathname, method, parts) {
 
   if (parts[1] === 'policy' && method === 'GET') {
     return sendJson(res, 200, { policies: registry.getPolicyMap() });
+  }
+
+  if (parts[1] === 'executors' && parts[2] === 'profiles' && method === 'GET') {
+    return sendJson(res, 200, {
+      profiles: registry.getExecutorProfiles(),
+      commandDeckApiEndpoint: '/api/executors/profiles',
+    });
   }
 
   if (parts[1] === 'artifacts' && parts[2] === 'cleanup' && parts.length === 3 && method === 'POST') {

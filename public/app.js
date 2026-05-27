@@ -13,6 +13,7 @@ const shell = {
   apiToken: '',
   cleanupSchedule: null,
   mcpTools: [],
+  executorProfiles: null,
 };
 
 const refs = {
@@ -146,6 +147,17 @@ function renderHome() {
       <button class="secondary" data-action="deleteMcpTool" data-tool-id="${safeText(tool.id || tool.name)}" type="button">Delete</button>
     </div>
   `).join('');
+  const profiles = shell.executorProfiles || {};
+  const profileRows = Object.values(profiles).map((profile) => `
+    <div class="lane-row">
+      <div>
+        <strong>${safeText(profile.type || profile.name || '')}</strong>
+        <div class="tiny muted">binary: ${safeText(profile.defaultBinary || '')}</div>
+        <div class="tiny muted">defaults: ${safeText((profile.defaultArgs || []).join(' ') || 'none')}</div>
+        <div class="tiny muted">allowlist: ${(profile.allowedBinaries || []).slice(0, 6).join(', ') || 'default'}</div>
+      </div>
+    </div>
+  `).join('');
   const cards = shell.projects.map((project) => {
     const quickLinks = project.quickLinks.map((quick) => `
       <div><a href="${safeText(quick.url)}" target="_blank" rel="noopener noreferrer">${safeText(quick.label)}</a></div>
@@ -189,6 +201,10 @@ function renderHome() {
           <button class="secondary" data-action="setApiToken" type="button">Save token</button>
           <button class="secondary" data-action="clearApiToken" type="button">Clear token</button>
         </div>
+      </article>
+      <article class="card">
+        <h3>Executor profiles</h3>
+        ${profileRows || '<div class="muted">No executor profiles loaded yet.</div>'}
       </article>
       <article class="card">
         <h3>Artifact cleanup schedule</h3>
@@ -538,6 +554,10 @@ async function refresh() {
   const policyResp = await api('/api/policy');
   if (policyResp.ok && policyResp.data) {
     shell.policy = policyResp.data.policies;
+  }
+  const profilesResp = await api('/api/executors/profiles');
+  if (profilesResp.ok && profilesResp.data?.profiles) {
+    shell.executorProfiles = profilesResp.data.profiles;
   }
 
   const cleanupScheduleResp = await api('/api/artifacts/cleanup/schedule');

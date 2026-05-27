@@ -3,7 +3,7 @@ import fsSync from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { LANE_STATES } from './worker-contract.js';
-import { createExecutorAdapter } from './executor-factory.js';
+import { createExecutorAdapter, getExecutorProfiles as getExecutorProfilesFromFactory } from './executor-factory.js';
 import { PlaywrightEvidenceRunner } from './evidence-runner.js';
 
 const { QUEUED: QUEUED_STATE, STARTING: STARTING_STATE, RUNNING: RUNNING_STATE, STOPPED: STOPPED_STATE, DONE: DONE_STATE, FAILED: FAILED_STATE } = LANE_STATES;
@@ -12,6 +12,12 @@ const nowIso = () => new Date().toISOString();
 const sleep = async (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const parsePositiveInteger = (value, fallback = null) => {
   const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed) || parsed <= 0) return fallback;
+  return parsed;
+};
+
+const parsePositiveFloat = (value, fallback = null) => {
+  const parsed = Number.parseFloat(value);
   if (Number.isNaN(parsed) || parsed <= 0) return fallback;
   return parsed;
 };
@@ -81,6 +87,16 @@ const defaultPolicy = {
     risk: 'high',
     message: 'Removes archived lane artifacts from disk.',
   },
+  manageCleanupSchedule: {
+    requiresApproval: true,
+    risk: 'medium',
+    message: 'Changes periodic cleanup policy and can increase data retention risk.',
+  },
+  manageMcpTools: {
+    requiresApproval: true,
+    risk: 'high',
+    message: 'MCP tool changes can run arbitrary local commands.',
+  },
 };
 
 function normalizeSlug(value) {
@@ -98,6 +114,39 @@ function clonePayload(value) {
 
 function safeArray(value, fallback = []) {
   return Array.isArray(value) ? value : fallback;
+}
+
+function sanitizeMcpName(value) {
+  const name = String(value || '').trim().toLowerCase();
+  if (!name) {
+    throw { status: 422, message: 'MCP tool name is required.' };
+  }
+  if (!/^[a-z0-9-_\.]+$/.test(name)) {
+    throw { status: 422, message: 'MCP tool names may only include letters, numbers, hyphen, underscore, and period.' };
+  }
+  return name;
+}
+
+function normalizeCommandArray(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .slice(0, 64);
+}
+
+function sanitizeMcpCommand(raw) {
+  const command = String(raw || '').trim();
+  if (!command) {
+    throw { status: 422, message: 'MCP tool command is required.' };
+  }
+  if (command.length > 255) {
+    throw { status: 422, message: 'MCP tool command is too long.' };
+  }
+  if (/[|&;<>$`]/.test(command)) {
+    throw { status: 422, message: 'MCP tool command contains blocked characters.' };
+  }
+  return command;
 }
 
 function inferEvidenceMode(filename) {
@@ -131,6 +180,7 @@ export class CommandDeckRegistry {
     this.sessions = [];
     this.lanes = [];
     this.auditEvents = [];
+    this.mcpTools = [];
     this.artifactRoot = path.join(process.cwd(), 'artifacts');
     this.storageDir = path.join(process.cwd(), '.command-deck');
     this.stateFile = path.join(this.storageDir, 'state.json');
@@ -139,6 +189,15 @@ export class CommandDeckRegistry {
     this.autoCompleteMs = autoCompleteMs;
     this.heartbeatTimeoutMs = heartbeatTimeoutMs;
     this.policies = { ...defaultPolicy };
+    this.cleanupSchedule = {
+      enabled: false,
+      intervalHours: 24,
+      olderThanDays: null,
+      sessionId: null,
+      dryRun: false,
+      lastRunAt: null,
+      nextRunAt: null,
+    };
 
     this._persistTimer = null;
     this._schedulerRunning = false;
@@ -194,6 +253,15 @@ export class CommandDeckRegistry {
       if (parsed.policies && typeof parsed.policies === 'object') {
         this.policies = { ...defaultPolicy, ...parsed.policies };
       }
+      if (Array.isArray(parsed.mcpTools)) {
+        this.mcpTools = parsed.mcpTools;
+      }
+      if (parsed.cleanupSchedule && typeof parsed.cleanupSchedule === 'object') {
+        this.cleanupSchedule = {
+          ...this.cleanupSchedule,
+          ...parsed.cleanupSchedule,
+        };
+      }
       this.recoverInterruptedLanes();
     } catch (error) {
       if (error.code !== 'ENOENT') {
@@ -219,6 +287,8 @@ export class CommandDeckRegistry {
           sessions: this.sessions,
           lanes: this.lanes,
           auditEvents: this.auditEvents,
+          cleanupSchedule: this.cleanupSchedule,
+          mcpTools: this.mcpTools,
         };
         await fs.writeFile(this.stateFile, JSON.stringify(snapshot, null, 2));
       } catch (error) {
@@ -295,7 +365,20 @@ export class CommandDeckRegistry {
       };
     }
 
-    if (policy.requiresApproval && payload.approved !== true) {
+    const actor = String(payload.actor || '').toLowerCase();
+    if (actor === 'scheduler') {
+      return { allowed: true, policy };
+    }
+
+    if (action === 'cleanupArtifacts' && payload.skipApproval === true) {
+      return { allowed: true, policy };
+    }
+
+    if (payload.approved === true) {
+      return { allowed: true, policy };
+    }
+
+    if (policy.requiresApproval) {
       return {
         allowed: false,
         policy,
@@ -407,6 +490,230 @@ export class CommandDeckRegistry {
     this.persistState();
 
     return clonePayload(project);
+  }
+
+  getCleanupSchedule() {
+    return clonePayload(this.cleanupSchedule);
+  }
+
+  updateCleanupSchedule({
+    enabled,
+    intervalHours,
+    olderThanDays,
+    sessionId,
+    dryRun,
+  } = {}, context = {}) {
+    const actor = context.actor || 'dashboard';
+    const policyCheck = this.evaluateActionPolicy('manageCleanupSchedule', context);
+    if (!policyCheck.allowed) {
+      throw {
+        status: 409,
+        message: policyCheck.message,
+        requiresApproval: true,
+        risk: policyCheck.policy.risk,
+      };
+    }
+
+    const next = { ...this.cleanupSchedule };
+    if (typeof enabled === 'boolean') {
+      next.enabled = enabled;
+    }
+
+    const parsedInterval = parsePositiveFloat(intervalHours, null);
+    if (intervalHours !== undefined) {
+      if (parsedInterval === null) {
+        throw { status: 422, message: 'intervalHours must be a positive number when provided.' };
+      }
+      if (parsedInterval > 720) {
+        throw { status: 422, message: 'Cleanup interval cannot exceed 720 hours.' };
+      }
+      next.intervalHours = parsedInterval;
+    }
+
+    const parsedRetention = parsePositiveInteger(olderThanDays, undefined);
+    if (olderThanDays !== undefined) {
+      if (parsedRetention === undefined && olderThanDays !== null) {
+        throw { status: 422, message: 'olderThanDays must be a positive integer or null.' };
+      }
+      next.olderThanDays = parsedRetention || null;
+    }
+
+    if (typeof dryRun === 'boolean') {
+      next.dryRun = dryRun;
+    }
+
+    if (sessionId) {
+      const targetSession = this.getSession(sessionId);
+      if (!targetSession) {
+        throw { status: 404, message: 'Session not found.' };
+      }
+      next.sessionId = targetSession.id;
+    } else if (sessionId === null) {
+      next.sessionId = null;
+    }
+
+    if (next.enabled) {
+      const cadenceMs = next.intervalHours * 60 * 60 * 1000;
+      const now = Date.now();
+      next.nextRunAt = new Date(now + cadenceMs).toISOString();
+    } else {
+      next.nextRunAt = null;
+    }
+
+    this.cleanupSchedule = next;
+    this.recordAudit({
+      type: 'cleanup_schedule_updated',
+      actor,
+      summary: `Artifact cleanup schedule ${next.enabled ? 'enabled' : 'disabled'}`,
+      evidence: { cleanupSchedule: next },
+      status: 'passed',
+    });
+    this.persistState();
+    return clonePayload(this.cleanupSchedule);
+  }
+
+  getMcpTools() {
+    return clonePayload(this.mcpTools);
+  }
+
+  getMcpTool(locator) {
+    if (!locator) return null;
+    const target = String(locator).toLowerCase();
+    return this.mcpTools.find((tool) => tool.id === target || tool.name === target);
+  }
+
+  createMcpTool(payload = {}, context = {}) {
+    const actor = context.actor || 'dashboard';
+    const policyCheck = this.evaluateActionPolicy('manageMcpTools', context);
+    if (!policyCheck.allowed) {
+      throw {
+        status: 409,
+        message: policyCheck.message,
+        requiresApproval: true,
+        risk: policyCheck.policy.risk,
+      };
+    }
+
+    const name = sanitizeMcpName(payload.name);
+    if (this.getMcpTool(name)) {
+      throw { status: 409, message: `MCP tool "${name}" already exists.` };
+    }
+
+    const command = sanitizeMcpCommand(payload.command);
+    const args = normalizeCommandArray(payload.args);
+    const enabled = payload.enabled !== false;
+    const now = nowIso();
+    const tool = {
+      id: name,
+      name,
+      command,
+      args,
+      enabled,
+      scope: Array.isArray(payload.scope) ? payload.scope.map((value) => String(value || '').toLowerCase()).filter(Boolean) : [],
+      createdAt: now,
+      updatedAt: now,
+      owner: actor,
+      notes: payload.notes || '',
+    };
+
+    this.mcpTools.push(tool);
+    this.recordAudit({
+      type: 'mcp_tool_created',
+      actor,
+      summary: `Created MCP tool ${name}`,
+      evidence: { tool },
+      status: 'passed',
+    });
+    this.persistState();
+    return clonePayload(tool);
+  }
+
+  updateMcpTool(locator, patch = {}, context = {}) {
+    const actor = context.actor || 'dashboard';
+    const policyCheck = this.evaluateActionPolicy('manageMcpTools', context);
+    if (!policyCheck.allowed) {
+      throw {
+        status: 409,
+        message: policyCheck.message,
+        requiresApproval: true,
+        risk: policyCheck.policy.risk,
+      };
+    }
+
+    const tool = this.getMcpTool(locator);
+    if (!tool) {
+      throw { status: 404, message: 'MCP tool not found.' };
+    }
+
+    if (patch.name) {
+      const nextName = sanitizeMcpName(patch.name);
+      if (nextName !== tool.name && this.getMcpTool(nextName)) {
+        throw { status: 409, message: `MCP tool "${nextName}" already exists.` };
+      }
+      tool.name = nextName;
+      tool.id = nextName;
+    }
+    if (patch.command) tool.command = sanitizeMcpCommand(patch.command);
+    if (Array.isArray(patch.args)) tool.args = normalizeCommandArray(patch.args);
+    if (typeof patch.enabled === 'boolean') tool.enabled = patch.enabled;
+    if (Array.isArray(patch.scope)) {
+      tool.scope = patch.scope.map((value) => String(value || '').toLowerCase()).filter(Boolean);
+    }
+    if (patch.notes !== undefined) tool.notes = String(patch.notes);
+
+    tool.updatedAt = nowIso();
+    this.recordAudit({
+      type: 'mcp_tool_updated',
+      actor,
+      summary: `Updated MCP tool ${tool.name}`,
+      evidence: { tool },
+      status: 'passed',
+    });
+    this.persistState();
+    return clonePayload(tool);
+  }
+
+  deleteMcpTool(locator, context = {}) {
+    const actor = context.actor || 'dashboard';
+    const policyCheck = this.evaluateActionPolicy('manageMcpTools', context);
+    if (!policyCheck.allowed) {
+      throw {
+        status: 409,
+        message: policyCheck.message,
+        requiresApproval: true,
+        risk: policyCheck.policy.risk,
+      };
+    }
+
+    const target = this.getMcpTool(locator);
+    if (!target) {
+      throw { status: 404, message: 'MCP tool not found.' };
+    }
+
+    const before = this.mcpTools.length;
+    this.mcpTools = this.mcpTools.filter((tool) => tool.id !== target.id);
+    if (this.mcpTools.length === before) {
+      throw { status: 500, message: 'Failed to remove MCP tool.' };
+    }
+
+    this.recordAudit({
+      type: 'mcp_tool_deleted',
+      actor,
+      summary: `Deleted MCP tool ${target.name}`,
+      evidence: { tool: target },
+      status: 'passed',
+    });
+    this.persistState();
+    return { removed: true, tool: clonePayload(target) };
+  }
+
+  listToolsForExecutor(executorType = '') {
+    return this.mcpTools.filter((tool) => {
+      if (!tool.enabled) return false;
+      if (!tool.scope.length) return true;
+      const target = String(executorType || '').toLowerCase();
+      return tool.scope.includes(target) || tool.scope.includes('all');
+    });
   }
 
   createSession(projectLocator, {
@@ -658,6 +965,7 @@ export class CommandDeckRegistry {
     policyProfile = 'default',
     autoCompleteMs,
     heartbeatMs,
+    mcpToolIds = [],
   }, context = {}) {
     const session = this.getSession(sessionLocator);
     if (!session) {
@@ -681,6 +989,23 @@ export class CommandDeckRegistry {
     const project = this.projects.find((item) => item.id === session.projectId);
     const now = nowIso();
     const laneId = randomUUID();
+    const scopedToolIds = new Set(this.listToolsForExecutor(executorType).map((tool) => tool.id));
+    const resolvedToolIds = safeArray(mcpToolIds)
+      .map((item) => String(item || '').trim())
+      .filter(Boolean)
+      .filter((value, index, all) => all.indexOf(value) === index);
+    const mcpTools = resolvedToolIds
+      .map((id) => this.getMcpTool(id))
+      .filter((tool) => tool && scopedToolIds.has(tool.id))
+      .filter((tool) => tool && tool.enabled)
+      .map((tool) => ({
+        id: tool.id,
+        name: tool.name,
+        command: tool.command,
+        args: tool.args,
+        scope: tool.scope,
+      }));
+
     const lane = {
       id: laneId,
       projectId: session.projectId,
@@ -694,6 +1019,7 @@ export class CommandDeckRegistry {
       executorBinary,
       workdir,
       policyProfile,
+      mcpTools,
       state: QUEUED_STATE,
       owner,
       heartbeatAt: null,
@@ -982,11 +1308,16 @@ export class CommandDeckRegistry {
   async cleanupArtifacts({
     actor = 'dashboard',
     approved,
+    skipApproval = false,
     dryRun = false,
     sessionId = null,
     olderThanDays = null,
   } = {}) {
-    const policyCheck = this.evaluateActionPolicy('cleanupArtifacts', { actor, approved });
+    const policyCheck = this.evaluateActionPolicy('cleanupArtifacts', {
+      actor,
+      approved,
+      skipApproval,
+    });
     if (!policyCheck.allowed) {
       throw {
         status: 409,
@@ -1083,6 +1414,42 @@ export class CommandDeckRegistry {
 
     this.persistState();
     return summary;
+  }
+
+  async runCleanupSchedulerTick() {
+    if (!this.cleanupSchedule.enabled) return;
+    if (!this.cleanupSchedule.nextRunAt) return;
+
+    const now = Date.now();
+    const next = Date.parse(this.cleanupSchedule.nextRunAt);
+    if (!Number.isFinite(next) || now < next) return;
+
+    const result = await this.cleanupArtifacts({
+      actor: 'scheduler',
+      approved: true,
+      skipApproval: true,
+      sessionId: this.cleanupSchedule.sessionId,
+      olderThanDays: this.cleanupSchedule.olderThanDays,
+      dryRun: Boolean(this.cleanupSchedule.dryRun),
+    });
+
+    const cadenceMs = (parsePositiveFloat(this.cleanupSchedule.intervalHours, 24) || 24) * 60 * 60 * 1000;
+    this.cleanupSchedule.lastRunAt = nowIso();
+    this.cleanupSchedule.nextRunAt = new Date(now + cadenceMs).toISOString();
+    this.recordAudit({
+      type: 'artifacts_cleanup_scheduler_run',
+      actor: 'scheduler',
+      summary: 'Automatic artifact cleanup executed',
+      evidence: {
+        removed: result.removed,
+        removedLanes: result.removedLanes,
+        candidates: result.candidates,
+        scanned: result.scanned,
+        dryRun: result.dryRun,
+      },
+      status: 'passed',
+    });
+    this.persistState();
   }
 
   async getEvidenceFiles(laneLocator) {
@@ -1204,6 +1571,10 @@ export class CommandDeckRegistry {
 
   getPolicyMap() {
     return clonePayload(this.policies);
+  }
+
+  getExecutorProfiles() {
+    return clonePayload(getExecutorProfilesFromFactory());
   }
 
   appendLaneLog(lane, message, { persist = false } = {}) {
@@ -1349,6 +1720,7 @@ Executor: ${lane.executorType}
 
   async advanceLanes() {
     await this.tickExecutors();
+    await this.runCleanupSchedulerTick().catch(() => {});
 
     const sessionById = new Map(this.sessions.map((session) => [session.id, session]));
 
