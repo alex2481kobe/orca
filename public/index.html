@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Command Deck</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="layout">
+      <header class="topbar">
+        <h1>Command Deck</h1>
+        <p>Local control plane for projects, sessions, lanes, and audits</p>
+      </header>
+      <main id="shell">
+        <section class="panel">
+          <div id="breadcrumbs" class="breadcrumbs"></div>
+          <div id="alerts" class="alerts"></div>
+          <div id="mainActions" class="action-grid"></div>
+        </section>
+        <section id="content" class="panel panel-elevated">
+          Loading dashboard...
+        </section>
+      </main>
+    </div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
