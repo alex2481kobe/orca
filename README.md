@@ -1,16 +1,51 @@
 # Command Deck
 
-Command Deck is a future local-first control plane for coordinating AI coding agents, project sessions, worker lanes, browser evidence, logs, artifacts, and review actions from one dashboard.
+Command Deck is the local control plane for coordinating AI coding workers.
 
-This repository is currently scaffold-only. It does not include an application, daemon, MCP server, dashboard, Playwright setup, or agent spawning implementation yet.
+This implementation is a checkpointed buildout covering Phases 0/1, plus durable Phase 2 plus initial Phase 3 scaffolding:
+- Shared dashboard routes (`/`, `/projects/:slug`, `/projects/:slug/sessions/:id`)
+- Persistent registry backing for projects, sessions, lanes, and audit events (`.command-deck/state.json`)
+- Policy-gated lane actions and queue-like lifecycle transitions
+- Mobile-first dashboard shell and mobile-friendly URL structure
+- Per-lane artifact folder bookkeeping
+- Executor adapter registry with per-executor instances (`mock`, `codex`, `claude`) and per-lane adapter resolution
+- `codex` and `claude` executors now support command-backed lane launches through the shared contract
+- Lane launch fields support `command`, `commandArgs`, `executorBinary`, and `workdir` for executable adapters
+- Playwright evidence capture scaffolding is now available via `POST /api/lanes/:laneId/evidence` with optional modes (`screenshot`, `trace`, `video`) and artifact files written under the lane artifact directory.
+- Latest evidence lookup is now exposed via `GET /api/lanes/:laneId/evidence/latest` with optional `mode` filter query.
+- Audit queue actions de-duplicate pending entries so repeated requests return existing pending queue IDs.
+- Evidence cleanup is now approval-gated and can be run with `POST /api/artifacts/cleanup` and `dryRun` mode.
+- Artifact cleanup also supports optional targeting (`sessionId`) and retention override (`olderThanDays`) in the request body.
+- If `COMMAND_DECK_API_TOKEN` is set and the browser UI is used remotely, save the token once with the new Home-page token controls (or pass `apiToken`/`token` in the query string) so mutating actions authenticate.
 
-## Intended Direction
+## Run locally
 
-- Local-first dashboard for multi-project agent coordination.
-- Public-safe client repository with private planning kept outside the repo.
-- Security-conscious controls for shell execution, browser automation, remote access, and audit actions.
-- Mobile-friendly operation through private networking when implemented.
+```bash
+cd /Users/alexrodriguez/Documents/Projects/web/command-deck/command-deck-client
+npm run dev
+```
 
-## Status
+Then open:
 
-Implementation has not started. The current contents are repo guidance and ignore rules only.
+- `http://localhost:3000/`
+- `http://localhost:3000/projects/realm-shaper`
+
+### Optional API auth
+
+Set `COMMAND_DECK_API_TOKEN` to require a token for all non-GET API requests.
+
+- Header: `x-commanddeck-token: <token>`
+- Or: `Authorization: Bearer <token>`
+
+For private mobile control guidance, see:
+
+- `command-deck-client/docs/tailscale-mobile-access.md`
+
+## Notes
+
+- The execution model is still mock-driven for now, but now through a worker adapter contract (`src/worker-contract.js`).
+- Lane restart behavior is recovery-aware: active lanes are failed during startup recovery and recoverable state is persisted.
+- Mobile manifest is available at `GET /api/mobile/manifest`, returning a mobile-friendly route map and lane artifact/evidence endpoints, including latest-evidence URLs and audit queue links.
+- Artifact cleanup operations are exposed via `POST /api/artifacts/cleanup` (requires approval by policy).
+- API token status is surfaced in the mobile manifest as `apiTokenRequired`, and mobile clients can call through the dashboard JS helper by setting a session token.
+- Lane deep links now include `/projects/:slug/sessions/:sessionId/lanes/:laneId` for quick mobile navigation.
