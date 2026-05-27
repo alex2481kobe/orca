@@ -45,6 +45,9 @@ This document tracks concrete implementation progress against those phases.
   - Explicit approval gates and audit trail requirements on high-risk operations
 7. **Production hardening**
   - Persistence, authN/Z, storage rotation, and deployment notes
+  - Executor profile configuration visibility for codex/claude
+  - MCP tool catalog and lane-level MCP attachment
+  - Policy-gated cleanup scheduling with run-now controls
 
 ## Work rules while implementing
 

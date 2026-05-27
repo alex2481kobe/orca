@@ -11,11 +11,25 @@ This implementation is a checkpointed buildout covering Phases 0/1, plus durable
 - Executor adapter registry with per-executor instances (`mock`, `codex`, `claude`) and per-lane adapter resolution
 - `codex` and `claude` executors now support command-backed lane launches through the shared contract
 - Lane launch fields support `command`, `commandArgs`, `executorBinary`, and `workdir` for executable adapters
+- Executor profile config is read from:
+  - `COMMAND_DECK_CODEX_BINARY`
+  - `COMMAND_DECK_CODEX_ALLOWED_BINARIES`
+  - `COMMAND_DECK_CODEX_DEFAULT_ARGS`
+  - `COMMAND_DECK_CODEX_WORKDIR_ROOTS`
+  - `COMMAND_DECK_CLAUDE_BINARY`
+  - `COMMAND_DECK_CLAUDE_ALLOWED_BINARIES`
+  - `COMMAND_DECK_CLAUDE_DEFAULT_ARGS`
+  - `COMMAND_DECK_CLAUDE_WORKDIR_ROOTS`
 - Playwright evidence capture scaffolding is now available via `POST /api/lanes/:laneId/evidence` with optional modes (`screenshot`, `trace`, `video`) and artifact files written under the lane artifact directory.
 - Latest evidence lookup is now exposed via `GET /api/lanes/:laneId/evidence/latest` with optional `mode` filter query.
 - Audit queue actions de-duplicate pending entries so repeated requests return existing pending queue IDs.
 - Evidence cleanup is now approval-gated and can be run with `POST /api/artifacts/cleanup` and `dryRun` mode.
 - Artifact cleanup also supports optional targeting (`sessionId`) and retention override (`olderThanDays`) in the request body.
+- MCP tools are configurable via `POST /api/mcp/tools` and can be attached to Codex/Claude lanes.
+- Cleanup scheduling controls are now in UI and policy-gated:
+  - `GET /api/artifacts/cleanup/schedule`
+  - `POST /api/artifacts/cleanup/schedule`
+- Executor profiles are exposed via `GET /api/executors/profiles` for easier hardening verification.
 - If `COMMAND_DECK_API_TOKEN` is set and the browser UI is used remotely, save the token once with the new Home-page token controls (or pass `apiToken`/`token` in the query string) so mutating actions authenticate.
 
 ## Run locally
