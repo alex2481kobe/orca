@@ -11,6 +11,8 @@ const shell = {
   alerts: [],
   mobileManifest: null,
   apiToken: '',
+  cleanupSchedule: null,
+  mcpTools: [],
 };
 
 const refs = {
@@ -108,7 +110,14 @@ async function api(path, options = {}) {
     body: options.body ? JSON.stringify(options.body) : options.body,
   });
   const bodyText = await resp.text();
-  const bodyJson = bodyText ? JSON.parse(bodyText) : null;
+  let bodyJson = null;
+  if (bodyText) {
+    try {
+      bodyJson = JSON.parse(bodyText);
+    } catch {
+      bodyJson = { raw: bodyText };
+    }
+  }
   return { ok: resp.ok, status: resp.status, data: bodyJson };
 }
 
@@ -125,7 +134,18 @@ function renderBreadcrumbs(project, session) {
 
 function renderHome() {
   const artifactCleanupUrl = shell.mobileManifest?.artifactCleanupUrl || '/api/artifacts/cleanup';
+  const scheduleApiUrl = shell.mobileManifest?.artifactCleanupScheduleUrl || '/api/artifacts/cleanup/schedule';
+  const scheduleRunApiUrl = shell.mobileManifest?.artifactCleanupNowUrl || '/api/artifacts/cleanup/run-now';
+  const schedule = shell.cleanupSchedule || {};
   const tokenConfigured = Boolean(shell.apiToken);
+  const cleanupNext = schedule.nextRunAt ? new Date(schedule.nextRunAt).toLocaleString() : 'not scheduled';
+  const mcpTools = shell.mcpTools || [];
+  const mcpOptions = mcpTools.map((tool) => `
+    <div class="lane-row" style="align-items:center; justify-content:space-between;">
+      <span>${safeText(tool.name)} (${safeText(tool.command)})</span>
+      <button class="secondary" data-action="deleteMcpTool" data-tool-id="${safeText(tool.id || tool.name)}" type="button">Delete</button>
+    </div>
+  `).join('');
   const cards = shell.projects.map((project) => {
     const quickLinks = project.quickLinks.map((quick) => `
       <div><a href="${safeText(quick.url)}" target="_blank" rel="noopener noreferrer">${safeText(quick.label)}</a></div>
@@ -169,6 +189,53 @@ function renderHome() {
           <button class="secondary" data-action="setApiToken" type="button">Save token</button>
           <button class="secondary" data-action="clearApiToken" type="button">Clear token</button>
         </div>
+      </article>
+      <article class="card">
+        <h3>Artifact cleanup schedule</h3>
+        <div class="tiny muted">Status: ${schedule.enabled ? `Enabled · next run ${cleanupNext}` : 'Disabled'}</div>
+        <form id="cleanup-schedule-form" data-url="${scheduleApiUrl}" data-action-source="cleanup-schedule">
+          <label><input type="checkbox" name="enabled" ${schedule.enabled ? 'checked' : ''}> Enable periodic cleanup</label>
+          <label>Interval hours
+            <input name="intervalHours" type="number" min="1" max="720" step="0.5" value="${safeText(schedule.intervalHours || 24)}" />
+          </label>
+          <label>Prune older than (days)
+            <input name="olderThanDays" type="number" min="1" placeholder="default session retention" value="${safeText(schedule.olderThanDays || '')}" />
+          </label>
+          <label>Target session id (optional)
+            <input name="sessionId" placeholder="leave blank for all sessions" value="${safeText(schedule.sessionId || '')}" />
+          </label>
+          <label><input type="checkbox" name="dryRun" ${schedule.dryRun ? 'checked' : ''}> Dry run mode</label>
+          <label><input type="checkbox" name="approved" /> Mark as approved</label>
+          <button type="submit">Save cleanup schedule</button>
+        </form>
+        <div class="lane-row" style="margin-top:0.65rem">
+          <button class="secondary" data-action="cleanupArtifactsRunNow" data-url="${scheduleRunApiUrl}" type="button">Run cleanup now</button>
+        </div>
+      </article>
+      <article class="card">
+        <h3>Custom MCP tools</h3>
+        <div class="tiny muted">Configured tools: ${safeText(mcpTools.length)}</div>
+        <div>${mcpOptions || '<div class="muted">No MCP tools yet.</div>'}</div>
+        <form id="create-mcp-tool-form">
+          <label>Name
+            <input name="name" placeholder="eg: files" required />
+          </label>
+          <label>Command
+            <input name="command" placeholder="eg: node" required />
+          </label>
+          <label>Args
+            <input name="args" placeholder="comma separated args" />
+          </label>
+          <label>Scope
+            <input name="scope" placeholder="codex,claude,all" />
+          </label>
+          <label>Notes
+            <input name="notes" />
+          </label>
+          <label><input type="checkbox" name="enabled" checked> enabled</label>
+          <label><input type="checkbox" name="approved" /> Mark as approved</label>
+          <button type="submit">Add MCP tool</button>
+        </form>
       </article>
       <div class="card">
         <h3>Create project</h3>
@@ -270,7 +337,7 @@ function renderLaneCard(lane) {
       </div>
       <p>${safeText(lane.taskDescription || 'No task description')}</p>
       <div class="tiny">
-        Executor: ${safeText(lane.executorType)} / Owner: ${safeText(lane.owner)} / Started: ${formatMeta(lane.startedAt)} / Heartbeat: ${formatMeta(lane.heartbeatAt)}
+        Executor: ${safeText(lane.executorType)} / Owner: ${safeText(lane.owner)} / MCP tools: ${safeText((lane.mcpTools || []).length)} / Started: ${formatMeta(lane.startedAt)} / Heartbeat: ${formatMeta(lane.heartbeatAt)}
       </div>
       <div class="lane-row">
         ${stopButton}
@@ -327,6 +394,9 @@ function renderSession(project, session) {
                 <option value="claude">claude</option>
               </select>
             </label>
+            <label>MCP tools
+              <input name="mcpToolIds" placeholder="comma-separated MCP tool IDs" />
+            </label>
             <label><input type="checkbox" name="approved" /> explicit approval override</label>
             <button type="submit">Queue lane</button>
           </form>
@@ -373,6 +443,7 @@ function renderLane(project, session, lane) {
         <p><a href="${session.route}" class="secondary">Back to session</a></p>
         <h3>${safeText(lane.title)} (lane)</h3>
         <p>${safeText(lane.taskDescription || 'No task description')}</p>
+        <div class="tiny muted">MCP tools: ${(lane.mcpTools || []).map((item) => safeText(item.name)).join(', ') || 'none'}</div>
         <div class="tiny muted">Route: ${safeText(laneDetailRoute(project, session, lane))}</div>
         <div class="tiny">Owner: ${safeText(lane.owner)} / Executor: ${safeText(lane.executorType)} / State: ${safeText(lane.state)}</div>
         <div class="tiny">Created: ${formatMeta(lane.createdAt)} / Started: ${formatMeta(lane.startedAt)} / Completed: ${formatMeta(lane.completedAt)}</div>
@@ -469,6 +540,15 @@ async function refresh() {
     shell.policy = policyResp.data.policies;
   }
 
+  const cleanupScheduleResp = await api('/api/artifacts/cleanup/schedule');
+  if (cleanupScheduleResp.ok && cleanupScheduleResp.data?.schedule) {
+    shell.cleanupSchedule = cleanupScheduleResp.data.schedule;
+  }
+  const mcpToolsResp = await api('/api/mcp/tools');
+  if (mcpToolsResp.ok && Array.isArray(mcpToolsResp.data)) {
+    shell.mcpTools = mcpToolsResp.data;
+  }
+
   const projectsResp = await api('/api/projects');
   shell.projects = projectsResp.ok && Array.isArray(projectsResp.data) ? projectsResp.data : [];
   const allSessions = [];
@@ -510,6 +590,50 @@ function buildApprovedBody(formData, extras = {}) {
   body.approved = body.approved === true || body.approved === 'on';
   body.actor = 'dashboard';
   return body;
+}
+
+function buildCleanupScheduleBody(formData) {
+  const payload = {};
+  for (const [key, value] of Object.entries(formData)) {
+    payload[key] = value;
+  }
+
+  payload.enabled = payload.enabled === true || payload.enabled === 'on';
+  payload.dryRun = payload.dryRun === true || payload.dryRun === 'on';
+  payload.approved = payload.approved === true || payload.approved === 'on';
+  payload.actor = 'dashboard';
+
+  payload.intervalHours = payload.intervalHours ? Number(payload.intervalHours) : 24;
+  if (!payload.intervalHours || Number.isNaN(payload.intervalHours) || payload.intervalHours <= 0) {
+    payload.intervalHours = 24;
+  }
+
+  if (!payload.olderThanDays) {
+    payload.olderThanDays = null;
+  } else {
+    payload.olderThanDays = Number(payload.olderThanDays);
+    if (Number.isNaN(payload.olderThanDays) || payload.olderThanDays <= 0) {
+      payload.olderThanDays = null;
+    }
+  }
+
+  if (!payload.sessionId || !String(payload.sessionId).trim()) {
+    payload.sessionId = null;
+  }
+
+  return payload;
+}
+
+function buildMcpToolBody(formData) {
+  const payload = buildApprovedBody(formData);
+  payload.args = typeof payload.args === 'string'
+    ? payload.args.split(',').map((value) => value.trim()).filter(Boolean)
+    : [];
+  payload.scope = typeof payload.scope === 'string'
+    ? payload.scope.split(',').map((value) => value.trim().toLowerCase()).filter(Boolean)
+    : [];
+  if (!payload.scope.length) payload.scope = ['all'];
+  return payload;
 }
 
 function toObj(form) {
@@ -592,6 +716,12 @@ async function handleCreateLane(event) {
       commandArgs: payload.commandArgs || null,
       executorBinary: payload.executorBinary || null,
       workdir: payload.workdir || null,
+      mcpToolIds: payload.mcpToolIds
+        ? String(payload.mcpToolIds)
+            .split(',')
+            .map((value) => value.trim())
+            .filter(Boolean)
+        : [],
       owner: 'dashboard',
       approved: payload.approved,
     },
@@ -603,6 +733,45 @@ async function handleCreateLane(event) {
     renderAlert('Approval required for this action.', 'bad');
   } else {
     renderAlert(response.data?.error || 'Lane creation failed.', 'bad');
+  }
+}
+
+async function handleCleanupSchedule(event) {
+  event.preventDefault();
+  const payload = buildCleanupScheduleBody(toObj(event.currentTarget));
+  const endpoint = event.currentTarget.dataset.url || '/api/artifacts/cleanup/schedule';
+  const response = await api(endpoint, {
+    method: 'POST',
+    body: payload,
+  });
+  if (response.ok) {
+    renderAlert('Artifact cleanup schedule saved.');
+    await refresh();
+    return;
+  }
+  if (response.data?.requiresApproval) {
+    renderAlert('Approval required for schedule updates.', 'bad');
+  } else {
+    renderAlert(response.data?.error || 'Could not save cleanup schedule.', 'bad');
+  }
+}
+
+async function handleCreateMcpTool(event) {
+  event.preventDefault();
+  const payload = buildMcpToolBody(toObj(event.currentTarget));
+  const response = await api('/api/mcp/tools', {
+    method: 'POST',
+    body: payload,
+  });
+  if (response.ok) {
+    renderAlert(`MCP tool ${payload.name} added.`);
+    await refresh();
+    return;
+  }
+  if (response.data?.requiresApproval) {
+    renderAlert('Approval required for MCP tool changes.', 'bad');
+  } else {
+    renderAlert(response.data?.error || 'Could not add MCP tool.', 'bad');
   }
 }
 
@@ -708,7 +877,6 @@ async function handleLaneActions(event) {
     renderAlert(response.data?.error || `${action} failed.`, 'bad');
   }
 }
-}
 
 async function handleAuditEventAction(event) {
   const eventId = event.currentTarget.dataset.eventId;
@@ -791,6 +959,59 @@ async function handleSystemActions(event) {
     }
     return;
   }
+  if (action === 'cleanupArtifactsRunNow') {
+    const confirmRun = window.confirm('Run artifact cleanup now (using current schedule options)? This can delete artifact directories.');
+    if (!confirmRun) {
+      renderAlert('Cleanup run canceled.');
+      return;
+    }
+    const response = await api(event.currentTarget.dataset.url || '/api/artifacts/cleanup/run-now', {
+      method: 'POST',
+      body: {
+        actor: 'dashboard',
+        approved: true,
+      },
+    });
+    if (response.ok) {
+      if (response.data?.dryRun) {
+        renderAlert(`Cleanup run (dry-run): ${response.data?.candidates || 0} candidates.`);
+      } else {
+        renderAlert(`Cleanup run completed: removed ${response.data?.removed || 0} lanes.`);
+      }
+      await refresh();
+      return;
+    }
+    if (response.data?.requiresApproval) {
+      renderAlert('Approval required.', 'bad');
+      return;
+    }
+    renderAlert(response.data?.error || 'Cleanup run failed.', 'bad');
+  }
+
+  if (action === 'deleteMcpTool') {
+    const toolId = event.currentTarget.dataset.toolId;
+    if (!toolId) return;
+    const confirmed = window.confirm(`Delete MCP tool ${toolId}?`);
+    if (!confirmed) {
+      renderAlert('Delete canceled.');
+      return;
+    }
+    const response = await api(`/api/mcp/tools/${toolId}`, {
+      method: 'DELETE',
+      body: {
+        actor: 'dashboard',
+        approved: true,
+      },
+    });
+    if (response.ok) {
+      renderAlert(`MCP tool ${toolId} deleted.`);
+      await refresh();
+    } else if (response.data?.requiresApproval) {
+      renderAlert('Approval required to delete MCP tool.', 'bad');
+    } else {
+      renderAlert(response.data?.error || 'Could not delete MCP tool.', 'bad');
+    }
+  }
 }
 
 document.addEventListener('submit', async (event) => {
@@ -804,6 +1025,14 @@ document.addEventListener('submit', async (event) => {
   }
   if (event.target.id === 'create-lane-form') {
     await handleCreateLane(event);
+    return;
+  }
+  if (event.target.id === 'create-mcp-tool-form') {
+    await handleCreateMcpTool(event);
+    return;
+  }
+  if (event.target.id === 'cleanup-schedule-form') {
+    await handleCleanupSchedule(event);
     return;
   }
 });
@@ -827,7 +1056,7 @@ document.addEventListener('click', async (event) => {
     return;
   }
 
-  if (['setApiToken', 'clearApiToken', 'cleanupArtifacts'].includes(action)) {
+  if (['setApiToken', 'clearApiToken', 'cleanupArtifacts', 'cleanupArtifactsRunNow', 'deleteMcpTool'].includes(action)) {
     await handleSystemActions({ currentTarget: event.target });
     return;
   }

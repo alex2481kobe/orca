@@ -155,14 +155,16 @@ async function serveFile(filePath, res) {
 function buildMobileManifest(req) {
   const origin = requestOrigin(req);
   const projects = registry.listProjects();
-  const payload = {
-    generatedAt: new Date().toISOString(),
-    origin,
-    auditEventsUrl: `${origin}/api/audit/events`,
-    pendingAuditEventsUrl: `${origin}/api/audit/events?status=pending`,
-    artifactCleanupUrl: `${origin}/api/artifacts/cleanup`,
-    apiTokenRequired: Boolean(API_TOKEN),
-    projects: projects.map((project) => {
+    const payload = {
+      generatedAt: new Date().toISOString(),
+      origin,
+      auditEventsUrl: `${origin}/api/audit/events`,
+      pendingAuditEventsUrl: `${origin}/api/audit/events?status=pending`,
+      artifactCleanupUrl: `${origin}/api/artifacts/cleanup`,
+      artifactCleanupScheduleUrl: `${origin}/api/artifacts/cleanup/schedule`,
+      artifactCleanupNowUrl: `${origin}/api/artifacts/cleanup/run-now`,
+      apiTokenRequired: Boolean(API_TOKEN),
+      projects: projects.map((project) => {
       const sessions = registry.listSessions(project.id);
       return {
         projectId: project.id,
@@ -226,7 +228,7 @@ async function handleApi(req, res, pathname, method, parts) {
     return sendJson(res, 200, { policies: registry.getPolicyMap() });
   }
 
-  if (parts[1] === 'artifacts' && parts[2] === 'cleanup' && method === 'POST') {
+  if (parts[1] === 'artifacts' && parts[2] === 'cleanup' && parts.length === 3 && method === 'POST') {
     const body = await parseJsonBody(req);
     if (body === null) return sendJson(res, 400, { error: 'Invalid JSON.' });
     try {
@@ -244,9 +246,122 @@ async function handleApi(req, res, pathname, method, parts) {
     }
   }
 
+  if (parts[1] === 'artifacts' && parts[2] === 'cleanup' && parts[3] === 'schedule' && method === 'GET') {
+    return sendJson(res, 200, { schedule: registry.getCleanupSchedule() });
+  }
+
+  if (parts[1] === 'artifacts' && parts[2] === 'cleanup' && parts[3] === 'schedule' && method === 'POST') {
+    const body = await parseJsonBody(req);
+    if (body === null) return sendJson(res, 400, { error: 'Invalid JSON.' });
+    try {
+      const result = await registry.updateCleanupSchedule(body, {
+        actor: body.actor || 'dashboard',
+        approved: body.approved,
+      });
+      return sendJson(res, 200, result);
+    } catch (error) {
+      return sendJson(res, error.status || 500, {
+        error: error.message || 'Could not update artifact cleanup schedule.',
+        requiresApproval: error.requiresApproval || false,
+        risk: error.risk || null,
+      });
+    }
+  }
+
+  if (parts[1] === 'artifacts' && parts[2] === 'cleanup' && parts[3] === 'run-now' && method === 'POST') {
+    const body = await parseJsonBody(req);
+    if (body === null) return sendJson(res, 400, { error: 'Invalid JSON.' });
+    try {
+      const result = await registry.cleanupArtifacts({
+        actor: body.actor || 'dashboard',
+        approved: body.approved !== undefined ? body.approved : true,
+        skipApproval: false,
+        sessionId: body.sessionId || null,
+        olderThanDays: body.olderThanDays ?? null,
+        dryRun: body.dryRun === true,
+      });
+      return sendJson(res, 200, result);
+    } catch (error) {
+      return sendJson(res, error.status || 500, {
+        error: error.message || 'Could not run artifact cleanup.',
+        requiresApproval: error.requiresApproval || false,
+        risk: error.risk || null,
+      });
+    }
+  }
+
   if (parts[1] === 'audit' && parts[2] === 'events' && method === 'GET') {
     const status = new URL(req.url, 'http://localhost').searchParams.get('status');
     return sendJson(res, 200, registry.listAuditEvents({ status }));
+  }
+
+  if (parts[1] === 'mcp' && parts[2] === 'tools' && parts.length === 3 && method === 'GET') {
+    return sendJson(res, 200, registry.getMcpTools());
+  }
+
+  if (parts[1] === 'mcp' && parts[2] === 'tools' && method === 'POST') {
+    const body = await parseJsonBody(req);
+    if (body === null) {
+      return sendJson(res, 400, { error: 'Invalid JSON.' });
+    }
+    try {
+      const result = await registry.createMcpTool(body, {
+        actor: body.actor || 'dashboard',
+        approved: body.approved,
+      });
+      return sendJson(res, 201, result);
+    } catch (error) {
+      return sendJson(res, error.status || 500, {
+        error: error.message || 'Could not create MCP tool.',
+        requiresApproval: error.requiresApproval || false,
+        risk: error.risk || null,
+      });
+    }
+  }
+
+  if (parts[1] === 'mcp' && parts[2] === 'tools' && parts.length === 4 && method === 'GET') {
+    const tool = registry.getMcpTool(parts[3]);
+    if (!tool) return sendJson(res, 404, { error: 'MCP tool not found.' });
+    return sendJson(res, 200, tool);
+  }
+
+  if (parts[1] === 'mcp' && parts[2] === 'tools' && parts.length === 4 && method === 'PATCH') {
+    const body = await parseJsonBody(req);
+    if (body === null) {
+      return sendJson(res, 400, { error: 'Invalid JSON.' });
+    }
+    try {
+      const result = await registry.updateMcpTool(parts[3], {
+        ...body,
+        actor: body.actor || 'dashboard',
+        approved: body.approved,
+      });
+      return sendJson(res, 200, result);
+    } catch (error) {
+      return sendJson(res, error.status || 500, {
+        error: error.message || 'Could not update MCP tool.',
+        requiresApproval: error.requiresApproval || false,
+        risk: error.risk || null,
+      });
+    }
+  }
+
+  if (parts[1] === 'mcp' && parts[2] === 'tools' && parts.length === 4 && method === 'DELETE') {
+    const body = await parseJsonBody(req);
+    if (body === null) return sendJson(res, 400, { error: 'Invalid JSON.' });
+    try {
+      const result = await registry.deleteMcpTool(parts[3], {
+        actor: body.actor || 'dashboard',
+        approved: body.approved,
+      });
+      return sendJson(res, 200, result);
+    } catch (error) {
+      return sendJson(res, error.status || 500, {
+        error: error.message || 'Could not delete MCP tool.',
+        requiresApproval: error.requiresApproval || false,
+        risk: error.risk || null,
+      });
+    }
   }
 
   if (parts[1] === 'projects') {
