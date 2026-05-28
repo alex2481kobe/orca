@@ -71,10 +71,16 @@ function setApiToken(token) {
 }
 
 function safeText(value) {
-  return String(value || '')
+  return String(value ?? '')
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;');
+}
+
+function safeAttr(value) {
+  return safeText(value)
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }
 
 function stateBadge(state) {
@@ -227,6 +233,34 @@ function laneDetailRoute(project, session, lane) {
 function formatMeta(timeString) {
   if (!timeString) return 'n/a';
   return new Date(timeString).toLocaleTimeString();
+}
+
+function formatRelative(timeString) {
+  if (!timeString) return 'never';
+  const timestamp = new Date(timeString).getTime();
+  if (!Number.isFinite(timestamp)) return 'unknown';
+  const deltaSeconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
+  if (deltaSeconds < 60) return `${deltaSeconds}s ago`;
+  const deltaMinutes = Math.round(deltaSeconds / 60);
+  if (deltaMinutes < 60) return `${deltaMinutes}m ago`;
+  const deltaHours = Math.round(deltaMinutes / 60);
+  if (deltaHours < 24) return `${deltaHours}h ago`;
+  const deltaDays = Math.round(deltaHours / 24);
+  return `${deltaDays}d ago`;
+}
+
+function latestTimestamp(items) {
+  const timestamps = (items || [])
+    .map((item) => new Date(item.updatedAt || item.completedAt || item.createdAt || 0).getTime())
+    .filter(Number.isFinite);
+  if (!timestamps.length) return null;
+  return new Date(Math.max(...timestamps)).toISOString();
+}
+
+function isVerificationProject(project) {
+  const slug = String(project?.slug || '').toLowerCase();
+  const name = String(project?.name || '').toLowerCase();
+  return slug.startsWith('smoke-') || name.startsWith('smoke ');
 }
 
 function stateTagClass(state) {
@@ -388,22 +422,37 @@ function renderHome() {
       </div>
     `;
   }).join('');
-  const cards = shell.projects.map((project) => {
+  const renderProjectCard = (project) => {
+    const projectSessions = shell.sessions.filter((session) => session.projectId === project.id);
+    const projectLanes = shell.lanes.filter((lane) => lane.projectId === project.id);
+    const latestActivity = latestTimestamp([...projectSessions, ...projectLanes, project]);
     const quickLinks = project.quickLinks.map((quick) => `
       <div><a href="${safeText(quick.url)}" target="_blank" rel="noopener noreferrer">${safeText(quick.label)}</a></div>
     `).join('');
     return `
-      <article class="card">
+      <article class="card click-card project-card" data-href="${safeAttr(project.route)}" tabindex="0" role="link" aria-label="Open ${safeAttr(project.name)} project">
+        <div class="card-kicker">Project</div>
         <h3>${safeText(project.name)}</h3>
-        <p>Slug: ${safeText(project.slug)}</p>
-        <p>Route: <a href="${project.route}">${project.route}</a></p>
-        <div class="lane-row">${quickLinks || '<div class="muted">No quick links yet.</div>'}</div>
+        <p>${safeText(project.notes?.[0] || 'Open the project board, sessions, lanes, and live links.')}</p>
+        <div class="card-meta">
+          <span>${safeText(projectSessions.length)} session${projectSessions.length === 1 ? '' : 's'}</span>
+          <span>${safeText(projectLanes.length)} lane${projectLanes.length === 1 ? '' : 's'}</span>
+          <span>active ${safeText(formatRelative(latestActivity))}</span>
+        </div>
+        <details class="disclosure compact-disclosure">
+          <summary>Links and route</summary>
+          <div class="lane-row">${quickLinks || '<div class="muted">No quick links yet.</div>'}</div>
+          <div class="tiny muted">Route: <a href="${safeAttr(project.route)}">${safeText(project.route)}</a></div>
+        </details>
         <div class="lane-row">
           <a class="button-secondary" href="${project.route}">Open project</a>
         </div>
       </article>
     `;
-  }).join('');
+  };
+  const primaryProjectCards = shell.projects.filter((project) => !isVerificationProject(project)).map(renderProjectCard).join('');
+  const verificationProjects = shell.projects.filter(isVerificationProject);
+  const verificationProjectCards = verificationProjects.map(renderProjectCard).join('');
 
   refs.content.innerHTML = `
     <div class="stat-grid">
@@ -421,7 +470,7 @@ function renderHome() {
       </div>
     </div>
     <section class="grid-2">
-      <article class="card">
+      <article class="card control-card" id="section-token">
         <h3>API token</h3>
         <div class="tiny muted">${tokenConfigured ? 'Configured for mutating requests.' : 'No token configured.'}</div>
         <label>Token
@@ -432,16 +481,31 @@ function renderHome() {
           <button class="secondary" data-action="clearApiToken" type="button">Clear token</button>
         </div>
       </article>
-        <article class="card">
-        <h3>Executor profiles</h3>
-        ${profileRows || '<div class="muted">No executor profiles loaded yet.</div>'}
+        <article class="card control-card" id="section-system">
+        <details class="disclosure" open>
+          <summary>
+            <span>Executor profiles</span>
+            <small>Defaults, binaries, workdirs</small>
+          </summary>
+          <div class="disclosure-body">${profileRows || '<div class="muted">No executor profiles loaded yet.</div>'}</div>
+        </details>
       </article>
-      <article class="card">
-        <h3>Executor CLI health and updates</h3>
-        ${cliRows || '<div class="muted">No CLI data yet.</div>'}
+      <article class="card control-card">
+        <details class="disclosure" open>
+          <summary>
+            <span>Executor CLI health and updates</span>
+            <small>Codex, Claude, reinstall dry-runs</small>
+          </summary>
+          <div class="disclosure-body">${cliRows || '<div class="muted">No CLI data yet.</div>'}</div>
+        </details>
       </article>
-      <article class="card">
-        <h3>Artifact cleanup schedule</h3>
+      <article class="card control-card" id="section-cleanup">
+        <details class="disclosure">
+          <summary>
+            <span>Artifact cleanup schedule</span>
+            <small>${schedule.enabled ? `Enabled · next ${safeText(cleanupNext)}` : 'Disabled'}</small>
+          </summary>
+          <div class="disclosure-body">
         <div class="tiny muted">Status: ${schedule.enabled ? `Enabled · next run ${cleanupNext}` : 'Disabled'}</div>
         <form id="cleanup-schedule-form" data-url="${scheduleApiUrl}" data-action-source="cleanup-schedule">
           <label><input type="checkbox" name="enabled" ${schedule.enabled ? 'checked' : ''}> Enable periodic cleanup</label>
@@ -460,9 +524,16 @@ function renderHome() {
         <div class="lane-row" style="margin-top:0.65rem">
           <button class="secondary" data-action="cleanupArtifactsRunNow" data-url="${scheduleRunApiUrl}" type="button">Run cleanup now</button>
         </div>
+          </div>
+        </details>
       </article>
-      <article class="card">
-        <h3>Custom MCP tools</h3>
+      <article class="card control-card" id="section-mcp">
+        <details class="disclosure">
+          <summary>
+            <span>Custom MCP tools</span>
+            <small>${safeText(mcpTools.length)} configured</small>
+          </summary>
+          <div class="disclosure-body">
         <div class="tiny muted">Configured tools: ${safeText(mcpTools.length)}</div>
         <div>${mcpOptions || '<div class="muted">No MCP tools yet.</div>'}</div>
         <form id="create-mcp-tool-form">
@@ -486,9 +557,16 @@ function renderHome() {
           <label><input type="checkbox" name="enabled" checked> enabled</label>
           <button type="submit">Add MCP tool</button>
         </form>
+          </div>
+        </details>
       </article>
-      <div class="card">
-        <h3>Create project</h3>
+      <div class="card control-card">
+        <details class="disclosure">
+          <summary>
+            <span>Create project</span>
+            <small>Add a new command surface</small>
+          </summary>
+          <div class="disclosure-body">
         <form id="create-project-form">
           <label>Project name
             <input name="name" required placeholder="Project name" />
@@ -501,10 +579,21 @@ function renderHome() {
           </label>
           <button type="submit">Create project</button>
         </form>
+          </div>
+        </details>
       </div>
       <div class="card">
         <h3>Project list</h3>
-        <div class="card-grid">${cards || '<div class="muted">No projects yet.</div>'}</div>
+        <div class="card-grid">${primaryProjectCards || '<div class="muted">No projects yet.</div>'}</div>
+        ${verificationProjectCards ? `
+          <details class="disclosure compact-disclosure">
+            <summary>
+              <span>Verification runs</span>
+              <small>${safeText(verificationProjects.length)} smoke project${verificationProjects.length === 1 ? '' : 's'}</small>
+            </summary>
+            <div class="card-grid">${verificationProjectCards}</div>
+          </details>
+        ` : ''}
       </div>
       <article class="card">
         <h3>System actions</h3>
@@ -520,14 +609,20 @@ function renderHome() {
 }
 
 function renderProject(project) {
-  const sessionsMarkup = shell.sessions.map((session) => {
+  const sessionsMarkup = shell.sessions.filter((session) => session.projectId === project.id).map((session) => {
     const route = session.route;
+    const sessionLanes = shell.lanes.filter((lane) => lane.sessionId === session.id);
+    const latestActivity = latestTimestamp([...sessionLanes, session]);
     return `
-      <article class="card">
+      <article class="card click-card session-card" data-href="${safeAttr(route)}" tabindex="0" role="link" aria-label="Open ${safeAttr(session.name)} session">
+        <div class="card-kicker">Session</div>
         <h3>${safeText(session.name)}</h3>
-        <p>Leader: ${safeText(session.leader)}</p>
-        <p>Concurrency limit: ${session.laneConcurrencyLimit}</p>
-        <a href="${route}" class="secondary">Open session</a>
+        <p>${safeText(sessionLanes.length)} lane${sessionLanes.length === 1 ? '' : 's'} coordinated by ${safeText(session.leader)}.</p>
+        <div class="card-meta">
+          <span>${safeText(session.laneConcurrencyLimit)} max parallel</span>
+          <span>${safeText(formatRelative(latestActivity))}</span>
+        </div>
+        <div class="lane-row"><a href="${safeAttr(route)}" class="secondary">Open session</a></div>
       </article>
     `;
   }).join('');
@@ -542,8 +637,13 @@ function renderProject(project) {
         </div>
       </div>
       <div class="grid-2">
-        <article class="card">
-          <h3>Create session</h3>
+        <article class="card control-card">
+          <details class="disclosure">
+            <summary>
+              <span>Create session</span>
+              <small>Start a new work board</small>
+            </summary>
+            <div class="disclosure-body">
           <form id="create-session-form" data-project-id="${project.id}">
             <label>Session name
               <input name="name" required />
@@ -560,14 +660,21 @@ function renderProject(project) {
             </label>
             <button type="submit">Create session</button>
           </form>
+            </div>
+          </details>
         </article>
         <article class="card">
           <h3>Sessions</h3>
           <div class="card-grid">${sessionsMarkup || '<div class="muted">No sessions yet.</div>'}</div>
         </article>
       </div>
-      <article class="card">
-        <h3>Quick links</h3>
+      <article class="card control-card">
+        <details class="disclosure" open>
+          <summary>
+            <span>Quick links</span>
+            <small>Project URLs and phone targets</small>
+          </summary>
+          <div class="disclosure-body">
         <div class="card-grid">
           ${(project.quickLinks || [])
             .map((quick, index) => `
@@ -589,6 +696,8 @@ function renderProject(project) {
           </label>
           <button type="submit">Add quick link</button>
         </form>
+          </div>
+        </details>
       </article>
     </section>
   `;
@@ -610,19 +719,29 @@ function renderLaneCard(lane) {
     ? `<button data-action="stopLane" data-lane-id="${lane.id}" title="${getActionPolicy('stopLane').message}" type="button">Stop lane</button>` : '';
   const retryButton = ['failed', 'stopped'].includes(lane.state)
     ? `<button class="secondary" data-action="retryLane" data-lane-id="${lane.id}" title="${getActionPolicy('retryLane').message}" type="button">Retry lane</button>` : '';
-  const laneLink = lane.route ? `<a class="secondary" href="${safeText(lane.route)}">Lane detail</a>` : '';
+  const laneLink = lane.route ? `<a class="secondary" href="${safeAttr(lane.route)}">Lane detail</a>` : '';
   const auditLabel = lanePendingAudits.length ? 'Audit already queued' : 'Audit now';
   return `
-    <article class="lane-list-item">
+    <article class="lane-list-item click-card" data-href="${safeAttr(lane.route || '')}" tabindex="0" role="link" aria-label="Open lane ${safeAttr(lane.title)}">
       <div class="row">
         <h4>${safeText(lane.title)}</h4>
         ${stateBadge(lane.state)}
         ${auditQueuedBadge}
       </div>
-      <p>${safeText(lane.taskDescription || 'No task description')}</p>
-      <div class="tiny">
-        Executor: ${safeText(lane.executorType)} / Owner: ${safeText(lane.owner)} / MCP tools: ${safeText((lane.mcpTools || []).length)} / Started: ${formatMeta(lane.startedAt)} / Heartbeat: ${formatMeta(lane.heartbeatAt)}
+      <p>${safeText(lane.taskDescription || lane.taskPrompt || 'No task description yet.')}</p>
+      <div class="card-meta">
+        <span>${safeText(lane.executorType)}</span>
+        <span>${safeText(lane.owner)}</span>
+        <span>${safeText((lane.mcpTools || []).length)} MCP</span>
+        <span>${safeText(formatRelative(lane.updatedAt || lane.startedAt))}</span>
       </div>
+      <details class="disclosure compact-disclosure">
+        <summary>Lane metadata</summary>
+        <div class="tiny">
+          Started: ${formatMeta(lane.startedAt)} · Heartbeat: ${formatMeta(lane.heartbeatAt)} · Last evidence: ${safeText(lane.lastEvidenceCaptureAt || 'never')} (${safeText(lane.lastEvidence?.status || 'not captured')})
+        </div>
+        <div class="muted tiny">Path: ${safeText(lane.artifactPath || '')}</div>
+      </details>
       ${laneAuditWarning}
       <div class="lane-row">
         ${stopButton}
@@ -635,15 +754,13 @@ function renderLaneCard(lane) {
         <a class="secondary" href="${artifactsLink}" target="_blank" rel="noopener noreferrer">Artifact API</a>
         <a class="secondary" href="${evidenceLatestUrl}" target="_blank" rel="noopener noreferrer">Latest evidence</a>
       </div>
-      <div class="tiny muted">Last evidence: ${safeText(lane.lastEvidenceCaptureAt || 'never')} (${safeText(lane.lastEvidence?.status || 'not captured')})</div>
-      <div class="muted tiny">Path: ${safeText(lane.artifactPath || '')}</div>
       <div id="lane-artifacts-${lane.id}" class="tiny"></div>
     </article>
   `;
 }
 
 function renderSession(project, session) {
-  const laneList = shell.lanes.map((lane) => renderLaneCard(lane)).join('');
+  const laneList = shell.lanes.filter((lane) => lane.sessionId === session.id).map((lane) => renderLaneCard(lane)).join('');
   const pendingAudits = pendingAuditsForSession(session.id);
   const pendingAuditSummary = pendingAudits.length
     ? `<p>Pending audit events: ${pendingAudits.length}</p>`
@@ -656,8 +773,13 @@ function renderSession(project, session) {
         <p>Policy profile: ${safeText(session.policyProfile || 'default')}</p>
       </div>
       <div class="grid-2">
-        <article class="card">
-          <h3>Create lane</h3>
+        <article class="card control-card">
+          <details class="disclosure">
+            <summary>
+              <span>Create lane</span>
+              <small>Queue Codex, Claude, or mock work</small>
+            </summary>
+            <div class="disclosure-body">
           <form id="create-lane-form" data-session-id="${session.id}">
             <label>Title
               <input name="title" required />
@@ -710,6 +832,8 @@ function renderSession(project, session) {
             <input type="hidden" name="mcpToolIdsRaw" />
             <button type="submit">Queue lane</button>
           </form>
+            </div>
+          </details>
         </article>
         <article class="card">
           <h3>Session actions</h3>
@@ -912,7 +1036,7 @@ function renderSidebarProjects(activeProject) {
     refs.sidebarProjects.innerHTML = '<div class="tiny muted">No projects yet — create one from the home view.</div>';
     return;
   }
-  refs.sidebarProjects.innerHTML = projects.map((project) => {
+  const renderSidebarProject = (project) => {
     const lanes = (shell.lanes || []).filter((lane) => lane.projectId === project.id);
     const active = lanes.filter((lane) => ['running', 'starting', 'queued'].includes(lane.state)).length;
     const isActive = activeProject && activeProject.id === project.id;
@@ -922,7 +1046,18 @@ function renderSidebarProjects(activeProject) {
         <span class="pill" title="${active} active lanes">${active}</span>
       </a>
     `;
-  }).join('');
+  };
+  const primaryProjects = projects.filter((project) => !isVerificationProject(project));
+  const verificationProjects = projects.filter(isVerificationProject);
+  refs.sidebarProjects.innerHTML = [
+    primaryProjects.map(renderSidebarProject).join(''),
+    verificationProjects.length ? `
+      <details class="sidebar-disclosure">
+        <summary>Verification runs <span class="pill">${verificationProjects.length}</span></summary>
+        <div class="sidebar-list">${verificationProjects.map(renderSidebarProject).join('')}</div>
+      </details>
+    ` : '',
+  ].filter(Boolean).join('');
 }
 
 async function loadEvidenceGallery(laneId) {
@@ -1006,7 +1141,6 @@ async function refresh() {
   const projectsResp = await api('/api/projects');
   shell.projects = projectsResp.ok && Array.isArray(projectsResp.data) ? projectsResp.data : [];
   const allSessions = [];
-  const allLanes = [];
   for (const project of shell.projects) {
     const sessionsResp = await api(`/api/projects/${project.id}/sessions`);
     if (sessionsResp.ok && Array.isArray(sessionsResp.data)) {
@@ -1014,23 +1148,20 @@ async function refresh() {
     }
   }
   shell.sessions = allSessions;
+  const allLaneResponses = await Promise.all(allSessions.map((session) => api(`/api/sessions/${session.id}/lanes`)));
+  shell.lanes = allLaneResponses
+    .filter((response) => response.ok && Array.isArray(response.data))
+    .flatMap((response) => response.data);
 
   const project = shell.projects.find((value) => value.slug === shell.route.projectSlug || value.id === shell.route.projectSlug);
   if (project) {
     const sessions = await api(`/api/projects/${project.id}/sessions`);
     if (sessions.ok && Array.isArray(sessions.data)) {
       shell.sessions = sessions.data;
-      if (shell.route.sessionId) {
-        const selected = sessions.data.find((session) => session.id === shell.route.sessionId);
-        if (selected) {
-          const lanesResp = await api(`/api/sessions/${selected.id}/lanes`);
-          shell.lanes = lanesResp.ok && Array.isArray(lanesResp.data) ? lanesResp.data : [];
-        } else {
-          shell.lanes = [];
-        }
-      } else {
-        shell.lanes = [];
-      }
+      const laneResponses = await Promise.all(sessions.data.map((session) => api(`/api/sessions/${session.id}/lanes`)));
+      shell.lanes = laneResponses
+        .filter((response) => response.ok && Array.isArray(response.data))
+        .flatMap((response) => response.data);
     }
   }
   render();
@@ -1939,7 +2070,8 @@ document.addEventListener('change', (event) => {
 });
 
 document.addEventListener('click', async (event) => {
-  const action = event.target?.dataset?.action;
+  const actionTarget = event.target?.closest?.('[data-action]');
+  const action = actionTarget?.dataset?.action;
   if (action === 'toggleNav') {
     document.body.classList.toggle('nav-open');
     return;
@@ -1948,20 +2080,27 @@ document.addEventListener('click', async (event) => {
   if (event.target?.classList?.contains('sidebar-link')) {
     document.body.classList.remove('nav-open');
   }
-  if (!action) return;
+  if (!action) {
+    const navCard = event.target?.closest?.('[data-href]');
+    const interactive = event.target?.closest?.('a, button, input, select, textarea, label, summary');
+    if (navCard && !interactive && navCard.dataset.href) {
+      window.location.href = navCard.dataset.href;
+    }
+    return;
+  }
 
   if (['stopLane', 'retryLane', 'auditLane', 'captureEvidence', 'clearEvidence', 'captureEvidencePreset', 'removeWorktree'].includes(action)) {
-    await handleLaneActions({ currentTarget: event.target });
+    await handleLaneActions({ currentTarget: actionTarget });
     return;
   }
 
   if (action === 'ackAuditEvent') {
-    await handleAuditEventAction({ currentTarget: event.target });
+    await handleAuditEventAction({ currentTarget: actionTarget });
     return;
   }
 
   if (['refresh', 'auditDone'].includes(action)) {
-    await handleSessionActions({ currentTarget: event.target });
+    await handleSessionActions({ currentTarget: actionTarget });
     return;
   }
 
@@ -1976,13 +2115,21 @@ document.addEventListener('click', async (event) => {
     'refreshExecutorCli',
     'reinstallExecutorCli',
   ].includes(action)) {
-    await handleSystemActions({ currentTarget: event.target });
+    await handleSystemActions({ currentTarget: actionTarget });
     return;
   }
 
   if (action === 'showArtifacts') {
-    await handleLaneActions({ currentTarget: event.target });
+    await handleLaneActions({ currentTarget: actionTarget });
   }
+});
+
+document.addEventListener('keydown', (event) => {
+  if (!['Enter', ' '].includes(event.key)) return;
+  const navCard = event.target?.closest?.('[data-href]');
+  if (!navCard || !navCard.dataset.href) return;
+  event.preventDefault();
+  window.location.href = navCard.dataset.href;
 });
 
 setInterval(refresh, 3000);

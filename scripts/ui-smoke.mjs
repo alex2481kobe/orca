@@ -61,6 +61,8 @@ const REQUIRED_CSS_MARKERS = [
   '.ops-sidebar',
   '.status-strip',
   '.blocker',
+  '.click-card',
+  '.disclosure',
 ];
 
 async function htmlOnlyMode() {
@@ -134,6 +136,51 @@ async function playwrightMode(pw) {
       return document.documentElement.scrollWidth - vw;
     }, viewport.width);
     if (overflow > 16) fail(`${viewport.name} document overflows viewport by ${overflow}px`);
+
+    const orphanActions = await page.$$eval('[data-action]', (els) => {
+      const wired = new Set([
+        'ackAuditEvent',
+        'auditDone',
+        'auditLane',
+        'captureEvidence',
+        'captureEvidencePreset',
+        'cleanupArtifacts',
+        'cleanupArtifactsRunNow',
+        'clearApiToken',
+        'clearEvidence',
+        'deleteMcpTool',
+        'deleteProjectQuickLink',
+        'editMcpTool',
+        'refresh',
+        'refreshExecutorCli',
+        'reinstallExecutorCli',
+        'removeWorktree',
+        'retryLane',
+        'setApiToken',
+        'showArtifacts',
+        'stopLane',
+        'toggleNav',
+      ]);
+      return els
+        .map((el) => el.getAttribute('data-action'))
+        .filter((action) => action && !wired.has(action));
+    });
+    if (orphanActions.length) fail(`${viewport.name} has unwired data-action`, orphanActions.join(', '));
+
+    const disclosureCount = await page.$$eval('details.disclosure', (els) => els.length);
+    if (disclosureCount < 1) fail(`${viewport.name} has no collapsible disclosure sections`);
+
+    const clickableCardCount = await page.$$eval('.click-card[data-href]', (els) => els.length);
+    if (clickableCardCount > 0) {
+      const currentUrl = page.url();
+      await page.$eval('.click-card[data-href]', (el) => el.click());
+      await page.waitForFunction((before) => window.location.href !== before, currentUrl, { timeout: 5000 });
+      if (!page.url().includes('/projects/')) fail(`${viewport.name} clickable card did not navigate`, page.url());
+      await page.waitForFunction(() => {
+        const content = document.getElementById('content');
+        return content && !content.textContent.trim().startsWith('Loading');
+      }, { timeout: 12000 });
+    }
 
     const shotPath = path.join(artifactDir, `${viewport.name}.png`);
     await page.screenshot({ path: shotPath, fullPage: true });
