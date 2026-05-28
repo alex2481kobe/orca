@@ -171,8 +171,30 @@ button {
   font-weight: 600;
 }
 
-button.secondary {
+button.secondary,
+a.secondary,
+.button-secondary {
   background: rgba(13, 55, 95, 0.85);
+  border: 1px solid var(--line);
+  text-decoration: none;
+  color: var(--text);
+  cursor: pointer;
+}
+
+button.secondary:hover,
+a.secondary:hover,
+.button-secondary:hover {
+  background: rgba(22, 74, 121, 0.95);
+}
+
+a.secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.button-secondary {
+  border: 1px solid var(--line);
 }
 
 button.warn {
