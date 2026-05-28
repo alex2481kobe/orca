@@ -1537,3 +1537,117 @@ test('Recovery flips orphaned running lanes to failed with explicit reason', asy
     await cleanup();
   }
 });
+
+test('MCP tool schema accepts env/workdir/description/owner/notes with bounds', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const tool = await registry.createMcpTool({
+      name: 'extended-tool',
+      command: 'node',
+      args: ['-v'],
+      scope: ['all'],
+      env: { FOO: 'bar', PORT: 1234 },
+      workdir: 'relative/path',
+      description: 'demo description',
+      notes: 'some operator notes',
+      owner: 'alex',
+    }, { actor: 'alex', approved: true });
+    assert.equal(tool.env.FOO, 'bar');
+    assert.equal(tool.env.PORT, '1234');
+    assert.equal(tool.workdir, 'relative/path');
+    assert.equal(tool.description, 'demo description');
+    assert.equal(tool.notes, 'some operator notes');
+    assert.equal(tool.owner, 'alex');
+
+    assert.throws(() => registry.createMcpTool({
+      name: 'bad-env-tool',
+      command: 'node',
+      scope: ['all'],
+      env: { 'bad-key!': 'x' },
+    }, { actor: 'test', approved: true }), (error) => error.status === 422);
+
+    assert.throws(() => registry.createMcpTool({
+      name: 'huge-notes',
+      command: 'node',
+      scope: ['all'],
+      notes: 'x'.repeat(2000),
+    }, { actor: 'test', approved: true }), (error) => error.status === 422);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('Shared-worktree lane creation emits a pending audit and stores a warning', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const project = registry.createProject({ name: 'Shared Worktree Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Shared Worktree Session' }, { actor: 'test', approved: true });
+    const lane = registry.createLane(session.id, {
+      title: 'shared lane',
+      executorType: 'mock',
+      sharedWorktree: true,
+    }, { actor: 'test', approved: true });
+    assert.equal(lane.sharedWorktree, true);
+    assert.equal(Array.isArray(lane.warnings), true);
+    assert.equal(lane.warnings.some((w) => w.kind === 'shared_worktree'), true);
+    const sharedAudit = registry.listAuditEvents({ status: 'pending' })
+      .find((event) => event.type === 'lane_shared_worktree' && event.laneId === lane.id);
+    assert.ok(sharedAudit, 'expected lane_shared_worktree audit event');
+  } finally {
+    await cleanup();
+  }
+});
+
+test('Lane terminal artifacts include process/MCP/changed-files metadata', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const project = registry.createProject({ name: 'Terminal Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Terminal Session' }, { actor: 'test', approved: true });
+    const lane = registry.createLane(session.id, {
+      title: 'terminal lane',
+      executorType: 'mock',
+      taskPrompt: 'plan-the-thing',
+      model: 'gpt-5',
+      permissionsProfile: 'plan',
+      verificationCommand: 'npm test',
+      branch: 'feature/foo',
+    }, { actor: 'test', approved: true });
+    const target = registry.getLane(lane.id);
+    target.processMeta = {
+      pid: 4242,
+      exitCode: 0,
+      signal: null,
+      startedAt: nowIso(),
+      endedAt: nowIso(),
+      stopRequestedBy: 'dashboard',
+      stopResult: 'sigterm',
+      platform: process.platform,
+    };
+    target.mcpConfigPath = '/tmp/mcp.json';
+    target.lastEvidence = { status: 'degraded', produced: ['evidence.json'], requested: ['screenshot'] };
+    target.lastEvidenceCaptureAt = nowIso();
+    target.changedFiles = ['M src/foo.ts'];
+
+    const out = await registry.writeLaneArtifacts(target, 'done');
+    assert.deepEqual(out.changedFiles, ['M src/foo.ts']);
+    const transcriptPath = path.join(process.cwd(), 'artifacts', session.id, target.id, 'transcript.json');
+    const transcript = JSON.parse(await fs.readFile(transcriptPath, 'utf8'));
+    assert.equal(transcript.taskPrompt, 'plan-the-thing');
+    assert.equal(transcript.model, 'gpt-5');
+    assert.equal(transcript.verificationCommand, 'npm test');
+    assert.equal(transcript.branch, 'feature/foo');
+    assert.equal(transcript.processMeta.pid, 4242);
+    assert.equal(transcript.mcpConfigPath, '/tmp/mcp.json');
+    assert.equal(transcript.evidence.status, 'degraded');
+    assert.deepEqual(transcript.changedFiles, ['M src/foo.ts']);
+
+    const outcomeText = await fs.readFile(path.join(process.cwd(), 'artifacts', session.id, target.id, 'outcome.txt'), 'utf8');
+    assert.ok(outcomeText.includes('Process PID: 4242'));
+    assert.ok(outcomeText.includes('Stop result: sigterm'));
+    assert.ok(outcomeText.includes('Changed files: 1'));
+  } finally {
+    await cleanup();
+  }
+});
+
+function nowIso() { return new Date().toISOString(); }

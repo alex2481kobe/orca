@@ -328,16 +328,26 @@ function renderHome() {
     </div>
   `).join('');
   const profiles = shell.executorProfiles || {};
-  const profileRows = Object.values(profiles).map((profile) => `
+  const profileRows = Object.values(profiles).map((profile) => {
+    const typeUpper = String(profile.type || '').toUpperCase();
+    const envKey = typeUpper ? `COMMAND_DECK_${typeUpper}` : null;
+    const modelEnv = envKey ? `${envKey}_MODEL` : '';
+    const permissionsEnv = envKey ? `${envKey}_PERMISSIONS` : '';
+    return `
     <div class="lane-row">
       <div>
         <strong>${safeText(profile.type || profile.name || '')}</strong>
         <div class="tiny muted">binary: ${safeText(profile.defaultBinary || '')}</div>
         <div class="tiny muted">defaults: ${safeText((profile.defaultArgs || []).join(' ') || 'none')}</div>
         <div class="tiny muted">allowlist: ${(profile.allowedBinaries || []).slice(0, 6).join(', ') || 'default'}</div>
+        <div class="tiny muted">model: per-lane (lane.model overrides). Set env ${safeText(modelEnv)} for default.</div>
+        <div class="tiny muted">permissions: per-lane (lane.permissionsProfile). Suggested values: plan / restricted / full.</div>
+        <div class="tiny muted">env allowlist: ${(profile.envWhitelist || []).slice(0, 6).join(', ') || 'default'}</div>
+        <div class="tiny muted">workdir roots: ${(profile.workdirRoots || []).slice(0, 3).join(', ') || 'default'}</div>
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
   const cliRows = Object.entries(shell.executorCliInfo || {}).map(([type, info]) => {
     const command = Array.isArray(info?.reinstall?.command)
       ? safeText(info.reinstall.command.join(' '))
@@ -740,6 +750,9 @@ function renderLane(project, session, lane) {
 
   return `
     <section>
+      ${(lane.warnings || []).map((warning) => `
+        <div class="alert bad"><strong>Warning:</strong> ${safeText(warning.message || warning.kind)}</div>
+      `).join('')}
       <div class="card">
         <p><a href="${session.route}" class="secondary">Back to session</a></p>
         <h3>${safeText(lane.title)} (lane)</h3>

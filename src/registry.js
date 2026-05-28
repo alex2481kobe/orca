@@ -507,6 +507,62 @@ function sanitizeMcpArgument(raw, index) {
   return text;
 }
 
+function sanitizeMcpEnv(raw) {
+  if (raw === undefined || raw === null) return {};
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw { status: 422, message: 'MCP tool env must be an object of string keys/values.' };
+  }
+  const out = {};
+  const keys = Object.keys(raw);
+  if (keys.length > 64) {
+    throw { status: 422, message: 'MCP tool env has too many entries (max 64).' };
+  }
+  for (const key of keys) {
+    const value = raw[key];
+    const safeKey = String(key || '').trim();
+    if (!/^[A-Z_][A-Z0-9_]{0,127}$/i.test(safeKey)) {
+      throw { status: 422, message: `MCP tool env key "${safeKey}" is invalid (use letters, digits, underscore).` };
+    }
+    if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') {
+      throw { status: 422, message: `MCP tool env value for ${safeKey} must be a primitive.` };
+    }
+    const text = String(value);
+    if (text.length > 1024) {
+      throw { status: 422, message: `MCP tool env value for ${safeKey} is too long (max 1024).` };
+    }
+    if (/[\x00-\x1f\x7f]/.test(text)) {
+      throw { status: 422, message: `MCP tool env value for ${safeKey} contains control characters.` };
+    }
+    out[safeKey] = text;
+  }
+  return out;
+}
+
+function sanitizeMcpWorkdir(raw) {
+  if (raw === undefined || raw === null || raw === '') return '';
+  const text = String(raw).trim();
+  if (!text) return '';
+  if (text.length > MAX_WORKDIR_BYTES) {
+    throw { status: 422, message: 'MCP tool workdir is too long.' };
+  }
+  if (/\x00/.test(text)) {
+    throw { status: 422, message: 'MCP tool workdir contains invalid bytes.' };
+  }
+  return text;
+}
+
+function sanitizeMcpText(raw, label, maxLen) {
+  if (raw === undefined || raw === null) return '';
+  const text = String(raw);
+  if (text.length > maxLen) {
+    throw { status: 422, message: `MCP tool ${label} exceeds ${maxLen}-character limit.` };
+  }
+  if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(text)) {
+    throw { status: 422, message: `MCP tool ${label} contains control characters.` };
+  }
+  return text.trim();
+}
+
 function sanitizeMcpCommand(raw) {
   const command = String(raw || '').trim();
   if (!command) {
@@ -1147,18 +1203,26 @@ export class CommandDeckRegistry {
     const args = normalizeCommandArray(payload.args);
     const enabled = payload.enabled !== false;
     const scope = normalizeMcpScope(payload.scope);
+    const env = sanitizeMcpEnv(payload.env);
+    const workdir = sanitizeMcpWorkdir(payload.workdir);
+    const description = sanitizeMcpText(payload.description, 'description', 500);
+    const notes = sanitizeMcpText(payload.notes, 'notes', 1000);
+    const owner = sanitizeMcpText(payload.owner || actor, 'owner', 120) || actor;
     const now = nowIso();
     const tool = {
       id: name,
       name,
       command,
       args,
+      env,
+      workdir,
       enabled,
       scope,
+      description,
+      notes,
       createdAt: now,
       updatedAt: now,
-      owner: actor,
-      notes: payload.notes || '',
+      owner,
     };
 
     this.mcpTools.push(tool);
@@ -1204,7 +1268,11 @@ export class CommandDeckRegistry {
     if (Array.isArray(patch.scope)) {
       tool.scope = normalizeMcpScope(patch.scope);
     }
-    if (patch.notes !== undefined) tool.notes = String(patch.notes);
+    if (patch.env !== undefined) tool.env = sanitizeMcpEnv(patch.env);
+    if (patch.workdir !== undefined) tool.workdir = sanitizeMcpWorkdir(patch.workdir);
+    if (patch.description !== undefined) tool.description = sanitizeMcpText(patch.description, 'description', 500);
+    if (patch.owner !== undefined) tool.owner = sanitizeMcpText(patch.owner, 'owner', 120) || tool.owner;
+    if (patch.notes !== undefined) tool.notes = sanitizeMcpText(patch.notes, 'notes', 1000);
 
     tool.updatedAt = nowIso();
     this.recordAudit({
@@ -1726,6 +1794,26 @@ export class CommandDeckRegistry {
       evidence: { lane },
       status: 'passed',
     });
+    if (lane.sharedWorktree) {
+      // Shared-working-tree is a named exception: stronger conflict risk, so
+      // an explicit audit event is queued for review and the lane stores a
+      // visible warning the dashboard can surface.
+      lane.warnings = [...(lane.warnings || []), {
+        kind: 'shared_worktree',
+        message: 'Lane is configured to share the session worktree. Concurrent edits may conflict.',
+      }];
+      this.recordAudit({
+        type: 'lane_shared_worktree',
+        actor: owner,
+        projectId: session.projectId,
+        sessionId: session.id,
+        laneId: lane.id,
+        summary: `Lane "${lane.title}" is shared-worktree; concurrent edits may conflict.`,
+        evidence: { laneId: lane.id, workdir: lane.workdir, branch: lane.branch || null },
+        status: 'pending',
+        followUpQueued: true,
+      });
+    }
     this.persistState();
     return clonePayload(lane);
   }
@@ -2622,13 +2710,60 @@ export class CommandDeckRegistry {
   async writeLaneArtifacts(lane, status = DONE_STATE) {
     const laneArtifactDir = path.join(process.cwd(), 'artifacts', lane.sessionId, lane.id);
     await fs.mkdir(laneArtifactDir, { recursive: true });
+    // Try to capture changed-files via git status if the workdir looks like a git repo.
+    let changedFiles = Array.isArray(lane.changedFiles) ? lane.changedFiles : [];
+    if (lane.workdir) {
+      try {
+        const result = spawnSync('git', ['status', '--porcelain'], {
+          cwd: lane.workdir,
+          encoding: 'utf8',
+          timeout: 4000,
+          windowsHide: true,
+        });
+        if (!result.error && result.status === 0 && typeof result.stdout === 'string') {
+          changedFiles = result.stdout
+            .split('\n')
+            .map((line) => line.trim())
+            .filter(Boolean)
+            .slice(0, 500);
+        }
+      } catch {
+        // Non-git workdir or git unavailable: keep prior changedFiles.
+      }
+    }
+    lane.changedFiles = changedFiles;
+
+    const evidenceSummary = lane.lastEvidence
+      ? {
+          status: lane.lastEvidence.status || null,
+          capturedAt: lane.lastEvidenceCaptureAt || null,
+          produced: Array.isArray(lane.lastEvidence.produced) ? lane.lastEvidence.produced : [],
+          requested: Array.isArray(lane.lastEvidence.requested) ? lane.lastEvidence.requested : [],
+          error: lane.lastEvidence.error || null,
+        }
+      : null;
+
     await fs.writeFile(
       path.join(laneArtifactDir, 'outcome.txt'),
       `Lane ${lane.id} completed at ${lane.completedAt}
+Title: ${lane.title || ''}
 Task: ${lane.taskDescription || 'No task description'}
+Task prompt: ${lane.taskPrompt || ''}
 Status: ${status}
-Exit reason: ${lane.exitReason}
+Exit reason: ${lane.exitReason || ''}
 Executor: ${lane.executorType}
+Model: ${lane.model || ''}
+Permissions profile: ${lane.permissionsProfile || ''}
+Branch: ${lane.branch || ''}
+Workdir: ${lane.workdir || ''}
+MCP config: ${lane.mcpConfigPath || ''}
+Verification command: ${lane.verificationCommand || ''}
+Process PID: ${lane.processMeta?.pid ?? ''}
+Exit code: ${lane.processMeta?.exitCode ?? ''}
+Signal: ${lane.processMeta?.signal ?? ''}
+Stop requested by: ${lane.processMeta?.stopRequestedBy ?? ''}
+Stop result: ${lane.processMeta?.stopResult ?? ''}
+Changed files: ${changedFiles.length}
 `,
     );
     await fs.writeFile(path.join(laneArtifactDir, 'transcript.json'), JSON.stringify({
@@ -2638,15 +2773,34 @@ Executor: ${lane.executorType}
       completedAt: lane.completedAt,
       status,
       taskDescription: lane.taskDescription,
+      taskPrompt: lane.taskPrompt || null,
+      model: lane.model || null,
+      permissionsProfile: lane.permissionsProfile || null,
+      branch: lane.branch || null,
+      repoRoot: lane.repoRoot || null,
+      worktreePath: lane.worktreePath || lane.workdir || null,
+      verificationCommand: lane.verificationCommand || null,
+      expectedArtifacts: lane.expectedArtifacts || [],
+      targetUrl: lane.targetUrl || null,
+      mcpConfigPath: lane.mcpConfigPath || null,
+      mcpTools: lane.mcpTools || [],
       command: lane.command || null,
       commandArgs: lane.commandArgs || null,
+      executorBinary: lane.executorBinary || null,
+      workdir: lane.workdir || null,
       sessionId: lane.sessionId,
       projectId: lane.projectId,
+      processMeta: lane.processMeta || null,
+      changedFiles,
+      evidence: evidenceSummary,
+      exitReason: lane.exitReason || null,
     }, null, 2));
     lane.artifactPath = `/artifacts/${lane.sessionId}/${lane.id}`;
     return clonePayload({
       files: ['outcome.txt', 'transcript.json'],
       artifactPath: lane.artifactPath,
+      changedFiles,
+      evidence: evidenceSummary,
     });
   }
 
@@ -2665,6 +2819,27 @@ Executor: ${lane.executorType}
     if (this._persistTimer) {
       clearTimeout(this._persistTimer);
       this._persistTimer = null;
+      // Flush a final persist synchronously so drainPendingWrites can await it.
+      const write = (async () => {
+        try {
+          await fs.mkdir(this.storageDir, { recursive: true });
+          const snapshot = {
+            version: 1,
+            savedAt: nowIso(),
+            policies: this.policies,
+            projects: this.projects,
+            sessions: this.sessions,
+            lanes: this.lanes,
+            auditEvents: this.auditEvents,
+            cleanupSchedule: this.cleanupSchedule,
+            mcpTools: this.mcpTools,
+          };
+          await fs.writeFile(this.stateFile, JSON.stringify(snapshot, null, 2));
+        } catch {
+          // Stop is best-effort; ignore persist failures during teardown.
+        }
+      })();
+      this._trackAsync(write);
     }
   }
 
