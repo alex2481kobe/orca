@@ -35,11 +35,12 @@ smoke gates before being listed.
   `npm run smoke:credential-redaction`,
   `npm run smoke:evidence-redaction`, and
   `npm run smoke:process-lifecycle` pass as local deterministic gates.
-- `npm run smoke:api-provider` proves OpenAI-compatible API provider
-  lane execution against a local dummy server, including dashboard-style
-  credential-store secret lookup, env fallback wiring, Authorization
-  header use, model/prompt request shape, terminal lane state, and
-  secret redaction from lane state, logs, and audit events.
+- `npm run smoke:api-provider` proves OpenAI-compatible and native
+  Gemini API provider lane execution against local dummy servers,
+  including dashboard-style credential-store secret lookup, env fallback
+  wiring, Authorization or `x-goog-api-key` header use, model/prompt
+  request shape, terminal lane state, and secret redaction from lane
+  state, logs, and audit events.
 - `npm run smoke:notifications` proves durable in-app notification state,
   policy-gated settings, browser-notification configuration metadata,
   terminal lane notifications, read state, severity filtering, and secret
@@ -116,9 +117,9 @@ smoke gates before being listed.
   audit events and `smoke:state-migrations`.
 - First-class API provider lanes can be created with executor types
   `api`, `openai-compatible`, `kimi`, `deepseek`, `openrouter`, and
-  `composer` through the OpenAI-compatible adapter. `gemini` is exposed
-  as a first-class profile and currently fails closed with a clear
-  unsupported-style blocker until its native request adapter is added.
+  `composer` through the OpenAI-compatible adapter. `gemini` uses a
+  native Gemini `generateContent` adapter with `x-goog-api-key` headers
+  so secrets are not placed in URLs.
 - API provider lanes use the provider credential abstraction
   (`secretRef` first, `apiKeyEnv` fallback), so dashboard-stored
   secrets are usable by executors without returning or persisting raw

@@ -4,24 +4,52 @@
  * network probes, and no real OS credential writes unless the running server is
  * explicitly using the test memory credential backend.
  */
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import process from 'node:process';
 
 const args = process.argv.slice(2);
+let explicitBase = Boolean(process.env.COMMAND_DECK_BASE_URL);
 let base = process.env.COMMAND_DECK_BASE_URL || 'http://127.0.0.1:3000';
 for (let i = 0; i < args.length; i += 1) {
-  if (args[i] === '--base' && args[i + 1]) base = args[i + 1];
+  if (args[i] === '--base' && args[i + 1]) {
+    base = args[i + 1];
+    explicitBase = true;
+  }
 }
-const token = process.env.COMMAND_DECK_API_TOKEN || '';
-const headers = {
-  'content-type': 'application/json',
-  ...(token ? { 'x-commanddeck-token': token } : {}),
-};
 
 const log = (label, info = '') => console.log(`[provider-smoke] ${label}${info ? ' — ' + info : ''}`);
 const fail = (label, info = '') => {
   console.error(`[provider-smoke FAIL] ${label}${info ? ' — ' + info : ''}`);
   process.exitCode = 1;
   throw new Error(label);
+};
+
+const previousCwd = process.cwd();
+const previousEnv = { ...process.env };
+const tempDir = explicitBase ? null : await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-provider-smoke-'));
+let server = null;
+let stopServer = null;
+
+if (!explicitBase) {
+  process.chdir(tempDir);
+  process.env.PORT = '0';
+  process.env.COMMAND_DECK_HOST = '127.0.0.1';
+  process.env.COMMAND_DECK_CREDENTIAL_BACKEND = 'memory';
+  delete process.env.COMMAND_DECK_API_TOKEN;
+  const serverModule = await import('../src/server.js');
+  server = await serverModule.startServer(0, '127.0.0.1');
+  stopServer = serverModule.stopServer;
+  const address = server.address();
+  base = `http://127.0.0.1:${address.port}`;
+  log('server', `started isolated local server at ${base}`);
+}
+
+const token = process.env.COMMAND_DECK_API_TOKEN || '';
+const headers = {
+  'content-type': 'application/json',
+  ...(token ? { 'x-commanddeck-token': token } : {}),
 };
 
 async function req(method, pathname, body) {
@@ -36,60 +64,77 @@ async function req(method, pathname, body) {
   return { status: response.status, data };
 }
 
-const list = await req('GET', '/api/providers');
-if (list.status !== 200) fail('GET /api/providers', JSON.stringify(list.data));
-const ids = new Set((list.data.profiles || []).map((profile) => profile.id));
-for (const id of ['codex', 'claude', 'custom-cli', 'openai-compatible', 'gemini', 'kimi', 'deepseek', 'openrouter', 'composer']) {
-  if (!ids.has(id)) fail('missing provider profile', id);
-}
-if (JSON.stringify(list.data).includes('sk-test')) fail('provider list leaked a test-looking secret value');
-log('profiles', `${ids.size} loaded; credential backend=${list.data.credentialBackend}`);
+try {
+  const list = await req('GET', '/api/providers');
+  if (list.status !== 200) fail('GET /api/providers', JSON.stringify(list.data));
+  const ids = new Set((list.data.profiles || []).map((profile) => profile.id));
+  for (const id of ['codex', 'claude', 'custom-cli', 'openai-compatible', 'gemini', 'kimi', 'deepseek', 'openrouter', 'composer']) {
+    if (!ids.has(id)) fail('missing provider profile', id);
+  }
+  if (JSON.stringify(list.data).includes('sk-test')) fail('provider list leaked a test-looking secret value');
+  if (!Array.isArray(list.data.credentialBackends)) fail('credential backend statuses missing');
+  if (!list.data.credentialBackends.some((backend) => backend.id === 'macos-keychain')) fail('macOS Keychain status missing');
+  log('profiles', `${ids.size} loaded; credential backend=${list.data.credentialBackend}`);
 
-const health = await req('GET', '/api/providers/openai-compatible/health');
-if (health.status !== 200) fail('API provider health', JSON.stringify(health.data));
-if (!['configured', 'missing_secret', 'disabled'].includes(health.data.status)) fail('unexpected API provider health status', health.data.status);
-log('api health', health.data.status);
+  const health = await req('GET', '/api/providers/openai-compatible/health');
+  if (health.status !== 200) fail('API provider health', JSON.stringify(health.data));
+  if (!['configured', 'missing_secret', 'disabled'].includes(health.data.status)) fail('unexpected API provider health status', health.data.status);
+  log('api health', health.data.status);
 
-const exported = await req('GET', '/api/providers/export');
-if (exported.status !== 200) fail('export', JSON.stringify(exported.data));
-if (exported.data.excludesSecrets !== true) fail('export must declare secret exclusion');
-if (JSON.stringify(exported.data).includes('secretValue')) fail('export contains secretValue field');
-log('export', `${(exported.data.profiles || []).length} profiles`);
+  const exported = await req('GET', '/api/providers/export');
+  if (exported.status !== 200) fail('export', JSON.stringify(exported.data));
+  if (exported.data.excludesSecrets !== true) fail('export must declare secret exclusion');
+  if (JSON.stringify(exported.data).includes('secretValue')) fail('export contains secretValue field');
+  log('export', `${(exported.data.profiles || []).length} profiles`);
 
-const dryRun = await req('POST', '/api/providers/import/dry-run', {
-  schemaVersion: 1,
-  profiles: [
-    {
-      id: 'openai-compatible',
-      displayName: 'OpenAI-compatible API',
-      kind: 'api',
-      enabled: false,
-      baseUrl: 'https://api.openai.com/v1',
-      apiStyle: 'openai-compatible',
-      secretRef: 'provider:openai-compatible',
-      apiKeyEnv: 'COMMAND_DECK_OPENAI_COMPATIBLE_API_KEY',
-    },
-  ],
-});
-if (dryRun.status !== 200) fail('import dry-run', JSON.stringify(dryRun.data));
-if (dryRun.data.dryRun !== true || dryRun.data.acceptedCount !== 1) fail('bad import dry-run result', JSON.stringify(dryRun.data));
-log('import dry-run', 'ok');
-
-if (list.data.credentialBackend === 'memory') {
-  const set = await req('POST', '/api/providers/openai-compatible/secret', {
-    actor: 'dashboard',
-    approved: true,
-    secret: 'smoke-provider-secret',
+  const dryRun = await req('POST', '/api/providers/import/dry-run', {
+    schemaVersion: 1,
+    profiles: [
+      {
+        id: 'openai-compatible',
+        displayName: 'OpenAI-compatible API',
+        kind: 'api',
+        enabled: false,
+        baseUrl: 'https://api.openai.com/v1',
+        apiStyle: 'openai-compatible',
+        secretRef: 'provider:openai-compatible',
+        apiKeyEnv: 'COMMAND_DECK_OPENAI_COMPATIBLE_API_KEY',
+      },
+    ],
   });
-  if (set.status !== 200) fail('set memory secret', JSON.stringify(set.data));
-  if (JSON.stringify(set.data).includes('smoke-provider-secret')) fail('secret set response leaked secret value');
-  const afterSet = await req('GET', '/api/providers/openai-compatible/health');
-  if (afterSet.data.status !== 'configured') fail('memory secret should configure provider', JSON.stringify(afterSet.data));
-  const deleted = await req('DELETE', '/api/providers/openai-compatible/secret', { actor: 'dashboard', approved: true });
-  if (deleted.status !== 200) fail('delete memory secret', JSON.stringify(deleted.data));
-  log('memory secret flow', 'ok');
-} else {
-  log('secret write', 'skipped because backend is not memory');
-}
+  if (dryRun.status !== 200) fail('import dry-run', JSON.stringify(dryRun.data));
+  if (dryRun.data.dryRun !== true || dryRun.data.acceptedCount !== 1) fail('bad import dry-run result', JSON.stringify(dryRun.data));
+  log('import dry-run', 'ok');
 
-log('done', 'ok');
+  if (list.data.credentialBackend === 'memory') {
+    const set = await req('POST', '/api/providers/openai-compatible/secret', {
+      actor: 'dashboard',
+      approved: true,
+      secret: 'smoke-provider-secret',
+    });
+    if (set.status !== 200) fail('set memory secret', JSON.stringify(set.data));
+    if (JSON.stringify(set.data).includes('smoke-provider-secret')) fail('secret set response leaked secret value');
+    const afterSet = await req('GET', '/api/providers/openai-compatible/health');
+    if (afterSet.data.status !== 'configured') fail('memory secret should configure provider', JSON.stringify(afterSet.data));
+    const deleted = await req('DELETE', '/api/providers/openai-compatible/secret', { actor: 'dashboard', approved: true });
+    if (deleted.status !== 200) fail('delete memory secret', JSON.stringify(deleted.data));
+    log('memory secret flow', 'ok');
+  } else {
+    log('secret write', 'skipped because backend is not memory');
+  }
+
+  log('done', 'ok');
+} finally {
+  if (stopServer) await stopServer();
+  if (server) await new Promise((resolve) => server.close(resolve));
+  if (tempDir) {
+    process.chdir(previousCwd);
+    await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
+  }
+  for (const key of Object.keys(process.env)) {
+    if (!(key in previousEnv)) delete process.env[key];
+  }
+  for (const [key, value] of Object.entries(previousEnv)) {
+    process.env[key] = value;
+  }
+}

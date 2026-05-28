@@ -258,9 +258,47 @@ function buildOpenAiCompatibleBody(lane, profile) {
   };
 }
 
+function modelForProfile(lane, profile) {
+  return String(lane.model || profile.defaultModel || process.env[`COMMAND_DECK_${providerEnvPrefix(profile.id)}_MODEL`] || 'command-deck-default').trim();
+}
+
+function safeGeminiModel(lane, profile) {
+  const raw = String(lane.model || profile.defaultModel || process.env[`COMMAND_DECK_${providerEnvPrefix(profile.id)}_MODEL`] || 'gemini-1.5-flash').trim();
+  const withoutPrefix = raw.replace(/^models\//, '').trim();
+  if (!/^[A-Za-z0-9._-]{1,120}$/.test(withoutPrefix)) {
+    throw new Error('Gemini model contains unsupported characters.');
+  }
+  return withoutPrefix;
+}
+
+function buildGeminiBody(lane) {
+  const prompt = String(lane.taskPrompt || lane.taskDescription || lane.title || 'Run Command Deck lane.').trim().slice(0, 8000);
+  return {
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          {
+            text: prompt,
+          },
+        ],
+      },
+    ],
+    generationConfig: {
+      temperature: 0.2,
+    },
+  };
+}
+
+function buildApiRequestBody(lane, profile) {
+  if (profile.apiStyle === 'gemini') return buildGeminiBody(lane, profile);
+  return buildOpenAiCompatibleBody(lane, profile);
+}
+
 function apiEndpointForProfile(profile) {
   const baseUrl = String(profile.baseUrl || '').replace(/\/+$/, '');
   if (profile.apiStyle === 'openai-compatible') return `${baseUrl}/chat/completions`;
+  if (profile.apiStyle === 'gemini') return `${baseUrl}/models/${safeGeminiModel({}, profile)}:generateContent`;
   return null;
 }
 
@@ -732,10 +770,9 @@ class ApiExecutorAdapter {
 
   _validatedEndpoint() {
     if (!this.profile) throw new Error('API provider profile is not configured.');
-    if (this.profile.apiStyle !== 'openai-compatible') {
-      throw new Error(`API style ${this.profile.apiStyle} is not executable yet. Use an OpenAI-compatible profile for API lanes.`);
-    }
-    const endpoint = apiEndpointForProfile(this.profile);
+    const endpoint = this.profile.apiStyle === 'gemini'
+      ? `${String(this.profile.baseUrl || '').replace(/\/+$/, '')}/models/${safeGeminiModel(this.currentLane || {}, this.profile)}:generateContent`
+      : apiEndpointForProfile(this.profile);
     if (!endpoint) throw new Error('API provider endpoint could not be built.');
     return validateNetworkUrl(endpoint, {
       field: 'providerBaseUrl',
@@ -754,6 +791,7 @@ class ApiExecutorAdapter {
     }
     try {
       this.profile = await this._resolveProfile();
+      this.currentLane = lane;
       const endpoint = this._validatedEndpoint();
       const credential = await this._credential();
       if (!credential.secret) {
@@ -824,17 +862,22 @@ class ApiExecutorAdapter {
   }
 
   async _execute(lane, runtime, secret) {
-    const body = buildOpenAiCompatibleBody(lane, this.profile);
+    const body = buildApiRequestBody(lane, this.profile);
+    const headers = {
+      'content-type': 'application/json',
+    };
+    if (this.profile.apiStyle === 'gemini') {
+      headers['x-goog-api-key'] = secret;
+    } else {
+      headers.authorization = `Bearer ${secret}`;
+    }
     const timeout = setTimeout(() => runtime.controller.abort(), this.profile.timeoutMs || 30000);
     let responseText = '';
     try {
       const response = await fetch(runtime.endpoint, {
         method: 'POST',
         signal: runtime.controller.signal,
-        headers: {
-          'content-type': 'application/json',
-          authorization: `Bearer ${secret}`,
-        },
+        headers,
         body: JSON.stringify(body),
       });
       responseText = await response.text();
@@ -858,11 +901,11 @@ class ApiExecutorAdapter {
       lane.apiProviderResult = {
         providerId: this.profile.id,
         apiStyle: this.profile.apiStyle,
-        model: body.model,
+        model: this.profile.apiStyle === 'gemini' ? safeGeminiModel(lane, this.profile) : body.model,
         status: response.status,
         receivedAt: new Date().toISOString(),
         outputPreview: trimForLog(redactedText(content, [secret]), 2000),
-        usage: parsed?.usage || null,
+        usage: parsed?.usage || parsed?.usageMetadata || null,
       };
       lane.apiResponse = lane.apiProviderResult;
       if (lane.processMeta) {

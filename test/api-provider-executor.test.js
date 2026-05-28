@@ -218,18 +218,54 @@ test('API provider lane uses edited provider profile base URL before static defa
   }
 });
 
-test('Gemini API profile is first-class but fails closed until its native adapter exists', async () => {
+test('Gemini API provider lane executes through native dummy endpoint and redacts secrets', async () => {
   const restore = snapshotEnv();
-  const { registry, cleanup } = await withIsolatedRegistry();
+  const secret = 'gemini-provider-secret';
+  const dummy = await startDummyApi(async (record, res) => {
+    assert.equal(record.method, 'POST');
+    assert.equal(record.url, '/v1/models/command-deck-test-model:generateContent');
+    assert.equal(record.headers['x-goog-api-key'], secret);
+    assert.equal(record.headers.authorization, undefined);
+    assert.equal(record.body.contents[0].parts[0].text, 'Summarize the Command Deck provider smoke.');
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({
+      candidates: [
+        {
+          content: {
+            parts: [
+              {
+                text: `gemini dummy ok with ${secret}`,
+              },
+            ],
+          },
+        },
+      ],
+      usageMetadata: { promptTokenCount: 6, candidatesTokenCount: 3 },
+    }));
+  });
+  process.env.COMMAND_DECK_GEMINI_BASE_URL = dummy.baseUrl;
+  delete process.env.COMMAND_DECK_GEMINI_API_KEY;
+
+  const credentialStore = new CredentialStore({ backend: 'memory' });
+  await credentialStore.set('provider:gemini', secret);
+  const { registry, cleanup } = await withIsolatedRegistry({ credentialStore });
   try {
     const lane = createApiLane(registry, 'gemini');
     assert.equal(lane.executorType, 'gemini');
     await registry.advanceLanes();
-    const failed = await waitForLane(registry, lane.id, (item) => item?.state === 'failed');
-    assert.equal(failed.state, 'failed');
-    assert.match(failed.exitReason, /API style gemini is not executable yet/);
+    const completed = await waitForLane(registry, lane.id, (item) => ['done', 'failed'].includes(item?.state));
+    assert.equal(completed.state, 'done', completed.exitReason || 'lane should complete');
+    assert.equal(dummy.requests.length, 1);
+    assert.equal(completed.processMeta.apiStyle, 'gemini');
+    assert.equal(completed.processMeta.endpointPath, '/v1/models/command-deck-test-model:generateContent');
+    assert.equal(completed.apiProviderResult.providerId, 'gemini');
+    assert.equal(completed.apiProviderResult.model, 'command-deck-test-model');
+    assert.match(completed.apiProviderResult.outputPreview, /\[REDACTED\]/);
+    assert.equal(JSON.stringify(completed).includes(secret), false);
+    assert.equal(JSON.stringify(registry.auditEvents).includes(secret), false);
   } finally {
     await cleanup();
+    await dummy.close();
     restore();
   }
 });
