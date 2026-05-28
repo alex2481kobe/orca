@@ -77,3 +77,7 @@ For private mobile control guidance, see:
 - Reinstall endpoints:
   - `GET /api/executors/{executor}/cli`
   - `POST /api/executors/{executor}/cli/reinstall` with `{ "approved": true, "execute": false }`
+- `POST /api/executors/{executor}/cli/reinstall` also accepts `command` overrides for validated managed source updates.
+  - Example body:
+    - `{ "approved": true, "execute": false, "command": "pnpm add -g codex-cli" }`
+  - Override commands are validated with the same allowlist and install intent checks as configured defaults before execution.

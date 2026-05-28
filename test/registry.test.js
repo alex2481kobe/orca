@@ -318,3 +318,59 @@ test('executor CLI reinstall command validation is executor-specific and safe', 
     restore();
   }
 });
+
+test('executor CLI reinstall supports safe override command profiles and manager verbs', async () => {
+  const restore = restoreEnv({
+    COMMAND_DECK_CODEX_BINARY: process.env.COMMAND_DECK_CODEX_BINARY,
+    COMMAND_DECK_CODEX_REINSTALL_COMMAND: process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND,
+  });
+
+  try {
+    process.env.COMMAND_DECK_CODEX_BINARY = '/usr/bin/codex';
+    process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND = 'npm install --yes codex-cli';
+
+    const { registry, cleanup } = await withIsolatedRegistry();
+    try {
+      const defaultPlan = await registry.runExecutorCliReinstall('codex', {
+        actor: 'test',
+        approved: true,
+        execute: false,
+      });
+      assert.equal(defaultPlan.command[0], 'npm');
+      assert.equal(defaultPlan.command.includes('codex'), true);
+
+      const overridePlan = await registry.runExecutorCliReinstall('codex', {
+        actor: 'test',
+        approved: true,
+        execute: false,
+        command: 'pnpm add -g codex-cli',
+      });
+      assert.equal(overridePlan.command[0], 'pnpm');
+      assert.equal(overridePlan.command.includes('codex-cli'), true);
+
+      await assert.rejects(
+        () => registry.runExecutorCliReinstall('codex', {
+          actor: 'test',
+          approved: true,
+          execute: false,
+          command: 'npm uninstall codex-cli',
+        }),
+        (error) => error.status === 422,
+      );
+
+      await assert.rejects(
+        () => registry.runExecutorCliReinstall('codex', {
+          actor: 'test',
+          approved: true,
+          execute: false,
+          command: 'npm install lodash',
+        }),
+        (error) => error.status === 422,
+      );
+    } finally {
+      await cleanup();
+    }
+  } finally {
+    restore();
+  }
+});

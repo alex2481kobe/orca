@@ -1205,6 +1205,10 @@ async function handleSystemActions(event) {
       renderAlert('Executor CLI action canceled.');
       return;
     }
+    const overrideCommand = window.prompt(
+      `Optional custom reinstall command for ${executorType.toUpperCase()} (space-separated string):\n\nLeave blank to use managed default command.`,
+    );
+    const parsedOverride = overrideCommand && overrideCommand.trim() ? overrideCommand.trim() : null;
     const execute = window.confirm('Run managed reinstall now (not dry-run)?\nChoose Cancel to only show the planned command.');
     const response = await api(`/api/executors/${encodeURIComponent(executorType)}/cli/reinstall`, {
       method: 'POST',
@@ -1212,6 +1216,7 @@ async function handleSystemActions(event) {
         actor: 'dashboard',
         approved: true,
         execute,
+        ...(parsedOverride ? { command: parsedOverride } : {}),
       },
     });
     if (response.ok) {

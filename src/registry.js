@@ -31,6 +31,14 @@ const REINSTALL_COMMAND_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_REINSTALL_ARG_LEN = 120;
 const MAX_REINSTALL_ARGS = 24;
 const ALLOWED_REINSTALL_BINARIES = new Set(['npm', 'pnpm', 'bun', 'brew', 'pip', 'pip3']);
+const REINSTALL_INSTALL_VERBS = {
+  npm: ['install', 'i', 'update', 'upgrade', 'reinstall'],
+  pnpm: ['install', 'add', 'update', 'upgrade', 'reinstall'],
+  bun: ['install', 'add', 'upgrade', 'reinstall'],
+  brew: ['install', 'upgrade', 'reinstall'],
+  pip: ['install'],
+  pip3: ['install'],
+};
 
 function normalizeReinstallToken(raw) {
   const value = String(raw || '').trim().toLowerCase();
@@ -49,6 +57,14 @@ function commandTargetsExecutor(type, commandParts) {
     if (!token) return false;
     return token.includes(normalizedType);
   });
+}
+
+function getInstallerVerbsForBinary(binary) {
+  if (!binary) return ['install'];
+  const normalizedBinary = String(binary).toLowerCase();
+  const byBinary = REINSTALL_INSTALL_VERBS[normalizedBinary];
+  const byBase = REINSTALL_INSTALL_VERBS[path.basename(normalizedBinary)];
+  return byBase || byBinary || ['install'];
 }
 
 function normalizeExecutorType(raw) {
@@ -83,7 +99,8 @@ function normalizeReinstallCommand(raw, expectedType = null) {
   const normalizedBinary = normalizeReinstallToken(binary);
   if (!ALLOWED_REINSTALL_BINARIES.has(normalizedBinary)) return null;
 
-  const hasInstallerVerb = args.some((arg) => ['install', 'upgrade', 'reinstall'].includes(normalizeReinstallToken(arg)));
+  const installVerbs = getInstallerVerbsForBinary(normalizedBinary);
+  const hasInstallerVerb = args.some((arg) => installVerbs.includes(normalizeReinstallToken(arg)));
   if (!hasInstallerVerb) return null;
 
   if (!commandTargetsExecutor(expectedType, parts)) return null;
@@ -1726,6 +1743,7 @@ export class CommandDeckRegistry {
     actor = 'dashboard',
     approved = false,
     execute = false,
+    command,
   } = {}) {
     const type = normalizeExecutorType(executorType);
     if (!['codex', 'claude'].includes(type)) {
@@ -1742,8 +1760,21 @@ export class CommandDeckRegistry {
       };
     }
 
-    const command = getReinstallCommand(type);
-    if (!command) {
+    const hasOverride = command !== undefined;
+    const overrideCommand = hasOverride ? normalizeReinstallCommand(command, type) : null;
+    const defaultCommand = getReinstallCommand(type);
+
+    if (hasOverride && !overrideCommand) {
+      throw {
+        status: 422,
+        message: `Invalid reinstall command override for ${type}.`,
+        risk: defaultPolicy.manageExecutorCli.risk,
+      };
+    }
+
+    const commandToRun = hasOverride ? overrideCommand : defaultCommand;
+
+    if (!commandToRun) {
       throw {
         status: 422,
         message: `No safe reinstall command configured for ${type}.`,
@@ -1759,18 +1790,18 @@ export class CommandDeckRegistry {
         sessionId: null,
         laneId: null,
         summary: `${type} CLI reinstall plan requested (dry-run mode)`,
-        evidence: { executorType: type, command },
+        evidence: { executorType: type, command: commandToRun, source: overrideCommand ? 'request' : 'policy' },
         status: 'passed',
       });
       return {
         executorType: type,
         executed: false,
-        command,
+        command: commandToRun,
         reason: 'Dry-run mode. Set execute=true to apply.',
       };
     }
 
-    const [binary, ...args] = command;
+    const [binary, ...args] = commandToRun;
     const startedAt = new Date().toISOString();
     const result = spawnSync(binary, args, {
       encoding: 'utf8',

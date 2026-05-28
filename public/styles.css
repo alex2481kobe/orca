@@ -82,6 +82,12 @@ body {
   gap: 0.6rem;
 }
 
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.6rem;
+}
+
 .stat {
   background: rgba(10, 33, 55, 0.85);
   border: 1px solid rgba(45, 89, 127, 0.8);

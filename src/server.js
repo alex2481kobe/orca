@@ -259,6 +259,7 @@ async function handleApi(req, res, pathname, method, parts) {
         actor: body.actor || 'dashboard',
         approved: body.approved,
         execute: Boolean(body.execute),
+        command: body.command,
       });
       return sendJson(res, 200, result);
     } catch (error) {
