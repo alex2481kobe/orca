@@ -697,7 +697,7 @@ function buildMcpToolBody(formData) {
   return payload;
 }
 
-function buildApprovedActionBody(action) {
+function buildApprovedActionBody() {
   const policy = shell.policy?.manageMcpTools || {};
   return {
     actor: 'dashboard',
