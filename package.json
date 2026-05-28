@@ -14,6 +14,7 @@
     "test": "node --test ./test/**/*.test.js",
     "smoke": "node scripts/smoke.mjs",
     "smoke:api": "node scripts/smoke.mjs",
+    "smoke:full-flow": "node scripts/smoke.mjs",
     "smoke:security": "node scripts/smoke.mjs",
     "smoke:ssrf": "node scripts/ssrf-smoke.mjs",
     "smoke:ui": "node scripts/ui-smoke.mjs",
@@ -25,7 +26,11 @@
     "smoke:private-access": "node scripts/private-access-smoke.mjs",
     "smoke:pwa-cache": "node scripts/pwa-cache-smoke.mjs",
     "smoke:providers": "node scripts/provider-smoke.mjs",
-    "smoke:state-migrations": "node scripts/state-migrations-smoke.mjs"
+    "smoke:state-migrations": "node scripts/state-migrations-smoke.mjs",
+    "smoke:auth-sessions": "node scripts/auth-sessions-smoke.mjs",
+    "smoke:credential-redaction": "node scripts/credential-redaction-smoke.mjs",
+    "smoke:evidence-redaction": "node scripts/evidence-redaction-smoke.mjs",
+    "smoke:process-lifecycle": "node scripts/process-lifecycle-smoke.mjs"
   },
   "devDependencies": {
     "playwright": "^1.60.0"

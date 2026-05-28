@@ -26,6 +26,12 @@ smoke gates before being listed.
 - `npm run smoke:security-headers`, `npm run smoke:pwa-cache`,
   `npm run smoke:route-inventory`, and
   `npm run smoke:state-migrations` pass.
+- `npm run smoke:auth-sessions`,
+  `npm run smoke:credential-redaction`,
+  `npm run smoke:evidence-redaction`, and
+  `npm run smoke:process-lifecycle` pass as local deterministic gates.
+- `npm run smoke:full-flow` is the named full operator-flow gate and runs
+  the same server-based path as `npm run smoke`.
 - Real Claude CLI execution flows through the adapter (`claude
   --version` → PID + exit 0).
 - Real Codex CLI is repaired on this host through Homebrew
@@ -102,6 +108,7 @@ executable, and the broken Homebrew Codex symlink was repaired with
 ```bash
 npm test
 COMMAND_DECK_API_TOKEN=... COMMAND_DECK_BASE_URL=http://127.0.0.1:3000 npm run smoke
+COMMAND_DECK_API_TOKEN=... COMMAND_DECK_BASE_URL=http://127.0.0.1:3000 npm run smoke:full-flow
 COMMAND_DECK_API_TOKEN=... COMMAND_DECK_BASE_URL=http://127.0.0.1:3000 npm run smoke:ui
 COMMAND_DECK_API_TOKEN=... COMMAND_DECK_BASE_URL=http://127.0.0.1:3000 npm run smoke:ui-inventory
 COMMAND_DECK_API_TOKEN=... COMMAND_DECK_BASE_URL=http://127.0.0.1:3000 npm run smoke:ui-contract
@@ -109,6 +116,10 @@ npm run smoke:security-headers
 npm run smoke:pwa-cache
 npm run smoke:route-inventory
 npm run smoke:state-migrations
+npm run smoke:auth-sessions
+npm run smoke:credential-redaction
+npm run smoke:evidence-redaction
+npm run smoke:process-lifecycle
 ```
 
 ## Work rules (still apply)

@@ -168,6 +168,7 @@ const evidence = await req('POST', `/api/lanes/${lane.body.id}/evidence`, {
   url: `${base}/api/health`,
   modes: ['screenshot'],
   approved: true,
+  oneTimeUrlApproved: true,
 });
 if (evidence.status !== 200) fail('evidence POST should be 200', JSON.stringify(evidence));
 if (playwrightBlocker) {
