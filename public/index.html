@@ -5,22 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="dark" />
     <title>Command Deck</title>
-    <link rel="stylesheet" href="/styles.css?v=20260528-codex-rail" />
+    <link rel="stylesheet" href="/styles.css?v=20260528-topbar-rail" />
   </head>
   <body data-app="command-deck">
-    <button id="mobile-nav-toggle" class="mobile-nav-toggle" data-action="toggleNav" type="button" aria-label="Toggle navigation" aria-controls="sidebar"><span class="panel-toggle-icon" aria-hidden="true"></span></button>
+    <header class="app-topbar">
+      <button id="mobile-nav-toggle" class="shell-toggle" data-action="toggleNav" type="button" aria-label="Toggle navigation" aria-controls="sidebar"><span class="panel-toggle-icon" aria-hidden="true"></span></button>
+      <div id="topbar-title" class="app-topbar-title"></div>
+      <div class="app-topbar-actions" aria-hidden="true"></div>
+    </header>
     <main id="shell" class="ops-shell">
       <aside id="sidebar" class="ops-sidebar" aria-label="navigation">
-        <div class="sidebar-head">
-          <button class="sidebar-collapse" data-action="toggleNav" type="button" aria-label="Collapse navigation"><span class="panel-toggle-icon" aria-hidden="true"></span></button>
-        </div>
         <div class="sidebar-section">
           <div class="sidebar-title">Projects</div>
           <div id="sidebar-projects" class="sidebar-list"></div>
         </div>
         <div class="sidebar-spacer"></div>
         <div class="sidebar-footer">
-          <a href="#system" data-route="system" class="sidebar-link settings-row"><span class="settings-icon" aria-hidden="true">⚙</span><span>Settings</span></a>
+          <a href="/#system" data-route="system" class="sidebar-link settings-row"><span class="settings-icon" aria-hidden="true">⚙</span><span>Settings</span></a>
         </div>
       </aside>
       <section class="ops-main">
@@ -29,6 +30,6 @@
         <div id="content" class="ops-content" aria-busy="true">Loading…</div>
       </section>
     </main>
-    <script type="module" src="/app.js?v=20260528-codex-rail"></script>
+    <script type="module" src="/app.js?v=20260528-topbar-rail"></script>
   </body>
 </html>

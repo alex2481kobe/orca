@@ -29,6 +29,7 @@ const refs = {
   blockers: document.getElementById('blockers'),
   sidebarProjects: document.getElementById('sidebar-projects'),
   topbarSubtitle: document.getElementById('topbar-subtitle'),
+  topbarTitle: document.getElementById('topbar-title'),
 };
 // Audit queue is rendered inside refs.content for the new operator shell.
 refs.actions = refs.content;
@@ -400,14 +401,12 @@ async function api(path, options = {}) {
 }
 
 function renderBreadcrumbs(project, session) {
-  const links = [];
-  if (project) {
-    links.push(safeText(project.name));
-  }
-  if (session) {
-    links.push(safeText(session.name));
-  }
-  refs.breadcrumbs.innerHTML = links.length ? `<div>${links.join(' / ')}</div>` : '';
+  refs.breadcrumbs.innerHTML = '';
+}
+
+function renderTopbarTitle(project, session, lane) {
+  if (!refs.topbarTitle) return;
+  refs.topbarTitle.textContent = lane?.title || session?.name || project?.name || '';
 }
 
 function renderHome() {
@@ -699,16 +698,14 @@ function renderProject(project) {
     `;
   }).join('');
   const quickLinksMarkup = project.quickLinks.map((quick) => `<a href="${safeText(quick.url)}" target="_blank" rel="noopener noreferrer">${safeText(quick.label)}</a>`).join('');
+  const primaryQuickLink = project.quickLinks?.[0]?.url || '';
 
   refs.content.innerHTML = `
     <section class="project-shell">
       <div class="project-titlebar">
-        <div>
-          <h2>${safeText(project.name)}</h2>
-          <p>Sessions and lanes for this project.</p>
-        </div>
         <div class="project-actions" aria-label="Project actions">
-          <a class="button-secondary" href="#project-tools">Tools</a>
+          ${primaryQuickLink ? `<a class="button-secondary" href="${safeAttr(primaryQuickLink)}" target="_blank" rel="noopener noreferrer">Open</a>` : ''}
+          <button class="button-secondary" data-action="toggleProjectTools" type="button">Tools</button>
           <a class="button-secondary" href="/#system">Settings</a>
         </div>
       </div>
@@ -1067,6 +1064,7 @@ function render() {
   const lane = shell.lanes.find((value) => value.id === shell.route.laneId);
 
   renderBreadcrumbs(project, session);
+  renderTopbarTitle(project, session, lane);
   renderStatusStrip();
   renderBlockers();
   renderSidebarProjects(project);
@@ -1148,16 +1146,26 @@ function renderSidebarProjects(activeProject) {
     );
     const lanes = (shell.lanes || []).filter((lane) => lane.projectId === project.id);
     const active = lanes.filter((lane) => ['running', 'starting', 'queued'].includes(lane.state)).length;
-    const isActive = activeProject && activeProject.id === project.id;
     const sessionRows = projectSessions.slice(0, 4).map((session) => {
+      const isCurrentSession = shell.route.sessionId === session.id;
       return `
-        <a class="sidebar-thread" href="${safeAttr(session.route)}" draggable="true" data-reorder-kind="session" data-project-id="${safeAttr(project.id)}" data-session-id="${safeAttr(session.id)}">
-          <span>${safeText(session.name)}</span>
-        </a>
+        <div class="sidebar-session-line" draggable="true" data-reorder-kind="session" data-project-id="${safeAttr(project.id)}" data-session-id="${safeAttr(session.id)}">
+          <a class="sidebar-thread ${isCurrentSession ? 'active' : ''}" href="${safeAttr(session.route)}">
+            <span>${safeText(session.name)}</span>
+          </a>
+          <button class="sidebar-archive" type="button" aria-label="Archive ${safeAttr(session.name)} session" title="Archive session">
+            <svg viewBox="0 0 20 20" focusable="false" aria-hidden="true">
+              <path d="M3.2 6.5h13.6"></path>
+              <path d="M5 6.5v9.2c0 .8.6 1.4 1.4 1.4h7.2c.8 0 1.4-.6 1.4-1.4V6.5"></path>
+              <path d="M7.2 3.3h5.6l.8 3.2H6.4l.8-3.2Z"></path>
+              <path d="M8 10h4"></path>
+            </svg>
+          </button>
+        </div>
       `;
     }).join('');
     return `
-      <div class="sidebar-project-group ${isActive ? 'active' : ''}" draggable="true" data-reorder-kind="project" data-project-id="${safeAttr(project.id)}">
+      <div class="sidebar-project-group" draggable="true" data-reorder-kind="project" data-project-id="${safeAttr(project.id)}">
         <div class="sidebar-project-line">
           <a class="sidebar-link" href="${safeAttr(project.route)}" data-route-project="${safeAttr(project.slug)}">
             ${FOLDER_ICON}
@@ -2249,6 +2257,11 @@ document.addEventListener('click', async (event) => {
     } else {
       document.body.classList.toggle('sidebar-collapsed');
     }
+    return;
+  }
+  if (action === 'toggleProjectTools') {
+    event.preventDefault();
+    actionTarget.closest('.project-shell')?.classList.toggle('tools-open');
     return;
   }
   // Auto-close mobile sidebar when navigating.
