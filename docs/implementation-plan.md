@@ -24,7 +24,8 @@ smoke gates before being listed.
   route-level desktop/phone screenshots, hidden advanced defaults, and
   overflow behavior under `artifacts/ui-contract/`.
 - `npm run smoke:security-headers`, `npm run smoke:pwa-cache`,
-  `npm run smoke:route-inventory`, and
+  `npm run smoke:route-inventory`,
+  `npm run smoke:route-security-matrix`, and
   `npm run smoke:state-migrations` pass.
 - `npm run smoke:auth-sessions`,
   `npm run smoke:credential-redaction`,
@@ -118,6 +119,11 @@ smoke gates before being listed.
 - In-app notifications are persistent, redacted, unread/read tracked,
   exposed through `/api/notifications`, and configurable for browser
   delivery without storing sensitive content.
+- `docs/route-security-matrix.md` documents every route from
+  `src/route-inventory.js` with auth, CSRF/origin, token/lease, risk,
+  body/rate limits, validation, cache, audit, UI, mobile, and smoke
+  coverage. `npm run smoke:route-security-matrix` fails if the doc
+  drifts from the live inventory.
 
 ## External blockers (operator-actionable, surfaced in the dashboard)
 
@@ -138,6 +144,7 @@ COMMAND_DECK_API_TOKEN=... COMMAND_DECK_BASE_URL=http://127.0.0.1:3000 npm run s
 npm run smoke:security-headers
 npm run smoke:pwa-cache
 npm run smoke:route-inventory
+npm run smoke:route-security-matrix
 npm run smoke:state-migrations
 npm run smoke:auth-sessions
 npm run smoke:credential-redaction

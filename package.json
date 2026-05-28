@@ -21,6 +21,7 @@
     "smoke:ui-inventory": "node scripts/ui-inventory-smoke.mjs",
     "smoke:ui-contract": "node scripts/ui-contract-smoke.mjs",
     "smoke:route-inventory": "node scripts/route-inventory-smoke.mjs",
+    "smoke:route-security-matrix": "node scripts/route-security-matrix-smoke.mjs",
     "smoke:security-headers": "node scripts/security-headers-smoke.mjs",
     "smoke:streams": "node scripts/streams-smoke.mjs",
     "smoke:private-access": "node scripts/private-access-smoke.mjs",
