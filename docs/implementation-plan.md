@@ -36,7 +36,9 @@ smoke gates before being listed.
   header use, model/prompt request shape, terminal lane state, and
   secret redaction from lane state, logs, and audit events.
 - `npm run smoke:full-flow` is the named full operator-flow gate and runs
-  the same server-based path as `npm run smoke`.
+  the same server-based path as `npm run smoke`, including the local
+  dummy API-provider lane proof when the server uses the safe memory
+  credential backend.
 - Real Claude CLI execution flows through the adapter (`claude
   --version` → PID + exit 0).
 - Real Codex CLI is repaired on this host through Homebrew

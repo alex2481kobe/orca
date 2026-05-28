@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { CommandDeckRegistry } from '../src/registry.js';
-import { CredentialStore } from '../src/provider-profiles.js';
+import { CredentialStore, ProviderProfileStore } from '../src/provider-profiles.js';
 
 async function withIsolatedRegistry(options = {}) {
   const previousCwd = process.cwd();
@@ -171,6 +171,48 @@ test('API provider lane uses dashboard-stored credential backend before env fall
     assert.equal(JSON.stringify(registry.auditEvents).includes(secret), false);
   } finally {
     await cleanup();
+    await dummy.close();
+    restore();
+  }
+});
+
+test('API provider lane uses edited provider profile base URL before static defaults', async () => {
+  const restore = snapshotEnv();
+  const secret = 'profile-store-provider-secret';
+  const dummy = await startDummyApi(async (record, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ choices: [{ message: { content: 'profile URL ok' } }] }));
+  });
+  delete process.env.COMMAND_DECK_OPENAI_COMPATIBLE_BASE_URL;
+  delete process.env.COMMAND_DECK_OPENAI_COMPATIBLE_API_KEY;
+
+  const profileDir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-provider-profile-test-'));
+  const credentialStore = new CredentialStore({ backend: 'memory' });
+  const providerStore = new ProviderProfileStore({
+    stateFile: path.join(profileDir, 'providers.json'),
+    credentialStore,
+  });
+  await providerStore.updateProfile('openai-compatible', {
+    enabled: true,
+    baseUrl: dummy.baseUrl,
+    apiStyle: 'openai-compatible',
+    secretRef: 'provider:openai-compatible',
+    apiKeyEnv: 'COMMAND_DECK_OPENAI_COMPATIBLE_API_KEY',
+  }, { actor: 'test', approved: true });
+  await providerStore.setSecret('openai-compatible', secret, { actor: 'test', approved: true });
+  const { registry, cleanup } = await withIsolatedRegistry({ credentialStore, providerProfileStore: providerStore });
+  try {
+    const lane = createApiLane(registry, 'openai-compatible');
+    await registry.advanceLanes();
+    const completed = await waitForLane(registry, lane.id, (item) => ['done', 'failed'].includes(item?.state));
+    assert.equal(completed.state, 'done', completed.exitReason || 'lane should complete');
+    assert.equal(dummy.requests.length, 1);
+    assert.equal(dummy.requests[0].headers.authorization, `Bearer ${secret}`);
+    assert.equal(completed.processMeta.endpointHost, new URL(dummy.baseUrl).host);
+    assert.equal(JSON.stringify(completed).includes(secret), false);
+  } finally {
+    await cleanup();
+    await fs.rm(profileDir, { force: true, recursive: true, maxRetries: 5, retryDelay: 25 });
     await dummy.close();
     restore();
   }

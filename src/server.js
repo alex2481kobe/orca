@@ -28,7 +28,10 @@ const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.COMMAND_DECK_HOST || '127.0.0.1';
 const PUBLIC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const providerProfiles = new ProviderProfileStore();
-const registry = new CommandDeckRegistry({ credentialStore: providerProfiles.credentialStore });
+const registry = new CommandDeckRegistry({
+  credentialStore: providerProfiles.credentialStore,
+  providerProfileStore: providerProfiles,
+});
 const privateAccess = new PrivateAccessStore();
 const authSessions = new AuthSessionStore();
 const rateLimiter = createRateLimiter({

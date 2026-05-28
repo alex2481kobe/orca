@@ -269,18 +269,24 @@ function getApiProviderProfile(type) {
   const providerId = requested === 'api' ? 'openai-compatible' : requested;
   const seeded = defaultProfiles()[providerId];
   if (!seeded || seeded.kind !== 'api') return null;
+  return applyApiProviderEnvOverrides({ ...seeded, type: requested, id: providerId }, requested);
+}
+
+function applyApiProviderEnvOverrides(profile, requestedType = profile?.type || profile?.id) {
+  if (!profile || profile.kind !== 'api') return null;
+  const providerId = profile.id;
   const prefix = providerEnvPrefix(providerId);
-  const baseUrl = process.env[`COMMAND_DECK_${prefix}_BASE_URL`] || seeded.baseUrl;
-  const apiKeyEnv = process.env[`COMMAND_DECK_${prefix}_API_KEY_ENV`] || seeded.apiKeyEnv || `COMMAND_DECK_${prefix}_API_KEY`;
+  const baseUrl = process.env[`COMMAND_DECK_${prefix}_BASE_URL`] || profile.baseUrl;
+  const apiKeyEnv = process.env[`COMMAND_DECK_${prefix}_API_KEY_ENV`] || profile.apiKeyEnv || `COMMAND_DECK_${prefix}_API_KEY`;
   return {
-    ...seeded,
-    type: requested,
+    ...profile,
+    type: requestedType,
     id: providerId,
     baseUrl,
     apiKeyEnv,
-    timeoutMs: parsePositiveInteger(process.env[`COMMAND_DECK_${prefix}_TIMEOUT_MS`], seeded.timeoutMs || 30000, { min: 1000, max: 180000 }),
+    timeoutMs: parsePositiveInteger(process.env[`COMMAND_DECK_${prefix}_TIMEOUT_MS`], profile.timeoutMs || 30000, { min: 1000, max: 180000 }),
     maxResponseBytes: parsePositiveInteger(process.env[`COMMAND_DECK_${prefix}_MAX_RESPONSE_BYTES`], API_RESPONSE_BYTES, { min: 1024, max: 2 * 1024 * 1024 }),
-    defaultModel: process.env[`COMMAND_DECK_${prefix}_MODEL`] || seeded.defaultModel || '',
+    defaultModel: process.env[`COMMAND_DECK_${prefix}_MODEL`] || profile.defaultModel || '',
   };
 }
 
@@ -680,11 +686,30 @@ class ApiExecutorAdapter {
     this.label = label;
     this.profile = options.profile || getApiProviderProfile(label);
     this.credentialStore = options.credentialStore || new CredentialStore();
+    this.providerProfileStore = options.providerProfileStore || null;
     this.onLog = options.onLog || noopAsync;
     this.onComplete = options.onComplete || noopAsync;
     this.onFail = options.onFail || noopAsync;
     this.onStop = options.onStop || noopAsync;
     this.runtimes = new Map();
+  }
+
+  async _resolveProfile() {
+    const requested = String(this.label || '').toLowerCase().trim();
+    const providerId = requested === 'api' ? 'openai-compatible' : requested;
+    const seeded = defaultProfiles()[providerId];
+    let profile = this.profile || (seeded ? { ...seeded, id: providerId, type: requested } : null);
+    if (this.providerProfileStore && providerId) {
+      try {
+        const stored = await this.providerProfileStore.getProfile(providerId);
+        if (stored?.kind === 'api') {
+          profile = { ...(seeded || {}), ...(profile || {}), ...stored, id: providerId, type: requested };
+        }
+      } catch {
+        // Fall back to static/env profile. Missing custom profiles fail below.
+      }
+    }
+    return applyApiProviderEnvOverrides(profile, requested);
   }
 
   async _credential() {
@@ -728,6 +753,7 @@ class ApiExecutorAdapter {
       };
     }
     try {
+      this.profile = await this._resolveProfile();
       const endpoint = this._validatedEndpoint();
       const credential = await this._credential();
       if (!credential.secret) {

@@ -12,10 +12,11 @@
  *   6. malformed query string → 400
  *   7. project + session + mock lane creation; lane reaches done
  *   8. MCP CRUD + Codex lane attachment (blocked execution OK)
- *   9. evidence capture; if Playwright is present, assert captured=true
+ *   9. API provider secret/profile setup + local dummy provider lane
+ *  10. evidence capture; if Playwright is present, assert captured=true
  *      and a real screenshot file with non-zero size; otherwise assert
  *      the degraded state explicitly
- *  10. audit queue + ack + cleanup dry-run + worktree route shape
+ *  11. audit queue + ack + cleanup dry-run + worktree route shape
  *
  * Usage:
  *   COMMAND_DECK_API_TOKEN=<token> node scripts/smoke.mjs [--base http://127.0.0.1:3000]
@@ -24,6 +25,7 @@
  */
 
 import process from 'node:process';
+import http from 'node:http';
 
 const args = process.argv.slice(2);
 let base = process.env.COMMAND_DECK_BASE_URL || 'http://127.0.0.1:3000';
@@ -54,6 +56,49 @@ async function req(method, path, body, opts = {}) {
   let json = null;
   try { json = await res.json(); } catch { /* empty */ }
   return { status: res.status, body: json };
+}
+
+async function startDummyApiProvider(secret) {
+  const requests = [];
+  const server = http.createServer((request, response) => {
+    let raw = '';
+    request.setEncoding('utf8');
+    request.on('data', (chunk) => { raw += chunk; });
+    request.on('end', () => {
+      const body = raw ? JSON.parse(raw) : null;
+      requests.push({
+        method: request.method,
+        url: request.url,
+        headers: request.headers,
+        body,
+      });
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({
+        choices: [{ message: { content: `full-flow provider ok ${secret}` } }],
+        usage: { prompt_tokens: 8, completion_tokens: 4 },
+      }));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}/v1`,
+    requests,
+    close: () => new Promise((resolve) => server.close(resolve)),
+  };
+}
+
+async function waitForLaneTerminal(laneId, label) {
+  let state = 'unknown';
+  let latest = null;
+  for (let i = 0; i < 40 && !['done', 'failed', 'stopped'].includes(state); i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    latest = await req('GET', `/api/lanes/${laneId}`);
+    state = latest.body?.state;
+  }
+  if (!latest) latest = await req('GET', `/api/lanes/${laneId}`);
+  if (latest.status !== 200) fail(`${label} lane status`, JSON.stringify(latest));
+  return latest;
 }
 
 const start = Date.now();
@@ -124,12 +169,8 @@ if (lane.status !== 201) fail('createLane', JSON.stringify(lane));
 log('lane', lane.body.id);
 
 // Wait for mock lane completion.
-let laneState = lane.body.state;
-for (let i = 0; i < 30 && !['done', 'failed', 'stopped'].includes(laneState); i += 1) {
-  await new Promise((resolve) => setTimeout(resolve, 500));
-  const status = await req('GET', `/api/lanes/${lane.body.id}`);
-  laneState = status.body.state;
-}
+const laneDone = await waitForLaneTerminal(lane.body.id, 'mock');
+const laneState = laneDone.body.state;
 if (laneState !== 'done') fail('lane should reach done', laneState);
 log('laneState', laneState);
 
@@ -161,6 +202,56 @@ log('codexLane', codexLane.body.id);
 
 const artifacts = await req('GET', `/api/lanes/${lane.body.id}/artifacts`);
 log('artifacts', `${(artifacts.body.files || []).length} files`);
+
+// --- API provider lane through dashboard-stored credential ---
+const providers = await req('GET', '/api/providers');
+if (providers.status !== 200) fail('provider catalog', JSON.stringify(providers));
+if (providers.body?.credentialBackend !== 'memory') {
+  fail(
+    'full-flow API provider smoke requires memory credential backend',
+    `Restart Command Deck with COMMAND_DECK_CREDENTIAL_BACKEND=memory for safe local provider-secret proof. Current backend=${providers.body?.credentialBackend}`,
+  );
+}
+const apiSecret = `full-flow-api-secret-${slugSuffix}`;
+const dummyProvider = await startDummyApiProvider(apiSecret);
+try {
+  const profileUpdate = await req('PATCH', '/api/providers/openai-compatible', {
+    actor: 'dashboard',
+    approved: true,
+    enabled: true,
+    baseUrl: dummyProvider.baseUrl,
+    apiStyle: 'openai-compatible',
+    secretRef: 'provider:openai-compatible',
+    apiKeyEnv: 'COMMAND_DECK_OPENAI_COMPATIBLE_API_KEY',
+  });
+  if (profileUpdate.status !== 200) fail('provider profile update', JSON.stringify(profileUpdate));
+  const setSecret = await req('POST', '/api/providers/openai-compatible/secret', {
+    actor: 'dashboard',
+    approved: true,
+    secret: apiSecret,
+  });
+  if (setSecret.status !== 200) fail('provider secret set', JSON.stringify(setSecret));
+  if (JSON.stringify(setSecret.body).includes(apiSecret)) fail('provider secret response leaked secret');
+
+  const apiLane = await req('POST', `/api/sessions/${session.body.id}/lanes`, {
+    title: 'smoke API provider lane',
+    executorType: 'openai-compatible',
+    owner: 'smoke',
+    approved: true,
+    taskPrompt: 'Run the full-flow local API provider check.',
+    model: 'full-flow-model',
+  });
+  if (apiLane.status !== 201) fail('createApiProviderLane', JSON.stringify(apiLane));
+  const apiLaneDone = await waitForLaneTerminal(apiLane.body.id, 'api provider');
+  if (apiLaneDone.body?.state !== 'done') fail('API provider lane should reach done', apiLaneDone.body?.exitReason || JSON.stringify(apiLaneDone.body));
+  if (dummyProvider.requests.length !== 1) fail('dummy provider should receive one request', String(dummyProvider.requests.length));
+  if (dummyProvider.requests[0].headers.authorization !== `Bearer ${apiSecret}`) fail('dummy provider auth header mismatch');
+  if (dummyProvider.requests[0].body.model !== 'full-flow-model') fail('dummy provider model mismatch', JSON.stringify(dummyProvider.requests[0].body));
+  if (JSON.stringify(apiLaneDone.body).includes(apiSecret)) fail('API provider lane leaked secret value');
+  log('apiProviderLane', `${apiLaneDone.body.state} via ${apiLaneDone.body.processMeta?.credentialBackend || 'unknown'} credential backend`);
+} finally {
+  await dummyProvider.close();
+}
 
 // --- evidence: real if Playwright present, degraded otherwise ---
 const playwrightBlocker = (blockers.body.blockers || []).find((b) => b.id === 'playwright-missing');
