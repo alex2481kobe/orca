@@ -120,6 +120,15 @@ function commandTargetsExecutor(type, commandParts) {
   });
 }
 
+function commandTargetsExecutorFirstToken(type, commandParts) {
+  const normalizedType = String(type || '').toLowerCase().trim();
+  if (!normalizedType) return true;
+  if (!Array.isArray(commandParts)) return false;
+  if (!commandParts.length) return true;
+  const first = String(commandParts[0] || '').toLowerCase();
+  return first.includes(normalizedType);
+}
+
 function getInstallerVerbsForBinary(binary) {
   if (!binary) return ['install'];
   const normalizedBinary = String(binary).toLowerCase();

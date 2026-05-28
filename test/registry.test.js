@@ -587,6 +587,13 @@ test('Codex and Claude lanes enforce binary/command executor targeting', async (
     }, { approved: true, actor: 'test' }), (error) => error.status === 422);
 
     assert.throws(() => registry.createLane(session.id, {
+      title: 'Wrapper codex command',
+      executorType: 'codex',
+      command: 'env codex --version',
+      mcpToolIds: [],
+    }, { approved: true, actor: 'test' }), (error) => error.status === 422);
+
+    assert.throws(() => registry.createLane(session.id, {
       title: 'Invalid codex binary',
       executorType: 'codex',
       executorBinary: '/usr/bin/claude',

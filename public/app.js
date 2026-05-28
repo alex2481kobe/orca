@@ -94,7 +94,8 @@ function parseCommandParts(raw) {
 function executorTargetsCommand(executorType, commandParts) {
   const normalizedType = normalizeExecutorType(executorType);
   if (!normalizedType) return true;
-  return commandParts.some((part) => String(part).toLowerCase().includes(normalizedType));
+  if (!Array.isArray(commandParts) || !commandParts.length) return true;
+  return String(commandParts[0]).toLowerCase().includes(normalizedType);
 }
 
 function executorTargetsBinary(executorType, binary) {
