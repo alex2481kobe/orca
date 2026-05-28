@@ -1014,12 +1014,19 @@ async function showArtifacts(laneId) {
 async function handleCreateProject(event) {
   event.preventDefault();
   const payload = toObj(event.currentTarget);
+  const approval = buildApprovedActionBody('createProject', `Create project ${safeText(payload.name || '').trim() || 'new project'}?`);
+  if (!approval.approved) {
+    renderAlert('Project creation canceled.');
+    return;
+  }
   const quick = (payload.quickLink || '').trim();
   const body = {
     name: payload.name,
     slug: payload.slug,
-    owner: 'dashboard',
+    owner: approval.actor,
     quickLinks: quick ? [{ label: 'Primary', url: quick }] : [],
+    actor: approval.actor,
+    approved: approval.approved,
   };
   const response = await api('/api/projects', { method: 'POST', body });
   if (response.ok) {
@@ -1034,13 +1041,22 @@ async function handleCreateSession(event) {
   event.preventDefault();
   const projectId = event.currentTarget.dataset.projectId;
   const payload = toObj(event.currentTarget);
+  const approval = buildApprovedActionBody(
+    'createSession',
+    `Create session "${String(payload.name || '').trim() || 'new session'}" for this project?`,
+  );
+  if (!approval.approved) {
+    renderAlert('Session creation canceled.');
+    return;
+  }
   const response = await api(`/api/projects/${projectId}/sessions`, {
     method: 'POST',
     body: {
       name: payload.name,
       leader: payload.leader,
       laneConcurrencyLimit: payload.laneConcurrencyLimit ? Number(payload.laneConcurrencyLimit) : 1,
-      actor: 'dashboard',
+      actor: approval.actor,
+      approved: approval.approved,
     },
   });
   if (response.ok) {
@@ -1068,11 +1084,17 @@ async function handleAddProjectQuickLink(event) {
     .filter((item) => item && String(item.url || '').trim() && String(item.label || '').trim())
     .concat([{ label, url }])
     .slice(0, 8);
+  const approval = buildApprovedActionBody('updateProject', `Update quick links for ${project?.name || 'project'}?`);
+  if (!approval.approved) {
+    renderAlert('Quick link addition canceled.');
+    return;
+  }
 
   const response = await api(`/api/projects/${projectId}`, {
     method: 'PATCH',
     body: {
-      actor: 'dashboard',
+      actor: approval.actor,
+      approved: approval.approved,
       quickLinks: nextLinks,
     },
   });
@@ -1467,7 +1489,7 @@ async function handleSystemActions(event) {
       renderAlert('Delete canceled.');
       return;
     }
-    const approval = buildApprovedActionBody('delete');
+    const approval = buildApprovedActionBody('manageMcpTools');
     if (!approval.approved) {
       renderAlert('Deletion canceled.');
       return;
@@ -1498,7 +1520,7 @@ async function handleSystemActions(event) {
     }
     const existingLinks = Array.isArray(project?.quickLinks) ? project.quickLinks : [];
     const nextLinks = existingLinks.filter((_, index) => index !== linkIndex);
-    const approval = buildApprovedActionBody('update');
+    const approval = buildApprovedActionBody('updateProject');
     if (!approval.approved) {
       renderAlert('Quick link removal canceled.');
       return;
@@ -1547,7 +1569,7 @@ async function handleSystemActions(event) {
     const enabled = window.prompt('Enable this MCP tool? (yes/no)', tool.enabled ? 'yes' : 'no');
     if (enabled === null) return;
     const normalizedEnabled = ['yes', 'y', 'true', '1', 'on'].includes(enabled.trim().toLowerCase());
-    const approval = buildApprovedActionBody('update');
+    const approval = buildApprovedActionBody('manageMcpTools');
     if (!approval.approved) {
       renderAlert('MCP tool edit canceled.');
       return;

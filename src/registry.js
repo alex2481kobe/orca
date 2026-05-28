@@ -368,10 +368,25 @@ async function getDirectorySize(directoryPath) {
 }
 
 const defaultPolicy = {
+  createProject: {
+    requiresApproval: true,
+    risk: 'high',
+    message: 'Creating a project can change dashboard topology and expose automation surfaces.',
+  },
   createLane: {
     requiresApproval: true,
     risk: 'high',
     message: 'Spawns executor process and can mutate workspace state.',
+  },
+  createSession: {
+    requiresApproval: true,
+    risk: 'medium',
+    message: 'Creates project coordination sessions and increases execution capacity.',
+  },
+  updateProject: {
+    requiresApproval: true,
+    risk: 'medium',
+    message: 'Project updates can alter routes, quick links, and routing state.',
   },
   stopLane: {
     requiresApproval: true,
@@ -797,6 +812,9 @@ export class CommandDeckRegistry {
         { label: 'Artifacts', url: '/projects/realm-shaper/sessions/overview?section=artifacts' },
       ],
       owner: 'seed',
+    }, {
+      actor: 'seed',
+      approved: true,
     });
 
     const session = this.createSession(project.id, {
@@ -804,6 +822,9 @@ export class CommandDeckRegistry {
       leader: 'codex',
       laneConcurrencyLimit: 2,
       actor: 'seed',
+    }, {
+      actor: 'seed',
+      approved: true,
     });
 
     this.createLane(session.id, {
@@ -853,7 +874,17 @@ export class CommandDeckRegistry {
     quickLinks = [],
     policyProfile = 'default',
     owner = 'dashboard',
-  }) {
+  } = {}, context = {}) {
+    const actor = context.actor || owner;
+    const policyCheck = this.evaluateActionPolicy('createProject', context);
+    if (!policyCheck.allowed) {
+      throw {
+        status: 409,
+        message: policyCheck.message,
+        requiresApproval: true,
+        risk: policyCheck.policy.risk,
+      };
+    }
     if (!name || !String(name).trim()) {
       throw { status: 422, message: 'Project name is required.' };
     }
@@ -876,7 +907,7 @@ export class CommandDeckRegistry {
       route: `/projects/${finalSlug}`,
       quickLinks: quickLinks.slice(0, 8),
       policyProfile,
-      owner,
+      owner: actor,
       createdAt: now,
       updatedAt: now,
       state: 'active',
@@ -886,7 +917,7 @@ export class CommandDeckRegistry {
     this.projects.push(project);
     this.recordAudit({
       type: 'project_created',
-      actor: owner,
+      actor,
       projectId: project.id,
       summary: `Project "${project.name}" created`,
       evidence: { project },
@@ -904,10 +935,23 @@ export class CommandDeckRegistry {
     return this.projects.find((project) => project.id === locator || project.slug === locator);
   }
 
-  updateProject(locator, patch = {}, actor = 'dashboard') {
+  updateProject(locator, patch = {}, context = {}) {
     const project = this.getProject(locator);
     if (!project) {
       throw { status: 404, message: 'Project not found.' };
+    }
+    const actor = context.actor || 'dashboard';
+    const policyCheck = this.evaluateActionPolicy('updateProject', {
+      actor,
+      approved: context.approved,
+    });
+    if (!policyCheck.allowed) {
+      throw {
+        status: 409,
+        message: policyCheck.message,
+        requiresApproval: true,
+        risk: policyCheck.policy.risk,
+      };
     }
 
     if (patch.name && !String(patch.name).trim()) {
@@ -1204,7 +1248,21 @@ export class CommandDeckRegistry {
     laneConcurrencyLimit = 1,
     artifactRetentionDays = 14,
     actor = 'dashboard',
-  }) {
+  } = {}, context = {}) {
+    const resolvedActor = context.actor || actor;
+    const policyCheck = this.evaluateActionPolicy('createSession', {
+      actor: resolvedActor,
+      approved: context.approved,
+    });
+    if (!policyCheck.allowed) {
+      throw {
+        status: 409,
+        message: policyCheck.message,
+        requiresApproval: true,
+        risk: policyCheck.policy.risk,
+      };
+    }
+
     const project = this.getProject(projectLocator);
     if (!project) {
       throw { status: 404, message: 'Project not found.' };
@@ -1238,7 +1296,7 @@ export class CommandDeckRegistry {
     this.sessions.push(session);
     this.recordAudit({
       type: 'session_created',
-      actor,
+      actor: resolvedActor,
       projectId: project.id,
       sessionId: session.id,
       summary: `Session "${session.name}" created for project ${project.name}`,

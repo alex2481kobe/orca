@@ -56,8 +56,8 @@ test('cleanup schedule and cleanup artifacts use retention + approval', async ()
     assert.equal(updated.intervalHours, 12);
     assert.equal(updated.olderThanDays, 7);
 
-    const project = registry.createProject({ name: 'Cleanup Project' });
-    const session = registry.createSession(project.id, { name: 'Cleanup Session' });
+    const project = registry.createProject({ name: 'Cleanup Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Cleanup Session' }, { actor: 'test', approved: true });
     const lane = registry.createLane(session.id, {
       title: 'old lane',
       executorType: 'mock',
@@ -102,12 +102,44 @@ test('cleanup schedule and cleanup artifacts use retention + approval', async ()
   }
 });
 
+test('project and session mutations require policy approval', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+
+  try {
+    assert.throws(
+      () => registry.createProject({ name: 'Unapproved Project' }),
+      (error) => error.status === 409,
+    );
+
+    const project = registry.createProject({ name: 'Project with approval' }, { actor: 'test', approved: true });
+    assert.equal(project.name, 'Project with approval');
+
+    assert.throws(
+      () => registry.createSession(project.id, { name: 'Unapproved Session' }),
+      (error) => error.status === 409,
+    );
+
+    const session = registry.createSession(project.id, { name: 'Approved Session' }, { actor: 'test', approved: true });
+    assert.equal(session.name, 'Approved Session');
+
+    assert.throws(
+      () => registry.updateProject(project.id, { name: 'No approval update' }),
+      (error) => error.status === 409,
+    );
+
+    const renamed = registry.updateProject(project.id, { name: 'Renamed Project' }, { actor: 'test', approved: true });
+    assert.equal(renamed.name, 'Renamed Project');
+  } finally {
+    await cleanup();
+  }
+});
+
 test('scheduled cleanup tick runs artifacts cleanup when run-at is due', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
 
   try {
-    const project = registry.createProject({ name: 'Scheduled Cleanup Project' });
-    const session = registry.createSession(project.id, { name: 'Scheduled Cleanup Session' });
+    const project = registry.createProject({ name: 'Scheduled Cleanup Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Scheduled Cleanup Session' }, { actor: 'test', approved: true });
     const lane = registry.createLane(session.id, {
       title: 'stale lane',
       executorType: 'mock',
@@ -152,8 +184,8 @@ test('scheduled cleanup tick waits until next run time', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
 
   try {
-    const project = registry.createProject({ name: 'Scheduled Cleanup Holdoff Project' });
-    const session = registry.createSession(project.id, { name: 'Scheduled Cleanup Holdoff Session' });
+    const project = registry.createProject({ name: 'Scheduled Cleanup Holdoff Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Scheduled Cleanup Holdoff Session' }, { actor: 'test', approved: true });
     const lane = registry.createLane(session.id, {
       title: 'stale lane',
       executorType: 'mock',
@@ -228,8 +260,8 @@ test('cleanup artifacts require explicit confirmation for destructive cleanup', 
   const { registry, cleanup } = await withIsolatedRegistry();
 
   try {
-    const project = registry.createProject({ name: 'Cleanup Confirmation Project' });
-    const session = registry.createSession(project.id, { name: 'Cleanup Confirmation Session' });
+    const project = registry.createProject({ name: 'Cleanup Confirmation Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Cleanup Confirmation Session' }, { actor: 'test', approved: true });
 
     const lane = registry.createLane(session.id, {
       title: 'old lane',
@@ -287,11 +319,11 @@ test('cleanup default retention comes from session policy when olderThanDays is 
   const { registry, cleanup } = await withIsolatedRegistry();
 
   try {
-    const project = registry.createProject({ name: 'Retention Project' });
+    const project = registry.createProject({ name: 'Retention Project' }, { actor: 'test', approved: true });
     const session = registry.createSession(project.id, {
       name: 'Retention Session',
       artifactRetentionDays: 5,
-    });
+    }, { actor: 'test', approved: true });
 
     const lane = registry.createLane(session.id, {
       title: 'old lane',
@@ -350,8 +382,8 @@ test('MCP tools are scoped by executor type', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
 
   try {
-    const project = registry.createProject({ name: 'MCP Project' });
-    const session = registry.createSession(project.id, { name: 'MCP Session' });
+    const project = registry.createProject({ name: 'MCP Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'MCP Session' }, { actor: 'test', approved: true });
 
     await registry.createMcpTool({
       name: 'all-tool',
@@ -471,8 +503,8 @@ test('Deleting an MCP tool detaches it from existing lane snapshots', async () =
   const { registry, cleanup } = await withIsolatedRegistry();
 
   try {
-    const project = registry.createProject({ name: 'MCP Snapshot Project' });
-    const session = registry.createSession(project.id, { name: 'MCP Snapshot Session' });
+    const project = registry.createProject({ name: 'MCP Snapshot Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'MCP Snapshot Session' }, { actor: 'test', approved: true });
 
     await registry.createMcpTool({
       name: 'transient-tool',
@@ -656,8 +688,8 @@ test('Creating lanes rejects unknown or unauthorized MCP tool IDs', async () => 
   const { registry, cleanup } = await withIsolatedRegistry();
 
   try {
-    const project = registry.createProject({ name: 'Lane MCP Policy Project' });
-    const session = registry.createSession(project.id, { name: 'Lane MCP Policy Session' });
+    const project = registry.createProject({ name: 'Lane MCP Policy Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Lane MCP Policy Session' }, { actor: 'test', approved: true });
 
     await registry.createMcpTool({
       name: 'scoped-codex-tool',
@@ -765,11 +797,11 @@ test('Codex and Claude lanes accept executor overrides and command payloads', as
   const { registry, cleanup } = await withIsolatedRegistry();
 
   try {
-    const project = registry.createProject({ name: 'Executor Project' });
+    const project = registry.createProject({ name: 'Executor Project' }, { actor: 'test', approved: true });
     const session = registry.createSession(project.id, {
       name: 'Executor Session',
       leader: 'codex',
-    });
+    }, { actor: 'test', approved: true });
 
     const codexLane = registry.createLane(session.id, {
       title: 'Codex Lane',
@@ -802,11 +834,11 @@ test('Codex and Claude lanes enforce binary/command executor targeting', async (
   const { registry, cleanup } = await withIsolatedRegistry();
 
   try {
-    const project = registry.createProject({ name: 'Executor Policy Project' });
+    const project = registry.createProject({ name: 'Executor Policy Project' }, { actor: 'test', approved: true });
     const session = registry.createSession(project.id, {
       name: 'Executor Policy Session',
       leader: 'codex',
-    });
+    }, { actor: 'test', approved: true });
 
     assert.throws(() => registry.createLane(session.id, {
       title: 'Invalid codex command',
@@ -847,11 +879,11 @@ test('Creating lanes rejects unsupported executor types', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
 
   try {
-    const project = registry.createProject({ name: 'Executor Type Policy Project' });
+    const project = registry.createProject({ name: 'Executor Type Policy Project' }, { actor: 'test', approved: true });
     const session = registry.createSession(project.id, {
       name: 'Executor Type Policy Session',
       leader: 'codex',
-    });
+    }, { actor: 'test', approved: true });
 
     assert.throws(() => registry.createLane(session.id, {
       title: 'Unsupported executor',
@@ -867,11 +899,11 @@ test('Lane workdirs default to the session workspace and reject traversal outsid
   const { registry, cleanup } = await withIsolatedRegistry();
 
   try {
-    const project = registry.createProject({ name: 'Workspace Boundaries Project' });
+    const project = registry.createProject({ name: 'Workspace Boundaries Project' }, { actor: 'test', approved: true });
     const session = registry.createSession(project.id, {
       name: 'Workspace Boundaries Session',
       leader: 'codex',
-    });
+    }, { actor: 'test', approved: true });
     const sessionRecord = registry.getSession(session.id);
 
     const workspaceStats = await fs.stat(sessionRecord.worktreeRoot);

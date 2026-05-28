@@ -88,7 +88,7 @@ async function startServer({ token, env = {} }) {
   const { restore } = await isolateEnvironment(token, { ...env, PORT: '0' });
   const entrypoint = SERVER_ENTRYPOINT;
   const moduleUrl = `${pathToFileURL(entrypoint).href}?server-test-harness=${Date.now()}-${++harnessCounter}`;
-  const { routeRequest } = await import(moduleUrl);
+  const { routeRequest, stopServer } = await import(moduleUrl);
 
   const requestJson = async (requestPath, options = {}) => {
   const headers = {
@@ -121,7 +121,12 @@ async function startServer({ token, env = {} }) {
 
   return {
     requestJson,
-    stop: restore,
+    stop: async () => {
+      if (typeof stopServer === 'function') {
+        stopServer();
+      }
+      await restore();
+    },
   };
 }
 
@@ -141,11 +146,135 @@ test('server API requires token for mutating actions while allowing read actions
 
     const created = await server.requestJson('/api/projects', {
       method: 'POST',
-      body: { name: 'Authorized project' },
       headers: { 'x-commanddeck-token': token },
+      body: {
+        name: 'Authorized project',
+        approved: true,
+      },
     });
     assert.equal(created.status, 201);
     assert.equal(created.body.name, 'Authorized project');
+  } finally {
+    await server.stop();
+  }
+});
+
+test('project and session API endpoints require explicit approval', async () => {
+  const token = 'route-token-01c';
+  const server = await startServer({ token });
+
+  try {
+    const deniedProject = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: { name: 'Needs approval' },
+    });
+    assert.equal(deniedProject.status, 409);
+    assert.equal(Boolean(deniedProject.body?.requiresApproval), true);
+
+    const project = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        name: 'Approval project',
+        approved: true,
+      },
+    });
+    assert.equal(project.status, 201);
+
+    const deniedSession = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: { name: 'Needs session approval' },
+    });
+    assert.equal(deniedSession.status, 409);
+    assert.equal(Boolean(deniedSession.body?.requiresApproval), true);
+
+    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        name: 'Approval session',
+        approved: true,
+      },
+    });
+    assert.equal(session.status, 201);
+  } finally {
+    await server.stop();
+  }
+});
+
+test('project updates and lane creations require explicit approval', async () => {
+  const token = 'route-token-01d';
+  const server = await startServer({ token });
+
+  try {
+    const project = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        name: 'Approval Baseline Project',
+        approved: true,
+      },
+    });
+    assert.equal(project.status, 201);
+
+    const deniedUpdate = await server.requestJson(`/api/projects/${project.body.id}`, {
+      method: 'PATCH',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        quickLinks: [],
+      },
+    });
+    assert.equal(deniedUpdate.status, 409);
+    assert.equal(Boolean(deniedUpdate.body?.requiresApproval), true);
+
+    const updated = await server.requestJson(`/api/projects/${project.body.id}`, {
+      method: 'PATCH',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        quickLinks: [{ label: 'Project Home', url: 'http://localhost:4173' }],
+        approved: true,
+      },
+    });
+    assert.equal(updated.status, 200);
+    assert.equal(Array.isArray(updated.body?.quickLinks), true);
+    assert.equal(updated.body.quickLinks.length, 1);
+
+    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        name: 'Approval Baseline Session',
+        approved: true,
+      },
+    });
+    assert.equal(session.status, 201);
+
+    const deniedLane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        title: 'No approval lane',
+        executorType: 'mock',
+        owner: 'dashboard',
+      },
+    });
+    assert.equal(deniedLane.status, 409);
+    assert.equal(Boolean(deniedLane.body?.requiresApproval), true);
+
+    const allowedLane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        title: 'Approved lane',
+        executorType: 'mock',
+        owner: 'dashboard',
+        approved: true,
+      },
+    });
+    assert.equal(allowedLane.status, 201);
+    assert.equal(allowedLane.body?.title, 'Approved lane');
   } finally {
     await server.stop();
   }
@@ -180,21 +309,27 @@ test('server rejects malformed query strings on query-based endpoints', async ()
     const project = await server.requestJson('/api/projects', {
       method: 'POST',
       headers: { 'x-commanddeck-token': token },
-      body: { name: 'Query project' },
+      body: { name: 'Query project', approved: true },
     });
     assert.equal(project.status, 201);
 
     const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
       method: 'POST',
       headers: { 'x-commanddeck-token': token },
-      body: { name: 'Query session' },
+      body: { name: 'Query session', approved: true },
     });
     assert.equal(session.status, 201);
 
     const lane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
       method: 'POST',
       headers: { 'x-commanddeck-token': token },
-      body: { title: 'Query lane', executorType: 'mock', command: 'echo query route', owner: 'test' },
+      body: {
+        title: 'Query lane',
+        executorType: 'mock',
+        command: 'echo query route',
+        owner: 'test',
+        approved: true,
+      },
     });
     assert.equal(lane.status, 201);
 
@@ -439,6 +574,7 @@ test('API lane creation validates MCP tool IDs and executor constraints', async 
       headers: { 'x-commanddeck-token': token },
       body: {
         name: 'Lane MCP project',
+        approved: true,
       },
     });
     assert.equal(project.status, 201);
@@ -448,6 +584,7 @@ test('API lane creation validates MCP tool IDs and executor constraints', async 
       headers: { 'x-commanddeck-token': token },
       body: {
         name: 'Lane MCP session',
+        approved: true,
       },
     });
     assert.equal(session.status, 201);
@@ -916,6 +1053,7 @@ test('mobile manifest exposes deep links for projects, sessions, and lane artifa
       headers: { 'x-commanddeck-token': token },
       body: {
         name: 'Manifest Project',
+        approved: true,
       },
     });
     assert.equal(project.status, 201);
@@ -925,6 +1063,7 @@ test('mobile manifest exposes deep links for projects, sessions, and lane artifa
       headers: { 'x-commanddeck-token': token },
       body: {
         name: 'Manifest Session',
+        approved: true,
       },
     });
     assert.equal(session.status, 201);
@@ -936,6 +1075,7 @@ test('mobile manifest exposes deep links for projects, sessions, and lane artifa
         title: 'Manifest Lane',
         executorType: 'mock',
         owner: 'dashboard',
+        approved: true,
       },
     });
     assert.equal(lane.status, 201);
@@ -985,6 +1125,7 @@ test('projects can be patched to manage quick links from the dashboard', async (
       headers: { 'x-commanddeck-token': token },
       body: {
         name: 'Quick Link Project',
+        approved: true,
       },
     });
     assert.equal(project.status, 201);
@@ -1032,6 +1173,7 @@ test('lane-level and session-level audit-event listing supports filtering by sco
       headers: { 'x-commanddeck-token': token },
       body: {
         name: 'Audit Scope Project',
+        approved: true,
       },
     });
     assert.equal(project.status, 201);
@@ -1041,6 +1183,7 @@ test('lane-level and session-level audit-event listing supports filtering by sco
       headers: { 'x-commanddeck-token': token },
       body: {
         name: 'Audit Scope Session',
+        approved: true,
       },
     });
     assert.equal(session.status, 201);
@@ -1052,6 +1195,7 @@ test('lane-level and session-level audit-event listing supports filtering by sco
         title: 'Audit Scope Lane',
         executorType: 'mock',
         owner: 'dashboard',
+        approved: true,
       },
     });
     assert.equal(lane.status, 201);
@@ -1109,6 +1253,7 @@ test('high-risk lane stop action requires explicit approval', async () => {
       headers: { 'x-commanddeck-token': token },
       body: {
         name: 'Lane Stop Project',
+        approved: true,
       },
     });
     assert.equal(project.status, 201);
@@ -1118,6 +1263,7 @@ test('high-risk lane stop action requires explicit approval', async () => {
       headers: { 'x-commanddeck-token': token },
       body: {
         name: 'Lane Stop Session',
+        approved: true,
       },
     });
     assert.equal(session.status, 201);
@@ -1129,6 +1275,7 @@ test('high-risk lane stop action requires explicit approval', async () => {
         title: 'Lane Stop Lane',
         executorType: 'mock',
         owner: 'dashboard',
+        approved: true,
       },
     });
     assert.equal(lane.status, 201);
