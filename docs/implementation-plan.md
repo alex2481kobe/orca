@@ -31,6 +31,7 @@ smoke gates before being listed.
   `docs/full-buildout-ledger.md` so full-buildout status cannot drift
   into undocumented prose.
 - `npm run smoke:auth-sessions`,
+  `npm run smoke:credential-backends`,
   `npm run smoke:credential-redaction`,
   `npm run smoke:evidence-redaction`, and
   `npm run smoke:process-lifecycle` pass as local deterministic gates.
@@ -122,6 +123,12 @@ smoke gates before being listed.
   (`secretRef` first, `apiKeyEnv` fallback), so dashboard-stored
   secrets are usable by executors without returning or persisting raw
   secret values.
+- Credential backends are explicit and redacted: memory/test backend,
+  env fallback, injectable macOS Keychain command path, delete/fallback
+  behavior, dashboard-safe backend status metadata, and fail-closed
+  Windows Credential Manager/Linux Secret Service blocked states are
+  proven by `npm run smoke:credential-backends` without writing real OS
+  credentials.
 - In-app notifications are persistent, redacted, unread/read tracked,
   exposed through `/api/notifications`, and configurable for browser
   delivery without storing sensitive content.
@@ -166,6 +173,7 @@ npm run smoke:route-security-matrix
 npm run smoke:full-buildout-ledger
 npm run smoke:state-migrations
 npm run smoke:auth-sessions
+npm run smoke:credential-backends
 npm run smoke:credential-redaction
 npm run smoke:evidence-redaction
 npm run smoke:process-lifecycle

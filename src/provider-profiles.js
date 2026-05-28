@@ -25,6 +25,7 @@ const PROVIDER_KINDS = new Set(['mock', 'codex', 'claude', 'cli', 'api']);
 const INSTALL_POLICIES = new Set(['manual', 'plan_only', 'approval_required', 'managed']);
 const UPDATE_POLICIES = new Set(['manual', 'notify_only', 'approval_required', 'managed']);
 const API_STYLES = new Set(['openai-compatible', 'gemini', 'custom']);
+const CREDENTIAL_BACKENDS = new Set(['auto', 'memory', 'env', 'macos-keychain', 'windows-credential-manager', 'linux-secret-service']);
 const ROLE_COMPATIBILITY = ['orchestrator', 'executor', 'auditor', 'critique'];
 
 function clone(value) {
@@ -365,8 +366,18 @@ function normalizeProfile(raw, existing = null) {
 }
 
 class CredentialStore {
-  constructor({ backend = process.env.COMMAND_DECK_CREDENTIAL_BACKEND || 'auto' } = {}) {
-    this.backend = backend;
+  constructor({
+    backend = process.env.COMMAND_DECK_CREDENTIAL_BACKEND || 'auto',
+    runner = spawnSync,
+    platform = process.platform,
+    env = process.env,
+    service = SECRET_SERVICE,
+  } = {}) {
+    this.backend = CREDENTIAL_BACKENDS.has(backend) ? backend : 'auto';
+    this.runner = runner;
+    this.platform = platform;
+    this.env = env;
+    this.service = service;
     this.memory = new Map();
   }
 
@@ -374,31 +385,93 @@ class CredentialStore {
     if (this.backend === 'memory') return 'memory';
     if (this.backend === 'env') return 'env';
     if (this.backend === 'macos-keychain') return 'macos-keychain';
-    if (this.backend === 'auto' && process.platform === 'darwin') return 'macos-keychain';
+    if (this.backend === 'windows-credential-manager') return 'windows-credential-manager';
+    if (this.backend === 'linux-secret-service') return 'linux-secret-service';
+    if (this.backend === 'auto' && this.platform === 'darwin') return 'macos-keychain';
     return 'env';
+  }
+
+  backendStatuses() {
+    const active = this.activeBackend();
+    return [
+      {
+        id: 'memory',
+        active: active === 'memory',
+        available: true,
+        writable: active === 'memory',
+        persistence: 'process-memory',
+        status: active === 'memory' ? 'active' : 'available_for_tests',
+        blockedReason: null,
+      },
+      {
+        id: 'env',
+        active: active === 'env',
+        available: true,
+        writable: false,
+        persistence: 'environment',
+        status: active === 'env' ? 'active_fallback' : 'fallback_available',
+        blockedReason: 'Environment variables are read-only from Command Deck and are never written by dashboard secret entry.',
+      },
+      {
+        id: 'macos-keychain',
+        active: active === 'macos-keychain',
+        available: this.platform === 'darwin',
+        writable: this.platform === 'darwin',
+        persistence: 'os-credential-store',
+        status: this.platform === 'darwin' ? (active === 'macos-keychain' ? 'active' : 'available') : 'blocked_on_this_host',
+        blockedReason: this.platform === 'darwin' ? null : 'macOS Keychain is available only on darwin hosts.',
+      },
+      {
+        id: 'windows-credential-manager',
+        active: active === 'windows-credential-manager',
+        available: false,
+        writable: false,
+        persistence: 'os-credential-store',
+        status: this.platform === 'win32' ? 'blocked_adapter_not_implemented' : 'blocked_on_this_host',
+        blockedReason: 'Windows Credential Manager adapter is not implemented in this Node runtime; use env fallback or a future OS adapter.',
+      },
+      {
+        id: 'linux-secret-service',
+        active: active === 'linux-secret-service',
+        available: false,
+        writable: false,
+        persistence: 'os-credential-store',
+        status: this.platform === 'linux' ? 'blocked_adapter_not_implemented' : 'blocked_on_this_host',
+        blockedReason: 'Linux Secret Service/libsecret adapter is not implemented in this Node runtime; use env fallback or a future OS adapter.',
+      },
+    ];
+  }
+
+  runMacosSecurity(args, { timeout = 4000 } = {}) {
+    const result = this.runner('security', args, {
+      encoding: 'utf8',
+      timeout,
+      maxBuffer: 64 * 1024,
+      windowsHide: true,
+    }) || {};
+    return {
+      status: Number.isInteger(result.status) ? result.status : null,
+      stdout: String(result.stdout || ''),
+      errorCode: result.error?.code || null,
+    };
   }
 
   async describe(ref, envName = null) {
     const normalizedRef = ref ? normalizeSecretRef(ref, { allowBlank: false }) : null;
     const normalizedEnv = envName ? normalizeEnvName(envName, { allowBlank: false }) : null;
-    const envPresent = normalizedEnv ? typeof process.env[normalizedEnv] === 'string' && process.env[normalizedEnv].length > 0 : false;
+    const envPresent = normalizedEnv ? typeof this.env[normalizedEnv] === 'string' && this.env[normalizedEnv].length > 0 : false;
     const backend = this.activeBackend();
     if (backend === 'memory') {
       return {
         present: Boolean(normalizedRef && this.memory.has(normalizedRef)) || envPresent,
-        backend: this.memory.has(normalizedRef) ? 'memory' : (envPresent ? 'env' : 'memory'),
+        backend: normalizedRef && this.memory.has(normalizedRef) ? 'memory' : (envPresent ? 'env' : 'memory'),
         ref: normalizedRef,
         envName: normalizedEnv,
         envFallbackPresent: envPresent,
       };
     }
     if (backend === 'macos-keychain' && normalizedRef) {
-      const result = spawnSync('security', ['find-generic-password', '-s', SECRET_SERVICE, '-a', normalizedRef], {
-        encoding: 'utf8',
-        timeout: 2000,
-        maxBuffer: 64 * 1024,
-        windowsHide: true,
-      });
+      const result = this.runMacosSecurity(['find-generic-password', '-s', this.service, '-a', normalizedRef], { timeout: 2000 });
       if (result.status === 0) {
         return { present: true, backend: 'macos-keychain', ref: normalizedRef, envName: normalizedEnv, envFallbackPresent: envPresent };
       }
@@ -418,15 +491,10 @@ class CredentialStore {
     const backend = this.activeBackend();
     if (backend === 'memory' && this.memory.has(normalizedRef)) return this.memory.get(normalizedRef);
     if (backend === 'macos-keychain' && normalizedRef) {
-      const result = spawnSync('security', ['find-generic-password', '-s', SECRET_SERVICE, '-a', normalizedRef, '-w'], {
-        encoding: 'utf8',
-        timeout: 2000,
-        maxBuffer: 64 * 1024,
-        windowsHide: true,
-      });
+      const result = this.runMacosSecurity(['find-generic-password', '-s', this.service, '-a', normalizedRef, '-w'], { timeout: 2000 });
       if (result.status === 0 && result.stdout) return String(result.stdout).trim();
     }
-    if (normalizedEnv && typeof process.env[normalizedEnv] === 'string') return process.env[normalizedEnv];
+    if (normalizedEnv && typeof this.env[normalizedEnv] === 'string') return this.env[normalizedEnv];
     return null;
   }
 
@@ -445,12 +513,7 @@ class CredentialStore {
       return this.describe(normalizedRef);
     }
     if (backend === 'macos-keychain') {
-      const result = spawnSync('security', ['add-generic-password', '-U', '-s', SECRET_SERVICE, '-a', normalizedRef, '-w', secret], {
-        encoding: 'utf8',
-        timeout: 4000,
-        maxBuffer: 64 * 1024,
-        windowsHide: true,
-      });
+      const result = this.runMacosSecurity(['add-generic-password', '-U', '-s', this.service, '-a', normalizedRef, '-w', secret], { timeout: 4000 });
       if (result.status !== 0) throw { status: 500, message: 'Could not store secret in macOS Keychain.' };
       return this.describe(normalizedRef);
     }
@@ -465,15 +528,15 @@ class CredentialStore {
       return { deleted: true, backend: 'memory', ref: normalizedRef };
     }
     if (backend === 'macos-keychain') {
-      const result = spawnSync('security', ['delete-generic-password', '-s', SECRET_SERVICE, '-a', normalizedRef], {
-        encoding: 'utf8',
-        timeout: 4000,
-        maxBuffer: 64 * 1024,
-        windowsHide: true,
-      });
-      return { deleted: result.status === 0, backend: 'macos-keychain', ref: normalizedRef };
+      const result = this.runMacosSecurity(['delete-generic-password', '-s', this.service, '-a', normalizedRef], { timeout: 4000 });
+      return {
+        deleted: result.status === 0,
+        backend: 'macos-keychain',
+        ref: normalizedRef,
+        status: result.status === 0 ? 'deleted' : 'not_found_or_unavailable',
+      };
     }
-    return { deleted: false, backend, ref: normalizedRef };
+    return { deleted: false, backend, ref: normalizedRef, status: 'not_writable' };
   }
 }
 
@@ -564,6 +627,7 @@ class ProviderProfileStore {
       schemaVersion: 1,
       generatedAt: nowIso(),
       credentialBackend: this.credentialStore.activeBackend(),
+      credentialBackends: this.credentialStore.backendStatuses(),
       loadStatus: this.loadStatus ? clone(this.loadStatus) : null,
       profiles,
     };

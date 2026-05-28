@@ -33,6 +33,7 @@
     "smoke:app-backup": "node scripts/app-backup-smoke.mjs",
     "smoke:state-migrations": "node scripts/state-migrations-smoke.mjs",
     "smoke:auth-sessions": "node scripts/auth-sessions-smoke.mjs",
+    "smoke:credential-backends": "node scripts/credential-backends-smoke.mjs",
     "smoke:credential-redaction": "node scripts/credential-redaction-smoke.mjs",
     "smoke:evidence-redaction": "node scripts/evidence-redaction-smoke.mjs",
     "smoke:process-lifecycle": "node scripts/process-lifecycle-smoke.mjs"

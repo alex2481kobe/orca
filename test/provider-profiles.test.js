@@ -107,3 +107,115 @@ test('memory credential store never echoes secret values through provider APIs',
     await fs.rm(tempDir, { recursive: true, force: true });
   }
 });
+
+test('credential store reports env fallback and blocked OS backend states without values', async () => {
+  const env = { COMMAND_DECK_TEST_API_KEY: 'sk-env-secret' };
+  const credentialStore = new CredentialStore({ backend: 'env', platform: 'linux', env });
+  const description = await credentialStore.describe('provider:test', 'COMMAND_DECK_TEST_API_KEY');
+  assert.equal(description.present, true);
+  assert.equal(description.backend, 'env');
+  assert.equal(description.envFallbackPresent, true);
+  assert.equal(JSON.stringify(description).includes('sk-env-secret'), false);
+
+  const statuses = credentialStore.backendStatuses();
+  assert.equal(statuses.some((status) => status.id === 'linux-secret-service' && /blocked/.test(status.status)), true);
+  assert.equal(statuses.some((status) => status.id === 'windows-credential-manager' && /blocked/.test(status.status)), true);
+  assert.equal(JSON.stringify(statuses).includes('sk-env-secret'), false);
+});
+
+test('provider list exposes credential backend status metadata without secret values', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-provider-backends-'));
+  const store = new ProviderProfileStore({
+    stateFile: path.join(tempDir, 'providers.json'),
+    credentialStore: new CredentialStore({
+      backend: 'env',
+      platform: 'darwin',
+      env: { COMMAND_DECK_OPENAI_COMPATIBLE_API_KEY: 'sk-env-provider-secret' },
+    }),
+  });
+  try {
+    const list = await store.listProfiles();
+    assert.equal(list.credentialBackend, 'env');
+    assert.equal(Array.isArray(list.credentialBackends), true);
+    assert.equal(list.credentialBackends.some((status) => status.id === 'macos-keychain' && status.available), true);
+    assert.equal(JSON.stringify(list).includes('sk-env-provider-secret'), false);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('macOS Keychain credential backend is proven through injectable runner and redacted public status', async () => {
+  const secret = 'sk-keychain-secret';
+  const ref = 'provider:fake-keychain';
+  const stored = new Map();
+  const commands = [];
+  const runner = (command, args) => {
+    commands.push({ command, args: [...args] });
+    assert.equal(command, 'security');
+    const account = args[args.indexOf('-a') + 1];
+    if (args[0] === 'add-generic-password') {
+      stored.set(account, args[args.indexOf('-w') + 1]);
+      return { status: 0, stdout: '', stderr: '' };
+    }
+    if (args[0] === 'find-generic-password' && args.includes('-w')) {
+      return stored.has(account)
+        ? { status: 0, stdout: `${stored.get(account)}\n`, stderr: '' }
+        : { status: 44, stdout: '', stderr: 'not found' };
+    }
+    if (args[0] === 'find-generic-password') {
+      return stored.has(account)
+        ? { status: 0, stdout: '', stderr: '' }
+        : { status: 44, stdout: '', stderr: 'not found' };
+    }
+    if (args[0] === 'delete-generic-password') {
+      const deleted = stored.delete(account);
+      return { status: deleted ? 0 : 44, stdout: '', stderr: deleted ? '' : 'not found' };
+    }
+    return { status: 64, stdout: '', stderr: 'unsupported' };
+  };
+
+  const credentialStore = new CredentialStore({
+    backend: 'macos-keychain',
+    platform: 'darwin',
+    runner,
+  });
+
+  const set = await credentialStore.set(ref, secret);
+  assert.equal(set.present, true);
+  assert.equal(set.backend, 'macos-keychain');
+  assert.equal(JSON.stringify(set).includes(secret), false);
+
+  const description = await credentialStore.describe(ref);
+  assert.equal(description.present, true);
+  assert.equal(JSON.stringify(description).includes(secret), false);
+
+  const value = await credentialStore.get(ref);
+  assert.equal(value, secret);
+
+  const deleted = await credentialStore.delete(ref);
+  assert.equal(deleted.deleted, true);
+  assert.equal(JSON.stringify(deleted).includes(secret), false);
+
+  const afterDelete = await credentialStore.describe(ref);
+  assert.equal(afterDelete.present, false);
+  assert.equal(JSON.stringify({ set, description, deleted, afterDelete }).includes(secret), false);
+  assert.equal(commands.some((entry) => entry.args[0] === 'add-generic-password'), true);
+  assert.equal(commands.some((entry) => entry.args[0] === 'delete-generic-password'), true);
+});
+
+test('unsupported writable OS credential backends fail closed with env fallback available', async () => {
+  const credentialStore = new CredentialStore({
+    backend: 'linux-secret-service',
+    platform: 'darwin',
+    env: { COMMAND_DECK_TEST_API_KEY: 'sk-env-fallback-secret' },
+  });
+  const description = await credentialStore.describe('provider:test', 'COMMAND_DECK_TEST_API_KEY');
+  assert.equal(description.present, true);
+  assert.equal(description.backend, 'env');
+  assert.equal(JSON.stringify(description).includes('sk-env-fallback-secret'), false);
+
+  await assert.rejects(
+    () => credentialStore.set('provider:test', 'sk-new-secret'),
+    (error) => error.status === 409 && /No writable OS credential backend/.test(error.message),
+  );
+});
