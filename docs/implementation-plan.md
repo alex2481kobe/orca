@@ -1,61 +1,70 @@
-# Command Deck Implementation Plan (Execution-Mode)
+# Command Deck Implementation Plan
 
-The roadmap in `../docs/roadmap.md` is the canonical source of truth.  
-This document tracks concrete implementation progress against those phases.
+This public-safe repo document tracks the implementation state of the client package. Private roadmap coordination and tonight's full buildout handoff live in the parent workspace docs.
 
-## Current status
+## Current Status
 
-- Phase 0: Scaffold and Repo Hygiene — in progress (foundation files in place, local server stack now bootstrapped)
-- Phase 1: Local Dashboard and Core Control Model — complete
-- Phase 2: Orchestration Registry and Worker Contract — complete
-- Phase 3: Claude and Codex CLI Lane Spawning — complete
-  - Note: CLI adapters are now implemented behind the same lane contract and can launch per-lane shell commands for codex/claude execution paths.
-- Phase 4: Playwright Evidence — complete
-- Phase 5: Tailscale Serve Mobile Access — complete
-- Phase 6: Audit Buttons and Lane Automation — complete
-- Phase 7: Production hardening — complete
+Command Deck has a working local prototype with real server, registry, dashboard, policy, worker, evidence, cleanup, mobile-manifest, MCP, and CLI-management surfaces. The project is not yet considered production-complete until the full start-to-finish flow is verified against current code.
 
-## Big-task checkpoints
+Implemented or partially implemented:
 
-1. **Foundation and route model**
-   - Local server + in-memory registry
-   - Dashboard shell UI with project/session/lane views
-   - Policy-aware lane actions and audit events
-2. **Orchestration backend contract**
-   - Durable registry persistence in `.command-deck/state.json`
-   - Queue scheduling + state transitions
-   - Worker contract adapter (`MockWorkerAdapter`) with heartbeat and timeout handling
-   - Recovery of interrupted lanes across restarts
-   - Adapter resolution per executor type with mock/codex/claude registry scaffolding
-3. **Worker spawn contract**
-   - Lane execution adapter layer
-   - Executor selection by lane type and per-lane adapter tracking
-   - Mock worker implementation as contract conformance layer
-   - Process-backed `codex` and `claude` adapters using lane-level command fields
-4. **Playwright evidence**
-  - Artifact snapshots are written for all terminal states
-  - Emit structured terminal evidence payloads (`outcome.txt`, `transcript.json`) for external analyzers
-  - Added lane-level capture API and optional Playwright capture path behind explicit route
-  - Added lane route metadata, consistent evidence naming, mobile manifest endpoint, and audit queue acknowledge flow
-5. **Mobile/private control**
-  - Stable URL model and shared quick-link schema
-  - Artifact surfacing and audit workflow UI for phone
-  - Added lane detail route rendering and mobile manifest discoverability
-6. **Secure action model**
-  - Explicit approval gates and audit trail requirements on high-risk operations
-7. **Production hardening**
-  - Persistence, authN/Z, storage rotation, and deployment notes
-  - Executor profile configuration visibility for codex/claude
-  - MCP tool catalog and lane-level MCP attachment
-  - Policy-gated cleanup scheduling with run-now controls
+- Local Node HTTP server and dashboard shell.
+- Persistent registry for projects, sessions, lanes, MCP tools, cleanup schedule, and audit events.
+- Token support for mutating API requests through `COMMAND_DECK_API_TOKEN`.
+- Policy-gated project/session/lane/MCP/cleanup/CLI-management actions.
+- Mock worker contract and process-backed Codex/Claude executor adapter path.
+- Lane lifecycle, logs, heartbeats, stop/retry, recovery, artifacts, and audit events.
+- Playwright evidence runner with screenshot, trace, video, and degraded no-Playwright behavior.
+- Mobile manifest and lane deep-link routes.
+- Artifact cleanup, cleanup schedule, and cleanup run-now controls.
+- MCP tool CRUD, validation, scoping, and lane attachment.
+- Executor profile and CLI info/reinstall dry-run endpoints.
 
-## Work rules while implementing
+Needs completion or proof before tonight use:
 
-- One file per responsibility; keep each change scoped to the active checkpoint.
+- Full route-by-route security audit and tests for every mutating/high-risk path.
+- Verified Codex CLI freshness from trusted official source policy before real Codex lane reliance.
+- Verified Claude CLI availability and real lane behavior.
+- Stronger real-process stop/recovery tests.
+- Worktree isolation defaults for real implementation lanes.
+- Generated lane-specific MCP config files for attached tools if not already proven.
+- Full dashboard polish for phone control and operations use.
+- Playwright dependency/browser setup or a documented degraded evidence mode that is acceptable for tonight.
+- Browser/mobile smoke verification of dashboard, evidence, artifacts, and maintenance flows.
+- Updated README only after current behavior is proven.
+
+## Implementation Checkpoints
+
+1. Foundation and route model
+2. Orchestration registry and worker contract
+3. Codex/Claude executor support
+4. Playwright evidence
+5. Mobile/private control
+6. Secure action model
+7. MCP tooling
+8. Cleanup scheduler
+9. Dashboard UI completion
+10. End-to-end verification and docs
+
+## Work Rules
+
+- Keep this repo public-safe.
+- Do not commit private roadmap, private task tracking, or personal workflow notes into this repo.
 - Add no speculative dependency.
-- No destructive file operations (`rm`, `git reset`, etc.).
-- Preserve the roadmap boundary: this repo remains public-safe.
+- If a dependency is added, commit the manifest and lockfile together.
+- No destructive cleanup. Move obsolete whole files/folders to the parent `throwaway/` archive only when explicitly needed.
+- Commit by logical task and stage explicit paths only.
 
-## Upcoming order (default)
+## Verification Targets
 
-- Checkpoint 7 (complete): implemented storage rotation and maintenance controls, including policy-gated `/api/artifacts/cleanup`, optional dry-run support, and token-aware authenticated actions.
+Before calling this project ready for tonight use, prove:
+
+- `npm test` passes.
+- High-risk routes require token and approval.
+- Mock lane lifecycle works.
+- Codex and Claude executor health is visible and real execution is either verified or safely blocked with clear docs.
+- MCP tool CRUD and lane attachment work.
+- Evidence capture or degraded evidence behavior works.
+- Cleanup dry-run and confirmed cleanup work safely.
+- Mobile manifest and phone-sized dashboard route work.
+- README and docs match what was actually verified.

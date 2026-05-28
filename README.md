@@ -2,7 +2,7 @@
 
 Command Deck is the local control plane for coordinating AI coding workers.
 
-This implementation is a checkpointed buildout covering Phases 0/1, plus durable Phase 2 plus initial Phase 3 scaffolding:
+This implementation is a checkpointed local prototype with multiple production-shaped surfaces already in place. It is not considered fully ready until the current security, executor, UI, mobile, evidence, MCP, cleanup, and end-to-end verification pass is complete:
 - Shared dashboard routes (`/`, `/projects/:slug`, `/projects/:slug/sessions/:id`)
 - Persistent registry backing for projects, sessions, lanes, and audit events (`.command-deck/state.json`)
 - Policy-gated lane actions and queue-like lifecycle transitions
@@ -60,9 +60,16 @@ For private mobile control guidance, see:
 
 - `command-deck-client/docs/tailscale-mobile-access.md`
 
+## Current readiness
+
+- The dashboard and API are usable for local development and hardening.
+- Real Codex/Claude lane execution must be verified against the current host CLI state before relying on it for unattended work.
+- Playwright evidence capture requires local Playwright availability; when unavailable, the evidence runner records degraded evidence instead of silently succeeding.
+- Private mobile use should stay behind Tailscale Serve with `COMMAND_DECK_API_TOKEN` set.
+
 ## Notes
 
-- The execution model is still mock-driven for now, but now through a worker adapter contract (`src/worker-contract.js`).
+- Mock execution remains the safest baseline lane path. Codex/Claude execution goes through the same worker adapter contract (`src/worker-contract.js`) and must be configured with narrow executor profiles.
 - Lane restart behavior is recovery-aware: active lanes are failed during startup recovery and recoverable state is persisted.
 - Mobile manifest is available at `GET /api/mobile/manifest`, returning a mobile-friendly route map and lane artifact/evidence endpoints, including latest-evidence URLs and audit queue links.
 - Artifact cleanup operations are exposed via `POST /api/artifacts/cleanup` (requires approval by policy).
