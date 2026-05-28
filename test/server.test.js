@@ -164,6 +164,48 @@ test('server rejects malformed request URLs without crashing', async () => {
   }
 });
 
+test('server rejects malformed query strings on query-based endpoints', async () => {
+  const token = 'route-token-01b';
+  const server = await startServer({ token });
+
+  try {
+    const malformedAuditQuery = await server.requestJson('/api/audit/events?status=%E0%A4', { method: 'GET' });
+    assert.equal(malformedAuditQuery.status, 400);
+    assert.equal(String(malformedAuditQuery.body?.error || '').includes('Invalid request query string.'), true);
+
+    const malformedMcpQuery = await server.requestJson('/api/mcp/tools?scope=%E0%A4', { method: 'GET' });
+    assert.equal(malformedMcpQuery.status, 400);
+    assert.equal(String(malformedMcpQuery.body?.error || '').includes('Invalid request query string.'), true);
+
+    const project = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: { name: 'Query project' },
+    });
+    assert.equal(project.status, 201);
+
+    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: { name: 'Query session' },
+    });
+    assert.equal(session.status, 201);
+
+    const lane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: { title: 'Query lane', executorType: 'mock', command: 'echo query route', owner: 'test' },
+    });
+    assert.equal(lane.status, 201);
+
+    const malformedEvidenceQuery = await server.requestJson(`/api/lanes/${lane.body.id}/evidence/latest?mode=%E0%A4`, { method: 'GET' });
+    assert.equal(malformedEvidenceQuery.status, 400);
+    assert.equal(String(malformedEvidenceQuery.body?.error || '').includes('Invalid request query string.'), true);
+  } finally {
+    await server.stop();
+  }
+});
+
 test('server blocks destructive artifact cleanup without explicit confirmation', async () => {
   const token = 'route-token-02';
   const server = await startServer({ token });

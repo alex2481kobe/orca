@@ -90,6 +90,14 @@ function normalizePathname(requestUrl) {
   }
 }
 
+function getSearchParams(requestUrl) {
+  try {
+    return new URL(requestUrl, 'http://localhost').searchParams;
+  } catch {
+    return null;
+  }
+}
+
 async function readArtifactText(filePath) {
   return fs.readFile(filePath, 'utf8');
 }
@@ -356,12 +364,24 @@ async function handleApi(req, res, pathname, method, parts) {
   }
 
   if (parts[1] === 'audit' && parts[2] === 'events' && method === 'GET') {
-    const status = new URL(req.url, 'http://localhost').searchParams.get('status');
+    const searchParams = getSearchParams(req.url || '/');
+    if (!searchParams) {
+      return sendJson(res, 400, {
+        error: 'Invalid request query string.',
+      });
+    }
+    const status = searchParams.get('status');
     return sendJson(res, 200, registry.listAuditEvents({ status }));
   }
 
   if (parts[1] === 'mcp' && parts[2] === 'tools' && parts.length === 3 && method === 'GET') {
-    const scope = new URL(req.url, 'http://localhost').searchParams.get('scope');
+    const searchParams = getSearchParams(req.url || '/');
+    if (!searchParams) {
+      return sendJson(res, 400, {
+        error: 'Invalid request query string.',
+      });
+    }
+    const scope = searchParams.get('scope');
     return sendJson(res, 200, registry.getMcpTools(scope));
   }
 
@@ -614,7 +634,13 @@ async function handleApi(req, res, pathname, method, parts) {
     }
 
     if (parts.length === 5 && parts[3] === 'evidence' && parts[4] === 'latest' && method === 'GET') {
-      const mode = new URL(req.url, 'http://localhost').searchParams.get('mode');
+      const searchParams = getSearchParams(req.url || '/');
+      if (!searchParams) {
+        return sendJson(res, 400, {
+          error: 'Invalid request query string.',
+        });
+      }
+      const mode = searchParams.get('mode');
       try {
         const latestEvidence = await registry.getLatestEvidence(lane.id, { mode });
         return sendJson(res, 200, latestEvidence);
@@ -696,7 +722,13 @@ async function handleApi(req, res, pathname, method, parts) {
       }
     }
     if (parts.length === 3 && method === 'GET') {
-      const status = new URL(req.url, 'http://localhost').searchParams.get('status');
+      const searchParams = getSearchParams(req.url || '/');
+      if (!searchParams) {
+        return sendJson(res, 400, {
+          error: 'Invalid request query string.',
+        });
+      }
+      const status = searchParams.get('status');
       return sendJson(res, 200, registry.listAuditEvents({ status }));
     }
   }
