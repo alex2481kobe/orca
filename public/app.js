@@ -263,6 +263,12 @@ function isVerificationProject(project) {
   return slug.startsWith('smoke-') || name.startsWith('smoke ');
 }
 
+function activeHomePanel() {
+  const panel = String(window.location.hash || '').replace(/^#/, '').toLowerCase();
+  const allowed = new Set(['projects', 'create', 'system', 'mcp', 'audit', 'cleanup', 'token']);
+  return allowed.has(panel) ? panel : 'overview';
+}
+
 function stateTagClass(state) {
   switch (String(state || '').toLowerCase()) {
     case 'done': return 'ok';
@@ -348,6 +354,7 @@ function renderBreadcrumbs(project, session) {
 }
 
 function renderHome() {
+  const panel = activeHomePanel();
   const artifactCleanupUrl = shell.mobileManifest?.artifactCleanupUrl || '/api/artifacts/cleanup';
   const scheduleApiUrl = shell.mobileManifest?.artifactCleanupScheduleUrl || '/api/artifacts/cleanup/schedule';
   const scheduleRunApiUrl = shell.mobileManifest?.artifactCleanupNowUrl || '/api/artifacts/cleanup/run-now';
@@ -455,7 +462,22 @@ function renderHome() {
   const verificationProjectCards = verificationProjects.map(renderProjectCard).join('');
 
   refs.content.innerHTML = `
-    <div class="stat-grid">
+    <section class="home-hero">
+      <div>
+        <div class="card-kicker">Command center</div>
+        <h2>Navigate projects, then open the card you need.</h2>
+        <p class="muted">Status and setup controls live in focused panels so the phone view stays useful for moving between work and talking to agents.</p>
+      </div>
+      <div class="home-panel-nav" aria-label="Dashboard panels">
+        <a class="nav-tile ${panel === 'projects' || panel === 'overview' ? 'active' : ''}" href="#projects">Projects</a>
+        <a class="nav-tile ${panel === 'token' ? 'active' : ''}" href="#token">Token</a>
+        <a class="nav-tile ${panel === 'system' ? 'active' : ''}" href="#system">System</a>
+        <a class="nav-tile ${panel === 'mcp' ? 'active' : ''}" href="#mcp">MCP</a>
+        <a class="nav-tile ${panel === 'cleanup' ? 'active' : ''}" href="#cleanup">Cleanup</a>
+        <a class="nav-tile ${panel === 'audit' ? 'active' : ''}" href="#audit">Audit</a>
+      </div>
+    </section>
+    <div class="stat-grid compact-stats">
       <div class="stat">
         <b>${shell.projects.length}</b>
         <span>Projects</span>
@@ -469,8 +491,8 @@ function renderHome() {
         <span>Lanes</span>
       </div>
     </div>
-    <section class="grid-2">
-      <article class="card control-card" id="section-token">
+    <section class="grid-2 home-panels" data-active-panel="${safeAttr(panel)}">
+      <article class="card control-card" id="section-token" data-panel-card="token">
         <h3>API token</h3>
         <div class="tiny muted">${tokenConfigured ? 'Configured for mutating requests.' : 'No token configured.'}</div>
         <label>Token
@@ -481,7 +503,7 @@ function renderHome() {
           <button class="secondary" data-action="clearApiToken" type="button">Clear token</button>
         </div>
       </article>
-        <article class="card control-card" id="section-system">
+        <article class="card control-card" id="section-system" data-panel-card="system">
         <details class="disclosure" open>
           <summary>
             <span>Executor profiles</span>
@@ -490,7 +512,7 @@ function renderHome() {
           <div class="disclosure-body">${profileRows || '<div class="muted">No executor profiles loaded yet.</div>'}</div>
         </details>
       </article>
-      <article class="card control-card">
+      <article class="card control-card" data-panel-card="system">
         <details class="disclosure" open>
           <summary>
             <span>Executor CLI health and updates</span>
@@ -499,7 +521,7 @@ function renderHome() {
           <div class="disclosure-body">${cliRows || '<div class="muted">No CLI data yet.</div>'}</div>
         </details>
       </article>
-      <article class="card control-card" id="section-cleanup">
+      <article class="card control-card" id="section-cleanup" data-panel-card="cleanup">
         <details class="disclosure">
           <summary>
             <span>Artifact cleanup schedule</span>
@@ -527,7 +549,7 @@ function renderHome() {
           </div>
         </details>
       </article>
-      <article class="card control-card" id="section-mcp">
+      <article class="card control-card" id="section-mcp" data-panel-card="mcp">
         <details class="disclosure">
           <summary>
             <span>Custom MCP tools</span>
@@ -560,7 +582,7 @@ function renderHome() {
           </div>
         </details>
       </article>
-      <div class="card control-card">
+      <div class="card control-card" data-panel-card="create">
         <details class="disclosure">
           <summary>
             <span>Create project</span>
@@ -582,7 +604,7 @@ function renderHome() {
           </div>
         </details>
       </div>
-      <div class="card">
+      <div class="card" data-panel-card="projects">
         <h3>Project list</h3>
         <div class="card-grid">${primaryProjectCards || '<div class="muted">No projects yet.</div>'}</div>
         ${verificationProjectCards ? `
@@ -595,7 +617,7 @@ function renderHome() {
           </details>
         ` : ''}
       </div>
-      <article class="card">
+      <article class="card" data-panel-card="cleanup">
         <h3>System actions</h3>
         <button
           class="secondary"
@@ -669,7 +691,7 @@ function renderProject(project) {
         </article>
       </div>
       <article class="card control-card">
-        <details class="disclosure" open>
+        <details class="disclosure">
           <summary>
             <span>Quick links</span>
             <small>Project URLs and phone targets</small>
@@ -933,8 +955,21 @@ function renderLane(project, session, lane) {
 }
 
 function renderAuditLog() {
+  if (activeHomePanel() !== 'audit') return;
   const events = Array.isArray(shell.pendingAuditEvents) ? shell.pendingAuditEvents : [];
-  if (!events.length) return;
+  if (!events.length) {
+    refs.actions.innerHTML = `
+      <section class="home-hero">
+        <div>
+          <div class="card-kicker">Audit queue</div>
+          <h2>No pending audits.</h2>
+          <p class="muted">Finished lanes that need review will show up here.</p>
+        </div>
+        <a class="nav-tile" href="#projects">Back to projects</a>
+      </section>
+    `;
+    return;
+  }
   const rows = events.map((event) => {
     const project = shell.projects.find((value) => value.id === event.projectId);
     const laneRoute = project && event.sessionId && event.laneId
@@ -2130,6 +2165,10 @@ document.addEventListener('keydown', (event) => {
   if (!navCard || !navCard.dataset.href) return;
   event.preventDefault();
   window.location.href = navCard.dataset.href;
+});
+
+window.addEventListener('hashchange', () => {
+  render();
 });
 
 setInterval(refresh, 3000);
