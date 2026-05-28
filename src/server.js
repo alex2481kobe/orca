@@ -206,6 +206,7 @@ function buildMobileManifest(req) {
                 evidenceUrl: `${origin}/api/lanes/${lane.id}/evidence`,
                 evidenceLatestUrl: `${origin}/api/lanes/${lane.id}/evidence/latest`,
                 auditApi: `${origin}/api/lanes/${lane.id}/audit`,
+                auditEventsUrl: `${origin}/api/lanes/${lane.id}/audit-events`,
               };
             }),
           };
@@ -554,6 +555,24 @@ async function handleApi(req, res, pathname, method, parts) {
         });
       }
     }
+
+    if (parts.length === 4 && parts[3] === 'audit-events' && method === 'GET') {
+      const searchParams = getSearchParams(req.url || '/');
+      if (!searchParams) {
+        return sendJson(res, 400, {
+          error: 'Invalid request query string.',
+        });
+      }
+      const status = searchParams.get('status');
+      try {
+        return sendJson(res, 200, registry.listAuditEvents({
+          status,
+          sessionId: session.id,
+        }));
+      } catch (error) {
+        return sendJson(res, error.status || 500, { error: error.message || 'Could not list session audit events.' });
+      }
+    }
   }
 
   if (parts[1] === 'lanes') {
@@ -604,6 +623,24 @@ async function handleApi(req, res, pathname, method, parts) {
           requiresApproval: error.requiresApproval || false,
           risk: error.risk || null,
         });
+      }
+    }
+
+    if (parts.length === 4 && parts[3] === 'audit-events' && method === 'GET') {
+      const searchParams = getSearchParams(req.url || '/');
+      if (!searchParams) {
+        return sendJson(res, 400, {
+          error: 'Invalid request query string.',
+        });
+      }
+      const status = searchParams.get('status');
+      try {
+        return sendJson(res, 200, registry.listAuditEvents({
+          status,
+          laneId: lane.id,
+        }));
+      } catch (error) {
+        return sendJson(res, error.status || 500, { error: error.message || 'Could not list lane audit events.' });
       }
     }
 

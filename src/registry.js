@@ -2074,11 +2074,20 @@ export class CommandDeckRegistry {
     };
   }
 
-  listAuditEvents({ status } = {}) {
+  listAuditEvents({ status, sessionId, laneId } = {}) {
+    let events = this.auditEvents;
     if (status) {
-      return clonePayload(this.auditEvents.filter((event) => event.status === status));
+      events = events.filter((event) => event.status === status);
     }
-    return clonePayload(this.auditEvents);
+    if (sessionId !== undefined) {
+      const matchSessionId = String(sessionId);
+      events = events.filter((event) => String(event.sessionId) === matchSessionId);
+    }
+    if (laneId !== undefined) {
+      const matchLaneId = String(laneId);
+      events = events.filter((event) => String(event.laneId) === matchLaneId);
+    }
+    return clonePayload(events);
   }
 
   acknowledgeAuditEvent(eventId, {

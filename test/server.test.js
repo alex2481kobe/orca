@@ -978,3 +978,140 @@ test('projects can be patched to manage quick links from the dashboard', async (
     await server.stop();
   }
 });
+
+test('lane-level and session-level audit-event listing supports filtering by scope and status', async () => {
+  const token = 'route-token-09';
+  const server = await startServer({ token });
+
+  try {
+    const project = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        name: 'Audit Scope Project',
+      },
+    });
+    assert.equal(project.status, 201);
+
+    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        name: 'Audit Scope Session',
+      },
+    });
+    assert.equal(session.status, 201);
+
+    const lane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        title: 'Audit Scope Lane',
+        executorType: 'mock',
+        owner: 'dashboard',
+      },
+    });
+    assert.equal(lane.status, 201);
+
+    const auditQueued = await server.requestJson(`/api/lanes/${lane.body.id}/audit`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+      },
+    });
+    assert.equal(auditQueued.status, 201);
+    const queuedAuditEventId = auditQueued.body?.event?.id || auditQueued.body?.id;
+    assert.equal(typeof queuedAuditEventId, 'string');
+
+    const lanePending = await server.requestJson(`/api/lanes/${lane.body.id}/audit-events?status=pending`, { method: 'GET' });
+    assert.equal(lanePending.status, 200);
+    assert.equal(Array.isArray(lanePending.body), true);
+    assert.equal(lanePending.body.some((event) => event.id === queuedAuditEventId), true);
+
+    const sessionPending = await server.requestJson(`/api/sessions/${session.body.id}/audit-events?status=pending`, { method: 'GET' });
+    assert.equal(sessionPending.status, 200);
+    assert.equal(Array.isArray(sessionPending.body), true);
+    assert.equal(sessionPending.body.some((event) => event.id === queuedAuditEventId), true);
+
+    const laneAck = await server.requestJson(`/api/audit/events/${queuedAuditEventId}/ack`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: { actor: 'dashboard' },
+    });
+    assert.equal(laneAck.status, 200);
+
+    const lanePendingAfterAck = await server.requestJson(`/api/lanes/${lane.body.id}/audit-events?status=pending`, { method: 'GET' });
+    assert.equal(lanePendingAfterAck.status, 200);
+    assert.equal(Array.isArray(lanePendingAfterAck.body), true);
+    assert.equal(lanePendingAfterAck.body.some((event) => event.id === queuedAuditEventId), false);
+
+    const lanePassed = await server.requestJson(`/api/lanes/${lane.body.id}/audit-events?status=passed`, { method: 'GET' });
+    assert.equal(lanePassed.status, 200);
+    assert.equal(Array.isArray(lanePassed.body), true);
+    assert.equal(lanePassed.body.some((event) => event.id === queuedAuditEventId), true);
+  } finally {
+    await server.stop();
+  }
+});
+
+test('high-risk lane stop action requires explicit approval', async () => {
+  const token = 'route-token-10';
+  const server = await startServer({ token });
+
+  try {
+    const project = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        name: 'Lane Stop Project',
+      },
+    });
+    assert.equal(project.status, 201);
+
+    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        name: 'Lane Stop Session',
+      },
+    });
+    assert.equal(session.status, 201);
+
+    const lane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        title: 'Lane Stop Lane',
+        executorType: 'mock',
+        owner: 'dashboard',
+      },
+    });
+    assert.equal(lane.status, 201);
+
+    const deniedStop = await server.requestJson(`/api/lanes/${lane.body.id}/stop`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: false,
+      },
+    });
+    assert.equal(deniedStop.status, 409);
+    assert.equal(Boolean(deniedStop.body?.requiresApproval), true);
+
+    const approvedStop = await server.requestJson(`/api/lanes/${lane.body.id}/stop`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+      },
+    });
+    assert.equal(approvedStop.status, 200);
+    assert.equal(approvedStop.body?.state, 'stopped');
+  } finally {
+    await server.stop();
+  }
+});

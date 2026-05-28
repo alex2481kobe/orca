@@ -12,6 +12,7 @@ const shell = {
   mobileManifest: null,
   apiToken: '',
   cleanupSchedule: null,
+  pendingAuditEvents: [],
   mcpTools: [],
   executorProfiles: null,
   executorCliInfo: {},
@@ -207,6 +208,35 @@ function laneDetailRoute(project, session, lane) {
 function formatMeta(timeString) {
   if (!timeString) return 'n/a';
   return new Date(timeString).toLocaleTimeString();
+}
+
+function getActionPolicy(actionKey) {
+  return shell.policy?.[actionKey] || { requiresApproval: false, risk: 'low', message: '' };
+}
+
+function needsApproval(actionKey) {
+  return Boolean(getActionPolicy(actionKey).requiresApproval);
+}
+
+function confirmHighRiskAction(message, actionKey) {
+  const policy = getActionPolicy(actionKey);
+  if (!policy.requiresApproval) return true;
+  const policyMessage = policy.message || 'This action requires explicit approval.';
+  return window.confirm(`${message}\n${policyMessage}`);
+}
+
+function pendingAuditsForLane(laneId) {
+  if (!Array.isArray(shell.pendingAuditEvents)) return [];
+  const target = String(laneId || '');
+  if (!target) return [];
+  return shell.pendingAuditEvents.filter((event) => String(event.laneId || '') === target);
+}
+
+function pendingAuditsForSession(sessionId) {
+  if (!Array.isArray(shell.pendingAuditEvents)) return [];
+  const target = String(sessionId || '');
+  if (!target) return [];
+  return shell.pendingAuditEvents.filter((event) => String(event.sessionId || '') === target);
 }
 
 function renderAlert(text, level = 'info') {
@@ -530,28 +560,40 @@ function renderProject(project) {
 function renderLaneCard(lane) {
   const artifactsLink = `/api/lanes/${lane.id}/artifacts`;
   const evidenceLatestUrl = `/api/lanes/${lane.id}/evidence/latest`;
+  const lanePendingAudits = pendingAuditsForLane(lane.id);
+  const auditQueuedBadge = lanePendingAudits.length
+    ? `<span class="tag warn">Audit queued (${lanePendingAudits.length})</span>`
+    : '';
+  const laneAuditWarning = lanePendingAudits.length
+    ? `<div class="tiny">Pending audit event${lanePendingAudits.length > 1 ? 's' : ''}: ${
+      lanePendingAudits.map((event) => event.id.slice(0, 8)).join(', ')
+    }</div>`
+    : '';
   const stopButton = ['running', 'starting', 'queued'].includes(lane.state)
-    ? `<button data-action="stopLane" data-lane-id="${lane.id}" type="button">Stop lane</button>` : '';
+    ? `<button data-action="stopLane" data-lane-id="${lane.id}" title="${getActionPolicy('stopLane').message}" type="button">Stop lane</button>` : '';
   const retryButton = ['failed', 'stopped'].includes(lane.state)
-    ? `<button class="secondary" data-action="retryLane" data-lane-id="${lane.id}" type="button">Retry lane</button>` : '';
+    ? `<button class="secondary" data-action="retryLane" data-lane-id="${lane.id}" title="${getActionPolicy('retryLane').message}" type="button">Retry lane</button>` : '';
   const laneLink = lane.route ? `<a class="secondary" href="${safeText(lane.route)}">Lane detail</a>` : '';
+  const auditLabel = lanePendingAudits.length ? 'Audit already queued' : 'Audit now';
   return `
     <article class="lane-list-item">
       <div class="row">
         <h4>${safeText(lane.title)}</h4>
         ${stateBadge(lane.state)}
+        ${auditQueuedBadge}
       </div>
       <p>${safeText(lane.taskDescription || 'No task description')}</p>
       <div class="tiny">
         Executor: ${safeText(lane.executorType)} / Owner: ${safeText(lane.owner)} / MCP tools: ${safeText((lane.mcpTools || []).length)} / Started: ${formatMeta(lane.startedAt)} / Heartbeat: ${formatMeta(lane.heartbeatAt)}
       </div>
+      ${laneAuditWarning}
       <div class="lane-row">
         ${stopButton}
         ${retryButton}
         ${laneLink}
         <button class="secondary" data-action="captureEvidence" data-lane-id="${lane.id}" type="button">Capture evidence</button>
         <button class="secondary" data-action="clearEvidence" data-lane-id="${lane.id}" type="button">Clear evidence</button>
-        <button class="secondary" data-action="auditLane" data-lane-id="${lane.id}" type="button">Audit now</button>
+        <button class="secondary" data-action="auditLane" data-lane-id="${lane.id}" type="button">${auditLabel}</button>
         <button class="secondary" data-action="showArtifacts" data-lane-id="${lane.id}" type="button">Artifacts</button>
         <a class="secondary" href="${artifactsLink}" target="_blank" rel="noopener noreferrer">Artifact API</a>
         <a class="secondary" href="${evidenceLatestUrl}" target="_blank" rel="noopener noreferrer">Latest evidence</a>
@@ -565,11 +607,16 @@ function renderLaneCard(lane) {
 
 function renderSession(project, session) {
   const laneList = shell.lanes.map((lane) => renderLaneCard(lane)).join('');
+  const pendingAudits = pendingAuditsForSession(session.id);
+  const pendingAuditSummary = pendingAudits.length
+    ? `<p>Pending audit events: ${pendingAudits.length}</p>`
+    : '<p>No pending audit events.</p>';
   refs.content.innerHTML = `
     <section>
       <div class="card">
         <h3>${safeText(session.name)}</h3>
         <p>Project: ${safeText(project.name)} — leader ${safeText(session.leader)}</p>
+        <p>Policy profile: ${safeText(session.policyProfile || 'default')}</p>
       </div>
       <div class="grid-2">
         <article class="card">
@@ -610,6 +657,7 @@ function renderSession(project, session) {
         </article>
         <article class="card">
           <h3>Session actions</h3>
+          ${pendingAuditSummary}
           <button class="secondary" data-action="auditDone" data-session-id="${session.id}" type="button">Audit all done lanes</button>
           <button data-action="refresh" type="button">Refresh</button>
         </article>
@@ -643,6 +691,11 @@ function renderLane(project, session, lane) {
   const artifactUrl = `/api/lanes/${lane.id}/artifacts`;
   const evidenceUrl = `/api/lanes/${lane.id}/evidence`;
   const evidenceLatestUrl = `/api/lanes/${lane.id}/evidence/latest`;
+  const pendingAudits = pendingAuditsForLane(lane.id);
+  const pendingAuditRows = pendingAudits.length
+    ? pendingAudits.map((event) => `<div>${safeText(event.type)} (${safeText(event.id.slice(0, 8))})</div>`).join('')
+    : '<div>None</div>';
+  const auditLabel = pendingAudits.length ? 'Refresh audit queue' : 'Audit now';
   const laneLogs = Array.isArray(lane.logs) ? lane.logs.slice(-8) : [];
 
   return `
@@ -654,6 +707,8 @@ function renderLane(project, session, lane) {
         <div class="tiny muted">MCP tools: ${(lane.mcpTools || []).map((item) => safeText(item.name)).join(', ') || 'none'}</div>
         <div class="tiny muted">Route: ${safeText(laneDetailRoute(project, session, lane))}</div>
         <div class="tiny">Owner: ${safeText(lane.owner)} / Executor: ${safeText(lane.executorType)} / State: ${safeText(lane.state)}</div>
+        <div class="tiny">Pending audits: ${pendingAudits.length}</div>
+        <div class="tiny">Pending events: ${pendingAuditRows}</div>
         <div class="tiny">Created: ${formatMeta(lane.createdAt)} / Started: ${formatMeta(lane.startedAt)} / Completed: ${formatMeta(lane.completedAt)}</div>
       </div>
       <div class="card">
@@ -663,7 +718,7 @@ function renderLane(project, session, lane) {
           ${retryButton}
           <button class="secondary" data-action="captureEvidence" data-lane-id="${lane.id}" type="button">Capture evidence</button>
           <button class="secondary" data-action="clearEvidence" data-lane-id="${lane.id}" type="button">Clear evidence</button>
-          <button class="secondary" data-action="auditLane" data-lane-id="${lane.id}" type="button">Audit now</button>
+          <button class="secondary" data-action="auditLane" data-lane-id="${lane.id}" type="button">${auditLabel}</button>
           <button class="secondary" data-action="showArtifacts" data-lane-id="${lane.id}" type="button">Artifacts</button>
           <a class="secondary" href="${artifactUrl}" target="_blank" rel="noopener noreferrer">Artifacts API</a>
           <a class="secondary" href="${evidenceUrl}" target="_blank" rel="noopener noreferrer">Evidence API</a>
@@ -685,31 +740,27 @@ function renderLane(project, session, lane) {
 }
 
 function renderAuditLog() {
-  api('/api/audit/events?status=pending')
-    .then(({ data }) => {
-      if (!data || !Array.isArray(data)) return;
-      if (!data.length) return;
-      const rows = data.map((event) => {
-        const project = shell.projects.find((value) => value.id === event.projectId);
-        const laneRoute = project && event.sessionId && event.laneId
-          ? `${project.route}/sessions/${event.sessionId}/lanes/${event.laneId}`
-          : '';
-        return `
-          <article class="card">
-            <p><strong>${safeText(event.summary || event.type || 'Audit event')}</strong></p>
-            <div class="tiny">Type: ${safeText(event.type || 'unknown')}</div>
-            <div class="tiny">Project: ${safeText(event.projectId || 'unknown')}</div>
-            <div class="tiny">Lane: ${safeText(event.laneId || 'n/a')}</div>
-            ${laneRoute ? `<a class="secondary" href="${laneRoute}">Open lane</a>` : ''}
-            <div class="lane-row" style="margin-top:0.75rem">
-              <button class="secondary" data-action="ackAuditEvent" data-event-id="${safeText(event.id)}" type="button">Mark reviewed</button>
-            </div>
-          </article>
-        `;
-      }).join('');
-      refs.actions.innerHTML = `<div class="card"><h3>Open audit queue</h3><div class="card-grid">${rows}</div></div>`;
-    })
-    .catch(() => {});
+  const events = Array.isArray(shell.pendingAuditEvents) ? shell.pendingAuditEvents : [];
+  if (!events.length) return;
+  const rows = events.map((event) => {
+    const project = shell.projects.find((value) => value.id === event.projectId);
+    const laneRoute = project && event.sessionId && event.laneId
+      ? `${project.route}/sessions/${event.sessionId}/lanes/${event.laneId}`
+      : '';
+    return `
+      <article class="card">
+        <p><strong>${safeText(event.summary || event.type || 'Audit event')}</strong></p>
+        <div class="tiny">Type: ${safeText(event.type || 'unknown')}</div>
+        <div class="tiny">Project: ${safeText(event.projectId || 'unknown')}</div>
+        <div class="tiny">Lane: ${safeText(event.laneId || 'n/a')}</div>
+        ${laneRoute ? `<a class="secondary" href="${laneRoute}">Open lane</a>` : ''}
+        <div class="lane-row" style="margin-top:0.75rem">
+          <button class="secondary" data-action="ackAuditEvent" data-event-id="${safeText(event.id)}" type="button">Mark reviewed</button>
+        </div>
+      </article>
+    `;
+  }).join('');
+  refs.actions.innerHTML = `<div class="card"><h3>Open audit queue</h3><div class="card-grid">${rows}</div></div>`;
 }
 
 function render() {
@@ -771,6 +822,11 @@ async function refresh() {
   if (mcpToolsResp.ok && Array.isArray(mcpToolsResp.data)) {
     shell.mcpTools = mcpToolsResp.data;
   }
+
+  const pendingAuditResp = await api('/api/audit/events?status=pending');
+  shell.pendingAuditEvents = pendingAuditResp.ok && Array.isArray(pendingAuditResp.data)
+    ? pendingAuditResp.data
+    : [];
 
   const projectsResp = await api('/api/projects');
   shell.projects = projectsResp.ok && Array.isArray(projectsResp.data) ? projectsResp.data : [];
@@ -1124,9 +1180,7 @@ async function handleLaneActions(event) {
     clearEvidence: 'clearEvidenceArtifacts',
   }[action];
   const policy = shell.policy[policyKey] || { requiresApproval: false };
-  const approved = policy.requiresApproval
-    ? window.confirm('This is a higher-risk action. Continue?')
-      : true;
+  const approved = confirmHighRiskAction('This is a higher-risk action. Continue?', policyKey);
 
   if (action === 'captureEvidence') {
     const providedUrl = window.prompt('Target URL for evidence capture (example: http://localhost:4173)');
@@ -1186,10 +1240,10 @@ async function handleLaneActions(event) {
   const response = await api(endpoint.url, {
     method: endpoint.method,
     body: {
-      approved: action === 'auditLane' ? true : approved,
-      actor: 'dashboard',
-    },
-  });
+        approved,
+        actor: 'dashboard',
+      },
+    });
   if (response.ok) {
     if (action === 'auditLane' && response.data?.alreadyQueued) {
       renderAlert('Audit for this lane is already queued.');
@@ -1226,9 +1280,14 @@ async function handleSessionActions(event) {
   }
   if (action === 'auditDone') {
     const sessionId = event.currentTarget.dataset.sessionId;
+    const approved = confirmHighRiskAction('Queue audit for finished lanes in this session?', 'auditDoneLanes');
+    if (!approved) {
+      renderAlert('Session audit request canceled.');
+      return;
+    }
     const response = await api(`/api/sessions/${sessionId}/audit-done-lanes`, {
       method: 'POST',
-      body: { actor: 'dashboard', approved: true },
+      body: { actor: 'dashboard', approved },
     });
     if (response.ok) {
       const queuedNew = response.data?.enqueuedNew ?? response.data?.enqueued ?? 0;
