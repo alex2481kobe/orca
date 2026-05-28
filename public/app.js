@@ -108,6 +108,25 @@ function getExecutorProfile(type) {
   return shell.executorProfiles && shell.executorProfiles[profileType] ? shell.executorProfiles[profileType] : null;
 }
 
+function getExecutorScopedMcpTools(executorType) {
+  const normalizedType = normalizeExecutorType(executorType);
+  const tools = Array.isArray(shell.mcpTools) ? shell.mcpTools : [];
+  return tools.filter((tool) => {
+    const scope = Array.isArray(tool.scope) && tool.scope.length
+      ? tool.scope.map((value) => String(value || '').toLowerCase())
+      : [];
+    return tool.enabled !== false && (!scope.length || scope.includes('all') || scope.includes(normalizedType));
+  });
+}
+
+function findMcpTool(locator) {
+  if (!locator) return null;
+  const target = String(locator).trim().toLowerCase();
+  return Array.isArray(shell.mcpTools)
+    ? shell.mcpTools.find((tool) => (tool.id === target || tool.name === target))
+    : null;
+}
+
 function renderLaneExecutorGuidance(form) {
   if (!form || form.id !== 'create-lane-form') return;
   const profileEl = document.getElementById('lane-command-guidance');
@@ -117,10 +136,15 @@ function renderLaneExecutorGuidance(form) {
   const lowerType = normalizeExecutorType(selectedType);
   const commandInput = form.elements.command;
   const binaryInput = form.elements.executorBinary;
+  const scopedTools = getExecutorScopedMcpTools(selectedType);
   const defaultBinary = safeText(profile?.defaultBinary || '');
   const defaultArgs = Array.isArray(profile?.defaultArgs) ? profile.defaultArgs.join(' ') : '';
   const allowedBinaries = Array.isArray(profile?.allowedBinaries) ? profile.allowedBinaries : [];
   const allowedList = allowedBinaries.length ? `Allowed binaries: ${safeText(allowedBinaries.join(', '))}` : 'No curated binary allowlist available';
+  const visibleToolIds = scopedTools.map((tool) => safeText(tool.id || tool.name)).slice(0, 10).join(', ');
+  const toolSummary = scopedTools.length
+    ? `Available MCP tools: ${visibleToolIds}${scopedTools.length > 10 ? ', ...' : ''}`
+    : 'No MCP tools currently available for this lane type.';
 
   const defaultArgsText = defaultArgs ? ` ${safeText(defaultArgs)}` : '';
   const binaryHint = defaultBinary ? `Try ${defaultBinary}${defaultArgsText} for ${lowerType}-led lanes.` : '';
@@ -135,6 +159,18 @@ function renderLaneExecutorGuidance(form) {
         Executor guidance: command or binary must contain "${lowerType}".
         ${binaryHint ? `${binaryHint} ` : ''}
         ${allowedList ? `${allowedList}` : ''}
+        <br/>${toolSummary}
+      </div>
+    `.trim();
+    return;
+  }
+
+  if (lowerType === 'mock') {
+    commandInput.placeholder = 'e.g., node';
+    binaryInput.placeholder = 'e.g., codex, claude, node, ./scripts/run.sh';
+    profileEl.innerHTML = `
+      <div class="tiny muted">
+        ${toolSummary}
       </div>
     `.trim();
     return;
@@ -142,7 +178,7 @@ function renderLaneExecutorGuidance(form) {
 
   commandInput.placeholder = 'e.g., node';
   binaryInput.placeholder = 'e.g., codex, claude, node, ./scripts/run.sh';
-  profileEl.textContent = '';
+  profileEl.textContent = toolSummary;
 }
 
 function laneDetailRoute(project, session, lane) {
@@ -843,6 +879,14 @@ async function handleCreateLane(event) {
   const payload = buildApprovedBody(toObj(event.currentTarget));
   const executorType = normalizeExecutorType(payload.executorType || 'mock');
   const commandParts = parseCommandParts(payload.command);
+  const requestedToolIds = payload.mcpToolIds
+    ? String(payload.mcpToolIds).split(',').map((value) => value.trim()).filter(Boolean)
+    : [];
+  const scopedTools = getExecutorScopedMcpTools(executorType);
+  const scopedToolIds = new Set(scopedTools.map((tool) => tool.id));
+  const unknownTools = [];
+  const disallowedTools = [];
+
   if (executorType === 'codex' || executorType === 'claude') {
     if (commandParts.length > 0 && !executorTargetsCommand(executorType, commandParts)) {
       renderAlert(`Command for ${executorType} must include "${executorType}".`, 'bad');
@@ -853,6 +897,27 @@ async function handleCreateLane(event) {
       return;
     }
   }
+
+  for (const requestedToolId of requestedToolIds) {
+    const tool = findMcpTool(requestedToolId);
+    if (!tool) {
+      unknownTools.push(requestedToolId);
+      continue;
+    }
+    if (!scopedToolIds.has(tool.id)) {
+      disallowedTools.push(requestedToolId);
+    }
+  }
+
+  if (unknownTools.length) {
+    renderAlert(`Unknown MCP tool(s): ${unknownTools.join(', ')}`, 'bad');
+    return;
+  }
+  if (disallowedTools.length) {
+    renderAlert(`Tool(s) not available for ${executorType}: ${disallowedTools.join(', ')}`, 'bad');
+    return;
+  }
+
   const response = await api(`/api/sessions/${sessionId}/lanes`, {
     method: 'POST',
     body: {
@@ -863,12 +928,7 @@ async function handleCreateLane(event) {
       commandArgs: payload.commandArgs || null,
       executorBinary: payload.executorBinary || null,
       workdir: payload.workdir || null,
-      mcpToolIds: payload.mcpToolIds
-        ? String(payload.mcpToolIds)
-            .split(',')
-            .map((value) => value.trim())
-            .filter(Boolean)
-        : [],
+      mcpToolIds: requestedToolIds,
       owner: 'dashboard',
       approved: payload.approved,
     },
