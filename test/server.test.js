@@ -3,7 +3,10 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { spawn } from 'node:child_process';
+import { PassThrough } from 'node:stream';
+import { pathToFileURL } from 'node:url';
+
+const SERVER_ENTRYPOINT = path.join(process.cwd(), 'src', 'server.js');
 
 function parseJsonBody(rawText) {
   if (!rawText) return null;
@@ -14,93 +17,111 @@ function parseJsonBody(rawText) {
   }
 }
 
-async function startServer({ token, env = {} }) {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-server-'));
-  const entrypoint = path.join(process.cwd(), 'src', 'server.js');
-
-  const serverEnv = {
-    ...process.env,
-    ...env,
-    PORT: env.PORT || '0',
+function createResponseState() {
+  const chunks = [];
+  const res = {
+    statusCode: 200,
+    headers: {},
   };
 
-  if (typeof token === 'string') {
-    serverEnv.COMMAND_DECK_API_TOKEN = token;
-  }
+  res.setHeader = (name, value) => {
+    res.headers[String(name).toLowerCase()] = String(value);
+  };
 
-  const child = spawn(process.execPath, [entrypoint], {
-    cwd: tempDir,
-    env: serverEnv,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  res.end = (chunk) => {
+    if (chunk !== undefined && chunk !== null) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+    }
+  };
 
-  const startupTimeout = setTimeout(() => {
-    child.kill('SIGKILL');
-  }, 5000);
+  return {
+    res,
+    bodyText: () => Buffer.concat(chunks).toString('utf8'),
+  };
+}
 
-  const baseUrl = await new Promise((resolve, reject) => {
-    const onData = (chunk) => {
-      const text = String(chunk || '');
-      const match = text.match(/listening at http:\/\/localhost:(\d+)/i);
-      if (match?.[1]) {
-        clearTimeout(startupTimeout);
-        const port = Number.parseInt(match[1], 10);
-        child.stdout.off('data', onData);
-        child.stderr.off('data', onData);
-        resolve(`http://127.0.0.1:${port}`);
+async function isolateEnvironment(token, env = {}) {
+  const previousCwd = process.cwd();
+  const previousEnv = { ...process.env };
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-server-'));
+
+  process.chdir(tempDir);
+
+  const restore = async () => {
+    Object.keys(process.env).forEach((key) => {
+      if (!(key in previousEnv)) {
+        delete process.env[key];
       }
-    };
+    });
+    Object.entries(previousEnv).forEach(([key, value]) => {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    });
 
-    const onExit = (code) => {
-      clearTimeout(startupTimeout);
-      reject(new Error(`Server exited during startup with code ${code}`));
-    };
-
-    child.stdout.on('data', onData);
-    child.stderr.on('data', onData);
-    child.once('exit', onExit);
-  });
-
-  const stop = async () => {
-    if (child.exitCode !== null) {
-      await fs.rm(tempDir, { recursive: true, force: true });
-      return;
-    }
-
-    if (!child.killed && child.exitCode === null) {
-      child.kill('SIGTERM');
-    }
-    await new Promise((resolve) => {
-      child.once('exit', resolve);
-    }).catch(() => {});
+    process.chdir(previousCwd);
     await fs.rm(tempDir, { recursive: true, force: true });
   };
 
-  const requestJson = async (requestPath, options = {}) => {
-    const headers = {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    };
-    const body = options.body !== undefined ? JSON.stringify(options.body) : options.body;
+  if (typeof token === 'string') {
+    process.env.COMMAND_DECK_API_TOKEN = token;
+  } else {
+    delete process.env.COMMAND_DECK_API_TOKEN;
+  }
 
-    const response = await fetch(`${baseUrl}${requestPath}`, {
-      ...options,
-      body,
-      headers,
-    });
-    const text = await response.text();
+  for (const [key, value] of Object.entries(env)) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+
+  return { restore, tempDir };
+}
+
+let harnessCounter = 0;
+
+async function startServer({ token, env = {} }) {
+  const { restore } = await isolateEnvironment(token, { ...env, PORT: '0' });
+  const entrypoint = SERVER_ENTRYPOINT;
+  const moduleUrl = `${pathToFileURL(entrypoint).href}?server-test-harness=${Date.now()}-${++harnessCounter}`;
+  const { routeRequest } = await import(moduleUrl);
+
+  const requestJson = async (requestPath, options = {}) => {
+  const headers = {
+    'content-type': 'application/json',
+    ...(options.headers || {}),
+  };
+
+    const body = options.body !== undefined ? JSON.stringify(options.body) : undefined;
+    const { res, bodyText } = createResponseState();
+    const req = new PassThrough();
+    req.method = options.method || 'GET';
+    req.url = requestPath;
+    req.headers = headers;
+
+    const handler = routeRequest(req, res);
+    if (body === undefined) {
+      req.end();
+    } else {
+      req.end(body);
+    }
+    await handler;
+
+    const text = bodyText();
     return {
-      status: response.status,
+      status: res.statusCode,
       body: parseJsonBody(text),
-      response,
+      response: { statusCode: res.statusCode, headers: res.headers },
     };
   };
 
   return {
-    baseUrl,
-    child,
     requestJson,
-    stop,
+    stop: restore,
   };
 }
 
@@ -115,7 +136,7 @@ test('server API requires token for mutating actions while allowing read actions
     const deniedCreate = await server.requestJson('/api/projects', {
       method: 'POST',
       body: { name: 'Unauthorized project' },
-    },);
+    });
     assert.equal(deniedCreate.status, 401);
 
     const created = await server.requestJson('/api/projects', {
@@ -156,8 +177,7 @@ test('server blocks destructive artifact cleanup without explicit confirmation',
         approved: true,
         dryRun: true,
       },
-      },
-    );
+    });
     assert.equal(dryRunResult.status, 200);
     assert.equal(dryRunResult.body?.dryRun, true);
   } finally {

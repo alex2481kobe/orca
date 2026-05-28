@@ -2,8 +2,10 @@ import { createServer } from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { CommandDeckRegistry } from './registry.js';
+import { fileURLToPath } from 'node:url';
 
 const PORT = Number(process.env.PORT || 3000);
+const HOST = process.env.COMMAND_DECK_HOST || '127.0.0.1';
 const PUBLIC_DIR = path.join(process.cwd(), 'public');
 const registry = new CommandDeckRegistry();
 const API_TOKEN = process.env.COMMAND_DECK_API_TOKEN || '';
@@ -712,10 +714,35 @@ async function handleRequest(req, res, pathname, method, parts) {
   return serveStaticOrIndex(pathname, res);
 }
 
-const server = createServer(routeRequest);
+function startServer(port = PORT, host = HOST) {
+  const server = createServer(routeRequest);
+  return new Promise((resolve, reject) => {
+    const onError = (error) => {
+      reject(error);
+    };
+    server.once('error', onError);
+    server.listen(port, host, () => {
+      server.off('error', onError);
+      const address = server.address();
+      const effectivePort = typeof address === 'string' ? address : (address?.port || port);
+      console.log(`Command Deck prototype listening at http://${host}:${effectivePort}`);
+      console.log(`Dashboard route root: /`);
+      console.log(`Health: /api/health`);
+      resolve(server);
+    });
+  });
+}
 
-server.listen(PORT, () => {
-  console.log(`Command Deck prototype listening at http://localhost:${PORT}`);
-  console.log(`Dashboard route root: /`);
-  console.log(`Health: /api/health`);
-});
+const thisModulePath = fileURLToPath(import.meta.url);
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(thisModulePath)) {
+  startServer().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}
+
+export {
+  routeRequest,
+  handleRequest,
+  startServer,
+};
