@@ -20,6 +20,7 @@ const shell = {
   privateAccess: null,
   providerCatalog: null,
   providerHealth: {},
+  effectiveSettings: null,
   authStatus: null,
 };
 
@@ -327,7 +328,7 @@ function isVerificationProject(project) {
 
 function activeHomePanel() {
   const panel = String(window.location.hash || '').replace(/^#/, '').toLowerCase();
-  const allowed = new Set(['projects', 'create', 'system', 'mcp', 'audit', 'cleanup', 'token', 'private-access', 'providers']);
+  const allowed = new Set(['projects', 'create', 'system', 'mcp', 'audit', 'cleanup', 'token', 'private-access', 'providers', 'effective-settings']);
   return allowed.has(panel) ? panel : 'overview';
 }
 
@@ -484,6 +485,13 @@ function renderHome() {
   }).join('');
   const providerCatalog = shell.providerCatalog || {};
   const providerProfiles = Array.isArray(providerCatalog.profiles) ? providerCatalog.profiles : [];
+  const effectiveSettings = shell.effectiveSettings || {};
+  const effectiveSummary = effectiveSettings.settings || {};
+  const effectiveSources = Array.isArray(effectiveSettings.sourcesApplied) ? effectiveSettings.sourcesApplied : [];
+  const effectiveSettingsText = JSON.stringify(effectiveSummary, null, 2);
+  const effectiveSourcesText = effectiveSources
+    .map((source) => `${source.scope}:${source.source}${source.id ? `:${source.id}` : ''} -> ${(source.fields || []).join(', ')}`)
+    .join('\n');
   const providerRows = providerProfiles.map((profile) => {
     const credential = profile.credential || {};
     const health = shell.providerHealth?.[profile.id] || {};
@@ -628,6 +636,10 @@ function renderHome() {
       <a class="simple-row" href="#providers">
         <span class="row-icon">◇</span>
         <span>Providers</span>
+      </a>
+      <a class="simple-row" href="#effective-settings">
+        <span class="row-icon">✓</span>
+        <span>Effective settings</span>
       </a>
     </section>
     <div class="stat-grid compact-stats settings-stats is-hidden">
@@ -853,6 +865,45 @@ function renderHome() {
                 <textarea id="provider-import-json" rows="8" placeholder='{"schemaVersion":1,"profiles":[]}'></textarea>
                 <pre id="provider-export-output" aria-live="polite"></pre>
               </div>
+            </details>
+          </div>
+        </details>
+      </article>
+      <article class="card control-card" id="section-effective-settings" data-panel-card="effective-settings">
+        <details class="disclosure" open>
+          <summary>
+            <span>Effective settings</span>
+            <small>global -> project -> session -> lane -> action</small>
+          </summary>
+          <div class="disclosure-body">
+            <p class="muted">Resolved provider, spawn, critique, evidence, cleanup, notification, private-access, URL-opening, and mobile policy. Secret values are never part of this response.</p>
+            <div class="access-summary">
+              <div class="stat">
+                <b>${safeText(effectiveSummary.spawn?.approvedCapacity ?? 2)}</b>
+                <span>Approved capacity</span>
+              </div>
+              <div class="stat">
+                <b>${safeText(effectiveSummary.critique?.mode || 'suggested')}</b>
+                <span>Critique</span>
+              </div>
+              <div class="stat">
+                <b>${safeText(effectiveSummary.privateAccess?.preferredMode || 'tailnet-http')}</b>
+                <span>Private access</span>
+              </div>
+            </div>
+            <details class="disclosure compact-disclosure">
+              <summary>
+                <span>Sources applied</span>
+                <small>${safeText(effectiveSources.length)} source${effectiveSources.length === 1 ? '' : 's'}</small>
+              </summary>
+              <pre>${safeText(effectiveSourcesText || 'global:defaults')}</pre>
+            </details>
+            <details class="disclosure compact-disclosure">
+              <summary>
+                <span>Resolved JSON</span>
+                <small>secret-free</small>
+              </summary>
+              <pre>${safeText(effectiveSettingsText)}</pre>
             </details>
           </div>
         </details>
@@ -1724,6 +1775,10 @@ async function refresh() {
   const policyResp = await api('/api/policy');
   if (policyResp.ok && policyResp.data) {
     shell.policy = policyResp.data.policies;
+  }
+  const effectiveSettingsResp = await api('/api/settings/effective');
+  if (effectiveSettingsResp.ok && effectiveSettingsResp.data) {
+    shell.effectiveSettings = effectiveSettingsResp.data;
   }
   const blockersResp = await api('/api/system/blockers');
   if (blockersResp.ok && Array.isArray(blockersResp.data?.blockers)) {

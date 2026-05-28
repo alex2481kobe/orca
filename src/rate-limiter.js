@@ -87,6 +87,7 @@ function classifyRoute(method, parts) {
   if (p1 === 'agent-tools' && p2 === 'leases') return 'agentLease';
   if (p1 === 'streams') return 'stream';
   if (p1 === 'private-access') return verb === 'GET' ? 'defaultRead' : 'privateAccess';
+  if (p1 === 'settings') return verb === 'GET' ? 'defaultRead' : 'defaultMutation';
   if (p1 === 'mcp' && verb !== 'GET') return 'mcpMutation';
   if (verb !== 'GET') return 'defaultMutation';
   return 'defaultRead';

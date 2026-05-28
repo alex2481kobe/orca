@@ -386,6 +386,7 @@ function buildMobileManifest(req) {
     authSessionsUrl: `${origin}/api/auth/sessions`,
     healthUrl: `${origin}/api/health`,
     policyUrl: `${origin}/api/policy`,
+    effectiveSettingsUrl: `${origin}/api/settings/effective`,
     auditEventsUrl: `${origin}/api/audit/events`,
     pendingAuditEventsUrl: `${origin}/api/audit/events?status=pending`,
     artifactCleanupUrl: `/api/artifacts/cleanup`,
@@ -415,6 +416,7 @@ function buildMobileManifest(req) {
         slug: project.slug,
         route: `${origin}${project.route}`,
         sessionsUrl: `${origin}/api/projects/${project.id}/sessions`,
+        effectiveSettingsUrl: `${origin}/api/settings/effective?projectId=${encodeURIComponent(project.id)}`,
         quickLinks: project.quickLinks || [],
         sessions: sessions.map((session) => {
           const lanes = registry.listLanes(session.id);
@@ -426,6 +428,7 @@ function buildMobileManifest(req) {
             capacityUrl: `${origin}/api/sessions/${session.id}/capacity`,
             capacityRequestUrl: `${origin}/api/sessions/${session.id}/capacity/request`,
             capacityPolicyUrl: `${origin}/api/sessions/${session.id}/capacity/policy`,
+            effectiveSettingsUrl: `${origin}/api/settings/effective?sessionId=${encodeURIComponent(session.id)}`,
             auditEventsUrl: `${origin}/api/sessions/${session.id}/audit-events`,
             auditDoneLanesUrl: `${origin}/api/sessions/${session.id}/audit-done-lanes`,
             lanes: lanes.map((lane) => {
@@ -437,6 +440,7 @@ function buildMobileManifest(req) {
                 executorType: lane.executorType,
                 route: `${origin}${laneRoute}`,
                 detailUrl: `${origin}/api/lanes/${lane.id}`,
+                effectiveSettingsUrl: `${origin}/api/settings/effective?laneId=${encodeURIComponent(lane.id)}`,
                 stopUrl: `${origin}/api/lanes/${lane.id}/stop`,
                 retryUrl: `${origin}/api/lanes/${lane.id}/retry`,
                 heartbeatUrl: `${origin}/api/lanes/${lane.id}/heartbeat`,
@@ -803,6 +807,46 @@ async function handleApi(req, res, pathname, method, parts) {
 
   if (parts[1] === 'policy' && method === 'GET') {
     return sendJson(res, 200, { policies: registry.getPolicyMap() });
+  }
+
+  if (parts[1] === 'settings' && parts[2] === 'effective' && method === 'GET') {
+    const searchParams = getSearchParams(req.url || '/');
+    if (!searchParams) {
+      return sendJson(res, 400, { error: 'Invalid request query string.' });
+    }
+    try {
+      return sendJson(res, 200, registry.getEffectiveSettings({
+        projectId: searchParams.get('projectId'),
+        sessionId: searchParams.get('sessionId'),
+        laneId: searchParams.get('laneId'),
+      }));
+    } catch (error) {
+      return sendJson(res, error.status || 500, {
+        error: error.message || 'Could not resolve effective settings.',
+      });
+    }
+  }
+
+  if (parts[1] === 'settings' && ['project', 'session', 'lane'].includes(parts[2]) && parts[3] && method === 'PATCH') {
+    const body = await parseJsonBody(req);
+    if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
+    try {
+      const result = registry.updateSettingsOverrides({
+        scope: parts[2],
+        locator: decodeURIComponent(parts[3]),
+        settingsOverrides: body.settingsOverrides || body.overrides || {},
+        actor: body.actor || 'dashboard',
+        approved: body.approved,
+      });
+      return sendJson(res, 200, result);
+    } catch (error) {
+      return sendJson(res, error.status || 500, {
+        error: error.message || 'Could not update settings overrides.',
+        requiresApproval: error.requiresApproval || false,
+        risk: error.risk || null,
+      });
+    }
   }
 
   if (parts[1] === 'route-inventory' && method === 'GET') {
