@@ -1437,7 +1437,7 @@ async function handleSystemActions(event) {
       return;
     }
     const parsedOverride = overrideCommand && overrideCommand.trim() ? overrideCommand.trim() : null;
-    const execute = window.confirm('Run managed reinstall now (not dry-run)?\nChoose Cancel to only show the planned command.');
+    const execute = window.confirm(`${sourceMode ? 'Run source reinstall' : 'Run managed reinstall'} now (not dry-run)?\nChoose Cancel to only show the planned command.`);
     const confirmedExecute = execute;
     const response = await api(`/api/executors/${encodeURIComponent(executorType)}/cli/reinstall`, {
       method: 'POST',
