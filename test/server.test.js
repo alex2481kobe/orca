@@ -154,6 +154,7 @@ test('server blocks destructive artifact cleanup without explicit confirmation',
       body: {
         actor: 'dashboard',
         approved: true,
+        dryRun: true,
       },
       },
     );
