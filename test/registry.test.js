@@ -607,6 +607,26 @@ test('Codex and Claude lanes enforce binary/command executor targeting', async (
   }
 });
 
+test('Creating lanes rejects unsupported executor types', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+
+  try {
+    const project = registry.createProject({ name: 'Executor Type Policy Project' });
+    const session = registry.createSession(project.id, {
+      name: 'Executor Type Policy Session',
+      leader: 'codex',
+    });
+
+    assert.throws(() => registry.createLane(session.id, {
+      title: 'Unsupported executor',
+      executorType: 'openai-orchestrator',
+      mcpToolIds: [],
+    }, { approved: true, actor: 'test' }), (error) => error.status === 422);
+  } finally {
+    await cleanup();
+  }
+});
+
 test('executor CLI info and managed reinstall require approval', async () => {
   const restore = restoreEnv({
     COMMAND_DECK_CODEX_BINARY: process.env.COMMAND_DECK_CODEX_BINARY,

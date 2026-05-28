@@ -1232,6 +1232,12 @@ export class CommandDeckRegistry {
     }
 
     const normalizedExecutorType = normalizeExecutorType(executorType);
+    if (!['mock', 'codex', 'claude'].includes(normalizedExecutorType)) {
+      throw {
+        status: 422,
+        message: 'Lane executorType must be one of: mock, codex, claude.',
+      };
+    }
     if (['codex', 'claude'].includes(normalizedExecutorType)) {
       const commandParts = String(command || '').trim().split(/\s+/).filter(Boolean);
       if (commandParts.length > 0 && !commandTargetsExecutor(normalizedExecutorType, commandParts)) {
