@@ -712,7 +712,8 @@ body.sidebar-collapsed .sidebar-project-line {
 .home-panels[data-active-panel="cleanup"] > [data-panel-card]:not([data-panel-card="cleanup"]),
 .home-panels[data-active-panel="private-access"] > [data-panel-card]:not([data-panel-card="private-access"]),
 .home-panels[data-active-panel="providers"] > [data-panel-card]:not([data-panel-card="providers"]),
-.home-panels[data-active-panel="notifications"] > [data-panel-card]:not([data-panel-card="notifications"]) {
+.home-panels[data-active-panel="notifications"] > [data-panel-card]:not([data-panel-card="notifications"]),
+.home-panels[data-active-panel="backup"] > [data-panel-card]:not([data-panel-card="backup"]) {
   display: none;
 }
 

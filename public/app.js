@@ -385,7 +385,7 @@ function isVerificationProject(project) {
 
 function activeHomePanel() {
   const panel = String(window.location.hash || '').replace(/^#/, '').toLowerCase();
-  const allowed = new Set(['projects', 'create', 'system', 'mcp', 'audit', 'cleanup', 'token', 'private-access', 'providers', 'effective-settings', 'notifications']);
+  const allowed = new Set(['projects', 'create', 'system', 'mcp', 'audit', 'cleanup', 'token', 'private-access', 'providers', 'effective-settings', 'notifications', 'backup']);
   return allowed.has(panel) ? panel : 'overview';
 }
 
@@ -781,6 +781,10 @@ function renderHome() {
         <span>Notifications</span>
         ${unreadNotifications ? `<small>${safeText(unreadNotifications)} unread</small>` : ''}
       </a>
+      <a class="simple-row" href="#backup">
+        <span class="row-icon">⇄</span>
+        <span>Backup and support</span>
+      </a>
     </section>
     <div class="stat-grid compact-stats settings-stats is-hidden">
       <div class="stat">
@@ -1076,6 +1080,35 @@ function renderHome() {
               </div>
             </form>
             <div class="provider-list">${notificationRows || '<div class="muted">No notifications yet.</div>'}</div>
+          </div>
+        </details>
+      </article>
+      <article class="card control-card" id="section-backup" data-panel-card="backup">
+        <details class="disclosure" open>
+          <summary>
+            <span>Backup and support</span>
+            <small>Local-only export · redacted support bundle</small>
+          </summary>
+          <div class="disclosure-body">
+            <p class="muted">App exports include projects, sessions, lane metadata, provider config, private-access targets, MCP tools, cleanup schedule, and notification settings. They exclude secret values, auth sessions, pairing codes, artifacts, logs, screenshots, videos, and traces.</p>
+            <div class="lane-row">
+              <button class="secondary" data-action="exportAppBackup" type="button">Export app backup</button>
+              <button class="secondary" data-action="exportSupportBundle" type="button">Export support bundle</button>
+            </div>
+            <details class="disclosure compact-disclosure">
+              <summary>
+                <span>Import backup</span>
+                <small>dry-run before apply</small>
+              </summary>
+              <div class="disclosure-body">
+                <textarea id="app-import-json" rows="8" placeholder='{"schemaVersion":1,"kind":"command-deck.app-export"}'></textarea>
+                <div class="lane-row">
+                  <button class="secondary" data-action="dryRunAppImport" type="button">Dry-run import</button>
+                  <button class="danger" data-action="applyAppImport" type="button">Apply import</button>
+                </div>
+              </div>
+            </details>
+            <pre id="app-export-output" aria-live="polite"></pre>
           </div>
         </details>
       </article>
@@ -1393,6 +1426,69 @@ async function handleProviderAction(event) {
     });
     if (output) output.textContent = JSON.stringify(response.data, null, 2);
     renderAlert(response.ok ? 'Provider import dry-run completed.' : (response.data?.error || 'Provider import dry-run failed.'), response.ok ? 'info' : 'bad');
+  }
+}
+
+async function handleAppBackupAction(event) {
+  const action = event.currentTarget.dataset.action;
+  const output = document.getElementById('app-export-output');
+  const input = document.getElementById('app-import-json');
+
+  if (action === 'exportAppBackup' || action === 'exportSupportBundle') {
+    const route = action === 'exportAppBackup' ? '/api/app/export' : '/api/app/support-bundle';
+    const response = await api(route);
+    if (output) output.textContent = JSON.stringify(response.data, null, 2);
+    renderAlert(response.ok
+      ? (action === 'exportAppBackup' ? 'App backup exported without secrets.' : 'Support bundle exported without secrets.')
+      : (response.data?.error || 'Could not export app data.'),
+    response.ok ? 'info' : 'bad');
+    return;
+  }
+
+  let parsed = null;
+  try {
+    parsed = JSON.parse(input?.value || '{}');
+  } catch {
+    renderAlert('App import JSON is invalid.', 'bad');
+    return;
+  }
+
+  if (action === 'dryRunAppImport') {
+    const response = await api('/api/app/import/dry-run', {
+      method: 'POST',
+      body: parsed,
+    });
+    if (output) output.textContent = JSON.stringify(response.data, null, 2);
+    renderAlert(response.ok ? 'App import dry-run completed.' : (response.data?.error || 'App import dry-run failed.'), response.ok ? 'info' : 'bad');
+    return;
+  }
+
+  if (action === 'applyAppImport') {
+    const confirmed = window.confirm('Apply this app backup non-destructively? Existing IDs are skipped and active lanes are imported as stopped.');
+    if (!confirmed) {
+      renderAlert('App import canceled.');
+      return;
+    }
+    const approval = buildApprovedActionBody('manageAppBackups', 'Approve app backup import?');
+    if (!approval.approved) {
+      renderAlert('App import canceled.');
+      return;
+    }
+    const response = await api('/api/app/import/apply', {
+      method: 'POST',
+      body: {
+        actor: approval.actor,
+        approved: approval.approved,
+        payload: parsed,
+      },
+    });
+    if (output) output.textContent = JSON.stringify(response.data, null, 2);
+    if (response.ok) {
+      renderAlert('App import applied non-destructively.');
+      await refresh();
+      return;
+    }
+    renderAlert(response.data?.error || 'App import apply failed.', 'bad');
   }
 }
 
@@ -3147,6 +3243,16 @@ document.addEventListener('click', async (event) => {
     'toggleProviderEnabled',
   ].includes(action)) {
     await handleProviderAction({ currentTarget: actionTarget });
+    return;
+  }
+
+  if ([
+    'applyAppImport',
+    'dryRunAppImport',
+    'exportAppBackup',
+    'exportSupportBundle',
+  ].includes(action)) {
+    await handleAppBackupAction({ currentTarget: actionTarget });
     return;
   }
 

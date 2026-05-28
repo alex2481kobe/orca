@@ -12,6 +12,12 @@ import {
   buildAgentToolDiscovery,
   buildNextActionEnvelope,
 } from './agent-tools.js';
+import {
+  applyAppImport,
+  buildAppExport,
+  buildSupportBundle,
+  validateAppImport,
+} from './app-backup.js';
 import { buildRouteInventory } from './route-inventory.js';
 import {
   classifyRequestForRateLimit,
@@ -143,6 +149,21 @@ function hasStreamAuth(req) {
   if (hasValidApiToken(req)) return true;
   const session = currentBrowserSession(req);
   return Boolean(session && sameOriginAllowed(req));
+}
+
+function hasDashboardAuth(req) {
+  if (!API_TOKEN) return true;
+  if (hasValidApiToken(req)) return true;
+  const session = currentBrowserSession(req);
+  return Boolean(session && sameOriginAllowed(req));
+}
+
+function requireDashboardAuth(req, res) {
+  if (hasDashboardAuth(req)) return true;
+  sendJson(res, 401, {
+    error: 'Unauthorized. Supply a valid COMMAND_DECK_API_TOKEN or pair this browser with a valid Command Deck session.',
+  });
+  return false;
 }
 
 function requireMutatingToken(req, res) {
@@ -456,6 +477,10 @@ function buildMobileManifest(req) {
     mcpToolsUrl: `${origin}/api/mcp/tools`,
     notificationsUrl: `${origin}/api/notifications`,
     notificationSettingsUrl: `${origin}/api/notifications/settings`,
+    appExportUrl: `${origin}/api/app/export`,
+    appImportDryRunUrl: `${origin}/api/app/import/dry-run`,
+    appImportApplyUrl: `${origin}/api/app/import/apply`,
+    supportBundleUrl: `${origin}/api/app/support-bundle`,
     projectsUrl: `${origin}/api/projects`,
     privateAccessUrl: `${origin}/api/private-access`,
     agentToolsDiscoveryUrl: `${origin}/api/agent-tools/discovery`,
@@ -962,6 +987,87 @@ async function handleApi(req, res, pathname, method, parts) {
       } catch (error) {
         return sendJson(res, error.status || 500, {
           error: error.message || 'Could not mark notification read.',
+        });
+      }
+    }
+  }
+
+  if (parts[1] === 'app') {
+    if (parts.length === 3 && parts[2] === 'export' && method === 'GET') {
+      if (!requireDashboardAuth(req, res)) return;
+      try {
+        return sendJson(res, 200, await buildAppExport({
+          registry,
+          providerProfiles,
+          privateAccess,
+          routeInventoryVersion: buildRouteInventory().contractVersion,
+        }));
+      } catch (error) {
+        return sendJson(res, error.status || 500, {
+          error: error.message || 'Could not export app backup.',
+        });
+      }
+    }
+
+    if (parts.length === 4 && parts[2] === 'import' && parts[3] === 'dry-run' && method === 'POST') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+      if (rejectSpoofedActor(body, res)) return;
+      try {
+        return sendJson(res, 200, validateAppImport(body));
+      } catch (error) {
+        return sendJson(res, error.status || 500, {
+          error: error.message || 'Could not validate app import.',
+          blockedKeys: error.blockedKeys || undefined,
+        });
+      }
+    }
+
+    if (parts.length === 4 && parts[2] === 'import' && parts[3] === 'apply' && method === 'POST') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+      if (rejectSpoofedActor(body, res)) return;
+      const actor = body.actor || 'dashboard';
+      const approved = body.approved === true;
+      const policyCheck = registry.evaluateActionPolicy('manageAppBackups', { actor, approved });
+      if (!policyCheck.allowed) {
+        return sendJson(res, 409, {
+          error: policyCheck.message,
+          requiresApproval: true,
+          risk: policyCheck.policy.risk,
+        });
+      }
+      try {
+        return sendJson(res, 200, await applyAppImport(body.payload || body, {
+          registry,
+          providerProfiles,
+          privateAccess,
+          actor,
+          approved,
+        }));
+      } catch (error) {
+        return sendJson(res, error.status || 500, {
+          error: error.message || 'Could not apply app import.',
+          requiresApproval: error.requiresApproval || false,
+          risk: error.risk || null,
+          blockedKeys: error.blockedKeys || undefined,
+        });
+      }
+    }
+
+    if (parts.length === 3 && parts[2] === 'support-bundle' && method === 'GET') {
+      if (!requireDashboardAuth(req, res)) return;
+      try {
+        return sendJson(res, 200, await buildSupportBundle({
+          registry,
+          providerProfiles,
+          privateAccess,
+          routeInventory: buildRouteInventory(),
+          blockers: await registry.describeSystemBlockers(),
+        }));
+      } catch (error) {
+        return sendJson(res, error.status || 500, {
+          error: error.message || 'Could not build support bundle.',
         });
       }
     }

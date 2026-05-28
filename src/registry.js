@@ -575,6 +575,11 @@ const defaultPolicy = {
     risk: 'medium',
     message: 'Changes browser/in-app notification delivery and mobile alert behavior.',
   },
+  manageAppBackups: {
+    requiresApproval: true,
+    risk: 'high',
+    message: 'App backup import/export can expose or merge local project coordination state.',
+  },
 };
 
 function normalizeSlug(value) {

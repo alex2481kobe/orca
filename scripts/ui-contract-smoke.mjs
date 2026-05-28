@@ -18,6 +18,7 @@ const runSuffix = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
 
 const WIRED_ACTIONS = new Set([
   'ackAuditEvent',
+  'applyAppImport',
   'auditDone',
   'auditLane',
   'captureEvidence',
@@ -33,9 +34,12 @@ const WIRED_ACTIONS = new Set([
   'deletePrivateAccessTarget',
   'deleteProjectQuickLink',
   'deleteProviderSecret',
+  'dryRunAppImport',
   'dryRunProviderImport',
   'editMcpTool',
+  'exportAppBackup',
   'exportProviderProfiles',
+  'exportSupportBundle',
   'logoutBrowserSession',
   'markAllNotificationsRead',
   'markNotificationRead',
@@ -253,6 +257,7 @@ async function checkRuntimeContract(pw) {
     { name: 'providers', path: '/#providers' },
     { name: 'private-access', path: '/#private-access' },
     { name: 'notifications', path: '/#notifications' },
+    { name: 'backup', path: '/#backup' },
     { name: 'project', path: seeded.project.route },
     { name: 'session', path: seeded.session.route },
     { name: 'lane', path: seeded.lane.route },

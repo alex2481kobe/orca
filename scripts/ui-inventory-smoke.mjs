@@ -29,6 +29,7 @@ const fail = (label, info = '') => {
 
 const WIRED_ACTIONS = new Set([
   'ackAuditEvent',
+  'applyAppImport',
   'auditDone',
   'auditLane',
   'captureEvidence',
@@ -44,9 +45,12 @@ const WIRED_ACTIONS = new Set([
   'deletePrivateAccessTarget',
   'deleteProjectQuickLink',
   'deleteProviderSecret',
+  'dryRunAppImport',
   'dryRunProviderImport',
   'editMcpTool',
+  'exportAppBackup',
   'exportProviderProfiles',
+  'exportSupportBundle',
   'markAllNotificationsRead',
   'markNotificationRead',
   'refresh',
@@ -78,6 +82,7 @@ const REQUIRED_INVENTORY_SCREENS = [
   { name: 'private-access', path: '/#private-access', purpose: 'Tailscale/private mobile access setup.', primaryAction: 'Copy/check dry-run setup command.' },
   { name: 'cleanup', path: '/#cleanup', purpose: 'Artifact cleanup and schedule controls.', primaryAction: 'Run cleanup dry-run.' },
   { name: 'notifications', path: '/#notifications', purpose: 'Notification settings and unread status.', primaryAction: 'Mark notification read.' },
+  { name: 'backup-support', path: '/#backup', purpose: 'Local app backup, import dry-run, and redacted support bundle.', primaryAction: 'Export app backup.' },
 ];
 
 const SEEDED_INVENTORY_SCREENS = [
