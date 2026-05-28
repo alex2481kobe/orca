@@ -275,6 +275,7 @@ async function handleApi(req, res, pathname, method, parts) {
         execute: Boolean(body.execute),
         command: body.command,
         confirmed: body.confirmed,
+        useSource: Boolean(body.useSource),
       });
       return sendJson(res, 200, result);
     } catch (error) {
