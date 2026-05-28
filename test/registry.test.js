@@ -254,3 +254,67 @@ test('executor CLI info and managed reinstall require approval', async () => {
     restore();
   }
 });
+
+test('executor CLI reinstall command validation is executor-specific and safe', async () => {
+  const restore = restoreEnv({
+    COMMAND_DECK_CODEX_BINARY: process.env.COMMAND_DECK_CODEX_BINARY,
+    COMMAND_DECK_CLAUDE_BINARY: process.env.COMMAND_DECK_CLAUDE_BINARY,
+    COMMAND_DECK_CODEX_REINSTALL_COMMAND: process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND,
+    COMMAND_DECK_CLAUDE_REINSTALL_COMMAND: process.env.COMMAND_DECK_CLAUDE_REINSTALL_COMMAND,
+  });
+
+  try {
+    process.env.COMMAND_DECK_CODEX_BINARY = '/usr/bin/codex';
+    process.env.COMMAND_DECK_CLAUDE_BINARY = '/usr/bin/claude';
+    process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND = 'npm install --yes codex-cli';
+
+    const { registry, cleanup } = await withIsolatedRegistry();
+    try {
+      const validInfo = registry.getExecutorCliInfo('codex');
+      assert.equal(validInfo.reinstall.available, true);
+      assert.equal(validInfo.reinstall.command[0], 'npm');
+
+      const planned = await registry.runExecutorCliReinstall('codex', {
+        actor: 'test',
+        approved: true,
+        execute: false,
+      });
+      assert.equal(planned.executed, false);
+      assert.equal(planned.command[0], 'npm');
+      assert.equal(planned.command.includes('codex'), true);
+
+      process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND = 'npm install lodash';
+      const blocked = await withIsolatedRegistry();
+      try {
+        const blockedInfo = blocked.registry.getExecutorCliInfo('codex');
+        assert.equal(blockedInfo.reinstall.available, false);
+        await assert.rejects(
+          () => blocked.registry.runExecutorCliReinstall('codex', {
+            actor: 'test',
+            approved: true,
+            execute: false,
+          }),
+          (error) => error.status === 422,
+        );
+      } finally {
+        await blocked.cleanup();
+      }
+
+      process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND = 'npm install --yes codex-cli';
+      const info = registry.getExecutorCliInfo('codex');
+      assert.equal(info.reinstall.available, true);
+
+      const plannedSecond = await registry.runExecutorCliReinstall('codex', {
+        actor: 'test',
+        approved: true,
+        execute: false,
+      });
+      assert.equal(plannedSecond.executed, false);
+      assert.equal(plannedSecond.command[0], 'npm');
+    } finally {
+      await cleanup();
+    }
+  } finally {
+    restore();
+  }
+});

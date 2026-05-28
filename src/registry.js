@@ -32,11 +32,30 @@ const MAX_REINSTALL_ARG_LEN = 120;
 const MAX_REINSTALL_ARGS = 24;
 const ALLOWED_REINSTALL_BINARIES = new Set(['npm', 'pnpm', 'bun', 'brew', 'pip', 'pip3']);
 
+function normalizeReinstallToken(raw) {
+  const value = String(raw || '').trim().toLowerCase();
+  if (!value) return null;
+  if (value.length > MAX_REINSTALL_ARG_LEN) return null;
+  if (/[|&;<>$`\\r\n\t]/.test(value)) return null;
+  return value;
+}
+
+function commandTargetsExecutor(type, commandParts) {
+  const normalizedType = String(type || '').toLowerCase().trim();
+  if (!normalizedType) return true;
+
+  return commandParts.some((part) => {
+    const token = normalizeReinstallToken(part);
+    if (!token) return false;
+    return token.includes(normalizedType);
+  });
+}
+
 function normalizeExecutorType(raw) {
   return String(raw || '').toLowerCase().trim();
 }
 
-function normalizeReinstallCommand(raw) {
+function normalizeReinstallCommand(raw, expectedType = null) {
   if (!raw) return null;
   if (!Array.isArray(raw) && typeof raw !== 'string') return null;
 
@@ -61,13 +80,16 @@ function normalizeReinstallCommand(raw) {
   if (!parts.length || parts.length > MAX_REINSTALL_ARGS) return null;
 
   const [binary, ...args] = parts;
-  const normalizedBinary = String(binary || '').toLowerCase();
+  const normalizedBinary = normalizeReinstallToken(binary);
   if (!ALLOWED_REINSTALL_BINARIES.has(normalizedBinary)) return null;
 
+  const hasInstallerVerb = args.some((arg) => ['install', 'upgrade', 'reinstall'].includes(normalizeReinstallToken(arg)));
+  if (!hasInstallerVerb) return null;
+
+  if (!commandTargetsExecutor(expectedType, parts)) return null;
+
   for (const part of parts) {
-    if (!part.trim()) return null;
-    if (part.length > MAX_REINSTALL_ARG_LEN) return null;
-    if (/[|&;<>$`]/.test(part)) return null;
+    if (!normalizeReinstallToken(part)) return null;
   }
 
   return [binary, ...args];
@@ -81,7 +103,7 @@ function getReinstallCommand(type) {
   };
   const envVar = config[executorType];
   if (!envVar) return null;
-  return normalizeReinstallCommand(process.env[envVar]);
+  return normalizeReinstallCommand(process.env[envVar], executorType);
 }
 
 function getCliVersion(binary) {
