@@ -294,6 +294,10 @@ function renderHome() {
     const sourceCommand = Array.isArray(info?.reinstall?.sourceCommand)
       ? safeText(info.reinstall.sourceCommand.join(' '))
       : 'not available';
+    const hasSourceCommand = Array.isArray(info?.reinstall?.sourceCommand) && info?.reinstall?.sourceCommand.length > 0;
+    const sourceButton = hasSourceCommand
+      ? `<button class="secondary" data-action="reinstallExecutorCli" data-executor="${safeText(type)}" data-use-source="true" type="button">Dry-run source reinstall</button>`
+      : `<button class="secondary" type="button" disabled title="No trusted source command configured">Source reinstall unavailable</button>`;
     return `
       <div class="lane-row" style="align-items:center; justify-content:space-between;">
         <div>
@@ -308,7 +312,7 @@ function renderHome() {
         <div class="lane-row">
           <button data-action="refreshExecutorCli" data-executor="${safeText(type)}" type="button">Refresh</button>
           <button class="secondary" data-action="reinstallExecutorCli" data-executor="${safeText(type)}" data-use-source="false" type="button">Dry-run reinstall</button>
-          <button class="secondary" data-action="reinstallExecutorCli" data-executor="${safeText(type)}" data-use-source="true" type="button">Dry-run source reinstall</button>
+          ${sourceButton}
         </div>
       </div>
     `;
