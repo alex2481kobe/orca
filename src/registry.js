@@ -593,6 +593,7 @@ export class CommandDeckRegistry {
     this._schedulerRunning = false;
     this._storageReady = false;
     this._starting = true;
+    this._pendingWrites = new Set();
     const baseExecutorCallbacks = {
       onLog: (lane, message) => this.appendLaneLog(lane, message, { persist: false }),
       onComplete: async (lane) => this.markLaneCompleted(lane),
@@ -667,25 +668,28 @@ export class CommandDeckRegistry {
 
   async persistState() {
     if (this._persistTimer) return;
-    this._persistTimer = setTimeout(async () => {
+    this._persistTimer = setTimeout(() => {
       this._persistTimer = null;
-      try {
-        await fs.mkdir(this.storageDir, { recursive: true });
-        const snapshot = {
-          version: 1,
-          savedAt: nowIso(),
-          policies: this.policies,
-          projects: this.projects,
-          sessions: this.sessions,
-          lanes: this.lanes,
-          auditEvents: this.auditEvents,
-          cleanupSchedule: this.cleanupSchedule,
-          mcpTools: this.mcpTools,
-        };
-        await fs.writeFile(this.stateFile, JSON.stringify(snapshot, null, 2));
-      } catch (error) {
-        console.error('Persist failed:', error);
-      }
+      const write = (async () => {
+        try {
+          await fs.mkdir(this.storageDir, { recursive: true });
+          const snapshot = {
+            version: 1,
+            savedAt: nowIso(),
+            policies: this.policies,
+            projects: this.projects,
+            sessions: this.sessions,
+            lanes: this.lanes,
+            auditEvents: this.auditEvents,
+            cleanupSchedule: this.cleanupSchedule,
+            mcpTools: this.mcpTools,
+          };
+          await fs.writeFile(this.stateFile, JSON.stringify(snapshot, null, 2));
+        } catch (error) {
+          console.error('Persist failed:', error);
+        }
+      })();
+      this._trackAsync(write);
     }, 250);
     this._persistTimer.unref?.();
   }
@@ -2168,6 +2172,29 @@ export class CommandDeckRegistry {
     return evidence;
   }
 
+  getEvidencePresets(laneLocator) {
+    const lane = this.getLane(laneLocator);
+    if (!lane) {
+      throw { status: 404, message: 'Lane not found.' };
+    }
+    const project = this.projects.find((item) => item.id === lane.projectId) || null;
+    const presets = [];
+    if (lane.targetUrl) {
+      presets.push({ label: 'Lane target URL', url: lane.targetUrl });
+    }
+    if (project) {
+      for (const link of project.quickLinks || []) {
+        if (!link || !link.url) continue;
+        presets.push({ label: link.label || link.url, url: link.url });
+      }
+    }
+    return {
+      laneId: lane.id,
+      sessionId: lane.sessionId,
+      presets,
+    };
+  }
+
   async getLatestEvidence(laneLocator, { mode = null } = {}) {
     const lane = this.getLane(laneLocator);
     if (!lane) {
@@ -2541,7 +2568,7 @@ export class CommandDeckRegistry {
       evidence: { lane },
       status: 'passed',
     });
-    this.writeLaneArtifacts(lane, 'done').catch(() => {});
+    this._trackAsync(this.writeLaneArtifacts(lane, 'done').catch(() => {}));
     this.clearLaneExecutor(lane.id);
     this.persistState();
   }
@@ -2563,7 +2590,7 @@ export class CommandDeckRegistry {
       evidence: { lane },
       status: 'failed',
     });
-    this.writeLaneArtifacts(lane, 'failed').catch(() => {});
+    this._trackAsync(this.writeLaneArtifacts(lane, 'failed').catch(() => {}));
     this.clearLaneExecutor(lane.id);
     if (persist) this.persistState();
   }
@@ -2587,7 +2614,7 @@ export class CommandDeckRegistry {
       evidence: { lane },
       status: 'passed',
     });
-    this.writeLaneArtifacts(lane, 'stopped').catch(() => {});
+    this._trackAsync(this.writeLaneArtifacts(lane, 'stopped').catch(() => {}));
     this.clearLaneExecutor(lane.id);
     this.persistState();
   }
@@ -2635,6 +2662,22 @@ Executor: ${lane.executorType}
 
   stopScheduler() {
     this._schedulerRunning = false;
+    if (this._persistTimer) {
+      clearTimeout(this._persistTimer);
+      this._persistTimer = null;
+    }
+  }
+
+  _trackAsync(promise) {
+    if (!promise || typeof promise.then !== 'function') return promise;
+    this._pendingWrites.add(promise);
+    promise.finally(() => this._pendingWrites.delete(promise));
+    return promise;
+  }
+
+  async drainPendingWrites() {
+    if (!this._pendingWrites || this._pendingWrites.size === 0) return;
+    await Promise.allSettled([...this._pendingWrites]);
   }
 
   async advanceLanes() {

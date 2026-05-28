@@ -13,6 +13,9 @@ async function withIsolatedRegistry() {
   const registry = new CommandDeckRegistry();
   const cleanup = async () => {
     registry.stopScheduler();
+    if (typeof registry.drainPendingWrites === 'function') {
+      await registry.drainPendingWrites();
+    }
     process.chdir(previousCwd);
     await fs.rm(tempDir, { force: true, recursive: true });
   };

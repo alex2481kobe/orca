@@ -286,6 +286,7 @@ function buildMobileManifest(req) {
                 artifactsUrl: `/api/lanes/${lane.id}/artifacts`,
                 evidenceUrl: `/api/lanes/${lane.id}/evidence`,
                 evidenceLatestUrl: `/api/lanes/${lane.id}/evidence/latest`,
+                evidencePresetsUrl: `${origin}/api/lanes/${lane.id}/evidence/presets`,
                 evidenceClearUrl: `${origin}/api/lanes/${lane.id}/evidence/clear`,
                 auditApi: `/api/lanes/${lane.id}/audit`,
                 auditEventsUrl: `${origin}/api/lanes/${lane.id}/audit-events`,
@@ -799,6 +800,14 @@ async function handleApi(req, res, pathname, method, parts) {
         });
       } catch (error) {
         return sendJson(res, error.status || 500, { error: error.message || 'Could not list artifacts.' });
+      }
+    }
+
+    if (parts.length === 5 && parts[3] === 'evidence' && parts[4] === 'presets' && method === 'GET') {
+      try {
+        return sendJson(res, 200, registry.getEvidencePresets(lane.id));
+      } catch (error) {
+        return sendJson(res, error.status || 500, { error: error.message || 'Could not load evidence presets.' });
       }
     }
 
