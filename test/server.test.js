@@ -931,3 +931,50 @@ test('mobile manifest exposes deep links for projects, sessions, and lane artifa
     await server.stop();
   }
 });
+
+test('projects can be patched to manage quick links from the dashboard', async () => {
+  const token = 'route-token-08';
+  const server = await startServer({ token });
+
+  try {
+    const project = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        name: 'Quick Link Project',
+      },
+    });
+    assert.equal(project.status, 201);
+
+    const added = await server.requestJson(`/api/projects/${project.body.id}`, {
+      method: 'PATCH',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+        quickLinks: [
+          { label: 'Local', url: 'http://localhost:3000' },
+        ],
+      },
+    });
+    assert.equal(added.status, 200);
+    assert.equal(Array.isArray(added.body.quickLinks), true);
+    assert.equal(added.body.quickLinks.length, 1);
+    assert.equal(added.body.quickLinks[0].label, 'Local');
+    assert.equal(added.body.quickLinks[0].url, 'http://localhost:3000');
+
+    const cleared = await server.requestJson(`/api/projects/${project.body.id}`, {
+      method: 'PATCH',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+        quickLinks: [],
+      },
+    });
+    assert.equal(cleared.status, 200);
+    assert.equal(cleared.body.quickLinks.length, 0);
+  } finally {
+    await server.stop();
+  }
+});

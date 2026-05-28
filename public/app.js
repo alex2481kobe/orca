@@ -498,6 +498,31 @@ function renderProject(project) {
           <div class="card-grid">${sessionsMarkup || '<div class="muted">No sessions yet.</div>'}</div>
         </article>
       </div>
+      <article class="card">
+        <h3>Quick links</h3>
+        <div class="card-grid">
+          ${(project.quickLinks || [])
+            .map((quick, index) => `
+              <div class="lane-row">
+                <div>
+                  <div>${safeText(quick.label || 'Primary')}</div>
+                  <a href="${safeText(quick.url)}" target="_blank" rel="noopener noreferrer">${safeText(quick.url)}</a>
+                </div>
+                <button class="secondary" data-action="deleteProjectQuickLink" data-project-id="${project.id}" data-link-index="${index}" type="button">Remove</button>
+              </div>
+            `).join('') || '<div class="muted">No quick links.</div>'}
+        </div>
+        <form id="update-project-links-form" data-project-id="${project.id}">
+          <label>Quick link label
+            <input name="quickLinkLabel" placeholder="Primary" required />
+          </label>
+          <label>Quick link URL
+            <input name="quickLinkUrl" placeholder="http://localhost:3000" required />
+          </label>
+          <label><input type="checkbox" name="approved" /> Mark as approved</label>
+          <button type="submit">Add quick link</button>
+        </form>
+      </article>
     </section>
   `;
 }
@@ -907,6 +932,40 @@ async function handleCreateSession(event) {
     await refresh();
   } else {
     renderAlert(response.data?.error || 'Session creation failed.', 'bad');
+  }
+}
+
+async function handleAddProjectQuickLink(event) {
+  event.preventDefault();
+  const projectId = event.currentTarget.dataset.projectId;
+  const payload = buildApprovedBody(toObj(event.currentTarget));
+  const label = String(payload.quickLinkLabel || '').trim();
+  const url = String(payload.quickLinkUrl || '').trim();
+  if (!label || !url) {
+    renderAlert('Quick link label and URL are required.', 'bad');
+    return;
+  }
+
+  const project = shell.projects.find((value) => value.id === projectId);
+  const existingLinks = Array.isArray(project?.quickLinks) ? project.quickLinks : [];
+  const nextLinks = existingLinks
+    .filter((item) => item && String(item.url || '').trim() && String(item.label || '').trim())
+    .concat([{ label, url }])
+    .slice(0, 8);
+
+  const response = await api(`/api/projects/${projectId}`, {
+    method: 'PATCH',
+    body: {
+      actor: 'dashboard',
+      approved: payload.approved,
+      quickLinks: nextLinks,
+    },
+  });
+  if (response.ok) {
+    renderAlert('Quick link added.');
+    await refresh();
+  } else {
+    renderAlert(response.data?.error || 'Could not add quick link.', 'bad');
   }
 }
 
@@ -1345,6 +1404,42 @@ async function handleSystemActions(event) {
     }
   }
 
+  if (action === 'deleteProjectQuickLink') {
+    const projectId = event.currentTarget.dataset.projectId;
+    const linkIndex = Number.parseInt(event.currentTarget.dataset.linkIndex, 10);
+    if (!projectId || Number.isNaN(linkIndex)) return;
+    const project = shell.projects.find((value) => value.id === projectId);
+    const confirmed = window.confirm('Remove this quick link from the project?');
+    if (!confirmed) {
+      renderAlert('Quick link removal canceled.');
+      return;
+    }
+    const existingLinks = Array.isArray(project?.quickLinks) ? project.quickLinks : [];
+    const nextLinks = existingLinks.filter((_, index) => index !== linkIndex);
+    const approval = buildApprovedActionBody('update');
+    if (!approval.approved) {
+      renderAlert('Quick link removal canceled.');
+      return;
+    }
+
+    const response = await api(`/api/projects/${projectId}`, {
+      method: 'PATCH',
+      body: {
+        actor: approval.actor,
+        approved: approval.approved,
+        quickLinks: nextLinks,
+      },
+    });
+    if (response.ok) {
+      renderAlert('Quick link removed.');
+      await refresh();
+    } else if (response.data?.requiresApproval) {
+      renderAlert('Approval required to remove this quick link.', 'bad');
+    } else {
+      renderAlert(response.data?.error || 'Could not remove quick link.', 'bad');
+    }
+  }
+
   if (action === 'editMcpTool') {
     const toolId = event.currentTarget.dataset.toolId;
     if (!toolId) return;
@@ -1472,6 +1567,10 @@ document.addEventListener('submit', async (event) => {
     await handleCreateProject(event);
     return;
   }
+  if (event.target.id === 'update-project-links-form') {
+    await handleAddProjectQuickLink(event);
+    return;
+  }
   if (event.target.id === 'create-session-form') {
     await handleCreateSession(event);
     return;
@@ -1522,6 +1621,7 @@ document.addEventListener('click', async (event) => {
     'cleanupArtifactsRunNow',
     'deleteMcpTool',
     'editMcpTool',
+    'deleteProjectQuickLink',
     'refreshExecutorCli',
     'reinstallExecutorCli',
   ].includes(action)) {
