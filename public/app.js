@@ -82,6 +82,13 @@ function initializeApiToken() {
   }
 }
 
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/service-worker.js').catch(() => {});
+  });
+}
+
 function setApiToken(token) {
   const nextToken = (token || '').trim();
   shell.apiToken = nextToken;
@@ -2908,6 +2915,7 @@ window.addEventListener('hashchange', () => {
 
 setInterval(refresh, 3000);
 initializeApiToken();
+registerServiceWorker();
 renderMobileManifest();
 setupSidebarReorder();
 refresh();

@@ -1,13 +1,12 @@
 # Command Deck Implementation Plan
 
 Public-safe view of what the client package actually does today and what
-remains as an external blocker. All claims here are exercised by either
-`npm test`, `npm run smoke`, or `npm run smoke:ui` and the verification
-output is recorded in the README.
+remains as an external blocker. Claims here must be exercised by tests or
+smoke gates before being listed.
 
 ## Proven on this host
 
-- 70 tests pass.
+- 120 tests pass.
 - `npm run smoke` (v2) passes including five negative-path checks
   (unauthorized 401, spoofed actor 403, oversized body 413, malformed
   JSON 400, malformed query 400) and asserts evidence
@@ -16,6 +15,17 @@ output is recorded in the README.
   iPhone viewports, asserts shell structure, status tags, zero
   horizontal overflow, and saves screenshots into
   `artifacts/ui-smoke/`.
+- `npm run smoke:ui-inventory` seeds a project/session/lane, visits the
+  required UI inventory routes at desktop and 390px phone widths, checks
+  wired actions, shared shell primitives, accessible icon labels, visible
+  links, and horizontal overflow, and saves screenshots plus
+  `artifacts/ui-inventory/inventory-summary.json`.
+- `npm run smoke:ui-contract` validates static action/CSS contracts,
+  route-level desktop/phone screenshots, hidden advanced defaults, and
+  overflow behavior under `artifacts/ui-contract/`.
+- `npm run smoke:security-headers`, `npm run smoke:pwa-cache`,
+  `npm run smoke:route-inventory`, and
+  `npm run smoke:state-migrations` pass.
 - Real Claude CLI execution flows through the adapter (`claude
   --version` → PID + exit 0).
 - Real Codex CLI is repaired on this host through Homebrew
@@ -67,9 +77,18 @@ output is recorded in the README.
   off-canvas sidebar with project list and maintenance routes,
   phone-first CSS, lane detail with task prompt/target/model/branch/
   workdir/processMeta/MCP tools/evidence gallery/warnings.
+- UI inventory/design contract: `docs/ui-inventory.md` lists required
+  screens and primitives; the UI smoke gates generate desktop and phone
+  screenshots for the home, project, session, lane, settings, providers,
+  MCP tools, audit queue, private access, cleanup, and creation flows.
+- Strict CSP-compatible app shell: service-worker registration lives in
+  external JavaScript, not inline script.
 - Artifact path containment: `..` segments, encoded variants, absolute
   paths, backslash separators, and symlinked entries refused at
   listing AND serving time.
+- Atomic durable state writes and backup recovery for registry,
+  provider profiles, private access, and auth sessions, with recovery
+  audit events and `smoke:state-migrations`.
 
 ## External blockers (operator-actionable, surfaced in the dashboard)
 
@@ -84,6 +103,12 @@ executable, and the broken Homebrew Codex symlink was repaired with
 npm test
 COMMAND_DECK_API_TOKEN=... COMMAND_DECK_BASE_URL=http://127.0.0.1:3000 npm run smoke
 COMMAND_DECK_API_TOKEN=... COMMAND_DECK_BASE_URL=http://127.0.0.1:3000 npm run smoke:ui
+COMMAND_DECK_API_TOKEN=... COMMAND_DECK_BASE_URL=http://127.0.0.1:3000 npm run smoke:ui-inventory
+COMMAND_DECK_API_TOKEN=... COMMAND_DECK_BASE_URL=http://127.0.0.1:3000 npm run smoke:ui-contract
+npm run smoke:security-headers
+npm run smoke:pwa-cache
+npm run smoke:route-inventory
+npm run smoke:state-migrations
 ```
 
 ## Work rules (still apply)
