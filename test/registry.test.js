@@ -378,6 +378,44 @@ test('Codex and Claude lanes accept executor overrides and command payloads', as
   }
 });
 
+test('Codex and Claude lanes enforce binary/command executor targeting', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+
+  try {
+    const project = registry.createProject({ name: 'Executor Policy Project' });
+    const session = registry.createSession(project.id, {
+      name: 'Executor Policy Session',
+      leader: 'codex',
+    });
+
+    assert.throws(() => registry.createLane(session.id, {
+      title: 'Invalid codex command',
+      executorType: 'codex',
+      command: 'claude --version',
+      mcpToolIds: [],
+    }, { approved: true, actor: 'test' }), (error) => error.status === 422);
+
+    assert.throws(() => registry.createLane(session.id, {
+      title: 'Invalid codex binary',
+      executorType: 'codex',
+      executorBinary: '/usr/bin/claude',
+      mcpToolIds: [],
+    }, { approved: true, actor: 'test' }), (error) => error.status === 422);
+
+    const validLane = registry.createLane(session.id, {
+      title: 'Valid codex override',
+      executorType: 'codex',
+      executorBinary: '/usr/local/bin/codex-runner',
+      command: 'codex --help',
+      mcpToolIds: [],
+    }, { approved: true, actor: 'test' });
+    assert.equal(validLane.executorType, 'codex');
+    assert.equal(validLane.executorBinary, '/usr/local/bin/codex-runner');
+  } finally {
+    await cleanup();
+  }
+});
+
 test('executor CLI info and managed reinstall require approval', async () => {
   const restore = restoreEnv({
     COMMAND_DECK_CODEX_BINARY: process.env.COMMAND_DECK_CODEX_BINARY,

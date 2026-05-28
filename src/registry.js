@@ -1133,10 +1133,31 @@ export class CommandDeckRegistry {
       throw { status: 422, message: 'Lane title is required.' };
     }
 
+    const normalizedExecutorType = normalizeExecutorType(executorType);
+    if (['codex', 'claude'].includes(normalizedExecutorType)) {
+      const commandParts = String(command || '').trim().split(/\s+/).filter(Boolean);
+      if (commandParts.length > 0 && !commandTargetsExecutor(normalizedExecutorType, commandParts)) {
+        throw {
+          status: 422,
+          message: `Lane command for ${normalizedExecutorType} must target the ${normalizedExecutorType} binary.`,
+        };
+      }
+      if (!commandParts.length && executorBinary) {
+        const normalizedBinary = String(executorBinary).trim().toLowerCase();
+        const binaryName = path.basename(normalizedBinary);
+        if (!binaryName.includes(normalizedExecutorType)) {
+          throw {
+            status: 422,
+            message: `Lane executor binary for ${normalizedExecutorType} must target the ${normalizedExecutorType} binary.`,
+          };
+        }
+      }
+    }
+
     const project = this.projects.find((item) => item.id === session.projectId);
     const now = nowIso();
     const laneId = randomUUID();
-    const scopedToolIds = new Set(this.listToolsForExecutor(executorType).map((tool) => tool.id));
+    const scopedToolIds = new Set(this.listToolsForExecutor(normalizedExecutorType).map((tool) => tool.id));
     const resolvedToolIds = safeArray(mcpToolIds)
       .map((item) => String(item || '').trim())
       .filter(Boolean)
@@ -1159,7 +1180,7 @@ export class CommandDeckRegistry {
       sessionId: session.id,
       title: String(title).trim(),
       taskDescription: String(taskDescription || '').trim(),
-      executorType,
+      executorType: normalizedExecutorType,
       command,
       commandArgs,
       args,
