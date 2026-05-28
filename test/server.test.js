@@ -389,3 +389,48 @@ test('run-now cleanup endpoint enforces approval and supports dry-run mode', asy
     await server.stop();
   }
 });
+
+test('cleanup schedule endpoint enforces approval and persists updated schedule', async () => {
+  const token = 'route-token-06';
+  const server = await startServer({ token });
+
+  try {
+    const denied = await server.requestJson('/api/artifacts/cleanup/schedule', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        enabled: true,
+        intervalHours: 12,
+      },
+    });
+    assert.equal(denied.status, 409);
+    assert.equal(Boolean(denied.body?.requiresApproval), true);
+
+    const saved = await server.requestJson('/api/artifacts/cleanup/schedule', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        enabled: true,
+        approved: true,
+        intervalHours: 12,
+        olderThanDays: 30,
+        dryRun: true,
+      },
+    });
+    assert.equal(saved.status, 200);
+    assert.equal(saved.body?.enabled, true);
+    assert.equal(saved.body?.intervalHours, 12);
+    assert.equal(saved.body?.olderThanDays, 30);
+    assert.equal(saved.body?.dryRun, true);
+
+    const listed = await server.requestJson('/api/artifacts/cleanup/schedule', {
+      method: 'GET',
+    });
+    assert.equal(listed.status, 200);
+    assert.equal(listed.body?.schedule?.enabled, true);
+    assert.equal(listed.body?.schedule?.intervalHours, 12);
+  } finally {
+    await server.stop();
+  }
+});
