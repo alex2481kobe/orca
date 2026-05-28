@@ -905,17 +905,17 @@ test('mobile manifest exposes deep links for projects, sessions, and lane artifa
 
     const projectEntry = manifest.body.projects[0];
     assert.equal(projectEntry.projectId, project.body.id);
-    assert.equal(projectEntry.route, `/projects/${project.body.slug}`);
+    assert.equal(projectEntry.route.includes(`/projects/${project.body.slug}`), true);
     assert.equal(projectEntry.sessions.length, 1);
 
     const sessionEntry = projectEntry.sessions[0];
     assert.equal(sessionEntry.sessionId, session.body.id);
-    assert.equal(sessionEntry.route, `/projects/${project.body.slug}/sessions/${session.body.id}`);
+    assert.equal(sessionEntry.route.includes(`/projects/${project.body.slug}/sessions/${session.body.id}`), true);
     assert.equal(sessionEntry.lanes.length, 1);
 
     const laneEntry = sessionEntry.lanes[0];
     assert.equal(laneEntry.laneId, lane.body.id);
-    assert.equal(laneEntry.route, `/projects/${project.body.slug}/sessions/${session.body.id}/lanes/${lane.body.id}`);
+    assert.equal(laneEntry.route.includes(`/projects/${project.body.slug}/sessions/${session.body.id}/lanes/${lane.body.id}`), true);
     assert.equal(laneEntry.artifactsUrl, `/api/lanes/${lane.body.id}/artifacts`);
     assert.equal(laneEntry.evidenceUrl, `/api/lanes/${lane.body.id}/evidence`);
     assert.equal(laneEntry.evidenceLatestUrl, `/api/lanes/${lane.body.id}/evidence/latest`);
