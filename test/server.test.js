@@ -288,6 +288,34 @@ test('executor CLI reinstall endpoints require explicit confirmation before exec
   }
 });
 
+test('executor CLI reinstall endpoint rejects unsafe override commands', async () => {
+  const token = 'route-token-03b';
+  const server = await startServer({
+    token,
+    env: {
+      COMMAND_DECK_CODEX_BINARY: '/usr/bin/codex',
+      COMMAND_DECK_CODEX_REINSTALL_COMMAND: 'npm install --yes @openai/codex',
+    },
+  });
+
+  try {
+    const badOverride = await server.requestJson('/api/executors/codex/cli/reinstall', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+        execute: false,
+        command: 'rm -rf /',
+      },
+    });
+    assert.equal(badOverride.status, 422);
+    assert.equal(String(badOverride.body?.error || '').includes('Invalid reinstall command override'), true);
+  } finally {
+    await server.stop();
+  }
+});
+
 test('server MCP tooling routes require token and support CRUD workflow', async () => {
   const token = 'route-token-04';
   const server = await startServer({ token });
