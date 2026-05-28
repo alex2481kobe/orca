@@ -862,3 +862,72 @@ test('cleanup schedule endpoint validates interval, session id, and retention', 
     await server.stop();
   }
 });
+
+test('mobile manifest exposes deep links for projects, sessions, and lane artifact/evidence actions', async () => {
+  const token = 'route-token-07';
+  const server = await startServer({ token });
+
+  try {
+    const project = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        name: 'Manifest Project',
+      },
+    });
+    assert.equal(project.status, 201);
+
+    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        name: 'Manifest Session',
+      },
+    });
+    assert.equal(session.status, 201);
+
+    const lane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        title: 'Manifest Lane',
+        executorType: 'mock',
+        owner: 'dashboard',
+      },
+    });
+    assert.equal(lane.status, 201);
+
+    const manifest = await server.requestJson('/api/mobile/manifest', { method: 'GET' });
+    assert.equal(manifest.status, 200);
+    assert.equal(Boolean(manifest.body?.apiTokenRequired), true);
+    assert.equal(Array.isArray(manifest.body?.projects), true);
+    assert.equal(manifest.body.projects.length, 1);
+
+    const projectEntry = manifest.body.projects[0];
+    assert.equal(projectEntry.projectId, project.body.id);
+    assert.equal(projectEntry.route, `/projects/${project.body.slug}`);
+    assert.equal(projectEntry.sessions.length, 1);
+
+    const sessionEntry = projectEntry.sessions[0];
+    assert.equal(sessionEntry.sessionId, session.body.id);
+    assert.equal(sessionEntry.route, `/projects/${project.body.slug}/sessions/${session.body.id}`);
+    assert.equal(sessionEntry.lanes.length, 1);
+
+    const laneEntry = sessionEntry.lanes[0];
+    assert.equal(laneEntry.laneId, lane.body.id);
+    assert.equal(laneEntry.route, `/projects/${project.body.slug}/sessions/${session.body.id}/lanes/${lane.body.id}`);
+    assert.equal(laneEntry.artifactsUrl, `/api/lanes/${lane.body.id}/artifacts`);
+    assert.equal(laneEntry.evidenceUrl, `/api/lanes/${lane.body.id}/evidence`);
+    assert.equal(laneEntry.evidenceLatestUrl, `/api/lanes/${lane.body.id}/evidence/latest`);
+    assert.equal(laneEntry.auditApi, `/api/lanes/${lane.body.id}/audit`);
+
+    assert.equal(typeof manifest.body?.artifactCleanupUrl, 'string');
+    assert.equal(typeof manifest.body?.artifactCleanupScheduleUrl, 'string');
+    assert.equal(typeof manifest.body?.artifactCleanupNowUrl, 'string');
+    assert.equal(typeof manifest.body?.executorProfilesUrl, 'string');
+    assert.equal(typeof manifest.body?.executorCliInfoUrl, 'string');
+    assert.equal(typeof manifest.body?.executorCliReinstallUrl, 'string');
+  } finally {
+    await server.stop();
+  }
+});
