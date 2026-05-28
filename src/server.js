@@ -164,6 +164,8 @@ function buildMobileManifest(req) {
       artifactCleanupScheduleUrl: `${origin}/api/artifacts/cleanup/schedule`,
       artifactCleanupNowUrl: `${origin}/api/artifacts/cleanup/run-now`,
       executorProfilesUrl: `${origin}/api/executors/profiles`,
+      executorCliInfoUrl: `${origin}/api/executors/{executor}/cli`,
+      executorCliReinstallUrl: `${origin}/api/executors/{executor}/cli/reinstall`,
       apiTokenRequired: Boolean(API_TOKEN),
       projects: projects.map((project) => {
       const sessions = registry.listSessions(project.id);
@@ -234,6 +236,38 @@ async function handleApi(req, res, pathname, method, parts) {
       profiles: registry.getExecutorProfiles(),
       commandDeckApiEndpoint: '/api/executors/profiles',
     });
+  }
+
+  if (parts[1] === 'executors' && ['codex', 'claude'].includes(parts[2]) && parts[3] === 'cli' && method === 'GET' && parts.length === 4) {
+    try {
+      const info = registry.getExecutorCliInfo(parts[2]);
+      return sendJson(res, 200, info);
+    } catch (error) {
+      return sendJson(res, error.status || 500, {
+        error: error.message || 'Could not load executor CLI info.',
+        requiresApproval: error.requiresApproval || false,
+        risk: error.risk || null,
+      });
+    }
+  }
+
+  if (parts[1] === 'executors' && ['codex', 'claude'].includes(parts[2]) && parts[3] === 'cli' && parts[4] === 'reinstall' && method === 'POST') {
+    const body = await parseJsonBody(req);
+    if (body === null) return sendJson(res, 400, { error: 'Invalid JSON.' });
+    try {
+      const result = await registry.runExecutorCliReinstall(parts[2], {
+        actor: body.actor || 'dashboard',
+        approved: body.approved,
+        execute: Boolean(body.execute),
+      });
+      return sendJson(res, 200, result);
+    } catch (error) {
+      return sendJson(res, error.status || 500, {
+        error: error.message || 'Could not run CLI management action.',
+        requiresApproval: error.requiresApproval || false,
+        risk: error.risk || null,
+      });
+    }
   }
 
   if (parts[1] === 'artifacts' && parts[2] === 'cleanup' && parts.length === 3 && method === 'POST') {

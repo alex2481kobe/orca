@@ -63,3 +63,17 @@ For private mobile control guidance, see:
 - Artifact cleanup operations are exposed via `POST /api/artifacts/cleanup` (requires approval by policy).
 - API token status is surfaced in the mobile manifest as `apiTokenRequired`, and mobile clients can call through the dashboard JS helper by setting a session token.
 - Lane deep links now include `/projects/:slug/sessions/:sessionId/lanes/:laneId` for quick mobile navigation.
+
+## CLI management
+
+- Configure managed reinstall commands with:
+  - `COMMAND_DECK_CODEX_REINSTALL_COMMAND`
+  - `COMMAND_DECK_CLAUDE_REINSTALL_COMMAND`
+
+  These values should be JSON arrays of command arguments, for example:
+
+  - `"[\"npm\",\"install\",\"-g\",\"--yes\",\"codex-cli\"]"`
+
+- Reinstall endpoints:
+  - `GET /api/executors/{executor}/cli`
+  - `POST /api/executors/{executor}/cli/reinstall` with `{ "approved": true, "execute": false }`

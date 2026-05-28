@@ -1,9 +1,14 @@
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { LANE_STATES } from './worker-contract.js';
-import { createExecutorAdapter, getExecutorProfiles as getExecutorProfilesFromFactory } from './executor-factory.js';
+import {
+  createExecutorAdapter,
+  getExecutorProfiles as getExecutorProfilesFromFactory,
+  getExecutorProfile as getExecutorProfileFromFactory,
+} from './executor-factory.js';
 import { PlaywrightEvidenceRunner } from './evidence-runner.js';
 
 const { QUEUED: QUEUED_STATE, STARTING: STARTING_STATE, RUNNING: RUNNING_STATE, STOPPED: STOPPED_STATE, DONE: DONE_STATE, FAILED: FAILED_STATE } = LANE_STATES;
@@ -21,6 +26,95 @@ const parsePositiveFloat = (value, fallback = null) => {
   if (Number.isNaN(parsed) || parsed <= 0) return fallback;
   return parsed;
 };
+
+const REINSTALL_COMMAND_TIMEOUT_MS = 10 * 60 * 1000;
+const MAX_REINSTALL_ARG_LEN = 120;
+const MAX_REINSTALL_ARGS = 24;
+const ALLOWED_REINSTALL_BINARIES = new Set(['npm', 'pnpm', 'bun', 'brew', 'pip', 'pip3']);
+
+function normalizeExecutorType(raw) {
+  return String(raw || '').toLowerCase().trim();
+}
+
+function normalizeReinstallCommand(raw) {
+  if (!raw) return null;
+  if (!Array.isArray(raw) && typeof raw !== 'string') return null;
+
+  let parts = [];
+  if (Array.isArray(raw)) {
+    parts = raw.map((item) => String(item || '').trim()).filter(Boolean);
+  } else {
+    const text = String(raw).trim();
+    if (!text) return null;
+    try {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) {
+        parts = parsed.map((item) => String(item || '').trim()).filter(Boolean);
+      } else {
+        parts = text.split(/\s+/).filter(Boolean);
+      }
+    } catch {
+      parts = text.split(/\s+/).filter(Boolean);
+    }
+  }
+
+  if (!parts.length || parts.length > MAX_REINSTALL_ARGS) return null;
+
+  const [binary, ...args] = parts;
+  const normalizedBinary = String(binary || '').toLowerCase();
+  if (!ALLOWED_REINSTALL_BINARIES.has(normalizedBinary)) return null;
+
+  for (const part of parts) {
+    if (!part.trim()) return null;
+    if (part.length > MAX_REINSTALL_ARG_LEN) return null;
+    if (/[|&;<>$`]/.test(part)) return null;
+  }
+
+  return [binary, ...args];
+}
+
+function getReinstallCommand(type) {
+  const executorType = normalizeExecutorType(type);
+  const config = {
+    codex: 'COMMAND_DECK_CODEX_REINSTALL_COMMAND',
+    claude: 'COMMAND_DECK_CLAUDE_REINSTALL_COMMAND',
+  };
+  const envVar = config[executorType];
+  if (!envVar) return null;
+  return normalizeReinstallCommand(process.env[envVar]);
+}
+
+function getCliVersion(binary) {
+  try {
+    const result = spawnSync(binary, ['--version'], {
+      encoding: 'utf8',
+      timeout: 4000,
+      maxBuffer: 64 * 1024,
+      windowsHide: true,
+    });
+
+    if (result.error) {
+      return {
+        exists: false,
+        version: null,
+        exitCode: result.error.code,
+      };
+    }
+
+    const raw = String(result.stdout || result.stderr || '').trim();
+    return {
+      exists: true,
+      version: raw || null,
+      exitCode: result.status,
+    };
+  } catch (error) {
+    return {
+      exists: false,
+      version: null,
+      exitCode: error.code,
+    };
+  }
+}
 
 async function getDirectorySize(directoryPath) {
   let bytes = 0;
@@ -91,6 +185,11 @@ const defaultPolicy = {
     requiresApproval: true,
     risk: 'medium',
     message: 'Changes periodic cleanup policy and can increase data retention risk.',
+  },
+  manageExecutorCli: {
+    requiresApproval: true,
+    risk: 'high',
+    message: 'Reinstalling/updating the CLI can change execution trust boundaries.',
   },
   manageMcpTools: {
     requiresApproval: true,
@@ -1575,6 +1674,124 @@ export class CommandDeckRegistry {
 
   getExecutorProfiles() {
     return clonePayload(getExecutorProfilesFromFactory());
+  }
+
+  getExecutorCliInfo(executorType) {
+    const type = normalizeExecutorType(executorType);
+    if (!['codex', 'claude'].includes(type)) {
+      throw { status: 404, message: 'Unsupported executor type.' };
+    }
+
+    const profile = getExecutorProfileFromFactory(type) || {};
+    const binary = String(profile.defaultBinary || type);
+    const versionInfo = getCliVersion(binary);
+    const reinstallCommand = getReinstallCommand(type);
+    return {
+      type,
+      profile,
+      binary,
+      binaryExists: versionInfo.exists,
+      version: versionInfo.version,
+      binaryExitCode: versionInfo.exitCode,
+      reinstall: {
+        available: Boolean(reinstallCommand),
+        command: reinstallCommand,
+      },
+    };
+  }
+
+  async runExecutorCliReinstall(executorType, {
+    actor = 'dashboard',
+    approved = false,
+    execute = false,
+  } = {}) {
+    const type = normalizeExecutorType(executorType);
+    if (!['codex', 'claude'].includes(type)) {
+      throw { status: 404, message: 'Unsupported executor type.' };
+    }
+
+    const policyCheck = this.evaluateActionPolicy('manageExecutorCli', { actor, approved });
+    if (!policyCheck.allowed) {
+      throw {
+        status: 409,
+        message: policyCheck.message,
+        requiresApproval: true,
+        risk: policyCheck.policy.risk,
+      };
+    }
+
+    const command = getReinstallCommand(type);
+    if (!command) {
+      throw {
+        status: 422,
+        message: `No safe reinstall command configured for ${type}.`,
+        risk: defaultPolicy.manageExecutorCli.risk,
+      };
+    }
+
+    if (!execute) {
+      this.recordAudit({
+        type: 'executor_cli_reinstall_plan_only',
+        actor,
+        projectId: null,
+        sessionId: null,
+        laneId: null,
+        summary: `${type} CLI reinstall plan requested (dry-run mode)`,
+        evidence: { executorType: type, command },
+        status: 'passed',
+      });
+      return {
+        executorType: type,
+        executed: false,
+        command,
+        reason: 'Dry-run mode. Set execute=true to apply.',
+      };
+    }
+
+    const [binary, ...args] = command;
+    const startedAt = new Date().toISOString();
+    const result = spawnSync(binary, args, {
+      encoding: 'utf8',
+      timeout: REINSTALL_COMMAND_TIMEOUT_MS,
+      windowsHide: true,
+    });
+
+    const evidence = {
+      executorType: type,
+      command,
+      status: result.status,
+      stdout: (result.stdout || '').slice(0, 8000),
+      stderr: (result.stderr || '').slice(0, 8000),
+      startedAt,
+      completedAt: new Date().toISOString(),
+      signal: result.signal || null,
+    };
+
+    this.recordAudit({
+      type: 'executor_cli_reinstall_run',
+      actor,
+      projectId: null,
+      sessionId: null,
+      laneId: null,
+      summary: `Executed ${type} CLI reinstall command`,
+      evidence,
+      status: result.status === 0 ? 'passed' : 'failed',
+    });
+
+    if (result.error && result.error.code) {
+      evidence.errorCode = result.error.code;
+      evidence.error = String(result.error.message || result.error);
+    }
+
+    return {
+      executorType: type,
+      executed: true,
+      command,
+      status: result.status,
+      signal: result.signal || null,
+      errorCode: result.error?.code || null,
+      evidence,
+    };
   }
 
   appendLaneLog(lane, message, { persist = false } = {}) {

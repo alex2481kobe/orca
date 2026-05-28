@@ -504,7 +504,7 @@ function parseEnvList(rawValue, fallback = []) {
     .filter(Boolean);
 }
 
-function getExecutorProfile(type, callbacks = {}) {
+export function getExecutorProfile(type, callbacks = {}) {
   const executorType = String(type || '').toLowerCase();
   if (!['codex', 'claude'].includes(executorType)) {
     return null;

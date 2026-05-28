@@ -14,6 +14,7 @@ const shell = {
   cleanupSchedule: null,
   mcpTools: [],
   executorProfiles: null,
+  executorCliInfo: {},
 };
 
 const refs = {
@@ -158,6 +159,25 @@ function renderHome() {
       </div>
     </div>
   `).join('');
+  const cliRows = Object.entries(shell.executorCliInfo || {}).map(([type, info]) => {
+    const command = Array.isArray(info?.reinstall?.command)
+      ? safeText(info.reinstall.command.join(' '))
+      : 'not configured';
+    return `
+      <div class="lane-row" style="align-items:center; justify-content:space-between;">
+        <div>
+          <strong>${safeText(type.toUpperCase())}</strong>
+          <div class="tiny muted">binary: ${safeText(info?.binary || '')}</div>
+          <div class="tiny muted">version: ${safeText(info?.version || 'unknown')}</div>
+          <div class="tiny muted">reinstall: ${command}</div>
+        </div>
+        <div class="lane-row">
+          <button data-action="refreshExecutorCli" data-executor="${safeText(type)}" type="button">Refresh</button>
+          <button class="secondary" data-action="reinstallExecutorCli" data-executor="${safeText(type)}" type="button">Dry-run reinstall</button>
+        </div>
+      </div>
+    `;
+  }).join('');
   const cards = shell.projects.map((project) => {
     const quickLinks = project.quickLinks.map((quick) => `
       <div><a href="${safeText(quick.url)}" target="_blank" rel="noopener noreferrer">${safeText(quick.label)}</a></div>
@@ -202,9 +222,13 @@ function renderHome() {
           <button class="secondary" data-action="clearApiToken" type="button">Clear token</button>
         </div>
       </article>
-      <article class="card">
+        <article class="card">
         <h3>Executor profiles</h3>
         ${profileRows || '<div class="muted">No executor profiles loaded yet.</div>'}
+      </article>
+      <article class="card">
+        <h3>Executor CLI health and updates</h3>
+        ${cliRows || '<div class="muted">No CLI data yet.</div>'}
       </article>
       <article class="card">
         <h3>Artifact cleanup schedule</h3>
@@ -558,6 +582,17 @@ async function refresh() {
   const profilesResp = await api('/api/executors/profiles');
   if (profilesResp.ok && profilesResp.data?.profiles) {
     shell.executorProfiles = profilesResp.data.profiles;
+  }
+
+  if (shell.executorProfiles && typeof shell.executorProfiles === 'object') {
+    const cliInfo = {};
+    await Promise.all(Object.keys(shell.executorProfiles).map(async (executorType) => {
+      const response = await api(`/api/executors/${encodeURIComponent(executorType)}/cli`);
+      if (response.ok && response.data) {
+        cliInfo[executorType] = response.data;
+      }
+    }));
+    shell.executorCliInfo = cliInfo;
   }
 
   const cleanupScheduleResp = await api('/api/artifacts/cleanup/schedule');
@@ -1032,6 +1067,54 @@ async function handleSystemActions(event) {
       renderAlert(response.data?.error || 'Could not delete MCP tool.', 'bad');
     }
   }
+
+  if (action === 'refreshExecutorCli') {
+    const executorType = event.currentTarget.dataset.executor;
+    if (!executorType) return;
+    const response = await api(`/api/executors/${encodeURIComponent(executorType)}/cli`);
+    if (response.ok) {
+      if (!shell.executorCliInfo) shell.executorCliInfo = {};
+      shell.executorCliInfo[executorType] = response.data;
+      renderAlert(`${executorType.toUpperCase()} CLI info refreshed.`);
+      await refresh();
+    } else {
+      renderAlert(response.data?.error || 'Could not refresh CLI health.', 'bad');
+    }
+    return;
+  }
+
+  if (action === 'reinstallExecutorCli') {
+    const executorType = event.currentTarget.dataset.executor;
+    if (!executorType) return;
+    const confirmed = window.confirm(`Plan ${executorType.toUpperCase()} CLI ${event.currentTarget.textContent.toLowerCase().includes('dry-run') ? 'dry run reinstall' : ''} now?`);
+    if (!confirmed) {
+      renderAlert('Executor CLI action canceled.');
+      return;
+    }
+    const execute = window.confirm('Run managed reinstall now (not dry-run)?\nChoose Cancel to only show the planned command.');
+    const response = await api(`/api/executors/${encodeURIComponent(executorType)}/cli/reinstall`, {
+      method: 'POST',
+      body: {
+        actor: 'dashboard',
+        approved: true,
+        execute,
+      },
+    });
+    if (response.ok) {
+      if (response.data?.executed) {
+        renderAlert(`CLI ${executorType} reinstall executed with status ${response.data.status}.`);
+      } else {
+        renderAlert(`CLI ${executorType} reinstall planned: ${safeText((response.data?.command || []).join(' '))}`);
+      }
+      await refresh();
+      return;
+    }
+    if (response.data?.requiresApproval) {
+      renderAlert('Approval required for CLI management.', 'bad');
+      return;
+    }
+    renderAlert(response.data?.error || 'CLI management failed.', 'bad');
+  }
 }
 
 document.addEventListener('submit', async (event) => {
@@ -1076,7 +1159,7 @@ document.addEventListener('click', async (event) => {
     return;
   }
 
-  if (['setApiToken', 'clearApiToken', 'cleanupArtifacts', 'cleanupArtifactsRunNow', 'deleteMcpTool'].includes(action)) {
+  if (['setApiToken', 'clearApiToken', 'cleanupArtifacts', 'cleanupArtifactsRunNow', 'deleteMcpTool', 'refreshExecutorCli', 'reinstallExecutorCli'].includes(action)) {
     await handleSystemActions({ currentTarget: event.target });
     return;
   }

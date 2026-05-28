@@ -10,6 +10,7 @@
   },
   "scripts": {
     "dev": "node src/server.js",
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "test": "node --test ./test/**/*.test.js"
   }
 }

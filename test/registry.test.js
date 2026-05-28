@@ -1,0 +1,219 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+import { CommandDeckRegistry } from '../src/registry.js';
+
+async function withIsolatedRegistry() {
+  const previousCwd = process.cwd();
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-registry-test-'));
+  process.chdir(tempDir);
+
+  const registry = new CommandDeckRegistry();
+  const cleanup = async () => {
+    registry.stopScheduler();
+    process.chdir(previousCwd);
+    await fs.rm(tempDir, { force: true, recursive: true });
+  };
+
+  return { registry, cleanup, tempDir };
+}
+
+function restoreEnv(previous) {
+  const snapshot = { ...previous };
+  return () => {
+    Object.keys(process.env).forEach((key) => {
+      if (!(key in snapshot)) {
+        delete process.env[key];
+      }
+    });
+    Object.entries(snapshot).forEach(([key, value]) => {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    });
+  };
+}
+
+test('cleanup schedule and cleanup artifacts use retention + approval', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+
+  try {
+    assert.equal(registry.getCleanupSchedule().enabled, false);
+    assert.throws(() => registry.updateCleanupSchedule({ enabled: true, intervalHours: 999 }, { approved: true }), (error) => error.status === 422);
+
+    const updated = registry.updateCleanupSchedule({
+      enabled: true,
+      intervalHours: 12,
+      olderThanDays: 7,
+      sessionId: null,
+      dryRun: true,
+    }, { approved: true });
+    assert.equal(updated.enabled, true);
+    assert.equal(updated.intervalHours, 12);
+    assert.equal(updated.olderThanDays, 7);
+
+    const project = registry.createProject({ name: 'Cleanup Project' });
+    const session = registry.createSession(project.id, { name: 'Cleanup Session' });
+    const lane = registry.createLane(session.id, {
+      title: 'old lane',
+      executorType: 'mock',
+    }, { approved: true, actor: 'test' });
+
+    const target = registry.getLane(lane.id);
+    target.state = 'done';
+    target.completedAt = new Date(Date.now() - (12 * 24 * 60 * 60 * 1000)).toISOString();
+    target.updatedAt = target.completedAt;
+
+    const artifactDir = path.join(process.cwd(), 'artifacts', session.id, target.id);
+    await fs.mkdir(artifactDir, { recursive: true });
+    await fs.writeFile(path.join(artifactDir, 'evidence-test.log'), 'hello');
+
+    const dryRunSummary = await registry.cleanupArtifacts({
+      actor: 'test',
+      approved: true,
+      dryRun: true,
+      sessionId: session.id,
+      olderThanDays: 10,
+    });
+    assert.equal(dryRunSummary.dryRun, true);
+    assert.equal(dryRunSummary.candidates, 1);
+    assert.equal(dryRunSummary.removed, 0);
+
+    const deleteSummary = await registry.cleanupArtifacts({
+      actor: 'test',
+      approved: true,
+      sessionId: session.id,
+      olderThanDays: 10,
+      dryRun: false,
+    });
+    assert.equal(deleteSummary.removed, 1);
+
+    await assert.rejects(
+      fs.access(path.join(artifactDir, 'evidence-test.log')),
+      (error) => error.code === 'ENOENT',
+    );
+  } finally {
+    await cleanup();
+  }
+});
+
+test('MCP tools are scoped by executor type', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+
+  try {
+    const project = registry.createProject({ name: 'MCP Project' });
+    const session = registry.createSession(project.id, { name: 'MCP Session' });
+
+    await registry.createMcpTool({
+      name: 'all-tool',
+      command: 'node',
+      args: ['--version'],
+      scope: ['all'],
+      enabled: true,
+    }, { actor: 'test', approved: true });
+
+    await registry.createMcpTool({
+      name: 'codex-tool',
+      command: 'node',
+      args: ['--version'],
+      scope: ['codex'],
+      enabled: true,
+    }, { actor: 'test', approved: true });
+
+    await registry.createMcpTool({
+      name: 'claude-tool',
+      command: 'node',
+      args: ['--version'],
+      scope: ['claude'],
+      enabled: true,
+    }, { actor: 'test', approved: true });
+
+    const codexLane = await registry.createLane(session.id, {
+      title: 'Codex Lane',
+      executorType: 'codex',
+      mcpToolIds: ['all-tool', 'codex-tool', 'claude-tool'],
+    }, { actor: 'test', approved: true });
+
+    const claudeLane = await registry.createLane(session.id, {
+      title: 'Claude Lane',
+      executorType: 'claude',
+      mcpToolIds: ['all-tool', 'codex-tool', 'claude-tool'],
+    }, { actor: 'test', approved: true });
+
+    const mockLane = await registry.createLane(session.id, {
+      title: 'Mock Lane',
+      executorType: 'mock',
+      mcpToolIds: ['all-tool', 'codex-tool', 'claude-tool'],
+    }, { actor: 'test', approved: true });
+
+    const codexToolNames = new Set((codexLane.mcpTools || []).map((item) => item.name));
+    const claudeToolNames = new Set((claudeLane.mcpTools || []).map((item) => item.name));
+    const mockToolNames = new Set((mockLane.mcpTools || []).map((item) => item.name));
+
+    assert.ok(codexToolNames.has('all-tool'));
+    assert.ok(codexToolNames.has('codex-tool'));
+    assert.ok(!codexToolNames.has('claude-tool'));
+
+    assert.ok(claudeToolNames.has('all-tool'));
+    assert.ok(claudeToolNames.has('claude-tool'));
+    assert.ok(!claudeToolNames.has('codex-tool'));
+
+    assert.deepEqual([...mockToolNames], ['all-tool']);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('executor CLI info and managed reinstall require approval', async () => {
+  const restore = restoreEnv({
+    COMMAND_DECK_CODEX_BINARY: process.env.COMMAND_DECK_CODEX_BINARY,
+    COMMAND_DECK_CLAUDE_BINARY: process.env.COMMAND_DECK_CLAUDE_BINARY,
+    COMMAND_DECK_CODEX_REINSTALL_COMMAND: process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND,
+    COMMAND_DECK_CLAUDE_REINSTALL_COMMAND: process.env.COMMAND_DECK_CLAUDE_REINSTALL_COMMAND,
+  });
+
+  try {
+    process.env.COMMAND_DECK_CODEX_BINARY = '/usr/bin/codex';
+    process.env.COMMAND_DECK_CLAUDE_BINARY = '/usr/bin/claude';
+    process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND = '["npm","install","-g","--yes","codex-cli"]';
+    process.env.COMMAND_DECK_CLAUDE_REINSTALL_COMMAND = '["npm","install","-g","--yes","claude-cli"]';
+
+    const { registry, cleanup } = await withIsolatedRegistry();
+    try {
+      const profiles = registry.getExecutorProfiles();
+      assert.equal(profiles.codex.defaultBinary, '/usr/bin/codex');
+      assert.equal(profiles.claude.defaultBinary, '/usr/bin/claude');
+
+      const codexInfo = registry.getExecutorCliInfo('codex');
+      assert.equal(codexInfo.type, 'codex');
+      assert.equal(codexInfo.binary, '/usr/bin/codex');
+      assert.equal(codexInfo.reinstall.available, true);
+      assert.equal(codexInfo.reinstall.command[0], 'npm');
+
+      const dryRun = await registry.runExecutorCliReinstall('codex', {
+        actor: 'test',
+        approved: true,
+        execute: false,
+      });
+      assert.equal(dryRun.executed, false);
+      assert.equal(dryRun.command[0], 'npm');
+
+      await assert.rejects(
+        () => registry.runExecutorCliReinstall('codex', {
+          actor: 'test',
+          approved: false,
+          execute: false,
+        }),
+        (error) => error.status === 409,
+      );
+    } finally {
+      await cleanup();
+    }
+  } finally {
+    restore();
+  }
+});
