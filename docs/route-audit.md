@@ -1,10 +1,11 @@
 # Route-by-route audit
 
-The canonical route inventory is now code-backed:
+The canonical route inventory is code-backed:
 
 - Source: `src/route-inventory.js`
 - Read-only API: `GET /api/route-inventory`
 - Smoke gate: `npm run smoke:route-inventory`
+- Security matrix gate: `npm run smoke:route-security-matrix`
 
 The inventory is public-safe and intentionally does not include local paths,
 usernames, token values, secret values, internal prompts, or private planning
@@ -27,6 +28,10 @@ Every route entry must declare:
 - `smokeCoverage`
 - `mobileBehavior`
 - `serverHints`
+
+Every route-security-matrix row in `docs/route-security-matrix.md` must stay
+in sync with the live inventory. The matrix smoke fails if a route is missing,
+stale, or undocumented.
 
 ## Enforcement rules
 
@@ -53,10 +58,11 @@ Run:
 npm run smoke:route-inventory
 ```
 
-The smoke prints the current group counts. As of this audit, the inventory
-covers these route groups:
+The smoke prints the current group counts. As of the latest acceptance run,
+the inventory covers 97 routes across these route groups:
 
 - `agent-tools`
+- `app-backup`
 - `audit`
 - `auth`
 - `capacity`
@@ -67,6 +73,7 @@ covers these route groups:
 - `lanes`
 - `mcp`
 - `mobile`
+- `notifications`
 - `private-access`
 - `projects`
 - `providers`
@@ -74,6 +81,7 @@ covers these route groups:
 - `sessions`
 - `static-app`
 - `static-artifacts`
+- `streams`
 - `system`
 
 ## Global route behavior
@@ -103,4 +111,5 @@ When adding or changing a route:
 - Add server/source hints that fail if the route disappears or moves without
   updating the inventory.
 - Run `npm run smoke:route-inventory`.
+- Run `npm run smoke:route-security-matrix`.
 - Run the specific test/smoke covering the route behavior.
