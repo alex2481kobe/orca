@@ -627,7 +627,7 @@ export class CommandDeckRegistry {
     fs.mkdir(this.artifactRoot, { recursive: true }).catch(() => {});
     fs.mkdir(this.workspacesRoot, { recursive: true }).catch(() => {});
     this.restoreFromDisk();
-    if (!this.projects.length) {
+    if (!this.projects.length && parseBooleanEnv(process.env.COMMAND_DECK_SEED, false)) {
       this.seed();
     }
     this.startScheduler();
@@ -723,6 +723,16 @@ export class CommandDeckRegistry {
     return path.resolve(session.worktreeRoot || path.join(this.workspacesRoot, session.id));
   }
 
+  getApprovedRepoRoots() {
+    const env = process.env.COMMAND_DECK_REPO_ROOTS;
+    const fromEnv = String(env || '')
+      .split(/[,\n]/)
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+      .map((value) => path.resolve(value));
+    return [process.cwd(), ...fromEnv];
+  }
+
   resolveLaneWorkdir(session, rawWorkdir) {
     const sessionWorkdir = this.getSessionWorktreeRoot(session);
     const requested = sanitizeWorkdirInput(rawWorkdir);
@@ -738,15 +748,30 @@ export class CommandDeckRegistry {
         message: 'Lane workdir path contains invalid characters.',
       };
     }
-    const workdir = requested
-      ? (path.isAbsolute(requested) ? path.resolve(requested) : path.resolve(sessionWorkdir, requested))
-      : sessionWorkdir;
-
-    if (!isPathWithinBoundary(workdir, sessionWorkdir)) {
-      throw {
-        status: 422,
-        message: 'Lane workdir is outside the session workspace boundary.',
-      };
+    // Relative workdirs MUST resolve under the session worktreeRoot (no escape).
+    // Absolute workdirs may live within the session worktreeRoot OR within an
+    // approved repo root (default: process.cwd()).
+    let workdir;
+    if (!requested) {
+      workdir = sessionWorkdir;
+    } else if (path.isAbsolute(requested)) {
+      workdir = path.resolve(requested);
+      const approvedRoots = [sessionWorkdir, ...this.getApprovedRepoRoots()];
+      const within = approvedRoots.some((root) => isPathWithinBoundary(workdir, root));
+      if (!within) {
+        throw {
+          status: 422,
+          message: 'Lane workdir is outside approved execution roots.',
+        };
+      }
+    } else {
+      workdir = path.resolve(sessionWorkdir, requested);
+      if (!isPathWithinBoundary(workdir, sessionWorkdir)) {
+        throw {
+          status: 422,
+          message: 'Lane workdir is outside the session workspace boundary.',
+        };
+      }
     }
     try {
       ensureDirectorySync(workdir);
@@ -1032,12 +1057,16 @@ export class CommandDeckRegistry {
       next.intervalHours = parsedInterval;
     }
 
-    const parsedRetention = parsePositiveInteger(olderThanDays, undefined);
     if (olderThanDays !== undefined) {
-      if (parsedRetention === undefined && olderThanDays !== null) {
-        throw { status: 422, message: 'olderThanDays must be a positive integer or null.' };
+      if (olderThanDays === null) {
+        next.olderThanDays = null;
+      } else {
+        const parsedRetention = parsePositiveInteger(olderThanDays, null);
+        if (parsedRetention === null) {
+          throw { status: 422, message: 'olderThanDays must be a positive integer or null.' };
+        }
+        next.olderThanDays = parsedRetention;
       }
-      next.olderThanDays = parsedRetention || null;
     }
 
     if (typeof dryRun === 'boolean') {
@@ -1291,7 +1320,8 @@ export class CommandDeckRegistry {
       worktreeRoot: path.join(this.workspacesRoot, sessionId),
       notes: [],
     };
-    this.ensureSessionWorkspaces(session);
+    ensureDirectorySync(session.artifactsRoot);
+    ensureDirectorySync(session.worktreeRoot);
 
     this.sessions.push(session);
     this.recordAudit({
@@ -1508,6 +1538,15 @@ export class CommandDeckRegistry {
     autoCompleteMs,
     heartbeatMs,
     mcpToolIds = [],
+    taskPrompt,
+    model,
+    permissionsProfile,
+    verificationCommand,
+    expectedArtifacts,
+    targetUrl,
+    repoRoot,
+    branch,
+    sharedWorktree,
   }, context = {}) {
     const session = this.getSession(sessionLocator);
     if (!session) {
@@ -1601,6 +1640,21 @@ export class CommandDeckRegistry {
         scope: tool.scope,
       }));
 
+    const sanitizedTaskPrompt = typeof taskPrompt === 'string' ? taskPrompt.trim().slice(0, 8000) : '';
+    const sanitizedModel = typeof model === 'string' ? model.trim().slice(0, 120) : '';
+    const sanitizedPermissionsProfile = typeof permissionsProfile === 'string'
+      ? permissionsProfile.trim().slice(0, 120) : '';
+    const sanitizedVerificationCommand = typeof verificationCommand === 'string'
+      ? verificationCommand.trim().slice(0, 1000) : '';
+    const sanitizedTargetUrl = typeof targetUrl === 'string' ? targetUrl.trim().slice(0, 2048) : '';
+    const sanitizedRepoRoot = typeof repoRoot === 'string' ? repoRoot.trim().slice(0, MAX_WORKDIR_BYTES) : '';
+    const sanitizedBranch = typeof branch === 'string'
+      ? branch.trim().replace(/[^A-Za-z0-9._\-/]/g, '').slice(0, 200)
+      : '';
+    const expectedArtifactsList = Array.isArray(expectedArtifacts)
+      ? expectedArtifacts.map((value) => String(value || '').trim()).filter(Boolean).slice(0, 32)
+      : [];
+
     const lane = {
       id: laneId,
       projectId: session.projectId,
@@ -1615,6 +1669,17 @@ export class CommandDeckRegistry {
       workdir: resolvedWorkdir,
       policyProfile,
       mcpTools,
+      mcpToolIds: mcpTools.map((tool) => tool.id),
+      taskPrompt: sanitizedTaskPrompt,
+      model: sanitizedModel,
+      permissionsProfile: sanitizedPermissionsProfile,
+      verificationCommand: sanitizedVerificationCommand,
+      expectedArtifacts: expectedArtifactsList,
+      targetUrl: sanitizedTargetUrl,
+      repoRoot: sanitizedRepoRoot,
+      branch: sanitizedBranch,
+      sharedWorktree: Boolean(sharedWorktree),
+      worktreePath: resolvedWorkdir,
       state: QUEUED_STATE,
       owner,
       heartbeatAt: null,
@@ -1623,6 +1688,8 @@ export class CommandDeckRegistry {
       startedAt: null,
       completedAt: null,
       exitReason: null,
+      processMeta: null,
+      changedFiles: [],
       lastEvidenceCaptureAt: null,
       lastEvidence: null,
       route: buildLaneRoute(project.slug, session.id, laneId),
@@ -1780,7 +1847,13 @@ export class CommandDeckRegistry {
       event.followUpQueued
     );
     if (existing) {
-      return { queueId: existing.id, lane: clonePayload(lane), alreadyQueued: true };
+      return {
+        id: existing.id,
+        queueId: existing.id,
+        event: clonePayload(existing),
+        lane: clonePayload(lane),
+        alreadyQueued: true,
+      };
     }
 
     this.appendLaneLog(lane, `Audit requested by ${context.actor || 'dashboard'}`);
@@ -1802,7 +1875,8 @@ export class CommandDeckRegistry {
       followUpQueued: true,
     });
     this.persistState();
-    return { queueId, lane: clonePayload(lane) };
+    const event = this.auditEvents.find((item) => item.id === queueId) || null;
+    return { id: queueId, queueId, event: event ? clonePayload(event) : null, lane: clonePayload(lane) };
   }
 
   async queueDoneLanesAudit(sessionLocator, context = {}) {
@@ -2039,8 +2113,9 @@ export class CommandDeckRegistry {
     });
 
     const cadenceMs = (parsePositiveFloat(this.cleanupSchedule.intervalHours, 24) || 24) * 60 * 60 * 1000;
+    this._lastTickMs = (this._lastTickMs || 0) + 1;
     this.cleanupSchedule.lastRunAt = nowIso();
-    this.cleanupSchedule.nextRunAt = new Date(now + cadenceMs).toISOString();
+    this.cleanupSchedule.nextRunAt = new Date(now + cadenceMs + this._lastTickMs).toISOString();
     this.recordAudit({
       type: 'artifacts_cleanup_scheduler_run',
       actor: 'scheduler',

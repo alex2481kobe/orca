@@ -233,7 +233,7 @@ test('cleanup artifacts and cleanup schedule require approval for manual invocat
       (error) => error.status === 409,
     );
 
-    await assert.rejects(
+    assert.throws(
       () => registry.updateCleanupSchedule({
         enabled: true,
         intervalHours: 24,
@@ -409,31 +409,31 @@ test('MCP tools are scoped by executor type', async () => {
       enabled: true,
     }, { actor: 'test', approved: true });
 
-    await assert.rejects(() => registry.createLane(session.id, {
+    assert.throws(() => registry.createLane(session.id, {
       title: 'Codex Lane',
       executorType: 'codex',
       mcpToolIds: ['all-tool', 'codex-tool', 'claude-tool'],
     }, { actor: 'test', approved: true }), (error) => error.status === 422);
 
-    await assert.rejects(() => registry.createLane(session.id, {
+    assert.throws(() => registry.createLane(session.id, {
       title: 'Claude Lane',
       executorType: 'claude',
       mcpToolIds: ['all-tool', 'codex-tool', 'claude-tool'],
     }, { actor: 'test', approved: true }), (error) => error.status === 422);
 
-    const codexLane = await registry.createLane(session.id, {
+    const codexLane = registry.createLane(session.id, {
       title: 'Codex Lane',
       executorType: 'codex',
       mcpToolIds: ['all-tool', 'codex-tool'],
     }, { actor: 'test', approved: true });
 
-    const claudeLane = await registry.createLane(session.id, {
+    const claudeLane = registry.createLane(session.id, {
       title: 'Claude Lane',
       executorType: 'claude',
       mcpToolIds: ['all-tool', 'claude-tool'],
     }, { actor: 'test', approved: true });
 
-    const mockLane = await registry.createLane(session.id, {
+    const mockLane = registry.createLane(session.id, {
       title: 'Mock Lane',
       executorType: 'mock',
       mcpToolIds: ['all-tool'],
@@ -928,7 +928,7 @@ test('Lane workdirs default to the session workspace and reject traversal outsid
     const relativeStat = await fs.stat(relativeLane.workdir);
     assert.equal(relativeStat.isDirectory(), true);
 
-    await assert.rejects(
+    assert.throws(
       () => registry.createLane(session.id, {
         title: 'Escaping workspace lane',
         executorType: 'codex',

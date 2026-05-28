@@ -9,6 +9,13 @@ const HOST = process.env.COMMAND_DECK_HOST || '127.0.0.1';
 const PUBLIC_DIR = path.join(process.cwd(), 'public');
 const registry = new CommandDeckRegistry();
 const API_TOKEN = process.env.COMMAND_DECK_API_TOKEN || '';
+const WORKER_TOKEN = process.env.COMMAND_DECK_WORKER_TOKEN || '';
+const MAX_JSON_BODY_BYTES = (() => {
+  const raw = Number.parseInt(process.env.COMMAND_DECK_MAX_JSON_BYTES || '', 10);
+  if (Number.isFinite(raw) && raw > 0) return raw;
+  return 256 * 1024;
+})();
+const SPOOFABLE_ACTORS = new Set(['scheduler', 'system', 'cron', 'worker']);
 
 const contentTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -49,21 +56,56 @@ function requireMutatingToken(req, res) {
   return false;
 }
 
-function parseJsonBody(req) {
+function parseJsonBody(req, options = {}) {
+  const limit = Number.isFinite(options.maxBytes) ? options.maxBytes : MAX_JSON_BODY_BYTES;
   return new Promise((resolve) => {
-    let body = '';
+    let bytes = 0;
+    const chunks = [];
+    let exceeded = false;
     req.on('data', (chunk) => {
-      body += chunk;
+      if (exceeded) return;
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+      bytes += buf.length;
+      if (bytes > limit) {
+        exceeded = true;
+        return;
+      }
+      chunks.push(buf);
     });
     req.on('end', () => {
-      if (!body) return resolve({});
+      if (exceeded) {
+        req._jsonBodyTooLarge = true;
+        return resolve(null);
+      }
+      if (!chunks.length) return resolve({});
       try {
-        resolve(JSON.parse(body));
+        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
       } catch {
         resolve(null);
       }
     });
+    req.on('error', () => resolve(null));
   });
+}
+
+function sendBodyError(req, res) {
+  if (req && req._jsonBodyTooLarge) {
+    return sendJson(res, 413, {
+      error: `Request body exceeds the ${MAX_JSON_BODY_BYTES}-byte limit.`,
+    });
+  }
+  return sendJson(res, 400, { error: 'Invalid JSON.' });
+}
+
+function rejectSpoofedActor(body, res) {
+  const requested = String(body?.actor || '').trim().toLowerCase();
+  if (SPOOFABLE_ACTORS.has(requested)) {
+    sendJson(res, 403, {
+      error: `Actor "${requested}" is reserved for internal automation and may not be set from dashboard requests.`,
+    });
+    return true;
+  }
+  return false;
 }
 
 function sendJson(res, status, payload) {
@@ -92,7 +134,21 @@ function normalizePathname(requestUrl) {
 
 function getSearchParams(requestUrl) {
   try {
-    return new URL(requestUrl, 'http://localhost').searchParams;
+    const url = new URL(requestUrl, 'http://localhost');
+    if (url.search) {
+      const segments = url.search.slice(1).split('&');
+      for (const segment of segments) {
+        if (!segment) continue;
+        const [key, value = ''] = segment.split('=');
+        try {
+          decodeURIComponent(key.replace(/\+/g, ' '));
+          decodeURIComponent(value.replace(/\+/g, ' '));
+        } catch {
+          return null;
+        }
+      }
+    }
+    return url.searchParams;
   } catch {
     return null;
   }
@@ -169,25 +225,32 @@ async function serveFile(filePath, res) {
 function buildMobileManifest(req) {
   const origin = requestOrigin(req);
   const projects = registry.listProjects();
-    const payload = {
-      generatedAt: new Date().toISOString(),
-      origin,
-      auditEventsUrl: `${origin}/api/audit/events`,
-      pendingAuditEventsUrl: `${origin}/api/audit/events?status=pending`,
-      artifactCleanupUrl: `${origin}/api/artifacts/cleanup`,
-      artifactCleanupScheduleUrl: `${origin}/api/artifacts/cleanup/schedule`,
-      artifactCleanupNowUrl: `${origin}/api/artifacts/cleanup/run-now`,
-      executorProfilesUrl: `${origin}/api/executors/profiles`,
-      executorCliInfoUrl: `${origin}/api/executors/{executor}/cli`,
-      executorCliReinstallUrl: `${origin}/api/executors/{executor}/cli/reinstall`,
-      apiTokenRequired: Boolean(API_TOKEN),
-      projects: projects.map((project) => {
+  const payload = {
+    generatedAt: new Date().toISOString(),
+    origin,
+    apiTokenRequired: Boolean(API_TOKEN),
+    workerTokenRequired: Boolean(WORKER_TOKEN),
+    healthUrl: `${origin}/api/health`,
+    policyUrl: `${origin}/api/policy`,
+    auditEventsUrl: `${origin}/api/audit/events`,
+    pendingAuditEventsUrl: `${origin}/api/audit/events?status=pending`,
+    artifactCleanupUrl: `/api/artifacts/cleanup`,
+    artifactCleanupScheduleUrl: `/api/artifacts/cleanup/schedule`,
+    artifactCleanupNowUrl: `/api/artifacts/cleanup/run-now`,
+    executorProfilesUrl: `/api/executors/profiles`,
+    executorCliInfoUrl: `/api/executors/{executor}/cli`,
+    executorCliReinstallUrl: `/api/executors/{executor}/cli/reinstall`,
+    mcpToolsUrl: `${origin}/api/mcp/tools`,
+    projectsUrl: `${origin}/api/projects`,
+    mobileManifestUrl: `${origin}/api/mobile/manifest`,
+    projects: projects.map((project) => {
       const sessions = registry.listSessions(project.id);
       return {
         projectId: project.id,
         projectName: project.name,
         slug: project.slug,
         route: `${origin}${project.route}`,
+        sessionsUrl: `${origin}/api/projects/${project.id}/sessions`,
         quickLinks: project.quickLinks || [],
         sessions: sessions.map((session) => {
           const lanes = registry.listLanes(session.id);
@@ -195,17 +258,26 @@ function buildMobileManifest(req) {
             sessionId: session.id,
             sessionName: session.name,
             route: `${origin}${session.route}`,
+            lanesUrl: `${origin}/api/sessions/${session.id}/lanes`,
+            auditEventsUrl: `${origin}/api/sessions/${session.id}/audit-events`,
+            auditDoneLanesUrl: `${origin}/api/sessions/${session.id}/audit-done-lanes`,
             lanes: lanes.map((lane) => {
               const laneRoute = lane.route || `/projects/${project.slug}/sessions/${session.id}/lanes/${lane.id}`;
               return {
                 laneId: lane.id,
                 title: lane.title,
                 state: lane.state,
+                executorType: lane.executorType,
                 route: `${origin}${laneRoute}`,
-                artifactsUrl: `${origin}/api/lanes/${lane.id}/artifacts`,
-                evidenceUrl: `${origin}/api/lanes/${lane.id}/evidence`,
-                evidenceLatestUrl: `${origin}/api/lanes/${lane.id}/evidence/latest`,
-                auditApi: `${origin}/api/lanes/${lane.id}/audit`,
+                detailUrl: `${origin}/api/lanes/${lane.id}`,
+                stopUrl: `${origin}/api/lanes/${lane.id}/stop`,
+                retryUrl: `${origin}/api/lanes/${lane.id}/retry`,
+                heartbeatUrl: `${origin}/api/lanes/${lane.id}/heartbeat`,
+                artifactsUrl: `/api/lanes/${lane.id}/artifacts`,
+                evidenceUrl: `/api/lanes/${lane.id}/evidence`,
+                evidenceLatestUrl: `/api/lanes/${lane.id}/evidence/latest`,
+                evidenceClearUrl: `${origin}/api/lanes/${lane.id}/evidence/clear`,
+                auditApi: `/api/lanes/${lane.id}/audit`,
                 auditEventsUrl: `${origin}/api/lanes/${lane.id}/audit-events`,
               };
             }),
@@ -268,7 +340,7 @@ async function handleApi(req, res, pathname, method, parts) {
 
   if (parts[1] === 'executors' && ['codex', 'claude'].includes(parts[2]) && parts[3] === 'cli' && parts[4] === 'reinstall' && method === 'POST') {
     const body = await parseJsonBody(req);
-    if (body === null) return sendJson(res, 400, { error: 'Invalid JSON.' });
+    if (body === null) return sendBodyError(req, res);
     try {
       const result = await registry.runExecutorCliReinstall(parts[2], {
         actor: body.actor || 'dashboard',
@@ -290,7 +362,7 @@ async function handleApi(req, res, pathname, method, parts) {
 
   if (parts[1] === 'artifacts' && parts[2] === 'cleanup' && parts.length === 3 && method === 'POST') {
     const body = await parseJsonBody(req);
-    if (body === null) return sendJson(res, 400, { error: 'Invalid JSON.' });
+    if (body === null) return sendBodyError(req, res);
     try {
       const result = await registry.cleanupArtifacts({
         ...body,
@@ -312,7 +384,7 @@ async function handleApi(req, res, pathname, method, parts) {
 
   if (parts[1] === 'artifacts' && parts[2] === 'cleanup' && parts[3] === 'schedule' && method === 'POST') {
     const body = await parseJsonBody(req);
-    if (body === null) return sendJson(res, 400, { error: 'Invalid JSON.' });
+    if (body === null) return sendBodyError(req, res);
     try {
       const result = await registry.updateCleanupSchedule(body, {
         actor: body.actor || 'dashboard',
@@ -330,7 +402,7 @@ async function handleApi(req, res, pathname, method, parts) {
 
   if (parts[1] === 'artifacts' && parts[2] === 'cleanup' && parts[3] === 'run-now' && method === 'POST') {
     const body = await parseJsonBody(req);
-    if (body === null) return sendJson(res, 400, { error: 'Invalid JSON.' });
+    if (body === null) return sendBodyError(req, res);
     const schedule = registry.getCleanupSchedule?.() || {};
     const hasSessionOverride = body && Object.prototype.hasOwnProperty.call(body, 'sessionId');
     const hasRetentionOverride = body && Object.prototype.hasOwnProperty.call(body, 'olderThanDays');
@@ -383,15 +455,19 @@ async function handleApi(req, res, pathname, method, parts) {
         error: 'Invalid request query string.',
       });
     }
-    const scope = searchParams.get('scope');
-    return sendJson(res, 200, registry.getMcpTools(scope));
+    const scopeRaw = searchParams.get('scope');
+    const scope = String(scopeRaw || '').trim().toLowerCase();
+    const tools = registry.getMcpTools(null);
+    if (!scope) {
+      return sendJson(res, 200, tools);
+    }
+    const filtered = tools.filter((tool) => Array.isArray(tool.scope) && tool.scope.includes(scope));
+    return sendJson(res, 200, filtered);
   }
 
   if (parts[1] === 'mcp' && parts[2] === 'tools' && method === 'POST') {
     const body = await parseJsonBody(req);
-    if (body === null) {
-      return sendJson(res, 400, { error: 'Invalid JSON.' });
-    }
+    if (body === null) return sendBodyError(req, res);
     try {
       const result = await registry.createMcpTool(body, {
         actor: body.actor || 'dashboard',
@@ -415,9 +491,7 @@ async function handleApi(req, res, pathname, method, parts) {
 
   if (parts[1] === 'mcp' && parts[2] === 'tools' && parts.length === 4 && method === 'PATCH') {
     const body = await parseJsonBody(req);
-    if (body === null) {
-      return sendJson(res, 400, { error: 'Invalid JSON.' });
-    }
+    if (body === null) return sendBodyError(req, res);
     const { actor, approved, ...patch } = body;
     try {
       const result = await registry.updateMcpTool(
@@ -440,7 +514,7 @@ async function handleApi(req, res, pathname, method, parts) {
 
   if (parts[1] === 'mcp' && parts[2] === 'tools' && parts.length === 4 && method === 'DELETE') {
     const body = await parseJsonBody(req);
-    if (body === null) return sendJson(res, 400, { error: 'Invalid JSON.' });
+    if (body === null) return sendBodyError(req, res);
     try {
       const result = await registry.deleteMcpTool(parts[3], {
         actor: body.actor || 'dashboard',
@@ -463,9 +537,7 @@ async function handleApi(req, res, pathname, method, parts) {
 
     if (parts.length === 2 && method === 'POST') {
       const body = await parseJsonBody(req);
-      if (body === null) {
-        return sendJson(res, 400, { error: 'Invalid JSON.' });
-      }
+      if (body === null) return sendBodyError(req, res);
       try {
         const project = registry.createProject(body, {
           actor: body.actor || 'dashboard',
@@ -490,9 +562,7 @@ async function handleApi(req, res, pathname, method, parts) {
       if (method === 'GET') return sendJson(res, 200, project);
       if (method === 'PATCH') {
         const body = await parseJsonBody(req);
-        if (body === null) {
-          return sendJson(res, 400, { error: 'Invalid JSON.' });
-        }
+        if (body === null) return sendBodyError(req, res);
         try {
           const updated = registry.updateProject(project.id, body, {
             actor: body.actor || 'dashboard',
@@ -514,7 +584,7 @@ async function handleApi(req, res, pathname, method, parts) {
       if (method === 'GET') return sendJson(res, 200, registry.listSessions(project.id));
       if (method === 'POST') {
         const body = await parseJsonBody(req);
-        if (body === null) return sendJson(res, 400, { error: 'Invalid JSON.' });
+        if (body === null) return sendBodyError(req, res);
         try {
           const session = registry.createSession(project.id, body, {
             actor: body.actor || 'dashboard',
@@ -551,7 +621,7 @@ async function handleApi(req, res, pathname, method, parts) {
       if (method === 'GET') return sendJson(res, 200, registry.listLanes(session.id));
       if (method === 'POST') {
         const body = await parseJsonBody(req);
-        if (body === null) return sendJson(res, 400, { error: 'Invalid JSON.' });
+        if (body === null) return sendBodyError(req, res);
         try {
           const lane = await registry.createLane(session.id, body, body);
           return sendJson(res, 201, lane);
@@ -568,7 +638,7 @@ async function handleApi(req, res, pathname, method, parts) {
 
     if (parts.length === 4 && parts[3] === 'audit-done-lanes' && method === 'POST') {
       const body = await parseJsonBody(req);
-      if (body === null) return sendJson(res, 400, { error: 'Invalid JSON.' });
+      if (body === null) return sendBodyError(req, res);
       try {
         const result = await registry.queueDoneLanesAudit(session.id, { ...body, actor: body.actor || 'dashboard' });
         return sendJson(res, 200, result);
@@ -612,7 +682,7 @@ async function handleApi(req, res, pathname, method, parts) {
 
     if (parts.length === 4 && parts[3] === 'stop' && method === 'POST') {
       const body = await parseJsonBody(req);
-      if (body === null) return sendJson(res, 400, { error: 'Invalid JSON.' });
+      if (body === null) return sendBodyError(req, res);
       try {
         const updated = await registry.stopLane(lane.id, { ...body, actor: body.actor || 'dashboard' });
         return sendJson(res, 200, updated);
@@ -627,7 +697,7 @@ async function handleApi(req, res, pathname, method, parts) {
 
     if (parts.length === 4 && parts[3] === 'retry' && method === 'POST') {
       const body = await parseJsonBody(req);
-      if (body === null) return sendJson(res, 400, { error: 'Invalid JSON.' });
+      if (body === null) return sendBodyError(req, res);
       try {
         const updated = registry.retryLane(lane.id, { ...body, actor: body.actor || 'dashboard' });
         return sendJson(res, 200, updated);
@@ -638,7 +708,7 @@ async function handleApi(req, res, pathname, method, parts) {
 
     if (parts.length === 4 && parts[3] === 'audit' && method === 'POST') {
       const body = await parseJsonBody(req);
-      if (body === null) return sendJson(res, 400, { error: 'Invalid JSON.' });
+      if (body === null) return sendBodyError(req, res);
       try {
         const audit = registry.queueLaneAudit(lane.id, { ...body, actor: body.actor || 'dashboard' });
         return sendJson(res, 201, audit);
@@ -670,10 +740,20 @@ async function handleApi(req, res, pathname, method, parts) {
     }
 
     if (parts.length === 4 && parts[3] === 'heartbeat' && method === 'POST') {
+      if (WORKER_TOKEN) {
+        const workerToken = req.headers['x-commanddeck-worker-token'];
+        if (!workerToken || workerToken !== WORKER_TOKEN) {
+          return sendJson(res, 401, {
+            error: 'Heartbeat requires the worker token (set COMMAND_DECK_WORKER_TOKEN and pass x-commanddeck-worker-token).',
+          });
+        }
+      }
       const body = await parseJsonBody(req);
-      if (body === null) return sendJson(res, 400, { error: 'Invalid JSON.' });
+      if (body === null) return sendBodyError(req, res);
+      const actor = String(body.actor || 'worker').trim() || 'worker';
+      // Heartbeat is worker-scoped; the dashboard cannot impersonate other actors here.
       try {
-        const updated = await registry.touchHeartbeat(lane.id, { ...body, actor: body.actor || 'dashboard' });
+        const updated = await registry.touchHeartbeat(lane.id, { ...body, actor });
         return sendJson(res, 200, updated);
       } catch (error) {
         return sendJson(res, error.status || 500, { error: error.message || 'Could not touch heartbeat.' });
@@ -731,7 +811,7 @@ async function handleApi(req, res, pathname, method, parts) {
 
     if (parts.length === 4 && parts[3] === 'evidence' && method === 'POST') {
       const body = await parseJsonBody(req);
-      if (body === null) return sendJson(res, 400, { error: 'Invalid JSON.' });
+      if (body === null) return sendBodyError(req, res);
       try {
         const result = await registry.captureLaneEvidence(lane.id, {
           ...body,
@@ -749,7 +829,7 @@ async function handleApi(req, res, pathname, method, parts) {
 
     if (parts.length === 5 && parts[3] === 'evidence' && parts[4] === 'clear' && method === 'POST') {
       const body = await parseJsonBody(req);
-      if (body === null) return sendJson(res, 400, { error: 'Invalid JSON.' });
+      if (body === null) return sendBodyError(req, res);
       try {
         const result = await registry.clearLaneEvidenceArtifacts(lane.id, {
           ...body,
@@ -769,7 +849,7 @@ async function handleApi(req, res, pathname, method, parts) {
   if (parts[1] === 'audit' && parts[2] === 'events') {
     if (parts.length === 5 && parts[4] === 'ack' && method === 'POST') {
       const body = await parseJsonBody(req);
-      if (body === null) return sendJson(res, 400, { error: 'Invalid JSON.' });
+      if (body === null) return sendBodyError(req, res);
       try {
         const event = registry.acknowledgeAuditEvent(parts[3], {
           actor: body.actor || 'dashboard',
