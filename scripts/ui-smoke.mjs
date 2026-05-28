@@ -54,7 +54,7 @@ const REQUIRED_HTML_MARKERS = [
   'id="breadcrumbs"',
   'data-action="refresh"',
   'data-action="toggleNav"',
-  'src="/app.js"',
+  'src="/app.js',
 ];
 const REQUIRED_CSS_MARKERS = [
   '.ops-shell',
