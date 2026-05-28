@@ -706,6 +706,7 @@ export class CommandDeckRegistry {
     heartbeatIntervalMs = 2000,
     autoCompleteMs = 12000,
     heartbeatTimeoutMs = 15000,
+    credentialStore = null,
   } = {}) {
     this.projects = [];
     this.sessions = [];
@@ -721,6 +722,7 @@ export class CommandDeckRegistry {
     this.heartbeatIntervalMs = heartbeatIntervalMs;
     this.autoCompleteMs = autoCompleteMs;
     this.heartbeatTimeoutMs = heartbeatTimeoutMs;
+    this.credentialStore = credentialStore;
     this.policies = { ...defaultPolicy };
     this.cleanupSchedule = {
       enabled: false,
@@ -743,6 +745,7 @@ export class CommandDeckRegistry {
       onComplete: async (lane) => this.markLaneCompleted(lane),
       onFail: async (lane, reason) => this.markLaneFailed(lane, reason, 'scheduler'),
       onStop: async (lane, context) => this.markLaneStopped(lane, context),
+      credentialStore: this.credentialStore,
     };
     this.executors = {
       mock: createExecutorAdapter('mock', {
@@ -1907,6 +1910,7 @@ export class CommandDeckRegistry {
       onComplete: async (lane) => this.markLaneCompleted(lane),
       onFail: async (lane, reason) => this.markLaneFailed(lane, reason, 'scheduler'),
       onStop: async (lane, context) => this.markLaneStopped(lane, context),
+      credentialStore: this.credentialStore,
     };
     const adapter = createExecutorAdapter(normalized, callbackBundle);
     this.unknownExecutorAdapters.set(normalized, adapter);

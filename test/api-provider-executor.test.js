@@ -5,12 +5,13 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { CommandDeckRegistry } from '../src/registry.js';
+import { CredentialStore } from '../src/provider-profiles.js';
 
-async function withIsolatedRegistry() {
+async function withIsolatedRegistry(options = {}) {
   const previousCwd = process.cwd();
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-api-provider-test-'));
   process.chdir(tempDir);
-  const registry = new CommandDeckRegistry({ heartbeatIntervalMs: 25, autoCompleteMs: 250 });
+  const registry = new CommandDeckRegistry({ heartbeatIntervalMs: 25, autoCompleteMs: 250, ...options });
   const cleanup = async () => {
     registry.stopScheduler();
     if (typeof registry.drainPendingWrites === 'function') {
@@ -137,10 +138,40 @@ test('API provider lane fails closed when the env secret is missing', async () =
     await registry.advanceLanes();
     const failed = await waitForLane(registry, lane.id, (item) => item?.state === 'failed');
     assert.equal(failed.state, 'failed');
-    assert.match(failed.exitReason, /missing required env secret COMMAND_DECK_OPENAI_COMPATIBLE_API_KEY/);
+    assert.match(failed.exitReason, /missing required credential provider:openai-compatible or env secret COMMAND_DECK_OPENAI_COMPATIBLE_API_KEY/);
     assert.equal(JSON.stringify(failed).includes('api-provider-test-secret'), false);
   } finally {
     await cleanup();
+    restore();
+  }
+});
+
+test('API provider lane uses dashboard-stored credential backend before env fallback', async () => {
+  const restore = snapshotEnv();
+  const secret = 'memory-provider-secret';
+  const dummy = await startDummyApi(async (record, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ choices: [{ message: { content: 'memory credential ok' } }] }));
+  });
+  process.env.COMMAND_DECK_OPENAI_COMPATIBLE_BASE_URL = dummy.baseUrl;
+  delete process.env.COMMAND_DECK_OPENAI_COMPATIBLE_API_KEY;
+
+  const credentialStore = new CredentialStore({ backend: 'memory' });
+  await credentialStore.set('provider:openai-compatible', secret);
+  const { registry, cleanup } = await withIsolatedRegistry({ credentialStore });
+  try {
+    const lane = createApiLane(registry, 'openai-compatible');
+    await registry.advanceLanes();
+    const completed = await waitForLane(registry, lane.id, (item) => ['done', 'failed'].includes(item?.state));
+    assert.equal(completed.state, 'done', completed.exitReason || 'lane should complete');
+    assert.equal(dummy.requests[0].headers.authorization, `Bearer ${secret}`);
+    assert.equal(completed.processMeta.secretRef, 'provider:openai-compatible');
+    assert.equal(completed.processMeta.credentialBackend, 'memory');
+    assert.equal(JSON.stringify(completed).includes(secret), false);
+    assert.equal(JSON.stringify(registry.auditEvents).includes(secret), false);
+  } finally {
+    await cleanup();
+    await dummy.close();
     restore();
   }
 });

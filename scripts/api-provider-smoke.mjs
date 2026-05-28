@@ -11,6 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { CommandDeckRegistry } from '../src/registry.js';
+import { CredentialStore } from '../src/provider-profiles.js';
 
 const log = (message) => console.log(`[api-provider-smoke] ${message}`);
 
@@ -64,10 +65,12 @@ const dummy = await startDummyApi(secret);
 try {
   process.chdir(tempDir);
   process.env.COMMAND_DECK_OPENAI_COMPATIBLE_BASE_URL = dummy.baseUrl;
-  process.env.COMMAND_DECK_OPENAI_COMPATIBLE_API_KEY = secret;
+  delete process.env.COMMAND_DECK_OPENAI_COMPATIBLE_API_KEY;
   process.env.COMMAND_DECK_OPENAI_COMPATIBLE_MODEL = 'smoke-model';
 
-  const registry = new CommandDeckRegistry({ heartbeatIntervalMs: 25, autoCompleteMs: 250 });
+  const credentialStore = new CredentialStore({ backend: 'memory' });
+  await credentialStore.set('provider:openai-compatible', secret);
+  const registry = new CommandDeckRegistry({ heartbeatIntervalMs: 25, autoCompleteMs: 250, credentialStore });
   try {
     const project = registry.createProject({ name: 'API Provider Smoke' }, { actor: 'smoke', approved: true });
     const session = registry.createSession(project.id, { name: 'API Provider Session' }, { actor: 'smoke', approved: true });
@@ -85,6 +88,8 @@ try {
     assert.equal(dummy.requests[0].headers.authorization, `Bearer ${secret}`);
     assert.equal(dummy.requests[0].body.model, 'smoke-explicit-model');
     assert.equal(completed.processMeta.apiKeyEnv, 'COMMAND_DECK_OPENAI_COMPATIBLE_API_KEY');
+    assert.equal(completed.processMeta.secretRef, 'provider:openai-compatible');
+    assert.equal(completed.processMeta.credentialBackend, 'memory');
     assert.equal(completed.processMeta.httpStatus, 200);
     assert.match(completed.apiProviderResult.outputPreview, /\[REDACTED\]/);
     assert.equal(JSON.stringify(completed).includes(secret), false);

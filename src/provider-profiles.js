@@ -430,6 +430,11 @@ class CredentialStore {
     return null;
   }
 
+  async has(ref, envName = null) {
+    const description = await this.describe(ref, envName);
+    return Boolean(description.present);
+  }
+
   async set(ref, value) {
     const normalizedRef = normalizeSecretRef(ref, { allowBlank: false });
     const secret = String(value || '');

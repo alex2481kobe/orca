@@ -31,7 +31,8 @@ smoke gates before being listed.
   `npm run smoke:evidence-redaction`, and
   `npm run smoke:process-lifecycle` pass as local deterministic gates.
 - `npm run smoke:api-provider` proves OpenAI-compatible API provider
-  lane execution against a local dummy server, including Authorization
+  lane execution against a local dummy server, including dashboard-style
+  credential-store secret lookup, env fallback wiring, Authorization
   header use, model/prompt request shape, terminal lane state, and
   secret redaction from lane state, logs, and audit events.
 - `npm run smoke:full-flow` is the named full operator-flow gate and runs
@@ -104,6 +105,10 @@ smoke gates before being listed.
   `composer` through the OpenAI-compatible adapter. `gemini` is exposed
   as a first-class profile and currently fails closed with a clear
   unsupported-style blocker until its native request adapter is added.
+- API provider lanes use the provider credential abstraction
+  (`secretRef` first, `apiKeyEnv` fallback), so dashboard-stored
+  secrets are usable by executors without returning or persisting raw
+  secret values.
 
 ## External blockers (operator-actionable, surfaced in the dashboard)
 

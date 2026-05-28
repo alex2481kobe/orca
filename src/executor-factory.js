@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { defaultProfiles } from './provider-profiles.js';
+import { CredentialStore, defaultProfiles } from './provider-profiles.js';
 import { validateNetworkUrl } from './url-policy.js';
 
 const noopAsync = async () => {};
@@ -679,6 +679,7 @@ class ApiExecutorAdapter {
   constructor(label, options = {}) {
     this.label = label;
     this.profile = options.profile || getApiProviderProfile(label);
+    this.credentialStore = options.credentialStore || new CredentialStore();
     this.onLog = options.onLog || noopAsync;
     this.onComplete = options.onComplete || noopAsync;
     this.onFail = options.onFail || noopAsync;
@@ -686,10 +687,22 @@ class ApiExecutorAdapter {
     this.runtimes = new Map();
   }
 
-  _credential() {
+  async _credential() {
     const envName = this.profile?.apiKeyEnv;
-    const secret = envName && typeof process.env[envName] === 'string' ? process.env[envName] : '';
-    return { envName, secret };
+    const secretRef = this.profile?.secretRef;
+    const secret = await this.credentialStore.get(secretRef, envName);
+    let description = null;
+    try {
+      description = await this.credentialStore.describe(secretRef, envName);
+    } catch {
+      description = null;
+    }
+    return {
+      envName,
+      secretRef,
+      secret: secret || '',
+      backend: description?.backend || this.credentialStore.activeBackend(),
+    };
   }
 
   _validatedEndpoint() {
@@ -716,11 +729,11 @@ class ApiExecutorAdapter {
     }
     try {
       const endpoint = this._validatedEndpoint();
-      const credential = this._credential();
+      const credential = await this._credential();
       if (!credential.secret) {
         return {
           accepted: false,
-          reason: `API provider ${this.profile.id} is missing required env secret ${credential.envName}.`,
+          reason: `API provider ${this.profile.id} is missing required credential ${credential.secretRef || 'secretRef'} or env secret ${credential.envName}.`,
         };
       }
       const runtimeDir = path.join(process.cwd(), 'artifacts', String(lane.sessionId || 'orphan'), String(lane.id));
@@ -748,7 +761,9 @@ class ApiExecutorAdapter {
         providerId: this.profile.id,
         providerType: this.label,
         apiStyle: this.profile.apiStyle,
+        secretRef: credential.secretRef,
         apiKeyEnv: credential.envName,
+        credentialBackend: credential.backend,
         endpointHost: new URL(endpoint).host,
         endpointPath: new URL(endpoint).pathname,
         startedAt: new Date(now).toISOString(),

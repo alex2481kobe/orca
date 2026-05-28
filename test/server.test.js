@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -128,6 +129,39 @@ async function startServer({ token, env = {} }) {
       await restore();
     },
   };
+}
+
+async function startDummyApiProvider(secret) {
+  const requests = [];
+  const server = http.createServer((req, res) => {
+    let raw = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => { raw += chunk; });
+    req.on('end', () => {
+      const body = raw ? JSON.parse(raw) : null;
+      requests.push({ method: req.method, url: req.url, headers: req.headers, body });
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        choices: [{ message: { content: `server credential ok ${secret}` } }],
+      }));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}/v1`,
+    requests,
+    close: () => new Promise((resolve) => server.close(resolve)),
+  };
+}
+
+async function waitForServerLane(server, laneId) {
+  for (let i = 0; i < 80; i += 1) {
+    const lane = await server.requestJson(`/api/lanes/${laneId}`, { method: 'GET' });
+    if (['done', 'failed'].includes(lane.body?.state)) return lane;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return server.requestJson(`/api/lanes/${laneId}`, { method: 'GET' });
 }
 
 test('server API requires token for mutating actions while allowing read actions', async () => {
@@ -1861,5 +1895,71 @@ test('provider profile API exposes first-class providers and memory-backed secre
     assert.equal(JSON.stringify(exported.body).includes('sk-test-secret'), false);
   } finally {
     await server.stop();
+  }
+});
+
+test('server API provider lanes use dashboard-stored credential references without leaking secrets', async () => {
+  const token = 'route-token-api-provider-lane';
+  const secret = 'server-api-provider-secret';
+  const dummy = await startDummyApiProvider(secret);
+  const server = await startServer({
+    token,
+    env: {
+      COMMAND_DECK_CREDENTIAL_BACKEND: 'memory',
+      COMMAND_DECK_OPENAI_COMPATIBLE_BASE_URL: dummy.baseUrl,
+    },
+  });
+
+  try {
+    const setSecret = await server.requestJson('/api/providers/openai-compatible/secret', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+        secret,
+      },
+    });
+    assert.equal(setSecret.status, 200);
+    assert.equal(JSON.stringify(setSecret.body).includes(secret), false);
+
+    const project = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: { name: 'API Provider Route Project', approved: true },
+    });
+    assert.equal(project.status, 201);
+    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: { name: 'API Provider Route Session', approved: true },
+    });
+    assert.equal(session.status, 201);
+    const lane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        title: 'Dashboard credential API lane',
+        executorType: 'openai-compatible',
+        taskPrompt: 'Use the dashboard-stored provider credential.',
+        model: 'server-test-model',
+        owner: 'dashboard',
+        approved: true,
+      },
+    });
+    assert.equal(lane.status, 201);
+
+    const completed = await waitForServerLane(server, lane.body.id);
+    assert.equal(completed.status, 200);
+    assert.equal(completed.body?.state, 'done', completed.body?.exitReason || 'lane should complete');
+    assert.equal(dummy.requests.length, 1);
+    assert.equal(dummy.requests[0].headers.authorization, `Bearer ${secret}`);
+    assert.equal(dummy.requests[0].body.model, 'server-test-model');
+    assert.equal(completed.body.processMeta.secretRef, 'provider:openai-compatible');
+    assert.equal(completed.body.processMeta.credentialBackend, 'memory');
+    assert.equal(JSON.stringify(completed.body).includes(secret), false);
+  } finally {
+    await server.stop();
+    await dummy.close();
   }
 });
