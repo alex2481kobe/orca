@@ -372,6 +372,13 @@ test('MCP tool validation rejects invalid names and command payloads', async () 
         actor: 'test',
         approved: true,
       }), (error) => error.status === 422);
+
+    assert.throws(() => registry.updateMcpTool('valid-tool', {
+      scope: ['not-real'],
+    }, {
+      actor: 'test',
+      approved: true,
+    }), (error) => error.status === 422);
   } finally {
     await cleanup();
   }
