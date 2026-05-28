@@ -18,6 +18,8 @@ const shell = {
   executorCliInfo: {},
   systemBlockers: [],
   privateAccess: null,
+  providerCatalog: null,
+  providerHealth: {},
 };
 
 const MCP_TOOL_SCOPE_ALLOWLIST = ['all', 'codex', 'claude', 'mock'];
@@ -324,7 +326,7 @@ function isVerificationProject(project) {
 
 function activeHomePanel() {
   const panel = String(window.location.hash || '').replace(/^#/, '').toLowerCase();
-  const allowed = new Set(['projects', 'create', 'system', 'mcp', 'audit', 'cleanup', 'token', 'private-access']);
+  const allowed = new Set(['projects', 'create', 'system', 'mcp', 'audit', 'cleanup', 'token', 'private-access', 'providers']);
   return allowed.has(panel) ? panel : 'overview';
 }
 
@@ -477,6 +479,29 @@ function renderHome() {
       </div>
     `;
   }).join('');
+  const providerCatalog = shell.providerCatalog || {};
+  const providerProfiles = Array.isArray(providerCatalog.profiles) ? providerCatalog.profiles : [];
+  const providerRows = providerProfiles.map((profile) => {
+    const credential = profile.credential || {};
+    const health = shell.providerHealth?.[profile.id] || {};
+    const status = health.status || (profile.enabled ? 'unchecked' : 'disabled');
+    return `
+      <div class="provider-row">
+        <div>
+          <strong>${safeText(profile.displayName || profile.id)}</strong>
+          <div class="tiny muted">${safeText(profile.kind)} · ${safeText(status)} · install ${safeText(profile.installPolicy)} · update ${safeText(profile.updatePolicy)}</div>
+          <div class="tiny muted">secret: ${credential.present ? `present via ${safeText(credential.backend)}` : 'not present'} · ref ${safeText(profile.secretRef || profile.apiKeyEnv || 'none')}</div>
+          ${profile.baseUrl ? `<div class="tiny muted">base URL: ${safeText(profile.baseUrl)}</div>` : ''}
+        </div>
+        <div class="lane-row">
+          <button class="secondary" data-action="refreshProviderHealth" data-provider-id="${safeAttr(profile.id)}" type="button">Health</button>
+          <button class="secondary" data-action="toggleProviderEnabled" data-provider-id="${safeAttr(profile.id)}" data-enabled="${profile.enabled ? 'false' : 'true'}" type="button">${profile.enabled ? 'Disable' : 'Enable'}</button>
+          ${profile.secretRef ? `<button class="secondary" data-action="setProviderSecret" data-provider-id="${safeAttr(profile.id)}" type="button">Set secret</button>` : ''}
+          ${profile.secretRef ? `<button class="secondary" data-action="deleteProviderSecret" data-provider-id="${safeAttr(profile.id)}" type="button">Delete secret</button>` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
   const mcpTools = shell.mcpTools || [];
   const mcpOptions = mcpTools.map((tool) => `
     <div class="lane-row" style="align-items:center; justify-content:space-between;">
@@ -596,6 +621,10 @@ function renderHome() {
       <a class="simple-row" href="#private-access">
         <span class="row-icon">◌</span>
         <span>Private access</span>
+      </a>
+      <a class="simple-row" href="#providers">
+        <span class="row-icon">◇</span>
+        <span>Providers</span>
       </a>
     </section>
     <div class="stat-grid compact-stats settings-stats is-hidden">
@@ -783,6 +812,32 @@ function renderHome() {
           </div>
         </details>
       </article>
+      <article class="card control-card" id="section-providers" data-panel-card="providers">
+        <details class="disclosure" open>
+          <summary>
+            <span>Provider profiles</span>
+            <small>${safeText(providerProfiles.length)} configured · credentials ${safeText(providerCatalog.credentialBackend || 'unknown')}</small>
+          </summary>
+          <div class="disclosure-body">
+            <p>Profiles store non-secret config only. Dashboard secret entry stores into the server credential backend and never echoes values back. Installs and updates are plan-only by default.</p>
+            <div class="provider-list">${providerRows || '<div class="muted">No provider profiles loaded.</div>'}</div>
+            <details class="disclosure compact-disclosure">
+              <summary>
+                <span>Import/export</span>
+                <small>No secrets included</small>
+              </summary>
+              <div class="disclosure-body">
+                <div class="lane-row">
+                  <button class="secondary" data-action="exportProviderProfiles" type="button">Export profiles</button>
+                  <button class="secondary" data-action="dryRunProviderImport" type="button">Dry-run import</button>
+                </div>
+                <textarea id="provider-import-json" rows="8" placeholder='{"schemaVersion":1,"profiles":[]}'></textarea>
+                <pre id="provider-export-output" aria-live="polite"></pre>
+              </div>
+            </details>
+          </div>
+        </details>
+      </article>
       <div class="card control-card" data-panel-card="create">
         <details class="disclosure">
           <summary>
@@ -921,6 +976,111 @@ async function handlePrivateAccessAction(event) {
     } else {
       renderAlert(response.data?.error || 'Could not remove private access target.', 'bad');
     }
+  }
+}
+
+async function handleProviderAction(event) {
+  const action = event.currentTarget.dataset.action;
+  const providerId = event.currentTarget.dataset.providerId;
+  if (action === 'refreshProviderHealth') {
+    const response = await api(`/api/providers/${encodeURIComponent(providerId)}/health`);
+    if (response.ok) {
+      shell.providerHealth[providerId] = response.data;
+      renderAlert(`${providerId} health: ${response.data?.status || 'checked'}.`);
+      render(captureContentUiState());
+    } else {
+      renderAlert(response.data?.error || 'Could not refresh provider health.', 'bad');
+    }
+    return;
+  }
+  if (action === 'toggleProviderEnabled') {
+    const nextEnabled = event.currentTarget.dataset.enabled === 'true';
+    const approval = buildApprovedActionBody('manageExecutorCli', `${nextEnabled ? 'Enable' : 'Disable'} provider ${providerId}?`);
+    if (!approval.approved) return;
+    const response = await api(`/api/providers/${encodeURIComponent(providerId)}`, {
+      method: 'PATCH',
+      body: {
+        actor: approval.actor,
+        approved: approval.approved,
+        enabled: nextEnabled,
+      },
+    });
+    if (response.ok) {
+      renderAlert(`${providerId} ${nextEnabled ? 'enabled' : 'disabled'}.`);
+      await refresh();
+    } else {
+      renderAlert(response.data?.error || 'Could not update provider.', 'bad');
+    }
+    return;
+  }
+  if (action === 'setProviderSecret') {
+    const secret = window.prompt(`Enter API key/secret for ${providerId}. It will be sent once and never shown again.`);
+    if (!secret) return;
+    const approval = buildApprovedActionBody('manageExecutorCli', `Store secret for provider ${providerId}?`);
+    if (!approval.approved) return;
+    const response = await api(`/api/providers/${encodeURIComponent(providerId)}/secret`, {
+      method: 'POST',
+      body: {
+        actor: approval.actor,
+        approved: approval.approved,
+        secret,
+      },
+    });
+    if (response.ok) {
+      renderAlert(`${providerId} secret stored via ${response.data?.credential?.backend || 'credential backend'}.`);
+      await refresh();
+    } else {
+      renderAlert(response.data?.error || 'Could not store provider secret.', 'bad');
+    }
+    return;
+  }
+  if (action === 'deleteProviderSecret') {
+    const confirmed = window.confirm(`Delete stored secret for ${providerId}? Env fallback may still be used if configured.`);
+    if (!confirmed) return;
+    const approval = buildApprovedActionBody('manageExecutorCli', `Delete secret for provider ${providerId}?`);
+    if (!approval.approved) return;
+    const response = await api(`/api/providers/${encodeURIComponent(providerId)}/secret`, {
+      method: 'DELETE',
+      body: {
+        actor: approval.actor,
+        approved: approval.approved,
+      },
+    });
+    if (response.ok) {
+      renderAlert(`${providerId} secret delete request completed.`);
+      await refresh();
+    } else {
+      renderAlert(response.data?.error || 'Could not delete provider secret.', 'bad');
+    }
+    return;
+  }
+  if (action === 'exportProviderProfiles') {
+    const response = await api('/api/providers/export');
+    const output = document.getElementById('provider-export-output');
+    if (response.ok && output) {
+      output.textContent = JSON.stringify(response.data, null, 2);
+      renderAlert('Provider profiles exported without secrets.');
+    } else {
+      renderAlert(response.data?.error || 'Could not export provider profiles.', 'bad');
+    }
+    return;
+  }
+  if (action === 'dryRunProviderImport') {
+    const source = document.getElementById('provider-import-json');
+    const output = document.getElementById('provider-export-output');
+    let parsed = null;
+    try {
+      parsed = JSON.parse(source?.value || '{}');
+    } catch {
+      renderAlert('Provider import JSON is invalid.', 'bad');
+      return;
+    }
+    const response = await api('/api/providers/import/dry-run', {
+      method: 'POST',
+      body: parsed,
+    });
+    if (output) output.textContent = JSON.stringify(response.data, null, 2);
+    renderAlert(response.ok ? 'Provider import dry-run completed.' : (response.data?.error || 'Provider import dry-run failed.'), response.ok ? 'info' : 'bad');
   }
 }
 
@@ -1130,6 +1290,7 @@ function renderSession(project, session) {
                 <option value="mock">mock</option>
                 <option value="codex">codex</option>
                 <option value="claude">claude</option>
+                ${shell.executorProfiles?.cli ? '<option value="cli">cli</option>' : ''}
               </select>
             </label>
             <label>Task prompt (drives generated codex/claude argv when no explicit command)
@@ -1552,6 +1713,10 @@ async function refresh() {
   const profilesResp = await api('/api/executors/profiles');
   if (profilesResp.ok && profilesResp.data?.profiles) {
     shell.executorProfiles = profilesResp.data.profiles;
+  }
+  const providerCatalogResp = await api('/api/providers');
+  if (providerCatalogResp.ok && providerCatalogResp.data) {
+    shell.providerCatalog = providerCatalogResp.data;
   }
 
   if (shell.executorProfiles && typeof shell.executorProfiles === 'object') {
@@ -2578,6 +2743,18 @@ document.addEventListener('click', async (event) => {
     'deletePrivateAccessTarget',
   ].includes(action)) {
     await handlePrivateAccessAction({ currentTarget: actionTarget });
+    return;
+  }
+
+  if ([
+    'deleteProviderSecret',
+    'dryRunProviderImport',
+    'exportProviderProfiles',
+    'refreshProviderHealth',
+    'setProviderSecret',
+    'toggleProviderEnabled',
+  ].includes(action)) {
+    await handleProviderAction({ currentTarget: actionTarget });
     return;
   }
 

@@ -631,7 +631,10 @@ function parseEnvList(rawValue, fallback = []) {
 
 export function getExecutorProfile(type, callbacks = {}) {
   const executorType = String(type || '').toLowerCase();
-  if (!['codex', 'claude'].includes(executorType)) {
+  if (!['codex', 'claude', 'cli'].includes(executorType)) {
+    return null;
+  }
+  if (executorType === 'cli' && process.env.COMMAND_DECK_ENABLE_CUSTOM_CLI !== 'true' && !process.env.COMMAND_DECK_CLI_BINARY) {
     return null;
   }
   const upper = executorType.toUpperCase();
@@ -653,7 +656,7 @@ export function getExecutorProfile(type, callbacks = {}) {
 }
 
 export function getExecutorProfiles() {
-  return ['codex', 'claude'].reduce((accum, executorType) => {
+  return ['codex', 'claude', 'cli'].reduce((accum, executorType) => {
     const profile = getExecutorProfile(executorType);
     if (profile) accum[executorType] = profile;
     return accum;
@@ -691,8 +694,20 @@ export function createExecutorAdapter(type, callbacks = {}) {
   }
 
   if (executorType === 'cli') {
+    const profile = getExecutorProfile(executorType, callbacks);
+    if (!profile) {
+      return new PendingExecutorAdapter(executorType, callbacks);
+    }
     const options = {
       ...callbacks,
+      defaultBinary: profile.defaultBinary,
+      allowedBinaries: profile.allowedBinaries,
+      envWhitelist: profile.envWhitelist || callbacks.envWhitelist,
+      workdirRoots: profile.workdirRoots,
+      enforceAllowedBinary: true,
+      maxCommandArgs: 128,
+      defaultArgs: profile.defaultArgs.length ? profile.defaultArgs : (callbacks.defaultArgs || []),
+      defaultWorkingDir: callbacks.defaultWorkingDir || process.cwd(),
       heartbeatTimeoutMs: callbacks.heartbeatTimeoutMs || 15000,
     };
     return new CliExecutorAdapter(executorType, options);

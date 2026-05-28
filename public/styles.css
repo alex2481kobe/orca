@@ -710,7 +710,8 @@ body.sidebar-collapsed .sidebar-project-line {
 .home-panels[data-active-panel="system"] > [data-panel-card]:not([data-panel-card="system"]),
 .home-panels[data-active-panel="mcp"] > [data-panel-card]:not([data-panel-card="mcp"]),
 .home-panels[data-active-panel="cleanup"] > [data-panel-card]:not([data-panel-card="cleanup"]),
-.home-panels[data-active-panel="private-access"] > [data-panel-card]:not([data-panel-card="private-access"]) {
+.home-panels[data-active-panel="private-access"] > [data-panel-card]:not([data-panel-card="private-access"]),
+.home-panels[data-active-panel="providers"] > [data-panel-card]:not([data-panel-card="providers"]) {
   display: none;
 }
 
@@ -1247,6 +1248,21 @@ pre {
   margin-top: 0.5rem;
 }
 
+.provider-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.provider-row {
+  align-items: center;
+  border: 1px solid rgba(64, 67, 58, 0.62);
+  border-radius: 13px;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+  padding: 0.7rem;
+}
+
 /* Responsive: collapse sidebar to drawer on phones */
 @media (max-width: 880px) {
   .ops-shell {
@@ -1345,13 +1361,15 @@ pre {
 	  .lane-row a.secondary,
 	  .access-command button,
 	  .access-target button,
-	  .access-target a.secondary {
+	  .access-target a.secondary,
+	  .provider-row button {
 	    flex: 1 1 calc(50% - 0.45rem);
 	    min-height: 44px;
 	    text-align: center;
 	  }
 	  .access-command,
-	  .access-target {
+	  .access-target,
+	  .provider-row {
 	    align-items: stretch;
 	    display: grid;
 	  }

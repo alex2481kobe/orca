@@ -1779,6 +1779,48 @@ test('describeSystemBlockers reports executor and playwright state', async () =>
   }
 });
 
+test('Custom CLI lanes require explicit custom CLI enablement and configured binary allowlist', async () => {
+  const previousEnv = { ...process.env };
+  const restore = restoreEnv(previousEnv);
+  try {
+    delete process.env.COMMAND_DECK_ENABLE_CUSTOM_CLI;
+    delete process.env.COMMAND_DECK_CLI_BINARY;
+    delete process.env.COMMAND_DECK_CLI_ALLOWED_BINARIES;
+    const disabled = await withIsolatedRegistry();
+    try {
+      const project = disabled.registry.createProject({ name: 'CLI Disabled Project' }, { actor: 'test', approved: true });
+      const session = disabled.registry.createSession(project.id, { name: 'CLI Disabled Session' }, { actor: 'test', approved: true });
+      assert.throws(() => disabled.registry.createLane(session.id, {
+        title: 'disabled cli',
+        executorType: 'cli',
+        executorBinary: 'node',
+      }, { actor: 'test', approved: true }), (error) => error.status === 422);
+    } finally {
+      await disabled.cleanup();
+    }
+
+    process.env.COMMAND_DECK_ENABLE_CUSTOM_CLI = 'true';
+    process.env.COMMAND_DECK_CLI_BINARY = 'node';
+    process.env.COMMAND_DECK_CLI_ALLOWED_BINARIES = 'node';
+    const enabled = await withIsolatedRegistry();
+    try {
+      const project = enabled.registry.createProject({ name: 'CLI Enabled Project' }, { actor: 'test', approved: true });
+      const session = enabled.registry.createSession(project.id, { name: 'CLI Enabled Session' }, { actor: 'test', approved: true });
+      const lane = enabled.registry.createLane(session.id, {
+        title: 'enabled cli',
+        executorType: 'cli',
+        executorBinary: 'node',
+        commandArgs: ['--version'],
+      }, { actor: 'test', approved: true });
+      assert.equal(lane.executorType, 'cli');
+    } finally {
+      await enabled.cleanup();
+    }
+  } finally {
+    restore();
+  }
+});
+
 test('Real Claude CLI launches through the executor adapter and reports PID + exit', async () => {
   const claudeBinary = process.env.COMMAND_DECK_CLAUDE_BINARY || '/opt/homebrew/bin/claude';
   let canExec = false;

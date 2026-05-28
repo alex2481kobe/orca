@@ -1698,10 +1698,11 @@ export class CommandDeckRegistry {
     const resolvedWorkdir = this.resolveLaneWorkdir(session, workdirOverride);
 
     const normalizedExecutorType = normalizeExecutorType(executorType);
-    if (!['mock', 'codex', 'claude'].includes(normalizedExecutorType)) {
+    const supportedExecutorTypes = this.getSupportedExecutorTypes();
+    if (!supportedExecutorTypes.includes(normalizedExecutorType)) {
       throw {
         status: 422,
-        message: 'Lane executorType must be one of: mock, codex, claude.',
+        message: `Lane executorType must be one of: ${supportedExecutorTypes.join(', ')}.`,
       };
     }
     if (['codex', 'claude'].includes(normalizedExecutorType)) {
@@ -2519,6 +2520,14 @@ export class CommandDeckRegistry {
 
   getPolicyMap() {
     return clonePayload(this.policies);
+  }
+
+  getSupportedExecutorTypes() {
+    const supported = ['mock', 'codex', 'claude'];
+    if (getExecutorProfileFromFactory('cli')) {
+      supported.push('cli');
+    }
+    return supported;
   }
 
   async describeSystemBlockers() {

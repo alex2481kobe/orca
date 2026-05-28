@@ -16,7 +16,8 @@
     "smoke:api": "node scripts/smoke.mjs",
     "smoke:security": "node scripts/smoke.mjs",
     "smoke:ui": "node scripts/ui-smoke.mjs",
-    "smoke:private-access": "node scripts/private-access-smoke.mjs"
+    "smoke:private-access": "node scripts/private-access-smoke.mjs",
+    "smoke:providers": "node scripts/provider-smoke.mjs"
   },
   "devDependencies": {
     "playwright": "^1.60.0"

@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { CommandDeckRegistry } from './registry.js';
 import { PrivateAccessStore } from './private-access.js';
+import { ProviderProfileStore } from './provider-profiles.js';
 import { fileURLToPath } from 'node:url';
 
 const PORT = Number(process.env.PORT || 3000);
@@ -10,6 +11,7 @@ const HOST = process.env.COMMAND_DECK_HOST || '127.0.0.1';
 const PUBLIC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const registry = new CommandDeckRegistry();
 const privateAccess = new PrivateAccessStore();
+const providerProfiles = new ProviderProfileStore();
 const API_TOKEN = process.env.COMMAND_DECK_API_TOKEN || '';
 const WORKER_TOKEN = process.env.COMMAND_DECK_WORKER_TOKEN || '';
 const MAX_JSON_BODY_BYTES = (() => {
@@ -251,6 +253,8 @@ function buildMobileManifest(req) {
     artifactCleanupScheduleUrl: `/api/artifacts/cleanup/schedule`,
     artifactCleanupNowUrl: `/api/artifacts/cleanup/run-now`,
     executorProfilesUrl: `/api/executors/profiles`,
+    providerProfilesUrl: `${origin}/api/providers`,
+    providerExportUrl: `${origin}/api/providers/export`,
     executorCliInfoUrl: `/api/executors/{executor}/cli`,
     executorCliReinstallUrl: `/api/executors/{executor}/cli/reinstall`,
     mcpToolsUrl: `${origin}/api/mcp/tools`,
@@ -402,6 +406,128 @@ async function handlePrivateAccessApi(req, res, method, parts) {
   return sendJson(res, 404, { error: 'Private access API route not found.' });
 }
 
+async function handleProvidersApi(req, res, method, parts) {
+  if (parts.length === 2 && method === 'GET') {
+    try {
+      return sendJson(res, 200, await providerProfiles.listProfiles());
+    } catch (error) {
+      return sendJson(res, error.status || 500, { error: error.message || 'Could not list provider profiles.' });
+    }
+  }
+
+  if (parts.length === 3 && parts[2] === 'export' && method === 'GET') {
+    try {
+      return sendJson(res, 200, await providerProfiles.exportProfiles());
+    } catch (error) {
+      return sendJson(res, error.status || 500, { error: error.message || 'Could not export provider profiles.' });
+    }
+  }
+
+  if (parts.length === 4 && parts[2] === 'import' && parts[3] === 'dry-run' && method === 'POST') {
+    const body = await parseJsonBody(req);
+    if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
+    try {
+      return sendJson(res, 200, await providerProfiles.importDryRun(body));
+    } catch (error) {
+      return sendJson(res, error.status || 500, {
+        error: error.message || 'Could not dry-run provider import.',
+        errors: error.errors || [],
+      });
+    }
+  }
+
+  if (parts.length === 4 && parts[2] === 'import' && parts[3] === 'apply' && method === 'POST') {
+    const body = await parseJsonBody(req);
+    if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
+    try {
+      return sendJson(res, 200, await providerProfiles.importApply(body, {
+        actor: body.actor || 'dashboard',
+        approved: body.approved,
+      }));
+    } catch (error) {
+      return sendJson(res, error.status || 500, {
+        error: error.message || 'Could not apply provider import.',
+        errors: error.errors || [],
+        requiresApproval: error.requiresApproval || false,
+        risk: error.risk || null,
+      });
+    }
+  }
+
+  if (parts.length >= 3) {
+    const providerId = parts[2];
+    if (parts.length === 3 && method === 'GET') {
+      try {
+        return sendJson(res, 200, await providerProfiles.getProfile(providerId));
+      } catch (error) {
+        return sendJson(res, error.status || 500, { error: error.message || 'Could not load provider profile.' });
+      }
+    }
+    if (parts.length === 3 && method === 'PATCH') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+      if (rejectSpoofedActor(body, res)) return;
+      try {
+        return sendJson(res, 200, await providerProfiles.updateProfile(providerId, body, {
+          actor: body.actor || 'dashboard',
+          approved: body.approved,
+        }));
+      } catch (error) {
+        return sendJson(res, error.status || 500, {
+          error: error.message || 'Could not update provider profile.',
+          requiresApproval: error.requiresApproval || false,
+          risk: error.risk || null,
+        });
+      }
+    }
+    if (parts.length === 4 && parts[3] === 'health' && method === 'GET') {
+      try {
+        return sendJson(res, 200, await providerProfiles.health(providerId));
+      } catch (error) {
+        return sendJson(res, error.status || 500, { error: error.message || 'Could not check provider health.' });
+      }
+    }
+    if (parts.length === 4 && parts[3] === 'secret' && method === 'POST') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+      if (rejectSpoofedActor(body, res)) return;
+      try {
+        return sendJson(res, 200, await providerProfiles.setSecret(providerId, body.secret, {
+          actor: body.actor || 'dashboard',
+          approved: body.approved,
+        }));
+      } catch (error) {
+        return sendJson(res, error.status || 500, {
+          error: error.message || 'Could not set provider secret.',
+          requiresApproval: error.requiresApproval || false,
+          risk: error.risk || null,
+        });
+      }
+    }
+    if (parts.length === 4 && parts[3] === 'secret' && method === 'DELETE') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+      if (rejectSpoofedActor(body, res)) return;
+      try {
+        return sendJson(res, 200, await providerProfiles.deleteSecret(providerId, {
+          actor: body.actor || 'dashboard',
+          approved: body.approved,
+        }));
+      } catch (error) {
+        return sendJson(res, error.status || 500, {
+          error: error.message || 'Could not delete provider secret.',
+          requiresApproval: error.requiresApproval || false,
+          risk: error.risk || null,
+        });
+      }
+    }
+  }
+
+  return sendJson(res, 404, { error: 'Provider API route not found.' });
+}
+
 function getRouteParts(pathname) {
   return pathname.split('?')[0].replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
 }
@@ -442,6 +568,10 @@ async function handleApi(req, res, pathname, method, parts) {
 
   if (parts[1] === 'private-access') {
     return handlePrivateAccessApi(req, res, method, parts);
+  }
+
+  if (parts[1] === 'providers') {
+    return handleProvidersApi(req, res, method, parts);
   }
 
   if (parts[1] === 'executors' && parts[2] === 'profiles' && method === 'GET') {

@@ -62,7 +62,7 @@ async function isolateEnvironment(token, env = {}) {
     });
 
     process.chdir(previousCwd);
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
   };
 
   if (typeof token === 'string') {
@@ -1501,6 +1501,56 @@ test('private access API exposes mocked tailnet state, dry-run setup plans, and 
     });
     assert.equal(badFunnel.status, 422);
     assert.equal(String(badFunnel.body?.error || '').includes('Funnel'), true);
+  } finally {
+    await server.stop();
+  }
+});
+
+test('provider profile API exposes first-class providers and memory-backed secret references without echoing values', async () => {
+  const token = 'route-token-providers';
+  const server = await startServer({ token, env: { COMMAND_DECK_CREDENTIAL_BACKEND: 'memory' } });
+
+  try {
+    const list = await server.requestJson('/api/providers', { method: 'GET' });
+    assert.equal(list.status, 200);
+    assert.equal(list.body?.credentialBackend, 'memory');
+    const ids = new Set((list.body?.profiles || []).map((profile) => profile.id));
+    for (const id of ['codex', 'claude', 'custom-cli', 'openai-compatible', 'gemini', 'kimi', 'deepseek', 'openrouter', 'composer']) {
+      assert.equal(ids.has(id), true, `missing ${id}`);
+    }
+
+    const deniedSecret = await server.requestJson('/api/providers/openai-compatible/secret', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: false,
+        secret: 'sk-test-secret',
+      },
+    });
+    assert.equal(deniedSecret.status, 409);
+
+    const setSecret = await server.requestJson('/api/providers/openai-compatible/secret', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+        secret: 'sk-test-secret',
+      },
+    });
+    assert.equal(setSecret.status, 200);
+    assert.equal(JSON.stringify(setSecret.body).includes('sk-test-secret'), false);
+
+    const health = await server.requestJson('/api/providers/openai-compatible/health', { method: 'GET' });
+    assert.equal(health.status, 200);
+    assert.equal(health.body?.status, 'configured');
+    assert.equal(JSON.stringify(health.body).includes('sk-test-secret'), false);
+
+    const exported = await server.requestJson('/api/providers/export', { method: 'GET' });
+    assert.equal(exported.status, 200);
+    assert.equal(exported.body?.excludesSecrets, true);
+    assert.equal(JSON.stringify(exported.body).includes('sk-test-secret'), false);
   } finally {
     await server.stop();
   }
