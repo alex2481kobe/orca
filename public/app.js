@@ -1095,6 +1095,7 @@ async function handleLaneActions(event) {
       body: {
         approved,
         actor: 'dashboard',
+        confirmed: true,
       },
     });
     if (response.ok) {
@@ -1189,12 +1190,18 @@ async function handleSystemActions(event) {
   }
   if (action === 'cleanupArtifacts') {
     const dryRun = window.confirm('Run cleanup as dry run first? Press Cancel to perform deletion.');
+    const confirmed = !dryRun ? window.confirm('This will permanently delete archived artifacts. Continue?') : true;
+    if (!confirmed) {
+      renderAlert('Cleanup canceled.');
+      return;
+    }
     const response = await api(event.currentTarget.dataset.url || '/api/artifacts/cleanup', {
       method: 'POST',
       body: {
         actor: 'dashboard',
         approved: true,
         dryRun,
+        confirmed,
       },
     });
     if (response.ok) {
@@ -1227,6 +1234,7 @@ async function handleSystemActions(event) {
       sessionId: schedule.sessionId || null,
       olderThanDays: schedule.olderThanDays ?? null,
       dryRun: Boolean(schedule.dryRun),
+      confirmed: false,
     };
 
     const runNowApi = event.currentTarget.dataset.url || '/api/artifacts/cleanup/run-now';
@@ -1261,8 +1269,15 @@ async function handleSystemActions(event) {
         await refresh();
         return;
       }
+      runNowBody.confirmed = true;
       runNowBody.dryRun = false;
     } else {
+      const confirmed = window.confirm('Run cleanup now and permanently delete matching artifacts?');
+      if (!confirmed) {
+        renderAlert('Cleanup run canceled.');
+        return;
+      }
+      runNowBody.confirmed = true;
       runNowBody.dryRun = false;
     }
 
@@ -1397,12 +1412,14 @@ async function handleSystemActions(event) {
     );
     const parsedOverride = overrideCommand && overrideCommand.trim() ? overrideCommand.trim() : null;
     const execute = window.confirm('Run managed reinstall now (not dry-run)?\nChoose Cancel to only show the planned command.');
+    const confirmed = execute;
     const response = await api(`/api/executors/${encodeURIComponent(executorType)}/cli/reinstall`, {
       method: 'POST',
       body: {
         actor: 'dashboard',
         approved: true,
         execute,
+        confirmed,
         ...(parsedOverride ? { command: parsedOverride } : {}),
       },
     });

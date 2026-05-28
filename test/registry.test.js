@@ -137,6 +137,65 @@ test('cleanup artifacts and cleanup schedule require approval for manual invocat
   }
 });
 
+test('cleanup artifacts require explicit confirmation for destructive cleanup', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+
+  try {
+    const project = registry.createProject({ name: 'Cleanup Confirmation Project' });
+    const session = registry.createSession(project.id, { name: 'Cleanup Confirmation Session' });
+
+    const lane = registry.createLane(session.id, {
+      title: 'old lane',
+      executorType: 'mock',
+    }, { approved: true, actor: 'test' });
+
+    const target = registry.getLane(lane.id);
+    target.state = 'done';
+    target.completedAt = new Date(Date.now() - (12 * 24 * 60 * 60 * 1000)).toISOString();
+    target.updatedAt = target.completedAt;
+
+    const artifactDir = path.join(process.cwd(), 'artifacts', session.id, target.id);
+    await fs.mkdir(artifactDir, { recursive: true });
+    await fs.writeFile(path.join(artifactDir, 'evidence-test.log'), 'hello');
+
+    await assert.rejects(
+      () => registry.cleanupArtifacts({
+        actor: 'test',
+        approved: true,
+        dryRun: false,
+        sessionId: session.id,
+        olderThanDays: 10,
+      }),
+      (error) => error.status === 409,
+    );
+
+    const dryRunSummary = await registry.cleanupArtifacts({
+      actor: 'test',
+      approved: true,
+      dryRun: true,
+      sessionId: session.id,
+      olderThanDays: 10,
+    });
+    assert.equal(dryRunSummary.removed, 0);
+
+    const deleteSummary = await registry.cleanupArtifacts({
+      actor: 'test',
+      approved: true,
+      dryRun: false,
+      confirmed: true,
+      sessionId: session.id,
+      olderThanDays: 10,
+    });
+    assert.equal(deleteSummary.removed, 1);
+    await assert.rejects(
+      fs.access(path.join(artifactDir, 'evidence-test.log')),
+      (error) => error.code === 'ENOENT',
+    );
+  } finally {
+    await cleanup();
+  }
+});
+
 test('cleanup default retention comes from session policy when olderThanDays is omitted', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
 
@@ -689,6 +748,43 @@ test('executor CLI info and managed reinstall require approval', async () => {
         }),
         (error) => error.status === 409,
       );
+    } finally {
+    await cleanup();
+    }
+  } finally {
+    restore();
+  }
+});
+
+test('executor CLI reinstall execute mode requires confirmation', async () => {
+  const restore = restoreEnv({
+    COMMAND_DECK_CODEX_BINARY: process.env.COMMAND_DECK_CODEX_BINARY,
+    COMMAND_DECK_CODEX_REINSTALL_COMMAND: process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND,
+    COMMAND_DECK_CODEX_REINSTALL_PACKAGES: process.env.COMMAND_DECK_CODEX_REINSTALL_PACKAGES,
+  });
+
+  try {
+    process.env.COMMAND_DECK_CODEX_BINARY = '/usr/bin/codex';
+    process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND = 'npm install --yes codex-cli';
+
+    const { registry, cleanup } = await withIsolatedRegistry();
+    try {
+      await assert.rejects(
+        () => registry.runExecutorCliReinstall('codex', {
+          actor: 'test',
+          approved: true,
+          execute: true,
+        }),
+        (error) => error.status === 409,
+      );
+
+      const planned = await registry.runExecutorCliReinstall('codex', {
+        actor: 'test',
+        approved: true,
+        execute: false,
+      });
+      assert.equal(planned.executed, false);
+      assert.equal(planned.command[0], 'npm');
     } finally {
       await cleanup();
     }

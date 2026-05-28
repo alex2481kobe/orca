@@ -1249,7 +1249,7 @@ export class CommandDeckRegistry {
     }
     if (['codex', 'claude'].includes(normalizedExecutorType)) {
       const commandParts = String(command || '').trim().split(/\s+/).filter(Boolean);
-      if (commandParts.length > 0 && !commandTargetsExecutor(normalizedExecutorType, commandParts)) {
+      if (commandParts.length > 0 && !commandTargetsExecutorFirstToken(normalizedExecutorType, commandParts)) {
         throw {
           status: 422,
           message: `Lane command for ${normalizedExecutorType} must target the ${normalizedExecutorType} binary.`,
@@ -1616,6 +1616,7 @@ export class CommandDeckRegistry {
     approved,
     skipApproval = false,
     dryRun = false,
+    confirmed = false,
     sessionId = null,
     olderThanDays = null,
   } = {}) {
@@ -1630,6 +1631,15 @@ export class CommandDeckRegistry {
         message: policyCheck.message,
         requiresApproval: true,
         risk: policyCheck.policy.risk,
+      };
+    }
+
+    const isDryRun = Boolean(dryRun);
+    if (!isDryRun && !skipApproval && !confirmed) {
+      throw {
+        status: 409,
+        message: 'Destructive cleanup requires explicit confirmation.',
+        risk: defaultPolicy.cleanupArtifacts.risk,
       };
     }
 
@@ -1912,6 +1922,7 @@ export class CommandDeckRegistry {
     approved = false,
     execute = false,
     command,
+    confirmed = false,
   } = {}) {
     const type = normalizeExecutorType(executorType);
     if (!['codex', 'claude'].includes(type)) {
@@ -1925,6 +1936,15 @@ export class CommandDeckRegistry {
         message: policyCheck.message,
         requiresApproval: true,
         risk: policyCheck.policy.risk,
+      };
+    }
+
+    const willExecute = Boolean(execute);
+    if (willExecute && !confirmed) {
+      throw {
+        status: 409,
+        message: `Execution for ${type} CLI reinstall requires explicit confirmation.`,
+        risk: defaultPolicy.manageExecutorCli.risk,
       };
     }
 
