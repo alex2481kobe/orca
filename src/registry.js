@@ -24,6 +24,10 @@ import {
   validateEvidenceUrl,
   validateNetworkUrl,
 } from './url-policy.js';
+import {
+  readJsonFileWithRecoverySync,
+  writeJsonFileAtomic,
+} from './state-store.js';
 
 const {
   QUEUED: QUEUED_STATE,
@@ -716,6 +720,7 @@ export class CommandDeckRegistry {
     this._persistTimer = null;
     this._schedulerRunning = false;
     this._storageReady = false;
+    this.stateLoadStatus = null;
     this._starting = true;
     this._pendingWrites = new Set();
     const baseExecutorCallbacks = {
@@ -759,9 +764,21 @@ export class CommandDeckRegistry {
   }
 
   restoreFromDisk() {
+    const fallback = {
+      version: 1,
+      projects: [],
+      sessions: [],
+      lanes: [],
+      auditEvents: [],
+      mcpTools: [],
+      toolLeases: [],
+      policies: {},
+      cleanupSchedule: {},
+    };
+    const recovered = readJsonFileWithRecoverySync(this.stateFile, { fallback });
+    this.stateLoadStatus = recovered.status;
     try {
-      const raw = fsSync.readFileSync(this.stateFile, 'utf8');
-      const parsed = JSON.parse(raw);
+      const parsed = recovered.data || fallback;
       this.projects = safeArray(parsed.projects);
       this.sessions = safeArray(parsed.sessions);
       this.lanes = safeArray(parsed.lanes);
@@ -783,6 +800,26 @@ export class CommandDeckRegistry {
       }
       this.ensureSessionWorkspaces();
       this.recoverInterruptedLanes();
+      if (this.stateLoadStatus?.recovered || this.stateLoadStatus?.ok === false) {
+        this.auditEvents.unshift({
+          id: randomUUID(),
+          type: 'registry_state_recovered',
+          actor: 'system',
+          status: this.stateLoadStatus.ok ? 'passed' : 'failed',
+          summary: `Registry state loaded from ${this.stateLoadStatus.source}`,
+          createdAt: nowIso(),
+          evidence: {
+            source: this.stateLoadStatus.source,
+            recovered: this.stateLoadStatus.recovered,
+            filePath: this.stateLoadStatus.filePath,
+            backupPath: this.stateLoadStatus.backupPath,
+            corruptPath: this.stateLoadStatus.corruptPath,
+            reason: this.stateLoadStatus.reason,
+            backupReason: this.stateLoadStatus.backupReason,
+          },
+        });
+        this.auditEvents = this.auditEvents.slice(0, 200);
+      }
     } catch (error) {
       if (error.code !== 'ENOENT') {
         console.error('Failed to restore persisted Command Deck state:', error);
@@ -800,19 +837,7 @@ export class CommandDeckRegistry {
       const write = (async () => {
         try {
           await fs.mkdir(this.storageDir, { recursive: true });
-          const snapshot = {
-            version: 1,
-            savedAt: nowIso(),
-            policies: this.policies,
-            projects: this.projects,
-            sessions: this.sessions,
-            lanes: this.lanes,
-            auditEvents: this.auditEvents,
-            cleanupSchedule: this.cleanupSchedule,
-            mcpTools: this.mcpTools,
-            toolLeases: this.toolLeases,
-          };
-          await fs.writeFile(this.stateFile, JSON.stringify(snapshot, null, 2));
+          await writeJsonFileAtomic(this.stateFile, this.snapshotState());
         } catch (error) {
           console.error('Persist failed:', error);
         }
@@ -820,6 +845,21 @@ export class CommandDeckRegistry {
       this._trackAsync(write);
     }, 250);
     this._persistTimer.unref?.();
+  }
+
+  snapshotState() {
+    return {
+      version: 1,
+      savedAt: nowIso(),
+      policies: this.policies,
+      projects: this.projects,
+      sessions: this.sessions,
+      lanes: this.lanes,
+      auditEvents: this.auditEvents,
+      cleanupSchedule: this.cleanupSchedule,
+      mcpTools: this.mcpTools,
+      toolLeases: this.toolLeases,
+    };
   }
 
   ensureSessionWorkspaces() {
@@ -3828,6 +3868,9 @@ Changed files: ${changedFiles.length}
     if (this._schedulerRunning) return;
     this._schedulerRunning = true;
     this._starting = false;
+    if (this.stateLoadStatus?.recovered || this.stateLoadStatus?.ok === false) {
+      this.persistState();
+    }
     while (this._schedulerRunning) {
       await sleep(this.heartbeatIntervalMs);
       await this.advanceLanes();
@@ -3843,18 +3886,7 @@ Changed files: ${changedFiles.length}
       const write = (async () => {
         try {
           await fs.mkdir(this.storageDir, { recursive: true });
-          const snapshot = {
-            version: 1,
-            savedAt: nowIso(),
-            policies: this.policies,
-            projects: this.projects,
-            sessions: this.sessions,
-            lanes: this.lanes,
-            auditEvents: this.auditEvents,
-            cleanupSchedule: this.cleanupSchedule,
-            mcpTools: this.mcpTools,
-          };
-          await fs.writeFile(this.stateFile, JSON.stringify(snapshot, null, 2));
+          await writeJsonFileAtomic(this.stateFile, this.snapshotState());
         } catch {
           // Stop is best-effort; ignore persist failures during teardown.
         }

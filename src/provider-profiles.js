@@ -2,6 +2,10 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import {
+  readJsonFileWithRecovery,
+  writeJsonFileAtomic,
+} from './state-store.js';
 
 const nowIso = () => new Date().toISOString();
 const SECRET_SERVICE = 'Command Deck';
@@ -473,6 +477,7 @@ class ProviderProfileStore {
     this.stateFile = stateFile || path.join(process.cwd(), '.command-deck', 'providers.json');
     this.credentialStore = credentialStore || new CredentialStore();
     this.loaded = false;
+    this.loadStatus = null;
     this.state = {
       schemaVersion: 1,
       profiles: defaultProfiles(),
@@ -483,8 +488,16 @@ class ProviderProfileStore {
   async ensureLoaded() {
     if (this.loaded) return;
     this.loaded = true;
+    const fallback = {
+      schemaVersion: 1,
+      profiles: defaultProfiles(),
+      auditEvents: [],
+    };
     try {
-      const parsed = JSON.parse(await fs.readFile(this.stateFile, 'utf8'));
+      const recovered = await readJsonFileWithRecovery(this.stateFile, { fallback });
+      this.loadStatus = recovered.status;
+      const parsed = recovered.data || fallback;
+      const shouldAuditRecovery = this.loadStatus?.recovered || this.loadStatus?.ok === false;
       const seeded = defaultProfiles();
       const loaded = parsed.profiles && typeof parsed.profiles === 'object' ? parsed.profiles : {};
       const profiles = { ...seeded };
@@ -497,18 +510,32 @@ class ProviderProfileStore {
         profiles,
         auditEvents: Array.isArray(parsed.auditEvents) ? parsed.auditEvents.slice(0, 200) : [],
       };
+      if (shouldAuditRecovery) {
+        this.recordAudit({
+          type: 'provider_state_recovered',
+          actor: 'system',
+          summary: `Provider profile state loaded from ${this.loadStatus.source}`,
+          status: this.loadStatus.ok ? 'passed' : 'failed',
+          evidence: {
+            source: this.loadStatus.source,
+            recovered: this.loadStatus.recovered,
+            filePath: this.loadStatus.filePath,
+            backupPath: this.loadStatus.backupPath,
+            corruptPath: this.loadStatus.corruptPath,
+            reason: this.loadStatus.reason,
+            backupReason: this.loadStatus.backupReason,
+          },
+        });
+        await this.persist();
+      }
     } catch {
-      this.state = {
-        schemaVersion: 1,
-        profiles: defaultProfiles(),
-        auditEvents: [],
-      };
+      this.state = fallback;
     }
   }
 
   async persist() {
     await fs.mkdir(path.dirname(this.stateFile), { recursive: true });
-    await fs.writeFile(this.stateFile, JSON.stringify({ ...this.state, savedAt: nowIso() }, null, 2));
+    await writeJsonFileAtomic(this.stateFile, { ...this.state, savedAt: nowIso() });
   }
 
   recordAudit(event) {
@@ -532,6 +559,7 @@ class ProviderProfileStore {
       schemaVersion: 1,
       generatedAt: nowIso(),
       credentialBackend: this.credentialStore.activeBackend(),
+      loadStatus: this.loadStatus ? clone(this.loadStatus) : null,
       profiles,
     };
   }

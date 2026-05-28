@@ -24,7 +24,8 @@
     "smoke:streams": "node scripts/streams-smoke.mjs",
     "smoke:private-access": "node scripts/private-access-smoke.mjs",
     "smoke:pwa-cache": "node scripts/pwa-cache-smoke.mjs",
-    "smoke:providers": "node scripts/provider-smoke.mjs"
+    "smoke:providers": "node scripts/provider-smoke.mjs",
+    "smoke:state-migrations": "node scripts/state-migrations-smoke.mjs"
   },
   "devDependencies": {
     "playwright": "^1.60.0"

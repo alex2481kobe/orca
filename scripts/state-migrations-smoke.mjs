@@ -1,0 +1,144 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { AuthSessionStore } from '../src/auth-sessions.js';
+import { PrivateAccessStore } from '../src/private-access.js';
+import {
+  CredentialStore,
+  ProviderProfileStore,
+  defaultProfiles,
+} from '../src/provider-profiles.js';
+import { CommandDeckRegistry } from '../src/registry.js';
+import {
+  backupPathFor,
+  readJsonFileWithRecovery,
+  writeJsonFileAtomic,
+} from '../src/state-store.js';
+
+const nowIso = () => new Date().toISOString();
+
+async function withTempDir(prefix, fn) {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
+  try {
+    return await fn(dir);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
+  }
+}
+
+async function corruptPrimary(filePath) {
+  await fs.writeFile(filePath, '{ intentionally corrupt json');
+}
+
+async function verifySharedStore(dir) {
+  const stateFile = path.join(dir, 'shared.json');
+  await writeJsonFileAtomic(stateFile, { schemaVersion: 1, check: 'shared-store' });
+  await corruptPrimary(stateFile);
+  const result = await readJsonFileWithRecovery(stateFile, {
+    fallback: { schemaVersion: 1, check: 'fallback' },
+  });
+  assert.equal(result.data.check, 'shared-store');
+  assert.equal(result.status.source, 'backup');
+  assert.equal(result.status.recovered, true);
+  assert.equal(JSON.parse(await fs.readFile(backupPathFor(stateFile), 'utf8')).check, 'shared-store');
+}
+
+async function verifyProviderStore(dir) {
+  const stateFile = path.join(dir, 'providers.json');
+  const profiles = defaultProfiles();
+  profiles.gemini = { ...profiles.gemini, enabled: false };
+  await writeJsonFileAtomic(stateFile, { schemaVersion: 1, profiles, auditEvents: [] });
+  await corruptPrimary(stateFile);
+  const store = new ProviderProfileStore({
+    stateFile,
+    credentialStore: new CredentialStore({ backend: 'memory' }),
+  });
+  const listed = await store.listProfiles();
+  assert.equal(listed.loadStatus.source, 'backup');
+  assert.equal(store.state.auditEvents.some((event) => event.type === 'provider_state_recovered'), true);
+}
+
+async function verifyPrivateAccessStore(dir) {
+  const stateFile = path.join(dir, 'private-access.json');
+  const store = new PrivateAccessStore({ stateFile });
+  await store.createTarget({
+    label: 'Local dashboard',
+    mode: 'local',
+    localUrl: 'http://localhost:3042',
+  });
+  await corruptPrimary(stateFile);
+  const recovered = new PrivateAccessStore({ stateFile });
+  const described = await recovered.describe({ fakeTailnetState: 'serve-http' });
+  assert.equal(described.loadStatus.source, 'backup');
+  assert.equal(described.targets.length, 1);
+  assert.equal(recovered.state.auditEvents.some((event) => event.type === 'private_access_state_recovered'), true);
+}
+
+async function verifyAuthStore(dir) {
+  const stateFile = path.join(dir, 'auth-sessions.json');
+  const store = new AuthSessionStore({
+    stateFile,
+    pairingTtlMs: 60000,
+    sessionTtlMs: 60000,
+  });
+  store.createPairingCode({ actor: 'smoke', label: 'phone' });
+  await corruptPrimary(stateFile);
+  const recovered = new AuthSessionStore({
+    stateFile,
+    pairingTtlMs: 60000,
+    sessionTtlMs: 60000,
+  });
+  assert.equal(recovered.loadStatus.source, 'backup');
+  assert.equal(recovered.state.pairingCodes.length, 1);
+  assert.equal(recovered.state.auditEvents.some((event) => event.type === 'auth_state_recovered'), true);
+}
+
+async function verifyRegistryStore(dir) {
+  const previousCwd = process.cwd();
+  process.chdir(dir);
+  const stateFile = path.join(dir, '.command-deck', 'state.json');
+  try {
+    await writeJsonFileAtomic(stateFile, {
+      version: 1,
+      savedAt: nowIso(),
+      policies: {},
+      projects: [{
+        id: 'smoke-project',
+        name: 'Smoke Project',
+        slug: 'smoke-project',
+        createdAt: nowIso(),
+        updatedAt: nowIso(),
+        quickLinks: [],
+      }],
+      sessions: [],
+      lanes: [],
+      auditEvents: [],
+      cleanupSchedule: {},
+      mcpTools: [],
+      toolLeases: [],
+    });
+    await corruptPrimary(stateFile);
+    const registry = new CommandDeckRegistry({ heartbeatIntervalMs: 5 });
+    try {
+      assert.equal(registry.stateLoadStatus.source, 'backup');
+      assert.equal(registry.projects.length, 1);
+      assert.equal(registry.auditEvents.some((event) => event.type === 'registry_state_recovered'), true);
+    } finally {
+      registry.stopScheduler();
+      await registry.drainPendingWrites();
+    }
+  } finally {
+    process.chdir(previousCwd);
+  }
+}
+
+await withTempDir('command-deck-state-smoke-', async (dir) => {
+  await verifySharedStore(dir);
+  await verifyProviderStore(dir);
+  await verifyPrivateAccessStore(dir);
+  await verifyAuthStore(dir);
+  await verifyRegistryStore(dir);
+});
+
+console.log('state migration/recovery smoke passed');

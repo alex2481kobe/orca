@@ -4,6 +4,10 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { validateNetworkUrl } from './url-policy.js';
+import {
+  readJsonFileWithRecovery,
+  writeJsonFileAtomic,
+} from './state-store.js';
 
 const nowIso = () => new Date().toISOString();
 
@@ -387,6 +391,7 @@ class PrivateAccessStore {
     this.stateFile = stateFile || path.join(process.cwd(), '.command-deck', 'private-access.json');
     this.runner = runner;
     this.loaded = false;
+    this.loadStatus = null;
     this.state = {
       version: 1,
       settings: { ...DEFAULT_SETTINGS },
@@ -398,31 +403,52 @@ class PrivateAccessStore {
   async ensureLoaded() {
     if (this.loaded) return;
     this.loaded = true;
+    const fallback = {
+      version: 1,
+      settings: { ...DEFAULT_SETTINGS },
+      targets: [],
+      auditEvents: [],
+    };
     try {
-      const raw = await fs.readFile(this.stateFile, 'utf8');
-      const parsed = JSON.parse(raw);
+      const recovered = await readJsonFileWithRecovery(this.stateFile, { fallback });
+      this.loadStatus = recovered.status;
+      const parsed = recovered.data || fallback;
+      const shouldAuditRecovery = this.loadStatus?.recovered || this.loadStatus?.ok === false;
       this.state = {
         version: 1,
         settings: normalizeSettings(parsed.settings || {}),
         targets: Array.isArray(parsed.targets) ? parsed.targets.map((target) => normalizeTarget(target)) : [],
         auditEvents: Array.isArray(parsed.auditEvents) ? parsed.auditEvents.slice(0, 200) : [],
       };
+      if (shouldAuditRecovery) {
+        this.recordAudit({
+          type: 'private_access_state_recovered',
+          actor: 'system',
+          summary: `Private access state loaded from ${this.loadStatus.source}`,
+          status: this.loadStatus.ok ? 'passed' : 'failed',
+          evidence: {
+            source: this.loadStatus.source,
+            recovered: this.loadStatus.recovered,
+            filePath: this.loadStatus.filePath,
+            backupPath: this.loadStatus.backupPath,
+            corruptPath: this.loadStatus.corruptPath,
+            reason: this.loadStatus.reason,
+            backupReason: this.loadStatus.backupReason,
+          },
+        });
+        await this.persist();
+      }
     } catch {
-      this.state = {
-        version: 1,
-        settings: { ...DEFAULT_SETTINGS },
-        targets: [],
-        auditEvents: [],
-      };
+      this.state = fallback;
     }
   }
 
   async persist() {
     await fs.mkdir(path.dirname(this.stateFile), { recursive: true });
-    await fs.writeFile(this.stateFile, JSON.stringify({
+    await writeJsonFileAtomic(this.stateFile, {
       ...this.state,
       savedAt: nowIso(),
-    }, null, 2));
+    });
   }
 
   recordAudit(event) {
@@ -440,6 +466,7 @@ class PrivateAccessStore {
     const tailnet = detectTailnetState({ fakeState, runner: this.runner });
     return {
       version: this.state.version,
+      loadStatus: clone(this.loadStatus),
       settings: clone(this.state.settings),
       targets: clone(this.state.targets),
       tailnet,

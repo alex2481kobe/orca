@@ -1,6 +1,10 @@
 import fsSync from 'node:fs';
 import path from 'node:path';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import {
+  readJsonFileWithRecoverySync,
+  writeJsonFileAtomicSync,
+} from './state-store.js';
 
 const nowIso = () => new Date().toISOString();
 const SESSION_COOKIE_NAME = 'command_deck_session';
@@ -50,6 +54,7 @@ class AuthSessionStore {
     this.stateFile = stateFile;
     this.pairingTtlMs = pairingTtlMs;
     this.sessionTtlMs = sessionTtlMs;
+    this.loadStatus = null;
     this.state = {
       schemaVersion: 1,
       pairingCodes: [],
@@ -60,8 +65,17 @@ class AuthSessionStore {
   }
 
   load() {
+    const fallback = {
+      schemaVersion: 1,
+      pairingCodes: [],
+      sessions: [],
+      auditEvents: [],
+    };
     try {
-      const parsed = JSON.parse(fsSync.readFileSync(this.stateFile, 'utf8'));
+      const recovered = readJsonFileWithRecoverySync(this.stateFile, { fallback });
+      this.loadStatus = recovered.status;
+      const parsed = recovered.data || fallback;
+      const shouldAuditRecovery = this.loadStatus?.recovered || this.loadStatus?.ok === false;
       this.state = {
         schemaVersion: 1,
         pairingCodes: Array.isArray(parsed.pairingCodes) ? parsed.pairingCodes : [],
@@ -69,22 +83,32 @@ class AuthSessionStore {
         auditEvents: Array.isArray(parsed.auditEvents) ? parsed.auditEvents.slice(0, 300) : [],
       };
       this.pruneExpired({ persist: false });
+      if (shouldAuditRecovery) {
+        this.audit({
+          type: 'auth_state_recovered',
+          actor: 'system',
+          status: this.loadStatus.ok ? 'passed' : 'failed',
+          summary: `Auth session state loaded from ${this.loadStatus.source}`,
+          evidence: {
+            source: this.loadStatus.source,
+            recovered: this.loadStatus.recovered,
+            filePath: this.loadStatus.filePath,
+            backupPath: this.loadStatus.backupPath,
+            corruptPath: this.loadStatus.corruptPath,
+            reason: this.loadStatus.reason,
+            backupReason: this.loadStatus.backupReason,
+          },
+        });
+        this.persist();
+      }
     } catch {
-      this.state = {
-        schemaVersion: 1,
-        pairingCodes: [],
-        sessions: [],
-        auditEvents: [],
-      };
+      this.state = fallback;
     }
   }
 
   persist() {
     fsSync.mkdirSync(path.dirname(this.stateFile), { recursive: true });
-    const payload = JSON.stringify({ ...this.state, savedAt: nowIso() }, null, 2);
-    const temp = `${this.stateFile}.${process.pid}.${Date.now()}.tmp`;
-    fsSync.writeFileSync(temp, payload);
-    fsSync.renameSync(temp, this.stateFile);
+    writeJsonFileAtomicSync(this.stateFile, { ...this.state, savedAt: nowIso() });
   }
 
   audit(event) {
