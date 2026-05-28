@@ -460,35 +460,65 @@ function renderHome() {
   const primaryProjectCards = shell.projects.filter((project) => !isVerificationProject(project)).map(renderProjectCard).join('');
   const verificationProjects = shell.projects.filter(isVerificationProject);
   const verificationProjectCards = verificationProjects.map(renderProjectCard).join('');
+  const primaryProjects = shell.projects.filter((project) => !isVerificationProject(project));
+  const projectRows = primaryProjects.map((project) => `
+    <a class="simple-row" href="${safeAttr(project.route)}">
+      <span class="row-icon">▱</span>
+      <span>${safeText(project.name)}</span>
+    </a>
+  `).join('');
+  const recentLanes = [...(shell.lanes || [])]
+    .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0))
+    .filter((lane) => {
+      const project = shell.projects.find((item) => item.id === lane.projectId);
+      return project && !isVerificationProject(project);
+    })
+    .slice(0, 5);
+  const recentRows = recentLanes.map((lane) => `
+    <a class="simple-row recent-row" href="${safeAttr(lane.route || '')}">
+      <span>${safeText(lane.title || 'Untitled lane')}</span>
+      <small>${safeText(lane.executorType)} · ${safeText(lane.state)}</small>
+    </a>
+  `).join('');
+  const preferredSession = shell.sessions.find((session) => {
+    const project = shell.projects.find((item) => item.id === session.projectId);
+    return project && !isVerificationProject(project);
+  });
+  const chatHref = preferredSession?.route || '#projects';
+  const showMainHome = panel === 'overview' || panel === 'projects';
 
   refs.content.innerHTML = `
-    <section class="home-hero">
+    <section class="simple-home ${showMainHome ? '' : 'is-hidden'}">
       <div>
-        <div class="card-kicker">Command center</div>
-        <h2>Navigate projects, then open the card you need.</h2>
-        <p class="muted">Status and setup controls live in focused panels so the phone view stays useful for moving between work and talking to agents.</p>
+        <h2>Command Deck</h2>
+        <p class="muted">Open a project, jump to a recent lane, or start a new agent conversation.</p>
       </div>
-      <div class="home-panel-nav" aria-label="Dashboard panels">
-        <a class="nav-tile ${panel === 'projects' || panel === 'overview' ? 'active' : ''}" href="#projects">Projects</a>
-        <a class="nav-tile ${panel === 'token' ? 'active' : ''}" href="#token">Token</a>
-        <a class="nav-tile ${panel === 'system' ? 'active' : ''}" href="#system">System</a>
-        <a class="nav-tile ${panel === 'mcp' ? 'active' : ''}" href="#mcp">MCP</a>
-        <a class="nav-tile ${panel === 'cleanup' ? 'active' : ''}" href="#cleanup">Cleanup</a>
-        <a class="nav-tile ${panel === 'audit' ? 'active' : ''}" href="#audit">Audit</a>
-      </div>
+      <a class="settings-link" href="#system">Settings</a>
     </section>
-    <div class="stat-grid compact-stats">
+    <section class="simple-section ${showMainHome ? '' : 'is-hidden'}">
+      <h3>Projects</h3>
+      <a class="simple-row" href="#create">
+        <span class="row-icon">＋</span>
+        <span>New project</span>
+      </a>
+      ${projectRows || '<div class="muted">No projects yet.</div>'}
+    </section>
+    <section class="simple-section ${showMainHome ? '' : 'is-hidden'}">
+      <h3>Recents</h3>
+      ${recentRows || '<div class="muted">No recent lanes yet.</div>'}
+    </section>
+    <section class="simple-section simple-more ${showMainHome ? '' : 'is-hidden'}">
+      <h3>More</h3>
+      <a class="simple-row" href="#audit">Audit queue</a>
+      <a class="simple-row" href="#mcp">MCP tools</a>
+      <a class="simple-row" href="#cleanup">Cleanup</a>
+      <a class="simple-row" href="#token">API token</a>
+    </section>
+    <a class="floating-chat ${showMainHome ? '' : 'is-hidden'}" href="${safeAttr(chatHref)}">Chat</a>
+    <div class="stat-grid compact-stats settings-stats is-hidden">
       <div class="stat">
         <b>${shell.projects.length}</b>
         <span>Projects</span>
-      </div>
-      <div class="stat">
-        <b>${shell.sessions.length}</b>
-        <span>Sessions</span>
-      </div>
-      <div class="stat">
-        <b>${shell.lanes.length}</b>
-        <span>Lanes</span>
       </div>
     </div>
     <section class="grid-2 home-panels" data-active-panel="${safeAttr(panel)}">

@@ -102,6 +102,11 @@ a {
   font-size: 0.78rem;
 }
 
+.status-strip,
+.blockers {
+  display: none;
+}
+
 .status-strip .tag,
 .status-strip [data-status] {
   margin: 0;
@@ -369,6 +374,113 @@ a {
 
 .compact-stats {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.is-hidden {
+  display: none !important;
+}
+
+.simple-home {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0.6rem 0 1.6rem;
+}
+
+.simple-home h2 {
+  font-size: clamp(2rem, 8vw, 3.6rem);
+  font-weight: 500;
+  letter-spacing: -0.06em;
+  line-height: 0.96;
+  margin: 0 0 0.5rem;
+}
+
+.settings-link {
+  background: rgba(30, 32, 28, 0.92);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text);
+  flex: 0 0 auto;
+  font-weight: 700;
+  padding: 0.72rem 0.95rem;
+  text-decoration: none;
+}
+
+.simple-section {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 1.55rem;
+}
+
+.simple-section h3 {
+  font-size: 1.12rem;
+  margin: 0 0 0.35rem;
+}
+
+.simple-row {
+  align-items: center;
+  border-radius: 14px;
+  color: var(--text);
+  display: flex;
+  gap: 0.75rem;
+  min-height: 3.3rem;
+  padding: 0.58rem 0.3rem;
+  text-decoration: none;
+}
+
+.simple-row:hover,
+.simple-row:focus-visible {
+  background: rgba(255, 255, 255, 0.055);
+  outline: none;
+}
+
+.simple-row small {
+  color: var(--muted);
+  margin-left: auto;
+}
+
+.row-icon {
+  color: var(--accent-strong);
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.recent-row {
+  align-items: baseline;
+}
+
+.simple-more {
+  margin-bottom: 5.5rem;
+}
+
+.floating-chat {
+  align-items: center;
+  background: #f3f0e8;
+  border-radius: 999px;
+  bottom: 1.35rem;
+  box-shadow: 0 14px 42px rgba(0, 0, 0, 0.42);
+  color: #090a08;
+  display: inline-flex;
+  font-size: 1rem;
+  font-weight: 800;
+  gap: 0.5rem;
+  min-height: 3.5rem;
+  padding: 0 1.45rem;
+  position: fixed;
+  right: max(1rem, env(safe-area-inset-right));
+  text-decoration: none;
+  z-index: 35;
+}
+
+.floating-chat::before {
+  content: "✎";
+  font-size: 1.1rem;
+}
+
+.home-panels[data-active-panel="overview"] > [data-panel-card],
+.home-panels[data-active-panel="projects"] > [data-panel-card] {
+  display: none;
 }
 
 .card-grid {

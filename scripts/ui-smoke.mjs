@@ -170,12 +170,21 @@ async function playwrightMode(pw) {
     const disclosureCount = await page.$$eval('details.disclosure', (els) => els.length);
     if (disclosureCount < 1) fail(`${viewport.name} has no collapsible disclosure sections`);
 
-    const clickableCardCount = await page.$$eval('.click-card[data-href]', (els) => els.length);
-    if (clickableCardCount > 0) {
+    const projectRowCount = await page.$$eval('.simple-section a[href^="/projects/"]', (els) => els.length);
+    if (projectRowCount > 0) {
       const currentUrl = page.url();
-      await page.$eval('.click-card[data-href]', (el) => el.click());
+      await page.$eval('.simple-section a[href^="/projects/"]', (el) => el.click());
       await page.waitForFunction((before) => window.location.href !== before, currentUrl, { timeout: 5000 });
       if (!page.url().includes('/projects/')) fail(`${viewport.name} clickable card did not navigate`, page.url());
+      await page.waitForFunction(() => {
+        const content = document.getElementById('content');
+        return content && !content.textContent.trim().startsWith('Loading');
+      }, { timeout: 12000 });
+      if (token) {
+        await page.goto(`${base}/?apiToken=${encodeURIComponent(token)}`, { waitUntil: 'networkidle', timeout: 15000 });
+      } else {
+        await page.goto(`${base}/`, { waitUntil: 'networkidle', timeout: 15000 });
+      }
       await page.waitForFunction(() => {
         const content = document.getElementById('content');
         return content && !content.textContent.trim().startsWith('Loading');
