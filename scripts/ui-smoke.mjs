@@ -19,18 +19,29 @@
  *       fallback; the script always exits non-zero on any missing marker.
  *
  * Usage:
+ *   node scripts/ui-smoke.mjs
  *   COMMAND_DECK_API_TOKEN=<token> node scripts/ui-smoke.mjs --base http://127.0.0.1:3000
  */
 import process from 'node:process';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 
 const args = process.argv.slice(2);
+const previousCwd = process.cwd();
+const previousEnv = { ...process.env };
+let explicitBase = Boolean(process.env.COMMAND_DECK_BASE_URL);
 let base = process.env.COMMAND_DECK_BASE_URL || 'http://127.0.0.1:3000';
 for (let i = 0; i < args.length; i += 1) {
-  if (args[i] === '--base' && args[i + 1]) base = args[i + 1];
+  if (args[i] === '--base' && args[i + 1]) {
+    base = args[i + 1];
+    explicitBase = true;
+  }
 }
-const token = process.env.COMMAND_DECK_API_TOKEN || '';
+let token = process.env.COMMAND_DECK_API_TOKEN || '';
+const tempDir = explicitBase ? null : await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-ui-smoke-'));
+let server = null;
+let stopServer = null;
 const log = (label, info = '') => console.log(`[ui-smoke] ${label}${info ? ' — ' + info : ''}`);
 const fail = (label, info) => {
   console.error(`[ui-smoke FAIL] ${label}${info ? ' — ' + info : ''}`);
@@ -44,6 +55,90 @@ async function http(reqPath) {
   });
   const text = await res.text();
   return { status: res.status, text };
+}
+
+async function startIsolatedServerIfNeeded() {
+  if (explicitBase) return;
+  process.chdir(tempDir);
+  process.env.PORT = '0';
+  process.env.COMMAND_DECK_HOST = '127.0.0.1';
+  process.env.COMMAND_DECK_API_TOKEN = 'ui-smoke-token';
+  process.env.COMMAND_DECK_CREDENTIAL_BACKEND = 'memory';
+  process.env.COMMAND_DECK_RATE_LIMIT_DISABLED = 'true';
+  token = process.env.COMMAND_DECK_API_TOKEN;
+  const serverModule = await import('../src/server.js');
+  server = await serverModule.startServer(0, '127.0.0.1');
+  stopServer = serverModule.stopServer;
+  const address = server.address();
+  base = `http://127.0.0.1:${address.port}`;
+  log('server', `started isolated local server at ${base}`);
+}
+
+async function cleanupStartedServer() {
+  if (stopServer) await stopServer();
+  if (server) await new Promise((resolve) => server.close(resolve));
+  if (tempDir) {
+    process.chdir(previousCwd);
+    await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
+  }
+  for (const key of Object.keys(process.env)) {
+    if (!(key in previousEnv)) delete process.env[key];
+  }
+  for (const [key, value] of Object.entries(previousEnv)) {
+    process.env[key] = value;
+  }
+}
+
+async function requestJson(reqPath, options = {}) {
+  const response = await fetch(`${base}${reqPath}`, {
+    method: options.method || 'GET',
+    headers: {
+      'content-type': 'application/json',
+      ...(token ? { 'x-commanddeck-token': token } : {}),
+      ...(options.headers || {}),
+    },
+    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+  });
+  let body = null;
+  try { body = await response.json(); } catch { body = null; }
+  return { status: response.status, body, headers: Object.fromEntries(response.headers.entries()) };
+}
+
+async function createBrowserSessionCookie() {
+  if (!token) return null;
+  const pairing = await requestJson('/api/auth/pairing-codes', {
+    method: 'POST',
+    body: {
+      actor: 'ui-smoke',
+      label: 'UI smoke browser',
+      ttlMs: 60_000,
+    },
+  });
+  if (pairing.status !== 201) fail('create UI smoke pairing code', JSON.stringify(pairing.body));
+  const paired = await requestJson('/api/auth/pair', {
+    method: 'POST',
+    headers: {},
+    body: {
+      code: pairing.body.pairing.code,
+      label: 'UI smoke browser',
+    },
+  });
+  if (paired.status !== 200) fail('pair UI smoke browser', JSON.stringify(paired.body));
+  return paired.headers['set-cookie'] || '';
+}
+
+async function addSessionCookie(context, cookieHeader) {
+  if (!cookieHeader) return;
+  const [cookiePair] = String(cookieHeader).split(';');
+  const [name, ...valueParts] = cookiePair.split('=');
+  if (!name || !valueParts.length) return;
+  await context.addCookies([{
+    name: name.trim(),
+    value: valueParts.join('=').trim(),
+    url: base,
+    httpOnly: true,
+    sameSite: 'Lax',
+  }]);
 }
 
 const REQUIRED_HTML_MARKERS = [
@@ -94,6 +189,7 @@ async function playwrightMode(pw) {
   log('mode', 'Playwright Chromium');
   const browser = await pw.chromium.launch({ headless: true });
   const ctx = await browser.newContext();
+  await addSessionCookie(ctx, await createBrowserSessionCookie());
   const artifactDir = path.resolve('artifacts', 'ui-smoke');
   await fs.mkdir(artifactDir, { recursive: true });
 
@@ -105,12 +201,7 @@ async function playwrightMode(pw) {
   for (const viewport of viewports) {
     const page = await ctx.newPage();
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
-    if (token) {
-      // Bootstrap token via query so the app's session-storage flow sets it.
-      await page.goto(`${base}/?apiToken=${encodeURIComponent(token)}`, { waitUntil: 'networkidle', timeout: 15000 });
-    } else {
-      await page.goto(`${base}/`, { waitUntil: 'networkidle', timeout: 15000 });
-    }
+    await page.goto(`${base}/`, { waitUntil: 'networkidle', timeout: 15000 });
 
     // Wait for the operator console to render past its loading state.
     await page.waitForFunction(() => {
@@ -148,9 +239,15 @@ async function playwrightMode(pw) {
         'deletePrivateAccessTarget',
         'deleteProviderSecret',
         'deleteProjectQuickLink',
+        'dryRunAppImport',
         'dryRunProviderImport',
         'editMcpTool',
+        'exportAppBackup',
         'exportProviderProfiles',
+        'exportSupportBundle',
+        'applyAppImport',
+        'markAllNotificationsRead',
+        'markNotificationRead',
         'refresh',
         'refreshExecutorCli',
         'refreshProviderHealth',
@@ -158,6 +255,7 @@ async function playwrightMode(pw) {
         'checkPrivateAccessTarget',
         'copyPrivateAccessCommand',
         'createPairingCode',
+        'requestBrowserNotifications',
         'removeWorktree',
         'retryLane',
         'setApiToken',
@@ -188,11 +286,7 @@ async function playwrightMode(pw) {
         const content = document.getElementById('content');
         return content && !content.textContent.trim().startsWith('Loading');
       }, { timeout: 12000 });
-      if (token) {
-        await page.goto(`${base}/?apiToken=${encodeURIComponent(token)}`, { waitUntil: 'networkidle', timeout: 15000 });
-      } else {
-        await page.goto(`${base}/`, { waitUntil: 'networkidle', timeout: 15000 });
-      }
+      await page.goto(`${base}/`, { waitUntil: 'networkidle', timeout: 15000 });
       await page.waitForFunction(() => {
         const content = document.getElementById('content');
         return content && !content.textContent.trim().startsWith('Loading');
@@ -209,6 +303,7 @@ async function playwrightMode(pw) {
 }
 
 async function main() {
+  await startIsolatedServerIfNeeded();
   let pw = null;
   try { pw = await import('playwright'); } catch { pw = null; }
   if (pw && pw.chromium) {
@@ -222,4 +317,6 @@ async function main() {
 await main().catch((error) => {
   console.error('[ui-smoke ERROR]', error?.stack || error?.message || error);
   if (!process.exitCode) process.exitCode = 1;
+}).finally(async () => {
+  await cleanupStartedServer();
 });

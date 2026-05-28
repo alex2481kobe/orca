@@ -1076,7 +1076,7 @@ function renderHome() {
                 ${browserNotificationsSupported()
                   ? '<button class="secondary" data-action="requestBrowserNotifications" type="button">Browser permission</button>'
                   : '<button class="secondary" type="button" disabled title="This browser does not support Notification API">Browser unavailable</button>'}
-                ${unreadNotifications ? '<button class="secondary" data-action="markAllNotificationsRead" type="button">Mark all read</button>' : '<button class="secondary" type="button" disabled>No unread notifications</button>'}
+                ${unreadNotifications ? '<button class="secondary" data-action="markAllNotificationsRead" type="button">Mark all read</button>' : '<button class="secondary" type="button" disabled title="There are no unread notifications to mark read.">No unread notifications</button>'}
               </div>
             </form>
             <div class="provider-list">${notificationRows || '<div class="muted">No notifications yet.</div>'}</div>

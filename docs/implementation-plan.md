@@ -6,23 +6,24 @@ smoke gates before being listed.
 
 ## Proven on this host
 
-- 120 tests pass.
+- 135 tests pass.
 - `npm run smoke` (v2) passes including five negative-path checks
   (unauthorized 401, spoofed actor 403, oversized body 413, malformed
   JSON 400, malformed query 400) and asserts evidence
   `captured: true` with a real PNG fetched back via the artifact route.
-- `npm run smoke:ui` loads the dashboard with Chromium at desktop and
-  iPhone viewports, asserts shell structure, status tags, zero
-  horizontal overflow, and saves screenshots into
-  `artifacts/ui-smoke/`.
+- `npm run smoke:ui` starts an isolated local server when no `--base` is
+  supplied, pairs the browser with an HttpOnly-compatible session cookie,
+  loads the dashboard with Chromium at desktop and iPhone viewports,
+  asserts shell structure, status tags, zero horizontal overflow, no
+  unknown visible actions, and saves screenshots into `artifacts/ui-smoke/`.
 - `npm run smoke:ui-inventory` seeds a project/session/lane, visits the
   required UI inventory routes at desktop and 390px phone widths, checks
   wired actions, shared shell primitives, accessible icon labels, visible
-  links, and horizontal overflow, and saves screenshots plus
-  `artifacts/ui-inventory/inventory-summary.json`.
+  links, disabled reasons, and horizontal overflow, and saves screenshots
+  plus `artifacts/ui-inventory/inventory-summary.json`.
 - `npm run smoke:ui-contract` validates static action/CSS contracts,
-  route-level desktop/phone screenshots, hidden advanced defaults, and
-  overflow behavior under `artifacts/ui-contract/`.
+  paired-cookie route-level desktop/phone screenshots, hidden advanced
+  defaults, and overflow behavior under `artifacts/ui-contract/`.
 - `npm run smoke:security-headers`, `npm run smoke:pwa-cache`,
   `npm run smoke:route-inventory`,
   `npm run smoke:route-security-matrix`, and
@@ -178,9 +179,9 @@ npm test
 npm run smoke
 npm run smoke:full-flow
 npm run smoke:private-access
-COMMAND_DECK_API_TOKEN=... COMMAND_DECK_BASE_URL=http://127.0.0.1:3000 npm run smoke:ui
-COMMAND_DECK_API_TOKEN=... COMMAND_DECK_BASE_URL=http://127.0.0.1:3000 npm run smoke:ui-inventory
-COMMAND_DECK_API_TOKEN=... COMMAND_DECK_BASE_URL=http://127.0.0.1:3000 npm run smoke:ui-contract
+npm run smoke:ui
+npm run smoke:ui-inventory
+npm run smoke:ui-contract
 npm run smoke:security-headers
 npm run smoke:pwa-cache
 npm run smoke:route-inventory

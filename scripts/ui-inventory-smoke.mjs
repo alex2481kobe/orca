@@ -8,17 +8,32 @@
  * horizontal overflow.
  *
  * Usage:
+ *   npm run smoke:ui-inventory
  *   COMMAND_DECK_API_TOKEN=<token> COMMAND_DECK_BASE_URL=http://127.0.0.1:3000 npm run smoke:ui-inventory
  */
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 
-const base = process.env.COMMAND_DECK_BASE_URL || 'http://127.0.0.1:3000';
-const token = process.env.COMMAND_DECK_API_TOKEN || '';
+const previousCwd = process.cwd();
+const previousEnv = { ...process.env };
+const args = process.argv.slice(2);
+let explicitBase = Boolean(process.env.COMMAND_DECK_BASE_URL);
+let base = process.env.COMMAND_DECK_BASE_URL || 'http://127.0.0.1:3000';
+for (let i = 0; i < args.length; i += 1) {
+  if (args[i] === '--base' && args[i + 1]) {
+    base = args[i + 1];
+    explicitBase = true;
+  }
+}
+let token = process.env.COMMAND_DECK_API_TOKEN || '';
 const artifactDir = path.resolve('artifacts', 'ui-inventory');
 const inventoryDocPath = path.resolve('docs', 'ui-inventory.md');
 const runSuffix = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
+const tempDir = explicitBase ? null : await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-ui-inventory-'));
+let server = null;
+let stopServer = null;
 
 const log = (label, info = '') => console.log(`[ui-inventory] ${label}${info ? ' — ' + info : ''}`);
 const fail = (label, info = '') => {
@@ -131,6 +146,94 @@ async function requestJson(reqPath, options = {}) {
   return { status: response.status, body };
 }
 
+async function startIsolatedServerIfNeeded() {
+  if (explicitBase) return;
+  process.chdir(tempDir);
+  process.env.PORT = '0';
+  process.env.COMMAND_DECK_HOST = '127.0.0.1';
+  process.env.COMMAND_DECK_API_TOKEN = 'ui-inventory-token';
+  process.env.COMMAND_DECK_CREDENTIAL_BACKEND = 'memory';
+  process.env.COMMAND_DECK_RATE_LIMIT_DISABLED = 'true';
+  token = process.env.COMMAND_DECK_API_TOKEN;
+  const serverModule = await import('../src/server.js');
+  server = await serverModule.startServer(0, '127.0.0.1');
+  stopServer = serverModule.stopServer;
+  const address = server.address();
+  base = `http://127.0.0.1:${address.port}`;
+  log('server', `started isolated local server at ${base}`);
+}
+
+async function cleanupStartedServer() {
+  if (stopServer) await stopServer();
+  if (server) await new Promise((resolve) => server.close(resolve));
+  if (tempDir) {
+    process.chdir(previousCwd);
+    await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
+  }
+  for (const key of Object.keys(process.env)) {
+    if (!(key in previousEnv)) delete process.env[key];
+  }
+  for (const [key, value] of Object.entries(previousEnv)) {
+    process.env[key] = value;
+  }
+}
+
+async function requestJsonWithHeaders(reqPath, options = {}) {
+  const response = await fetch(`${base}${reqPath}`, {
+    method: options.method || 'GET',
+    headers: {
+      'content-type': 'application/json',
+      ...(token ? { 'x-commanddeck-token': token } : {}),
+      ...(options.headers || {}),
+    },
+    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+  });
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {
+    body = null;
+  }
+  return { status: response.status, body, headers: Object.fromEntries(response.headers.entries()) };
+}
+
+async function createBrowserSessionCookie() {
+  if (!token) return null;
+  const pairing = await requestJsonWithHeaders('/api/auth/pairing-codes', {
+    method: 'POST',
+    body: {
+      actor: 'ui-inventory',
+      label: 'UI inventory browser',
+      ttlMs: 60_000,
+    },
+  });
+  if (pairing.status !== 201) fail('create inventory pairing code', JSON.stringify(pairing.body));
+  const paired = await requestJsonWithHeaders('/api/auth/pair', {
+    method: 'POST',
+    headers: {},
+    body: {
+      code: pairing.body.pairing.code,
+      label: 'UI inventory browser',
+    },
+  });
+  if (paired.status !== 200) fail('pair inventory browser', JSON.stringify(paired.body));
+  return paired.headers['set-cookie'] || '';
+}
+
+async function addSessionCookie(context, cookieHeader) {
+  if (!cookieHeader) return;
+  const [cookiePair] = String(cookieHeader).split(';');
+  const [name, ...valueParts] = cookiePair.split('=');
+  if (!name || !valueParts.length) return;
+  await context.addCookies([{
+    name: name.trim(),
+    value: valueParts.join('=').trim(),
+    url: base,
+    httpOnly: true,
+    sameSite: 'Lax',
+  }]);
+}
+
 async function seedInventoryState() {
   if (!token) fail('COMMAND_DECK_API_TOKEN is required for inventory seeding');
   const project = await requestJson('/api/projects', {
@@ -193,7 +296,6 @@ async function checkRoute(page, viewport, screen) {
   });
 
   const target = new URL(screen.path, base);
-  if (token) target.searchParams.set('apiToken', token);
   await page.goto(target.toString(), {
     waitUntil: 'networkidle',
     timeout: 20000,
@@ -300,6 +402,7 @@ async function checkRoute(page, viewport, screen) {
 }
 
 async function main() {
+  await startIsolatedServerIfNeeded();
   await verifyInventoryDoc();
   let pw = null;
   try {
@@ -323,6 +426,7 @@ async function main() {
 
   const browser = await pw.chromium.launch({ headless: true });
   const summary = [];
+  const sessionCookie = await createBrowserSessionCookie();
   try {
     for (const viewport of viewports) {
       const context = await browser.newContext({
@@ -330,6 +434,7 @@ async function main() {
         isMobile: Boolean(viewport.isMobile),
         hasTouch: Boolean(viewport.hasTouch),
       });
+      await addSessionCookie(context, sessionCookie);
       for (const screen of screens) {
         const page = await context.newPage();
         const item = await checkRoute(page, viewport, screen);
@@ -356,4 +461,6 @@ async function main() {
 await main().catch((error) => {
   console.error('[ui-inventory ERROR]', error?.stack || error?.message || error);
   if (!process.exitCode) process.exitCode = 1;
+}).finally(async () => {
+  await cleanupStartedServer();
 });
