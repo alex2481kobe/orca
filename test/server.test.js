@@ -288,6 +288,33 @@ test('executor CLI reinstall endpoints require explicit confirmation before exec
   }
 });
 
+test('executor CLI reinstall requires approval for planning requests', async () => {
+  const token = 'route-token-03e';
+  const server = await startServer({
+    token,
+    env: {
+      COMMAND_DECK_CODEX_BINARY: '/usr/bin/codex',
+      COMMAND_DECK_CODEX_REINSTALL_COMMAND: 'npm install --yes @openai/codex',
+    },
+  });
+
+  try {
+    const denied = await server.requestJson('/api/executors/codex/cli/reinstall', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: false,
+        execute: false,
+      },
+    });
+    assert.equal(denied.status, 409);
+    assert.equal(Boolean(denied.body?.requiresApproval), true);
+  } finally {
+    await server.stop();
+  }
+});
+
 test('executor CLI reinstall endpoint rejects unsafe override commands', async () => {
   const token = 'route-token-03b';
   const server = await startServer({
@@ -767,6 +794,22 @@ test('run-now cleanup endpoint enforces approval and supports dry-run mode', asy
     });
     assert.equal(invalidRunNowSession.status, 404);
     assert.equal(String(invalidRunNowSession.body?.error || '').includes('Session not found'), true);
+
+    const missingCleanupConfirmation = await server.requestJson('/api/artifacts/cleanup/run-now', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+        dryRun: false,
+        confirmed: false,
+      },
+    });
+    assert.equal(missingCleanupConfirmation.status, 409);
+    assert.equal(
+      String(missingCleanupConfirmation.body?.error || '').includes('Destructive cleanup requires explicit confirmation.'),
+      true,
+    );
   } finally {
     await server.stop();
   }
