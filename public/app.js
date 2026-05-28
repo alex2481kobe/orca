@@ -17,6 +17,8 @@ const shell = {
   executorCliInfo: {},
 };
 
+const MCP_TOOL_SCOPE_ALLOWLIST = ['all', 'codex', 'claude', 'mock'];
+
 const refs = {
   breadcrumbs: document.getElementById('breadcrumbs'),
   alerts: document.getElementById('alerts'),
@@ -125,6 +127,21 @@ function findMcpTool(locator) {
   return Array.isArray(shell.mcpTools)
     ? shell.mcpTools.find((tool) => (tool.id === target || tool.name === target))
     : null;
+}
+
+function normalizeMcpToolScopes(rawScopes) {
+  const scopes = Array.isArray(rawScopes)
+    ? rawScopes
+    : String(rawScopes || '').split(',').map((value) => value.trim().toLowerCase()).filter(Boolean);
+  const normalized = Array.from(new Set(scopes));
+  const invalid = normalized.filter((scope) => !MCP_TOOL_SCOPE_ALLOWLIST.includes(scope));
+  if (invalid.length) {
+    return {
+      scopes: null,
+      error: `Unsupported MCP scope(s): ${invalid.join(', ')}`,
+    };
+  }
+  return { scopes: normalized.length ? normalized : ['all'], error: null };
 }
 
 function renderLaneExecutorGuidance(form) {
@@ -367,13 +384,15 @@ function renderHome() {
             <input name="name" placeholder="eg: files" required />
           </label>
           <label>Command
-            <input name="command" placeholder="eg: node" required />
+            <input name="command" placeholder="single executable token, eg: node" required />
+            <div class="tiny muted">Examples: node, npx, python</div>
           </label>
           <label>Args
             <input name="args" placeholder="comma separated args" />
           </label>
           <label>Scope
-            <input name="scope" placeholder="codex,claude,all" />
+            <input name="scope" placeholder="all,codex,claude" />
+            <div class="tiny muted">Allowed scopes: all, codex, claude, mock</div>
           </label>
           <label>Notes
             <input name="notes" />
@@ -792,10 +811,12 @@ function buildMcpToolBody(formData) {
   payload.args = typeof payload.args === 'string'
     ? payload.args.split(',').map((value) => value.trim()).filter(Boolean)
     : [];
-  payload.scope = typeof payload.scope === 'string'
-    ? payload.scope.split(',').map((value) => value.trim().toLowerCase()).filter(Boolean)
-    : [];
-  if (!payload.scope.length) payload.scope = ['all'];
+  const normalizedScope = normalizeMcpToolScopes(payload.scope);
+  if (!normalizedScope.error) {
+    payload.scope = normalizedScope.scopes;
+  } else {
+    payload.scope = ['all'];
+  }
   return payload;
 }
 
@@ -978,6 +999,16 @@ async function handleCleanupSchedule(event) {
 async function handleCreateMcpTool(event) {
   event.preventDefault();
   const payload = buildMcpToolBody(toObj(event.currentTarget));
+  const scopeInfo = normalizeMcpToolScopes(payload.scope);
+  if (scopeInfo.error) {
+    renderAlert(scopeInfo.error, 'bad');
+    return;
+  }
+  payload.scope = scopeInfo.scopes;
+  if (/\s/.test(String(payload.command || '').trim())) {
+    renderAlert('MCP command must be a single executable token.', 'bad');
+    return;
+  }
   const response = await api('/api/mcp/tools', {
     method: 'POST',
     body: payload,
@@ -1298,6 +1329,11 @@ async function handleSystemActions(event) {
     if (args === null) return;
     const scope = window.prompt('Update scope (comma separated)', (tool.scope || ['all']).join(', '));
     if (scope === null) return;
+    const normalizedScope = normalizeMcpToolScopes(scope);
+    if (normalizedScope.error) {
+      renderAlert(normalizedScope.error, 'bad');
+      return;
+    }
     const notes = window.prompt('Update notes', tool.notes || '');
     if (notes === null) return;
     const enabled = window.prompt('Enable this MCP tool? (yes/no)', tool.enabled ? 'yes' : 'no');
@@ -1316,7 +1352,7 @@ async function handleSystemActions(event) {
         approved: approval.approved,
         command,
         args: args.split(',').map((value) => value.trim()).filter(Boolean),
-        scope: scope.split(',').map((value) => value.trim().toLowerCase()).filter(Boolean),
+        scope: normalizedScope.scopes,
         notes,
         enabled: normalizedEnabled,
       },
