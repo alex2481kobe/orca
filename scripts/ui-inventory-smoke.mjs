@@ -47,9 +47,12 @@ const WIRED_ACTIONS = new Set([
   'dryRunProviderImport',
   'editMcpTool',
   'exportProviderProfiles',
+  'markAllNotificationsRead',
+  'markNotificationRead',
   'refresh',
   'refreshExecutorCli',
   'refreshProviderHealth',
+  'requestBrowserNotifications',
   'reinstallExecutorCli',
   'removeWorktree',
   'retryLane',
@@ -74,6 +77,7 @@ const REQUIRED_INVENTORY_SCREENS = [
   { name: 'audit-queue', path: '/#audit', purpose: 'Audit queue and review actions.', primaryAction: 'Open or acknowledge audit.' },
   { name: 'private-access', path: '/#private-access', purpose: 'Tailscale/private mobile access setup.', primaryAction: 'Copy/check dry-run setup command.' },
   { name: 'cleanup', path: '/#cleanup', purpose: 'Artifact cleanup and schedule controls.', primaryAction: 'Run cleanup dry-run.' },
+  { name: 'notifications', path: '/#notifications', purpose: 'Notification settings and unread status.', primaryAction: 'Mark notification read.' },
 ];
 
 const SEEDED_INVENTORY_SCREENS = [

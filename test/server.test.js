@@ -301,6 +301,128 @@ test('auth pairing codes create revocable browser sessions for mutating routes',
   }
 });
 
+test('notifications expose secret-free state with token-gated settings and read actions', async () => {
+  const token = 'route-token-notifications';
+  const server = await startServer({ token });
+
+  try {
+    const deniedSettings = await server.requestJson('/api/notifications/settings', {
+      method: 'PATCH',
+      body: {
+        actor: 'dashboard',
+        inAppEnabled: true,
+      },
+    });
+    assert.equal(deniedSettings.status, 401);
+
+    const approvalRequired = await server.requestJson('/api/notifications/settings', {
+      method: 'PATCH',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        inAppEnabled: true,
+        browserEnabled: true,
+        minSeverity: 'info',
+      },
+    });
+    assert.equal(approvalRequired.status, 409);
+    assert.equal(approvalRequired.body?.requiresApproval, true);
+
+    const settings = await server.requestJson('/api/notifications/settings', {
+      method: 'PATCH',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+        inAppEnabled: true,
+        browserEnabled: true,
+        minSeverity: 'info',
+      },
+    });
+    assert.equal(settings.status, 200);
+    assert.equal(settings.body?.settings?.browserEnabled, true);
+
+    const project = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+        name: 'Notification Route Project',
+      },
+    });
+    assert.equal(project.status, 201);
+
+    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+        name: 'Notification Route Session',
+      },
+    });
+    assert.equal(session.status, 201);
+
+    const lane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+        title: 'Do not leak sk-route-notification-secret',
+        executorType: 'mock',
+      },
+    });
+    assert.equal(lane.status, 201);
+
+    const stopped = await server.requestJson(`/api/lanes/${lane.body.id}/stop`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+        reason: 'notification test terminal transition',
+      },
+    });
+    assert.equal(stopped.status, 200);
+
+    const notifications = await server.requestJson('/api/notifications?limit=20', {
+      method: 'GET',
+    });
+    assert.equal(notifications.status, 200);
+    assert.equal(JSON.stringify(notifications.body).includes('sk-route-notification-secret'), false);
+    const terminal = notifications.body.notifications.find((item) => item.laneId === lane.body.id);
+    assert.ok(terminal);
+    assert.equal(terminal.severity, 'warning');
+    assert.equal(notifications.body.unreadCount >= 1, true);
+
+    const deniedRead = await server.requestJson(`/api/notifications/${terminal.id}/read`, {
+      method: 'POST',
+      body: { actor: 'dashboard' },
+    });
+    assert.equal(deniedRead.status, 401);
+
+    const read = await server.requestJson(`/api/notifications/${terminal.id}/read`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: { actor: 'dashboard' },
+    });
+    assert.equal(read.status, 200);
+    assert.ok(read.body?.readAt);
+
+    const readAll = await server.requestJson('/api/notifications/read-all', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: { actor: 'dashboard' },
+    });
+    assert.equal(readAll.status, 200);
+    assert.equal(readAll.body?.unreadCount, 0);
+  } finally {
+    await server.stop();
+  }
+});
+
 test('project and session API endpoints require explicit approval', async () => {
   const token = 'route-token-01c';
   const server = await startServer({ token });

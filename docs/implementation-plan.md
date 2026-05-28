@@ -35,6 +35,10 @@ smoke gates before being listed.
   credential-store secret lookup, env fallback wiring, Authorization
   header use, model/prompt request shape, terminal lane state, and
   secret redaction from lane state, logs, and audit events.
+- `npm run smoke:notifications` proves durable in-app notification state,
+  policy-gated settings, browser-notification configuration metadata,
+  terminal lane notifications, read state, severity filtering, and secret
+  redaction.
 - `npm run smoke:full-flow` is the named full operator-flow gate and runs
   the same server-based path as `npm run smoke`, including the local
   dummy API-provider lane proof when the server uses the safe memory
@@ -111,6 +115,9 @@ smoke gates before being listed.
   (`secretRef` first, `apiKeyEnv` fallback), so dashboard-stored
   secrets are usable by executors without returning or persisting raw
   secret values.
+- In-app notifications are persistent, redacted, unread/read tracked,
+  exposed through `/api/notifications`, and configurable for browser
+  delivery without storing sensitive content.
 
 ## External blockers (operator-actionable, surfaced in the dashboard)
 
@@ -137,6 +144,7 @@ npm run smoke:credential-redaction
 npm run smoke:evidence-redaction
 npm run smoke:process-lifecycle
 npm run smoke:api-provider
+npm run smoke:notifications
 ```
 
 ## Work rules (still apply)

@@ -454,6 +454,8 @@ function buildMobileManifest(req) {
     executorCliInfoUrl: `/api/executors/{executor}/cli`,
     executorCliReinstallUrl: `/api/executors/{executor}/cli/reinstall`,
     mcpToolsUrl: `${origin}/api/mcp/tools`,
+    notificationsUrl: `${origin}/api/notifications`,
+    notificationSettingsUrl: `${origin}/api/notifications/settings`,
     projectsUrl: `${origin}/api/projects`,
     privateAccessUrl: `${origin}/api/private-access`,
     agentToolsDiscoveryUrl: `${origin}/api/agent-tools/discovery`,
@@ -902,6 +904,66 @@ async function handleApi(req, res, pathname, method, parts) {
         requiresApproval: error.requiresApproval || false,
         risk: error.risk || null,
       });
+    }
+  }
+
+  if (parts[1] === 'notifications') {
+    if (parts.length === 2 && method === 'GET') {
+      const searchParams = getSearchParams(req.url || '/');
+      if (!searchParams) return sendJson(res, 400, { error: 'Invalid request query string.' });
+      return sendJson(res, 200, registry.getNotifications({
+        unreadOnly: searchParams.get('unreadOnly') === 'true',
+        limit: searchParams.get('limit') || 50,
+      }));
+    }
+
+    if (parts.length === 3 && parts[2] === 'settings' && method === 'PATCH') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+      if (rejectSpoofedActor(body, res)) return;
+      try {
+        const result = registry.updateNotificationSettings(body, {
+          actor: body.actor || 'dashboard',
+          approved: body.approved,
+        });
+        return sendJson(res, 200, result);
+      } catch (error) {
+        return sendJson(res, error.status || 500, {
+          error: error.message || 'Could not update notification settings.',
+          requiresApproval: error.requiresApproval || false,
+          risk: error.risk || null,
+        });
+      }
+    }
+
+    if (parts.length === 3 && parts[2] === 'read-all' && method === 'POST') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+      if (rejectSpoofedActor(body, res)) return;
+      try {
+        return sendJson(res, 200, registry.markAllNotificationsRead({
+          actor: body.actor || 'dashboard',
+        }));
+      } catch (error) {
+        return sendJson(res, error.status || 500, {
+          error: error.message || 'Could not mark notifications read.',
+        });
+      }
+    }
+
+    if (parts.length === 4 && parts[3] === 'read' && method === 'POST') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+      if (rejectSpoofedActor(body, res)) return;
+      try {
+        return sendJson(res, 200, registry.markNotificationRead(parts[2], {
+          actor: body.actor || 'dashboard',
+        }));
+      } catch (error) {
+        return sendJson(res, error.status || 500, {
+          error: error.message || 'Could not mark notification read.',
+        });
+      }
     }
   }
 

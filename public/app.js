@@ -22,6 +22,7 @@ const shell = {
   providerHealth: {},
   effectiveSettings: null,
   authStatus: null,
+  notifications: null,
 };
 
 const API_PROVIDER_EXECUTOR_TYPES = ['api', 'openai-compatible', 'gemini', 'kimi', 'deepseek', 'openrouter', 'composer'];
@@ -49,6 +50,7 @@ const refs = {
 refs.actions = refs.content;
 const API_TOKEN_STORAGE_KEY = 'commandDeckApiToken';
 const SIDEBAR_ORDER_STORAGE_KEY = 'commandDeckSidebarOrder:v1';
+const NOTIFICATION_SEEN_STORAGE_KEY = 'commandDeckNotificationsSeen:v1';
 const FOLDER_ICON = `
   <span class="sidebar-folder" aria-hidden="true">
     <svg viewBox="0 0 20 16" focusable="false">
@@ -383,8 +385,68 @@ function isVerificationProject(project) {
 
 function activeHomePanel() {
   const panel = String(window.location.hash || '').replace(/^#/, '').toLowerCase();
-  const allowed = new Set(['projects', 'create', 'system', 'mcp', 'audit', 'cleanup', 'token', 'private-access', 'providers', 'effective-settings']);
+  const allowed = new Set(['projects', 'create', 'system', 'mcp', 'audit', 'cleanup', 'token', 'private-access', 'providers', 'effective-settings', 'notifications']);
   return allowed.has(panel) ? panel : 'overview';
+}
+
+function browserNotificationsSupported() {
+  return typeof window !== 'undefined' && 'Notification' in window;
+}
+
+function browserNotificationPermission() {
+  if (!browserNotificationsSupported()) return 'unsupported';
+  return window.Notification.permission || 'default';
+}
+
+function readSeenBrowserNotifications() {
+  try {
+    return new Set(JSON.parse(window.sessionStorage.getItem(NOTIFICATION_SEEN_STORAGE_KEY) || '[]'));
+  } catch {
+    return new Set();
+  }
+}
+
+function writeSeenBrowserNotifications(seen) {
+  window.sessionStorage.setItem(NOTIFICATION_SEEN_STORAGE_KEY, JSON.stringify([...seen].slice(-200)));
+}
+
+async function requestBrowserNotificationPermission() {
+  if (!browserNotificationsSupported()) {
+    renderAlert('Browser notifications are not supported here.', 'bad');
+    return 'unsupported';
+  }
+  try {
+    const permission = await window.Notification.requestPermission();
+    renderAlert(permission === 'granted' ? 'Browser notifications enabled.' : `Browser notification permission: ${permission}.`);
+    return permission;
+  } catch {
+    renderAlert('Browser notification permission request failed.', 'bad');
+    return browserNotificationPermission();
+  }
+}
+
+function maybeShowBrowserNotifications() {
+  const notificationState = shell.notifications || {};
+  const settings = notificationState.settings || {};
+  if (!settings.browserEnabled || browserNotificationPermission() !== 'granted') return;
+  const seen = readSeenBrowserNotifications();
+  const items = Array.isArray(notificationState.notifications) ? notificationState.notifications : [];
+  for (const item of items.filter((notification) => !notification.readAt).slice(0, 5)) {
+    if (!item.id || seen.has(item.id)) continue;
+    seen.add(item.id);
+    const notice = new window.Notification(item.title || 'Command Deck update', {
+      body: item.body || item.severity || 'Status changed',
+      tag: item.id,
+      renotify: false,
+    });
+    if (item.href) {
+      notice.onclick = () => {
+        window.focus();
+        window.location.href = item.href;
+      };
+    }
+  }
+  writeSeenBrowserNotifications(seen);
 }
 
 function stateTagClass(state) {
@@ -504,6 +566,11 @@ function renderHome() {
   const privateSettings = privateAccess.settings || {};
   const privateTargets = Array.isArray(privateAccess.targets) ? privateAccess.targets : [];
   const tailnet = privateAccess.tailnet || {};
+  const notificationState = shell.notifications || {};
+  const notificationSettings = notificationState.settings || {};
+  const notificationItems = Array.isArray(notificationState.notifications) ? notificationState.notifications : [];
+  const unreadNotifications = Number.parseInt(notificationState.unreadCount, 10) || 0;
+  const browserPermission = browserNotificationPermission();
   const setupCommands = Array.isArray(privateAccess.setupPlan?.commands) ? privateAccess.setupPlan.commands : [];
   const selected = (actual, expected) => String(actual || '') === String(expected || '') ? 'selected' : '';
   const checked = (value) => value ? 'checked' : '';
@@ -538,6 +605,19 @@ function renderHome() {
       </div>
     `;
   }).join('');
+  const notificationRows = notificationItems.map((notification) => `
+    <div class="provider-row ${notification.readAt ? '' : 'panel-elevated'}">
+      <div>
+        <strong>${safeText(notification.title || 'Command Deck update')}</strong>
+        <div class="tiny muted">${safeText(notification.severity || 'info')} · ${safeText(formatRelative(notification.createdAt))} · ${notification.readAt ? 'read' : 'unread'}</div>
+        ${notification.body ? `<div class="tiny muted">${safeText(notification.body)}</div>` : ''}
+      </div>
+      <div class="lane-row">
+        ${notification.href ? `<a class="secondary" href="${safeAttr(notification.href)}">Open</a>` : ''}
+        ${notification.readAt ? '' : `<button class="secondary" data-action="markNotificationRead" data-notification-id="${safeAttr(notification.id)}" type="button">Mark read</button>`}
+      </div>
+    </div>
+  `).join('');
   const providerCatalog = shell.providerCatalog || {};
   const providerProfiles = Array.isArray(providerCatalog.profiles) ? providerCatalog.profiles : [];
   const effectiveSettings = shell.effectiveSettings || {};
@@ -695,6 +775,11 @@ function renderHome() {
       <a class="simple-row" href="#effective-settings">
         <span class="row-icon">✓</span>
         <span>Effective settings</span>
+      </a>
+      <a class="simple-row" href="#notifications">
+        <span class="row-icon">•</span>
+        <span>Notifications</span>
+        ${unreadNotifications ? `<small>${safeText(unreadNotifications)} unread</small>` : ''}
       </a>
     </section>
     <div class="stat-grid compact-stats settings-stats is-hidden">
@@ -963,6 +1048,37 @@ function renderHome() {
           </div>
         </details>
       </article>
+      <article class="card control-card" id="section-notifications" data-panel-card="notifications">
+        <details class="disclosure" open>
+          <summary>
+            <span>Notifications</span>
+            <small>${safeText(unreadNotifications)} unread · browser ${safeText(browserPermission)}</small>
+          </summary>
+          <div class="disclosure-body">
+            <p class="muted">Notifications are short, secret-free status updates with safe deep links. Browser notifications require permission and are optional.</p>
+            <form id="notification-settings-form">
+              <label><input type="checkbox" name="inAppEnabled" ${checked(notificationSettings.inAppEnabled !== false)}> Enable in-app notifications</label>
+              <label><input type="checkbox" name="browserEnabled" ${checked(Boolean(notificationSettings.browserEnabled))}> Enable browser notifications where supported</label>
+              <label>Minimum severity
+                <select name="minSeverity">
+                  <option value="info" ${selected(notificationSettings.minSeverity, 'info')}>Info and up</option>
+                  <option value="warning" ${selected(notificationSettings.minSeverity, 'warning')}>Warnings and errors</option>
+                  <option value="error" ${selected(notificationSettings.minSeverity, 'error')}>Errors only</option>
+                </select>
+              </label>
+              <label><input type="checkbox" name="muted" ${checked(Boolean(notificationSettings.muted))}> Mute notifications</label>
+              <div class="lane-row">
+                <button type="submit">Save notifications</button>
+                ${browserNotificationsSupported()
+                  ? '<button class="secondary" data-action="requestBrowserNotifications" type="button">Browser permission</button>'
+                  : '<button class="secondary" type="button" disabled title="This browser does not support Notification API">Browser unavailable</button>'}
+                ${unreadNotifications ? '<button class="secondary" data-action="markAllNotificationsRead" type="button">Mark all read</button>' : '<button class="secondary" type="button" disabled>No unread notifications</button>'}
+              </div>
+            </form>
+            <div class="provider-list">${notificationRows || '<div class="muted">No notifications yet.</div>'}</div>
+          </div>
+        </details>
+      </article>
       <div class="card control-card" data-panel-card="create">
         <details class="disclosure">
           <summary>
@@ -1030,6 +1146,77 @@ async function handlePrivateAccessSettings(event) {
     await refresh();
   } else {
     renderAlert(response.data?.error || 'Could not save private access settings.', 'bad');
+  }
+}
+
+async function handleNotificationSettings(event) {
+  event.preventDefault();
+  const form = event.target;
+  const formData = new FormData(form);
+  const browserEnabled = formData.has('browserEnabled');
+  if (browserEnabled && browserNotificationPermission() === 'default') {
+    await requestBrowserNotificationPermission();
+  }
+  const approval = buildApprovedActionBody('manageNotifications', 'Update notification delivery settings?');
+  if (!approval.approved) {
+    renderAlert('Notification settings update canceled.');
+    return;
+  }
+  const response = await api('/api/notifications/settings', {
+    method: 'PATCH',
+    body: {
+      actor: approval.actor,
+      approved: approval.approved,
+      inAppEnabled: formData.has('inAppEnabled'),
+      browserEnabled,
+      minSeverity: formData.get('minSeverity'),
+      muted: formData.has('muted'),
+    },
+  });
+  if (response.ok) {
+    shell.notifications = response.data;
+    renderAlert('Notification settings saved.');
+    maybeShowBrowserNotifications();
+    await refresh();
+  } else if (response.data?.requiresApproval) {
+    renderAlert('Approval required to update notifications.', 'bad');
+  } else {
+    renderAlert(response.data?.error || 'Could not save notification settings.', 'bad');
+  }
+}
+
+async function handleNotificationAction(event) {
+  const action = event.currentTarget.dataset.action;
+  if (action === 'requestBrowserNotifications') {
+    await requestBrowserNotificationPermission();
+    return;
+  }
+  if (action === 'markNotificationRead') {
+    const notificationId = event.currentTarget.dataset.notificationId;
+    if (!notificationId) return;
+    const response = await api(`/api/notifications/${encodeURIComponent(notificationId)}/read`, {
+      method: 'POST',
+      body: { actor: 'dashboard' },
+    });
+    if (response.ok) {
+      renderAlert('Notification marked read.');
+      await refresh();
+    } else {
+      renderAlert(response.data?.error || 'Could not mark notification read.', 'bad');
+    }
+    return;
+  }
+  if (action === 'markAllNotificationsRead') {
+    const response = await api('/api/notifications/read-all', {
+      method: 'POST',
+      body: { actor: 'dashboard' },
+    });
+    if (response.ok) {
+      renderAlert(`Marked ${response.data?.updated || 0} notification(s) read.`);
+      await refresh();
+    } else {
+      renderAlert(response.data?.error || 'Could not mark notifications read.', 'bad');
+    }
   }
 }
 
@@ -1835,6 +2022,11 @@ async function refresh() {
   const effectiveSettingsResp = await api('/api/settings/effective');
   if (effectiveSettingsResp.ok && effectiveSettingsResp.data) {
     shell.effectiveSettings = effectiveSettingsResp.data;
+  }
+  const notificationsResp = await api('/api/notifications');
+  if (notificationsResp.ok && notificationsResp.data) {
+    shell.notifications = notificationsResp.data;
+    maybeShowBrowserNotifications();
   }
   const blockersResp = await api('/api/system/blockers');
   if (blockersResp.ok && Array.isArray(blockersResp.data?.blockers)) {
@@ -2855,6 +3047,10 @@ document.addEventListener('submit', async (event) => {
     await handlePrivateAccessSettings(event);
     return;
   }
+  if (event.target.id === 'notification-settings-form') {
+    await handleNotificationSettings(event);
+    return;
+  }
   if (event.target.id === 'private-access-target-form') {
     await handleCreatePrivateAccessTarget(event);
     return;
@@ -2930,6 +3126,15 @@ document.addEventListener('click', async (event) => {
     'deletePrivateAccessTarget',
   ].includes(action)) {
     await handlePrivateAccessAction({ currentTarget: actionTarget });
+    return;
+  }
+
+  if ([
+    'markAllNotificationsRead',
+    'markNotificationRead',
+    'requestBrowserNotifications',
+  ].includes(action)) {
+    await handleNotificationAction({ currentTarget: actionTarget });
     return;
   }
 

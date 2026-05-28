@@ -113,6 +113,19 @@ const SPAWN_POLICIES = new Set(['never', 'ask', 'within_capacity', 'auto']);
 const IDLE_SHUTDOWN_MODES = new Set(['immediate', 'short_keepalive', 'policy']);
 const CRITIQUE_MODES = new Set(['off', 'suggested', 'required', 'visual-required']);
 const DEFAULT_APPROVED_CAPACITY = 2;
+const NOTIFICATION_SEVERITIES = new Set(['info', 'success', 'warning', 'error']);
+const NOTIFICATION_SEVERITY_RANK = {
+  info: 0,
+  success: 0,
+  warning: 1,
+  error: 2,
+};
+const DEFAULT_NOTIFICATION_SETTINGS = {
+  inAppEnabled: true,
+  browserEnabled: false,
+  minSeverity: 'info',
+  muted: false,
+};
 
 function normalizeSpawnPolicy(value, fallback = 'within_capacity') {
   const normalized = String(value || fallback).trim().toLowerCase();
@@ -133,6 +146,39 @@ function normalizeApprovedCapacity(value, fallback = DEFAULT_APPROVED_CAPACITY) 
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed) || parsed < 0) return fallback;
   return Math.min(64, parsed);
+}
+
+function normalizeNotificationSeverity(raw, fallback = 'info') {
+  const normalized = String(raw || fallback).trim().toLowerCase();
+  return NOTIFICATION_SEVERITIES.has(normalized) ? normalized : fallback;
+}
+
+function redactNotificationText(value) {
+  return String(value ?? '')
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer [REDACTED]')
+    .replace(/\bsk-[A-Za-z0-9_-]{6,}\b/g, '[REDACTED_SECRET]')
+    .replace(/\b([A-Z0-9_]*(?:TOKEN|SECRET|API[_-]?KEY|PASSWORD)[A-Z0-9_]*)\s*[:=]\s*['"]?[^'"\s,;}]+/gi, '$1=[REDACTED]')
+    .replace(/\b(command[_-]?deck[_-]?[A-Za-z0-9_-]*token[A-Za-z0-9_-]*)\b/gi, '[REDACTED_TOKEN]');
+}
+
+function sanitizeNotificationText(value, fallback = '', maxLength = 180) {
+  const redacted = redactNotificationText(value).replace(/\s+/g, ' ').trim();
+  const text = redacted || fallback;
+  return text.length > maxLength ? `${text.slice(0, maxLength - 3)}...` : text;
+}
+
+function sanitizeNotificationSettings(raw = {}, existing = DEFAULT_NOTIFICATION_SETTINGS) {
+  const source = raw && typeof raw === 'object' ? raw : {};
+  const current = {
+    ...DEFAULT_NOTIFICATION_SETTINGS,
+    ...(existing && typeof existing === 'object' ? existing : {}),
+  };
+  return {
+    inAppEnabled: source.inAppEnabled === undefined ? Boolean(current.inAppEnabled) : Boolean(source.inAppEnabled),
+    browserEnabled: source.browserEnabled === undefined ? Boolean(current.browserEnabled) : Boolean(source.browserEnabled),
+    minSeverity: normalizeNotificationSeverity(source.minSeverity, normalizeNotificationSeverity(current.minSeverity, 'info')),
+    muted: source.muted === undefined ? Boolean(current.muted) : Boolean(source.muted),
+  };
 }
 
 function isPathWithinBoundary(candidatePath, boundaryPath) {
@@ -524,6 +570,11 @@ const defaultPolicy = {
     risk: 'medium',
     message: 'Requests more executor capacity without spawning agents.',
   },
+  manageNotifications: {
+    requiresApproval: true,
+    risk: 'medium',
+    message: 'Changes browser/in-app notification delivery and mobile alert behavior.',
+  },
 };
 
 function normalizeSlug(value) {
@@ -715,6 +766,8 @@ export class CommandDeckRegistry {
     this.auditEvents = [];
     this.mcpTools = [];
     this.toolLeases = [];
+    this.notifications = [];
+    this.notificationSettings = { ...DEFAULT_NOTIFICATION_SETTINGS };
     this.artifactRoot = path.join(process.cwd(), 'artifacts');
     this.workspacesRoot = path.join(process.cwd(), '.command-deck', 'workspaces');
     this.storageDir = path.join(process.cwd(), '.command-deck');
@@ -793,6 +846,8 @@ export class CommandDeckRegistry {
       auditEvents: [],
       mcpTools: [],
       toolLeases: [],
+      notifications: [],
+      notificationSettings: { ...DEFAULT_NOTIFICATION_SETTINGS },
       policies: {},
       cleanupSchedule: {},
     };
@@ -813,6 +868,15 @@ export class CommandDeckRegistry {
       if (Array.isArray(parsed.toolLeases)) {
         this.toolLeases = parsed.toolLeases.filter((lease) => lease && typeof lease.id === 'string').slice(0, 500);
       }
+      if (Array.isArray(parsed.notifications)) {
+        this.notifications = parsed.notifications
+          .filter((item) => item && typeof item.id === 'string')
+          .slice(0, 200);
+      }
+      this.notificationSettings = sanitizeNotificationSettings(
+        parsed.notificationSettings || {},
+        this.notificationSettings,
+      );
       if (parsed.cleanupSchedule && typeof parsed.cleanupSchedule === 'object') {
         this.cleanupSchedule = {
           ...this.cleanupSchedule,
@@ -880,6 +944,8 @@ export class CommandDeckRegistry {
       cleanupSchedule: this.cleanupSchedule,
       mcpTools: this.mcpTools,
       toolLeases: this.toolLeases,
+      notifications: this.notifications,
+      notificationSettings: this.notificationSettings,
     };
   }
 
@@ -2278,6 +2344,12 @@ export class CommandDeckRegistry {
         evidence: { lane },
         status: 'passed',
       });
+      this.notifyLaneTerminal(
+        lane,
+        'warning',
+        'Lane stopped',
+        `${lane.title} stopped: ${lane.exitReason}`,
+      );
     }
     this.clearLaneExecutor(lane.id);
     this.persistState();
@@ -3735,6 +3807,173 @@ export class CommandDeckRegistry {
     return record.id;
   }
 
+  notificationAllowedBySettings(severity) {
+    const settings = sanitizeNotificationSettings(this.notificationSettings);
+    if (settings.muted || !settings.inAppEnabled) return false;
+    const current = normalizeNotificationSeverity(severity, 'info');
+    const minimum = normalizeNotificationSeverity(settings.minSeverity, 'info');
+    return NOTIFICATION_SEVERITY_RANK[current] >= NOTIFICATION_SEVERITY_RANK[minimum];
+  }
+
+  enqueueNotification({
+    type = 'system',
+    title = 'Command Deck update',
+    body = '',
+    severity = 'info',
+    actor = 'system',
+    projectId = null,
+    sessionId = null,
+    laneId = null,
+    href = null,
+    metadata = {},
+  } = {}) {
+    const normalizedSeverity = normalizeNotificationSeverity(severity, 'info');
+    if (!this.notificationAllowedBySettings(normalizedSeverity)) {
+      return null;
+    }
+
+    const safeHref = typeof href === 'string' && href.startsWith('/') && !href.startsWith('//')
+      ? href
+      : null;
+    const notification = {
+      id: randomUUID(),
+      createdAt: nowIso(),
+      readAt: null,
+      type: sanitizeNotificationText(type, 'system', 80),
+      severity: normalizedSeverity,
+      title: sanitizeNotificationText(title, 'Command Deck update', 120),
+      body: sanitizeNotificationText(body, '', 220),
+      actor: sanitizeNotificationText(actor, 'system', 80),
+      projectId: projectId || null,
+      sessionId: sessionId || null,
+      laneId: laneId || null,
+      href: safeHref,
+      metadata: metadata && typeof metadata === 'object'
+        ? JSON.parse(JSON.stringify(metadata))
+        : {},
+    };
+
+    this.notifications.unshift(notification);
+    if (this.notifications.length > 200) {
+      this.notifications.length = 200;
+    }
+    this.recordAudit({
+      type: 'notification_enqueued',
+      actor: notification.actor,
+      projectId: notification.projectId,
+      sessionId: notification.sessionId,
+      laneId: notification.laneId,
+      summary: `${notification.severity} notification: ${notification.title}`,
+      evidence: {
+        notificationId: notification.id,
+        notificationType: notification.type,
+        severity: notification.severity,
+        href: notification.href,
+      },
+      status: 'passed',
+    });
+    return clonePayload(notification);
+  }
+
+  notifyLaneTerminal(lane, severity, title, body) {
+    if (!lane) return null;
+    const route = lane.route
+      || `/projects/${lane.projectSlug || lane.projectId || 'project'}/sessions/${lane.sessionId}/lanes/${lane.id}`;
+    return this.enqueueNotification({
+      type: 'lane_terminal',
+      severity,
+      title,
+      body,
+      actor: 'system',
+      projectId: lane.projectId,
+      sessionId: lane.sessionId,
+      laneId: lane.id,
+      href: route,
+      metadata: {
+        laneState: lane.state,
+        executorType: lane.executorType || null,
+      },
+    });
+  }
+
+  getNotifications({ unreadOnly = false, limit = 50 } = {}) {
+    const max = Math.max(1, Math.min(200, Number.parseInt(limit, 10) || 50));
+    const source = Array.isArray(this.notifications) ? this.notifications : [];
+    const unreadCount = source.filter((notification) => !notification.readAt).length;
+    const notifications = source
+      .filter((notification) => !unreadOnly || !notification.readAt)
+      .slice(0, max)
+      .map((notification) => clonePayload(notification));
+    return {
+      settings: clonePayload(sanitizeNotificationSettings(this.notificationSettings)),
+      unreadCount,
+      notifications,
+    };
+  }
+
+  updateNotificationSettings(settings = {}, context = {}) {
+    const actor = context.actor || settings.actor || 'dashboard';
+    const policyCheck = this.evaluateActionPolicy('manageNotifications', {
+      actor,
+      approved: context.approved === true || settings.approved === true,
+    });
+    if (!policyCheck.allowed) {
+      throw {
+        status: 409,
+        message: policyCheck.message,
+        requiresApproval: true,
+        risk: policyCheck.policy.risk,
+      };
+    }
+
+    this.notificationSettings = sanitizeNotificationSettings(settings, this.notificationSettings);
+    this.recordAudit({
+      type: 'notification_settings_updated',
+      actor,
+      projectId: null,
+      sessionId: null,
+      laneId: null,
+      summary: 'Notification settings updated',
+      evidence: {
+        settings: this.notificationSettings,
+      },
+      status: 'passed',
+    });
+    this.persistState();
+    return this.getNotifications();
+  }
+
+  markNotificationRead(notificationId, { actor = 'dashboard' } = {}) {
+    const notification = this.notifications.find((item) => item.id === notificationId);
+    if (!notification) {
+      throw { status: 404, message: 'Notification not found.' };
+    }
+    if (!notification.readAt) {
+      notification.readAt = nowIso();
+      notification.readBy = sanitizeNotificationText(actor, 'dashboard', 80);
+      this.persistState();
+    }
+    return clonePayload(notification);
+  }
+
+  markAllNotificationsRead({ actor = 'dashboard' } = {}) {
+    const readAt = nowIso();
+    let updated = 0;
+    for (const notification of this.notifications) {
+      if (notification.readAt) continue;
+      notification.readAt = readAt;
+      notification.readBy = sanitizeNotificationText(actor, 'dashboard', 80);
+      updated += 1;
+    }
+    if (updated) {
+      this.persistState();
+    }
+    return {
+      updated,
+      unreadCount: this.notifications.filter((notification) => !notification.readAt).length,
+    };
+  }
+
   markLaneCompleted(lane) {
     const now = nowIso();
     const needsCritique = this.critiqueRequiredForLane(lane) && !this.critiqueSatisfiedForLane(lane);
@@ -3754,6 +3993,14 @@ export class CommandDeckRegistry {
       status: needsCritique ? 'pending' : 'passed',
       followUpQueued: needsCritique,
     });
+    this.notifyLaneTerminal(
+      lane,
+      needsCritique ? 'warning' : 'success',
+      needsCritique ? 'Lane needs self-check' : 'Lane completed',
+      needsCritique
+        ? `${lane.title} needs self-verification before audit.`
+        : `${lane.title} finished successfully.`,
+    );
     this._trackAsync(this.writeLaneArtifacts(lane, lane.state).catch(() => {}));
     this.clearLaneExecutor(lane.id);
     this.persistState();
@@ -3776,6 +4023,12 @@ export class CommandDeckRegistry {
       evidence: { lane },
       status: 'failed',
     });
+    this.notifyLaneTerminal(
+      lane,
+      'error',
+      'Lane failed',
+      `${lane.title} failed: ${lane.exitReason}`,
+    );
     this._trackAsync(this.writeLaneArtifacts(lane, 'failed').catch(() => {}));
     this.clearLaneExecutor(lane.id);
     if (persist) this.persistState();
@@ -3800,6 +4053,12 @@ export class CommandDeckRegistry {
       evidence: { lane },
       status: 'passed',
     });
+    this.notifyLaneTerminal(
+      lane,
+      'warning',
+      'Lane stopped',
+      `${lane.title} stopped: ${reason}`,
+    );
     this._trackAsync(this.writeLaneArtifacts(lane, 'stopped').catch(() => {}));
     this.clearLaneExecutor(lane.id);
     this.persistState();
