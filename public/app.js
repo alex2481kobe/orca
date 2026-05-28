@@ -1492,7 +1492,7 @@ function render(uiState = null) {
   } else if (!session) {
     renderProject(project);
   } else if (shell.route.laneId) {
-    renderLane(project, session, lane);
+    refs.content.innerHTML = renderLane(project, session, lane);
     if (lane) loadEvidenceGallery(lane.id);
   } else {
     renderSession(project, session);
@@ -1572,7 +1572,7 @@ function renderSidebarProjects(activeProject) {
           <a class="sidebar-thread ${isCurrentSession ? 'active' : ''}" href="${safeAttr(session.route)}">
             <span>${safeText(session.name)}</span>
           </a>
-          <button class="sidebar-archive" type="button" aria-label="Archive ${safeAttr(session.name)} session" title="Archive session">
+          <button class="sidebar-archive" type="button" aria-label="Archive ${safeAttr(session.name)} session" title="Archive session is not wired yet" aria-disabled="true" disabled>
             <svg viewBox="0 0 20 20" focusable="false" aria-hidden="true">
               <path d="M3.2 6.5h13.6"></path>
               <path d="M5 6.5v9.2c0 .8.6 1.4 1.4 1.4h7.2c.8 0 1.4-.6 1.4-1.4V6.5"></path>
