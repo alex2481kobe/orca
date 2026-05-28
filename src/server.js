@@ -418,12 +418,16 @@ async function handleApi(req, res, pathname, method, parts) {
     if (body === null) {
       return sendJson(res, 400, { error: 'Invalid JSON.' });
     }
+    const { actor, approved, ...patch } = body;
     try {
-      const result = await registry.updateMcpTool(parts[3], {
-        ...body,
-        actor: body.actor || 'dashboard',
-        approved: body.approved,
-      });
+      const result = await registry.updateMcpTool(
+        parts[3],
+        patch,
+        {
+          actor: actor || 'dashboard',
+          approved,
+        },
+      );
       return sendJson(res, 200, result);
     } catch (error) {
       return sendJson(res, error.status || 500, {
@@ -463,10 +467,17 @@ async function handleApi(req, res, pathname, method, parts) {
         return sendJson(res, 400, { error: 'Invalid JSON.' });
       }
       try {
-        const project = registry.createProject(body);
+        const project = registry.createProject(body, {
+          actor: body.actor || 'dashboard',
+          approved: body.approved,
+        });
         return sendJson(res, 201, project);
       } catch (error) {
-        return sendJson(res, error.status || 500, { error: error.message || 'Could not create project.' });
+        return sendJson(res, error.status || 500, {
+          error: error.message || 'Could not create project.',
+          requiresApproval: error.requiresApproval || false,
+          risk: error.risk || null,
+        });
       }
     }
 
@@ -483,10 +494,17 @@ async function handleApi(req, res, pathname, method, parts) {
           return sendJson(res, 400, { error: 'Invalid JSON.' });
         }
         try {
-          const updated = registry.updateProject(project.id, body, body.actor);
+          const updated = registry.updateProject(project.id, body, {
+            actor: body.actor || 'dashboard',
+            approved: body.approved,
+          });
           return sendJson(res, 200, updated);
         } catch (error) {
-          return sendJson(res, error.status || 500, { error: error.message || 'Could not update project.' });
+          return sendJson(res, error.status || 500, {
+            error: error.message || 'Could not update project.',
+            requiresApproval: error.requiresApproval || false,
+            risk: error.risk || null,
+          });
         }
       }
       return sendJson(res, 405, { error: 'Method not allowed.' });
@@ -498,10 +516,17 @@ async function handleApi(req, res, pathname, method, parts) {
         const body = await parseJsonBody(req);
         if (body === null) return sendJson(res, 400, { error: 'Invalid JSON.' });
         try {
-          const session = registry.createSession(project.id, body);
+          const session = registry.createSession(project.id, body, {
+            actor: body.actor || 'dashboard',
+            approved: body.approved,
+          });
           return sendJson(res, 201, session);
         } catch (error) {
-          return sendJson(res, error.status || 500, { error: error.message || 'Could not create session.' });
+          return sendJson(res, error.status || 500, {
+            error: error.message || 'Could not create session.',
+            requiresApproval: error.requiresApproval || false,
+            risk: error.risk || null,
+          });
         }
       }
       return sendJson(res, 405, { error: 'Method not allowed.' });
@@ -820,8 +845,13 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(thisModule
   });
 }
 
+function stopServer() {
+  registry.stopScheduler();
+}
+
 export {
   routeRequest,
   handleRequest,
   startServer,
+  stopServer,
 };
