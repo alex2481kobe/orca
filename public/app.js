@@ -407,14 +407,13 @@ function renderHome() {
           <label>Interval hours
             <input name="intervalHours" type="number" min="1" max="720" step="0.5" value="${safeText(schedule.intervalHours || 24)}" />
           </label>
-          <label>Prune older than (days)
+        <label>Prune older than (days)
             <input name="olderThanDays" type="number" min="1" placeholder="default session retention" value="${safeText(schedule.olderThanDays || '')}" />
           </label>
           <label>Target session id (optional)
             <input name="sessionId" placeholder="leave blank for all sessions" value="${safeText(schedule.sessionId || '')}" />
           </label>
           <label><input type="checkbox" name="dryRun" ${schedule.dryRun ? 'checked' : ''}> Dry run mode</label>
-          <label><input type="checkbox" name="approved" /> Mark as approved</label>
           <button type="submit">Save cleanup schedule</button>
         </form>
         <div class="lane-row" style="margin-top:0.65rem">
@@ -879,7 +878,6 @@ function buildCleanupScheduleBody(formData) {
 
   payload.enabled = payload.enabled === true || payload.enabled === 'on';
   payload.dryRun = payload.dryRun === true || payload.dryRun === 'on';
-  payload.approved = payload.approved === true || payload.approved === 'on';
   payload.actor = 'dashboard';
 
   payload.intervalHours = payload.intervalHours ? Number(payload.intervalHours) : 24;
@@ -917,12 +915,85 @@ function buildMcpToolBody(formData) {
   return payload;
 }
 
-function buildApprovedActionBody() {
-  const policy = shell.policy?.manageMcpTools || {};
+function buildApprovedActionBody(policyKey = 'manageMcpTools', message = 'This is a higher-risk action. Continue?') {
   return {
     actor: 'dashboard',
-    approved: !policy.requiresApproval || window.confirm('This is a higher-risk action. Continue?'),
+    approved: confirmHighRiskAction(message, policyKey),
   };
+}
+
+async function handleCleanupSchedule(event) {
+  event.preventDefault();
+  const payload = buildCleanupScheduleBody(toObj(event.currentTarget));
+  const endpoint = event.currentTarget.dataset.url || '/api/artifacts/cleanup/schedule';
+  const current = shell.cleanupSchedule || {};
+  const scheduled = payload.enabled ? 'Enabled' : 'Disabled';
+  const currentState = `${current.enabled ? 'enabled' : 'disabled'}`;
+  const interval = payload.intervalHours;
+  const retention = payload.olderThanDays || 'session default';
+  const targetSession = payload.sessionId || 'all sessions';
+  const dryRunMode = payload.dryRun ? 'Dry-run' : 'Live';
+  const confirmMessage = `Update cleanup schedule?\nCurrent: ${currentState}\nNext: ${scheduled.toLowerCase()}, ${interval}h, retention ${retention}, ${targetSession}, ${dryRunMode}.`;
+  const approval = buildApprovedActionBody('manageCleanupSchedule', confirmMessage);
+  if (!approval.approved) {
+    renderAlert('Cleanup schedule update canceled.');
+    return;
+  }
+  const response = await api(endpoint, {
+    method: 'POST',
+    body: {
+      ...payload,
+      approved: approval.approved,
+      actor: approval.actor,
+    },
+  });
+  if (response.ok) {
+    renderAlert('Artifact cleanup schedule saved.');
+    await refresh();
+    return;
+  }
+  if (response.data?.requiresApproval) {
+    renderAlert('Approval required for schedule updates.', 'bad');
+  } else {
+    renderAlert(response.data?.error || 'Could not save cleanup schedule.', 'bad');
+  }
+}
+
+async function handleCreateMcpTool(event) {
+  event.preventDefault();
+  const payload = buildMcpToolBody(toObj(event.currentTarget));
+  const scopeInfo = normalizeMcpToolScopes(payload.scope);
+  if (scopeInfo.error) {
+    renderAlert(scopeInfo.error, 'bad');
+    return;
+  }
+  payload.scope = scopeInfo.scopes;
+  if (/\s/.test(String(payload.command || '').trim())) {
+    renderAlert('MCP command must be a single executable token.', 'bad');
+    return;
+  }
+  const approval = buildApprovedActionBody('manageMcpTools', `Create MCP tool ${safeText(payload.name || 'new tool')}?`);
+  if (!approval.approved) {
+    renderAlert('MCP tool creation canceled.');
+    return;
+  }
+  payload.approved = approval.approved;
+  payload.actor = approval.actor;
+
+  const response = await api('/api/mcp/tools', {
+    method: 'POST',
+    body: payload,
+  });
+  if (response.ok) {
+    renderAlert(`MCP tool ${payload.name} added.`);
+    await refresh();
+    return;
+  }
+  if (response.data?.requiresApproval) {
+    renderAlert('Approval required for MCP tool changes.', 'bad');
+  } else {
+    renderAlert(response.data?.error || 'Could not add MCP tool.', 'bad');
+  }
 }
 
 function toObj(form) {
@@ -1095,67 +1166,6 @@ async function handleCreateLane(event) {
   }
 }
 
-async function handleCleanupSchedule(event) {
-  event.preventDefault();
-  const payload = buildCleanupScheduleBody(toObj(event.currentTarget));
-  const endpoint = event.currentTarget.dataset.url || '/api/artifacts/cleanup/schedule';
-  const current = shell.cleanupSchedule || {};
-  const scheduled = payload.enabled ? 'Enabled' : 'Disabled';
-  const currentState = `${current.enabled ? 'enabled' : 'disabled'}`;
-  const interval = payload.intervalHours;
-  const retention = payload.olderThanDays || 'session default';
-  const targetSession = payload.sessionId || 'all sessions';
-  const dryRunMode = payload.dryRun ? 'Dry-run' : 'Live';
-  const confirmMessage = `Update cleanup schedule?\nCurrent: ${currentState}\nNext: ${scheduled.toLowerCase()}, ${interval}h, retention ${retention}, ${targetSession}, ${dryRunMode}.`;
-  if (!window.confirm(confirmMessage)) {
-    renderAlert('Cleanup schedule update canceled.');
-    return;
-  }
-  const response = await api(endpoint, {
-    method: 'POST',
-    body: payload,
-  });
-  if (response.ok) {
-    renderAlert('Artifact cleanup schedule saved.');
-    await refresh();
-    return;
-  }
-  if (response.data?.requiresApproval) {
-    renderAlert('Approval required for schedule updates.', 'bad');
-  } else {
-    renderAlert(response.data?.error || 'Could not save cleanup schedule.', 'bad');
-  }
-}
-
-async function handleCreateMcpTool(event) {
-  event.preventDefault();
-  const payload = buildMcpToolBody(toObj(event.currentTarget));
-  const scopeInfo = normalizeMcpToolScopes(payload.scope);
-  if (scopeInfo.error) {
-    renderAlert(scopeInfo.error, 'bad');
-    return;
-  }
-  payload.scope = scopeInfo.scopes;
-  if (/\s/.test(String(payload.command || '').trim())) {
-    renderAlert('MCP command must be a single executable token.', 'bad');
-    return;
-  }
-  const response = await api('/api/mcp/tools', {
-    method: 'POST',
-    body: payload,
-  });
-  if (response.ok) {
-    renderAlert(`MCP tool ${payload.name} added.`);
-    await refresh();
-    return;
-  }
-  if (response.data?.requiresApproval) {
-    renderAlert('Approval required for MCP tool changes.', 'bad');
-  } else {
-    renderAlert(response.data?.error || 'Could not add MCP tool.', 'bad');
-  }
-}
-
 async function handleLaneActions(event) {
   const action = event.currentTarget.dataset.action;
   const laneId = event.currentTarget.dataset.laneId;
@@ -1324,15 +1334,23 @@ async function handleSystemActions(event) {
   if (action === 'cleanupArtifacts') {
     const dryRun = window.confirm('Run cleanup as dry run first? Press Cancel to perform deletion.');
     const confirmed = !dryRun ? window.confirm('This will permanently delete archived artifacts. Continue?') : true;
+    const approval = buildApprovedActionBody(
+      'cleanupArtifacts',
+      `Run artifact cleanup${dryRun ? ' (dry-run mode)' : ' now'}?`,
+    );
     if (!confirmed) {
+      renderAlert('Cleanup canceled.');
+      return;
+    }
+    if (!approval.approved) {
       renderAlert('Cleanup canceled.');
       return;
     }
     const response = await api(event.currentTarget.dataset.url || '/api/artifacts/cleanup', {
       method: 'POST',
       body: {
-        actor: 'dashboard',
-        approved: true,
+        actor: approval.actor,
+        approved: approval.approved,
         dryRun,
         confirmed,
       },
@@ -1360,10 +1378,18 @@ async function handleSystemActions(event) {
       renderAlert('Cleanup run canceled.');
       return;
     }
+    const approval = buildApprovedActionBody(
+      'cleanupArtifacts',
+      `Run cleanup now using schedule for ${appliedSession}?`,
+    );
+    if (!approval.approved) {
+      renderAlert('Cleanup run canceled.');
+      return;
+    }
 
     const runNowBody = {
-      actor: 'dashboard',
-      approved: true,
+      actor: approval.actor,
+      approved: approval.approved,
       sessionId: schedule.sessionId || null,
       olderThanDays: schedule.olderThanDays ?? null,
       dryRun: Boolean(schedule.dryRun),
@@ -1584,6 +1610,14 @@ async function handleSystemActions(event) {
       renderAlert('Executor CLI action canceled.');
       return;
     }
+    const approval = buildApprovedActionBody(
+      'manageExecutorCli',
+      `Approve ${executorType.toUpperCase()} CLI ${planLabel}?`,
+    );
+    if (!approval.approved) {
+      renderAlert('Executor CLI action canceled.');
+      return;
+    }
     const overridePrompt = `Optional custom reinstall command for ${executorType.toUpperCase()} (space-separated string):\n\nLeave blank to use ${sourceMode ? 'the trusted source-managed command' : 'the managed default command'}.`;
     const overrideCommand = sourceMode ? null : window.prompt(overridePrompt);
     if (sourceMode && overrideCommand && overrideCommand.trim()) {
@@ -1596,8 +1630,8 @@ async function handleSystemActions(event) {
     const response = await api(`/api/executors/${encodeURIComponent(executorType)}/cli/reinstall`, {
       method: 'POST',
       body: {
-        actor: 'dashboard',
-        approved: true,
+        actor: approval.actor,
+        approved: approval.approved,
         execute,
         confirmed: confirmedExecute,
         useSource: sourceMode,
