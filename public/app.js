@@ -33,6 +33,22 @@ const refs = {
 // Audit queue is rendered inside refs.content for the new operator shell.
 refs.actions = refs.content;
 const API_TOKEN_STORAGE_KEY = 'commandDeckApiToken';
+const SIDEBAR_ORDER_STORAGE_KEY = 'commandDeckSidebarOrder:v1';
+const FOLDER_ICON = `
+  <span class="sidebar-folder" aria-hidden="true">
+    <svg viewBox="0 0 20 16" focusable="false">
+      <path d="M1.5 4.5h6l1.4 2h9.6v7.2c0 .7-.6 1.3-1.3 1.3H2.8c-.7 0-1.3-.6-1.3-1.3V4.5Z"></path>
+      <path d="M1.5 4.5V3c0-.8.6-1.4 1.4-1.4h4.4l1.5 1.8h8c.8 0 1.4.6 1.4 1.4v1.7"></path>
+    </svg>
+  </span>
+`;
+const COMPOSE_ICON = `
+  <svg viewBox="0 0 20 20" focusable="false" aria-hidden="true">
+    <path d="M4.2 2.8h7.2a1.4 1.4 0 0 1 1.4 1.4v2.4"></path>
+    <path d="M9.8 17.2H4.2a1.4 1.4 0 0 1-1.4-1.4V4.2a1.4 1.4 0 0 1 1.4-1.4"></path>
+    <path d="m11.1 14.7 4.9-4.9 2.1 2.1-4.9 4.9-2.7.6.6-2.7Z"></path>
+  </svg>
+`;
 
 function parseRoute() {
   const parts = window.location.pathname.split('/').filter(Boolean);
@@ -68,6 +84,47 @@ function setApiToken(token) {
   } else {
     window.sessionStorage.removeItem(API_TOKEN_STORAGE_KEY);
   }
+}
+
+function readSidebarOrder() {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(SIDEBAR_ORDER_STORAGE_KEY) || '{}');
+    return {
+      projects: Array.isArray(parsed.projects) ? parsed.projects : [],
+      sessions: parsed.sessions && typeof parsed.sessions === 'object' ? parsed.sessions : {},
+    };
+  } catch {
+    return { projects: [], sessions: {} };
+  }
+}
+
+function writeSidebarOrder(order) {
+  window.localStorage.setItem(SIDEBAR_ORDER_STORAGE_KEY, JSON.stringify(order));
+}
+
+function orderItems(items, ids) {
+  const positions = new Map((ids || []).map((id, index) => [id, index]));
+  return [...items].sort((a, b) => {
+    const aIndex = positions.has(a.id) ? positions.get(a.id) : Number.MAX_SAFE_INTEGER;
+    const bIndex = positions.has(b.id) ? positions.get(b.id) : Number.MAX_SAFE_INTEGER;
+    if (aIndex !== bIndex) return aIndex - bIndex;
+    return items.indexOf(a) - items.indexOf(b);
+  });
+}
+
+function moveId(ids, sourceId, targetId) {
+  const next = ids.filter((id) => id !== sourceId);
+  const targetIndex = next.indexOf(targetId);
+  if (targetIndex === -1) {
+    next.push(sourceId);
+  } else {
+    next.splice(targetIndex, 0, sourceId);
+  }
+  return next;
+}
+
+function currentActiveProject() {
+  return shell.projects.find((value) => value.slug === shell.route.projectSlug || value.id === shell.route.projectSlug) || null;
 }
 
 function safeText(value) {
@@ -1083,38 +1140,95 @@ function renderSidebarProjects(activeProject) {
     refs.sidebarProjects.innerHTML = '<div class="tiny muted">No projects yet — create one from the home view.</div>';
     return;
   }
+  const storedOrder = readSidebarOrder();
   const renderSidebarProject = (project) => {
-    const projectSessions = (shell.sessions || []).filter((session) => session.projectId === project.id);
+    const projectSessions = orderItems(
+      (shell.sessions || []).filter((session) => session.projectId === project.id),
+      storedOrder.sessions[project.id] || [],
+    );
     const lanes = (shell.lanes || []).filter((lane) => lane.projectId === project.id);
     const active = lanes.filter((lane) => ['running', 'starting', 'queued'].includes(lane.state)).length;
     const isActive = activeProject && activeProject.id === project.id;
     const sessionRows = projectSessions.slice(0, 4).map((session) => {
-      const sessionLanes = (shell.lanes || []).filter((lane) => lane.sessionId === session.id);
-      const recentLane = [...sessionLanes]
-        .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0))[0];
-      const label = recentLane?.title || session.name;
       return `
-        <a class="sidebar-thread" href="${safeAttr(recentLane?.route || session.route)}">
-          <span>${safeText(label)}</span>
-          <small>${safeText(formatRelative(recentLane?.updatedAt || session.updatedAt || session.createdAt))}</small>
+        <a class="sidebar-thread" href="${safeAttr(session.route)}" draggable="true" data-reorder-kind="session" data-project-id="${safeAttr(project.id)}" data-session-id="${safeAttr(session.id)}">
+          <span>${safeText(session.name)}</span>
         </a>
       `;
     }).join('');
     return `
-      <div class="sidebar-project-group ${isActive ? 'active' : ''}">
+      <div class="sidebar-project-group ${isActive ? 'active' : ''}" draggable="true" data-reorder-kind="project" data-project-id="${safeAttr(project.id)}">
         <div class="sidebar-project-line">
           <a class="sidebar-link" href="${safeAttr(project.route)}" data-route-project="${safeAttr(project.slug)}">
+            ${FOLDER_ICON}
             <span>${safeText(project.name)}</span>
             ${active ? `<span class="pill" title="${active} active lanes">${active}</span>` : ''}
           </a>
-          <a class="sidebar-compose" href="${safeAttr(project.route)}#create-session" aria-label="Create session in ${safeAttr(project.name)}">✎</a>
+          <a class="sidebar-compose" href="${safeAttr(project.route)}#create-session" aria-label="Create session in ${safeAttr(project.name)}">${COMPOSE_ICON}</a>
         </div>
         ${sessionRows || '<div class="tiny muted sidebar-empty">No sessions yet.</div>'}
       </div>
     `;
   };
-  const primaryProjects = projects.filter((project) => !isVerificationProject(project));
+  const primaryProjects = orderItems(projects.filter((project) => !isVerificationProject(project)), storedOrder.projects);
   refs.sidebarProjects.innerHTML = primaryProjects.map(renderSidebarProject).join('');
+}
+
+function setupSidebarReorder() {
+  if (!refs.sidebarProjects) return;
+  let dragged = null;
+  refs.sidebarProjects.addEventListener('dragstart', (event) => {
+    const item = event.target?.closest?.('[data-reorder-kind]');
+    if (!item) return;
+    dragged = {
+      kind: item.dataset.reorderKind,
+      projectId: item.dataset.projectId || '',
+      sessionId: item.dataset.sessionId || '',
+    };
+    item.classList.add('is-dragging');
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', JSON.stringify(dragged));
+  });
+  refs.sidebarProjects.addEventListener('dragover', (event) => {
+    if (!dragged) return;
+    const target = event.target?.closest?.('[data-reorder-kind]');
+    if (!target || target.dataset.reorderKind !== dragged.kind) return;
+    if (dragged.kind === 'session' && target.dataset.projectId !== dragged.projectId) return;
+    event.preventDefault();
+    target.classList.add('is-drop-target');
+    event.dataTransfer.dropEffect = 'move';
+  });
+  refs.sidebarProjects.addEventListener('dragleave', (event) => {
+    event.target?.closest?.('[data-reorder-kind]')?.classList.remove('is-drop-target');
+  });
+  refs.sidebarProjects.addEventListener('drop', (event) => {
+    const target = event.target?.closest?.('[data-reorder-kind]');
+    refs.sidebarProjects.querySelectorAll('.is-drop-target').forEach((item) => item.classList.remove('is-drop-target'));
+    if (!dragged || !target || target.dataset.reorderKind !== dragged.kind) return;
+    event.preventDefault();
+    const order = readSidebarOrder();
+    if (dragged.kind === 'project') {
+      const sourceId = dragged.projectId;
+      const targetId = target.dataset.projectId;
+      if (!sourceId || !targetId || sourceId === targetId) return;
+      const ids = orderItems((shell.projects || []).filter((project) => !isVerificationProject(project)), order.projects).map((project) => project.id);
+      order.projects = moveId(ids, sourceId, targetId);
+    }
+    if (dragged.kind === 'session') {
+      const sourceId = dragged.sessionId;
+      const targetId = target.dataset.sessionId;
+      const projectId = dragged.projectId;
+      if (!sourceId || !targetId || !projectId || sourceId === targetId || target.dataset.projectId !== projectId) return;
+      const ids = orderItems((shell.sessions || []).filter((session) => session.projectId === projectId), order.sessions[projectId] || []).map((session) => session.id);
+      order.sessions[projectId] = moveId(ids, sourceId, targetId);
+    }
+    writeSidebarOrder(order);
+    renderSidebarProjects(currentActiveProject());
+  });
+  refs.sidebarProjects.addEventListener('dragend', () => {
+    dragged = null;
+    refs.sidebarProjects.querySelectorAll('.is-dragging, .is-drop-target').forEach((item) => item.classList.remove('is-dragging', 'is-drop-target'));
+  });
 }
 
 async function loadEvidenceGallery(laneId) {
@@ -2130,12 +2244,15 @@ document.addEventListener('click', async (event) => {
   const actionTarget = event.target?.closest?.('[data-action]');
   const action = actionTarget?.dataset?.action;
   if (action === 'toggleNav') {
-    document.body.classList.toggle('nav-open');
-    document.body.classList.toggle('sidebar-collapsed');
+    if (window.matchMedia('(max-width: 880px)').matches) {
+      document.body.classList.toggle('nav-open');
+    } else {
+      document.body.classList.toggle('sidebar-collapsed');
+    }
     return;
   }
   // Auto-close mobile sidebar when navigating.
-  if (event.target?.classList?.contains('sidebar-link')) {
+  if (event.target?.closest?.('.sidebar-link, .sidebar-thread')) {
     document.body.classList.remove('nav-open');
   }
   if (!action) {
@@ -2197,4 +2314,5 @@ window.addEventListener('hashchange', () => {
 setInterval(refresh, 3000);
 initializeApiToken();
 renderMobileManifest();
+setupSidebarReorder();
 refresh();
