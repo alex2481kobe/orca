@@ -382,14 +382,13 @@ body.sidebar-collapsed .ops-sidebar {
 
 .sidebar-compose {
   align-items: center;
-  border-radius: 7px;
   color: var(--muted);
   display: inline-flex;
   height: 1.6rem;
   justify-content: center;
   opacity: 0;
   text-decoration: none;
-  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+  transition: opacity 0.12s ease, color 0.12s ease, stroke 0.12s ease;
   width: 1.6rem;
 }
 
@@ -400,7 +399,6 @@ body.sidebar-collapsed .ops-sidebar {
 
 .sidebar-compose:hover,
 .sidebar-compose:focus-visible {
-  background: rgba(255, 255, 255, 0.055);
   color: var(--text);
   outline: none;
 }
@@ -417,8 +415,14 @@ body.sidebar-collapsed .ops-sidebar {
 
 .sidebar-session-line {
   align-items: center;
+  border-radius: 9px;
   display: block;
   position: relative;
+}
+
+.sidebar-session-line:hover,
+.sidebar-session-line:focus-within {
+  background: rgba(255, 255, 255, 0.045);
 }
 
 .sidebar-thread {
@@ -442,7 +446,7 @@ body.sidebar-collapsed .ops-sidebar {
 
 .sidebar-thread.active,
 .sidebar-thread:hover {
-  background: rgba(255, 255, 255, 0.045);
+  background: transparent;
   color: var(--text);
 }
 
@@ -456,7 +460,6 @@ body.sidebar-collapsed .ops-sidebar {
   align-items: center;
   background: transparent;
   border: 0;
-  border-radius: 7px;
   color: var(--muted);
   display: inline-flex;
   height: 1.6rem;
@@ -467,7 +470,7 @@ body.sidebar-collapsed .ops-sidebar {
   right: 0.18rem;
   top: 50%;
   transform: translateY(-50%);
-  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+  transition: opacity 0.12s ease, color 0.12s ease, stroke 0.12s ease;
   width: 1.6rem;
 }
 
@@ -478,7 +481,6 @@ body.sidebar-collapsed .ops-sidebar {
 
 .sidebar-archive:hover,
 .sidebar-archive:focus-visible {
-  background: rgba(255, 255, 255, 0.055);
   color: var(--text);
   outline: none;
 }
