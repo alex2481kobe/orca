@@ -90,21 +90,33 @@ phone.
 - Approve high-risk actions explicitly. Stops, cleanups, reinstalls, and MCP
   changes all require an explicit `approved: true` (or the in-UI button).
 
-## 7. Playwright (optional)
+## 7. Playwright (proven)
 
-Command Deck never installs Playwright automatically — browser binaries are a
-large privileged install. If you want true screenshot/trace/video capture:
+Playwright 1.60.0 is now in `devDependencies` and locked in
+`package-lock.json`. `npm install` pulls the package; the first
+`npx playwright install chromium` downloads the browser into
+`~/Library/Caches/ms-playwright/` (~92MB on this host). After that,
+evidence captures produce real PNG/zip/webm files served back via
+`/artifacts/<session>/<lane>/<file>`.
+
+If Playwright ever becomes unavailable (deleted node_modules, etc.) the
+evidence runner falls back to `captured: false` with a `degraded`
+marker. `/api/system/blockers` surfaces the exact `npm install` command
+and the dashboard banner shows it at the top — captures never silently
+succeed.
+
+## 7a. Browser UI smoke
 
 ```bash
-cd command-deck-client
-npm install --no-save playwright
-npx playwright install --with-deps chromium
+COMMAND_DECK_API_TOKEN=$COMMAND_DECK_API_TOKEN \
+COMMAND_DECK_BASE_URL=http://127.0.0.1:3000 \
+  npm run smoke:ui
 ```
 
-You must approve these commands yourself. After installing, restart the
-server and the next evidence capture will run a real browser. Without
-Playwright, evidence captures return `captured: false` and the dashboard
-shows a clearly degraded state — actions never silently succeed.
+This launches Chromium headless, loads the dashboard at 1366x900 and
+390x844, asserts the operator shell renders, status tags exist, no text
+overflows the viewport, and saves screenshots into
+`artifacts/ui-smoke/{desktop,phone}.png`.
 
 ## 8. Shutdown
 

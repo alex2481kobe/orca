@@ -10,13 +10,14 @@ check that refuses `actor` values in {`scheduler`, `system`, `cron`,
 All non-GET handlers reject oversize bodies with `413` and malformed JSON
 with `400` (`COMMAND_DECK_MAX_JSON_BYTES`, default 256KB).
 
-## Health, policy, profiles
+## Health, policy, profiles, blockers
 
 | Method | Route | Auth | Approval | Validation | Audit | Tests |
 | --- | --- | --- | --- | --- | --- | --- |
 | GET | `/api/health` | none | n/a | n/a | n/a | server `requires token for mutating`, `smoke` |
 | GET | `/api/policy` | none | n/a | n/a | n/a | smoke |
 | GET | `/api/executors/profiles` | none | n/a | n/a | n/a | smoke |
+| GET | `/api/system/blockers` | none | n/a | n/a | n/a | describeSystemBlockers test + smoke |
 
 ## Executor CLI
 
@@ -83,6 +84,7 @@ with `400` (`COMMAND_DECK_MAX_JSON_BYTES`, default 256KB).
 | GET | `/api/lanes/{id}/evidence/latest?mode=...` | none | n/a | id exists, mode whitelist | n/a | smoke |
 | GET | `/api/lanes/{id}/evidence/presets` | none | n/a | id exists | n/a | covered by smoke |
 | POST | `/api/lanes/{id}/evidence/clear` | token | `clearEvidenceArtifacts` | id exists | lane_evidence_cleared audit | covered by registry tests |
+| POST | `/api/lanes/{id}/worktree/remove` | token | `cleanupArtifacts` | lane terminal + managed worktree | lane_worktree_removed audit | worktree test + smoke shape check |
 
 ## Mobile manifest and static
 
