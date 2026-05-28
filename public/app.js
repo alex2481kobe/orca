@@ -343,14 +343,14 @@ async function api(path, options = {}) {
 }
 
 function renderBreadcrumbs(project, session) {
-  const links = ['<a href="/">Home</a>'];
+  const links = [];
   if (project) {
-    links.push(`<a href="${project.route}">${safeText(project.name)}</a>`);
+    links.push(safeText(project.name));
   }
   if (session) {
-    links.push(`<a href="${session.route}">${safeText(session.name)}</a>`);
+    links.push(safeText(session.name));
   }
-  refs.breadcrumbs.innerHTML = `<div>${links.join(' / ')}</div>`;
+  refs.breadcrumbs.innerHTML = links.length ? `<div>${links.join(' / ')}</div>` : '';
 }
 
 function renderHome() {
@@ -467,19 +467,6 @@ function renderHome() {
       <span>${safeText(project.name)}</span>
     </a>
   `).join('');
-  const recentLanes = [...(shell.lanes || [])]
-    .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0))
-    .filter((lane) => {
-      const project = shell.projects.find((item) => item.id === lane.projectId);
-      return project && !isVerificationProject(project);
-    })
-    .slice(0, 5);
-  const recentRows = recentLanes.map((lane) => `
-    <a class="simple-row recent-row" href="${safeAttr(lane.route || '')}">
-      <span>${safeText(lane.title || 'Untitled lane')}</span>
-      <small>${safeText(lane.executorType)} · ${safeText(lane.state)}</small>
-    </a>
-  `).join('');
   const preferredSession = shell.sessions.find((session) => {
     const project = shell.projects.find((item) => item.id === session.projectId);
     return project && !isVerificationProject(project);
@@ -495,18 +482,6 @@ function renderHome() {
         <span>New chat</span>
       </a>
       ${projectRows || '<div class="muted">No projects yet.</div>'}
-    </section>
-    <section class="simple-section ${showMainHome ? '' : 'is-hidden'}">
-      <h3>Recents</h3>
-      ${recentRows || '<div class="muted">No recent lanes yet.</div>'}
-    </section>
-    <section class="simple-section simple-more ${showMainHome ? '' : 'is-hidden'}">
-      <h3>More</h3>
-      <a class="simple-row" href="#system">Settings</a>
-      <a class="simple-row" href="#audit">Audit queue</a>
-      <a class="simple-row" href="#mcp">MCP tools</a>
-      <a class="simple-row" href="#cleanup">Cleanup</a>
-      <a class="simple-row" href="#token">API token</a>
     </section>
     <a class="floating-chat ${showMainHome ? '' : 'is-hidden'}" href="${safeAttr(chatHref)}">Chat</a>
     <div class="stat-grid compact-stats settings-stats is-hidden">
@@ -672,79 +647,98 @@ function renderProject(project) {
       </article>
     `;
   }).join('');
+  const quickLinksMarkup = project.quickLinks.map((quick) => `<a href="${safeText(quick.url)}" target="_blank" rel="noopener noreferrer">${safeText(quick.label)}</a>`).join('');
 
   refs.content.innerHTML = `
-    <section>
-      <div class="card">
-        <h3>${safeText(project.name)} project</h3>
-        <p>Quick links and dev routes can be added directly in the session lane workflows.</p>
-        <div class="lane-row">
-          ${project.quickLinks.map((quick) => `<a href="${safeText(quick.url)}" target="_blank" rel="noopener noreferrer">${safeText(quick.label)}</a>`).join('') || '<span class="muted">No quick links.</span>'}
+    <section class="project-shell">
+      <div class="project-titlebar">
+        <div>
+          <h2>${safeText(project.name)}</h2>
+          <p>Sessions and lanes for this project.</p>
+        </div>
+        <div class="project-actions" aria-label="Project actions">
+          <a class="button-secondary" href="#project-tools">Tools</a>
+          <a class="button-secondary" href="/#system">Settings</a>
         </div>
       </div>
-      <div class="grid-2">
-        <article class="card control-card">
-          <details class="disclosure">
-            <summary>
-              <span>Create session</span>
-              <small>Start a new work board</small>
-            </summary>
-            <div class="disclosure-body">
-          <form id="create-session-form" data-project-id="${project.id}">
-            <label>Session name
-              <input name="name" required />
-            </label>
-            <label>Leader
-              <select name="leader">
-                <option value="codex">Codex-led</option>
-                <option value="claude">Claude-led</option>
-                <option value="mixed">Mixed</option>
-              </select>
-            </label>
-            <label>Max parallel lanes
-              <input name="laneConcurrencyLimit" type="number" min="1" max="4" value="1" />
-            </label>
-            <button type="submit">Create session</button>
-          </form>
-            </div>
-          </details>
-        </article>
-        <article class="card">
+      <div class="project-workspace">
+        <div class="project-main">
+          <article class="card control-card">
+            <details class="disclosure">
+              <summary>
+                <span>Create session</span>
+                <small>Start a new work board</small>
+              </summary>
+              <div class="disclosure-body">
+            <form id="create-session-form" data-project-id="${project.id}">
+              <label>Session name
+                <input name="name" required />
+              </label>
+              <label>Leader
+                <select name="leader">
+                  <option value="codex">Codex-led</option>
+                  <option value="claude">Claude-led</option>
+                  <option value="mixed">Mixed</option>
+                </select>
+              </label>
+              <label>Max parallel lanes
+                <input name="laneConcurrencyLimit" type="number" min="1" max="4" value="1" />
+              </label>
+              <button type="submit">Create session</button>
+            </form>
+              </div>
+            </details>
+          </article>
+          <article class="card">
           <h3>Sessions</h3>
           <div class="card-grid">${sessionsMarkup || '<div class="muted">No sessions yet.</div>'}</div>
-        </article>
-      </div>
-      <article class="card control-card">
-        <details class="disclosure">
-          <summary>
-            <span>Quick links</span>
-            <small>Project URLs and phone targets</small>
-          </summary>
-          <div class="disclosure-body">
-        <div class="card-grid">
-          ${(project.quickLinks || [])
-            .map((quick, index) => `
-              <div class="lane-row">
-                <div>
-                  <div>${safeText(quick.label || 'Primary')}</div>
-                  <a href="${safeText(quick.url)}" target="_blank" rel="noopener noreferrer">${safeText(quick.url)}</a>
-                </div>
-                <button class="secondary" data-action="deleteProjectQuickLink" data-project-id="${project.id}" data-link-index="${index}" type="button">Remove</button>
-              </div>
-            `).join('') || '<div class="muted">No quick links.</div>'}
+          </article>
         </div>
-        <form id="update-project-links-form" data-project-id="${project.id}">
-          <label>Quick link label
-            <input name="quickLinkLabel" placeholder="Primary" required />
-          </label>
-          <label>Quick link URL
-            <input name="quickLinkUrl" placeholder="http://localhost:3000" required />
-          </label>
-          <button type="submit">Add quick link</button>
-        </form>
-          </div>
-        </details>
-      </article>
+        <aside class="project-side-panel" id="project-tools" aria-label="Project tools">
+          <details class="disclosure" open>
+            <summary>
+              <span>Quick links</span>
+              <small>Dev routes</small>
+            </summary>
+            <div class="disclosure-body">
+              <div class="lane-row">${quickLinksMarkup || '<span class="muted">No quick links.</span>'}</div>
+              <div class="card-grid">
+                ${(project.quickLinks || [])
+                  .map((quick, index) => `
+                    <div class="lane-row">
+                      <div>
+                        <div>${safeText(quick.label || 'Primary')}</div>
+                        <a href="${safeText(quick.url)}" target="_blank" rel="noopener noreferrer">${safeText(quick.url)}</a>
+                      </div>
+                      <button class="secondary" data-action="deleteProjectQuickLink" data-project-id="${project.id}" data-link-index="${index}" type="button">Remove</button>
+                    </div>
+                  `).join('') || '<div class="muted">No quick links.</div>'}
+              </div>
+              <form id="update-project-links-form" data-project-id="${project.id}">
+                <label>Quick link label
+                  <input name="quickLinkLabel" placeholder="Primary" required />
+                </label>
+                <label>Quick link URL
+                  <input name="quickLinkUrl" placeholder="http://localhost:3000" required />
+                </label>
+                <button type="submit">Add quick link</button>
+              </form>
+            </div>
+          </details>
+          <details class="disclosure">
+            <summary>
+              <span>Operations</span>
+              <small>Global tools</small>
+            </summary>
+            <div class="disclosure-body action-list">
+              <a href="/#audit">Audit queue</a>
+              <a href="/#mcp">MCP tools</a>
+              <a href="/#cleanup">Cleanup</a>
+              <a href="/#token">API token</a>
+            </div>
+          </details>
+        </aside>
+      </div>
     </section>
   `;
 }
