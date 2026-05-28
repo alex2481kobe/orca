@@ -970,11 +970,25 @@ export class CommandDeckRegistry {
       throw { status: 500, message: 'Failed to remove MCP tool.' };
     }
 
+    const affectedLanes = [];
+    for (const lane of this.lanes) {
+      if (!Array.isArray(lane.mcpTools)) continue;
+      const originalCount = lane.mcpTools.length;
+      lane.mcpTools = lane.mcpTools.filter((item) => item?.id !== target.id);
+      if (lane.mcpTools.length !== originalCount) {
+        affectedLanes.push(lane.id);
+        lane.updatedAt = nowIso();
+      }
+    }
+
     this.recordAudit({
       type: 'mcp_tool_deleted',
       actor,
       summary: `Deleted MCP tool ${target.name}`,
-      evidence: { tool: target },
+      evidence: {
+        tool: target,
+        affectedLanes,
+      },
       status: 'passed',
     });
     this.persistState();

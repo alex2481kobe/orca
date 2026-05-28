@@ -366,6 +366,37 @@ test('MCP tools can be queried by scope', async () => {
   }
 });
 
+test('Deleting an MCP tool detaches it from existing lane snapshots', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+
+  try {
+    const project = registry.createProject({ name: 'MCP Snapshot Project' });
+    const session = registry.createSession(project.id, { name: 'MCP Snapshot Session' });
+
+    await registry.createMcpTool({
+      name: 'transient-tool',
+      command: 'node',
+      args: ['--version'],
+      scope: ['all'],
+      enabled: true,
+    }, { actor: 'test', approved: true });
+
+    const transientLane = await registry.createLane(session.id, {
+      title: 'Transient Lane',
+      executorType: 'mock',
+      mcpToolIds: ['transient-tool'],
+    }, { actor: 'test', approved: true });
+
+    assert.equal(transientLane.mcpTools.length, 1);
+
+    await registry.deleteMcpTool('transient-tool', { actor: 'test', approved: true });
+    const refreshedLane = registry.getLane(transientLane.id);
+    assert.equal(refreshedLane.mcpTools.length, 0);
+  } finally {
+    await cleanup();
+  }
+});
+
 test('MCP tools can be updated when approved and require approval otherwise', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
 
