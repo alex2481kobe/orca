@@ -574,7 +574,7 @@ function renderHome() {
         </div>
       </article>
         <article class="card control-card" id="section-system" data-panel-card="system">
-        <details class="disclosure" open>
+        <details class="disclosure">
           <summary>
             <span>Executor profiles</span>
             <small>Defaults, binaries, workdirs</small>
@@ -583,7 +583,7 @@ function renderHome() {
         </details>
       </article>
       <article class="card control-card" data-panel-card="system">
-        <details class="disclosure" open>
+        <details class="disclosure">
           <summary>
             <span>Executor CLI health and updates</span>
             <small>Codex, Claude, reinstall dry-runs</small>
@@ -823,11 +823,11 @@ function renderLaneCard(lane) {
   const laneLink = lane.route ? `<a class="secondary" href="${safeAttr(lane.route)}">Lane detail</a>` : '';
   const auditLabel = lanePendingAudits.length ? 'Audit already queued' : 'Audit now';
   return `
-    <article class="lane-list-item click-card" data-href="${safeAttr(lane.route || '')}" tabindex="0" role="link" aria-label="Open lane ${safeAttr(lane.title)}">
-      <div class="row">
-        <h4>${safeText(lane.title)}</h4>
-        ${stateBadge(lane.state)}
-        ${auditQueuedBadge}
+      <article class="lane-list-item click-card" data-href="${safeAttr(lane.route || '')}" tabindex="0" role="link" aria-label="Open lane ${safeAttr(lane.title)}">
+        <div class="row">
+          <h4>${safeText(lane.title)}</h4>
+          ${stateBadge(lane.state)}
+          ${auditQueuedBadge}
       </div>
       <p>${safeText(lane.taskDescription || lane.taskPrompt || 'No task description yet.')}</p>
       <div class="card-meta">
@@ -836,25 +836,27 @@ function renderLaneCard(lane) {
         <span>${safeText((lane.mcpTools || []).length)} MCP</span>
         <span>${safeText(formatRelative(lane.updatedAt || lane.startedAt))}</span>
       </div>
-      <details class="disclosure compact-disclosure">
-        <summary>Lane metadata</summary>
-        <div class="tiny">
-          Started: ${formatMeta(lane.startedAt)} · Heartbeat: ${formatMeta(lane.heartbeatAt)} · Last evidence: ${safeText(lane.lastEvidenceCaptureAt || 'never')} (${safeText(lane.lastEvidence?.status || 'not captured')})
-        </div>
-        <div class="muted tiny">Path: ${safeText(lane.artifactPath || '')}</div>
-      </details>
       ${laneAuditWarning}
       <div class="lane-row">
         ${stopButton}
         ${retryButton}
-        ${laneLink}
         <button class="secondary" data-action="captureEvidence" data-lane-id="${lane.id}" type="button">Capture evidence</button>
-        <button class="secondary" data-action="clearEvidence" data-lane-id="${lane.id}" type="button">Clear evidence</button>
         <button class="secondary" data-action="auditLane" data-lane-id="${lane.id}" type="button">${auditLabel}</button>
-        <button class="secondary" data-action="showArtifacts" data-lane-id="${lane.id}" type="button">Artifacts</button>
-        <a class="secondary" href="${artifactsLink}" target="_blank" rel="noopener noreferrer">Artifact API</a>
-        <a class="secondary" href="${evidenceLatestUrl}" target="_blank" rel="noopener noreferrer">Latest evidence</a>
       </div>
+      <details class="disclosure compact-disclosure">
+        <summary>More</summary>
+        <div class="tiny">
+          Started: ${formatMeta(lane.startedAt)} · Heartbeat: ${formatMeta(lane.heartbeatAt)} · Last evidence: ${safeText(lane.lastEvidenceCaptureAt || 'never')} (${safeText(lane.lastEvidence?.status || 'not captured')})
+        </div>
+        <div class="muted tiny">Path: ${safeText(lane.artifactPath || '')}</div>
+        <div class="lane-row">
+          ${laneLink}
+          <button class="secondary" data-action="clearEvidence" data-lane-id="${lane.id}" type="button">Clear evidence</button>
+          <button class="secondary" data-action="showArtifacts" data-lane-id="${lane.id}" type="button">Artifacts</button>
+          <a class="secondary" href="${artifactsLink}" target="_blank" rel="noopener noreferrer">Artifact API</a>
+          <a class="secondary" href="${evidenceLatestUrl}" target="_blank" rel="noopener noreferrer">Latest evidence</a>
+        </div>
+      </details>
       <div id="lane-artifacts-${lane.id}" class="tiny"></div>
     </article>
   `;
@@ -867,13 +869,11 @@ function renderSession(project, session) {
     ? `<p>Pending audit events: ${pendingAudits.length}</p>`
     : '<p>No pending audit events.</p>';
   refs.content.innerHTML = `
-    <section>
-      <div class="card">
-        <h3>${safeText(session.name)}</h3>
-        <p>Project: ${safeText(project.name)} — leader ${safeText(session.leader)}</p>
-        <p>Policy profile: ${safeText(session.policyProfile || 'default')}</p>
+    <section class="session-shell">
+      <div class="session-toolbar">
+        <div class="tiny muted">${safeText(project.name)} · ${safeText(session.leader)} led</div>
       </div>
-      <div class="grid-2">
+      <div class="grid-2 session-controls">
         <article class="card control-card" id="create-session">
           <details class="disclosure">
             <summary>
@@ -936,15 +936,23 @@ function renderSession(project, session) {
             </div>
           </details>
         </article>
-        <article class="card">
-          <h3>Session actions</h3>
-          ${pendingAuditSummary}
-          <button class="secondary" data-action="auditDone" data-session-id="${session.id}" type="button">Audit all done lanes</button>
-          <button data-action="refresh" type="button">Refresh</button>
+        <article class="card control-card">
+          <details class="disclosure">
+            <summary>
+              <span>Session tools</span>
+              <small>${pendingAudits.length} pending audits</small>
+            </summary>
+            <div class="disclosure-body">
+              ${pendingAuditSummary}
+              <div class="lane-row">
+                <button class="secondary" data-action="auditDone" data-session-id="${session.id}" type="button">Audit done lanes</button>
+                <button class="secondary" data-action="refresh" type="button">Refresh</button>
+              </div>
+            </div>
+          </details>
         </article>
       </div>
-      <section class="card">
-        <h3>Lane queue</h3>
+      <section class="lane-queue">
         <div class="card-grid">${laneList || '<div class="muted">No lanes yet.</div>'}</div>
       </section>
     </section>
@@ -980,45 +988,57 @@ function renderLane(project, session, lane) {
   const laneLogs = Array.isArray(lane.logs) ? lane.logs.slice(-8) : [];
 
   return `
-    <section>
+    <section class="lane-detail-shell">
       ${(lane.warnings || []).map((warning) => `
         <div class="alert bad"><strong>Warning:</strong> ${safeText(warning.message || warning.kind)}</div>
       `).join('')}
-      <div class="card">
-        <p><a href="${session.route}" class="secondary">Back to session</a></p>
-        <h3>${safeText(lane.title)} (lane)</h3>
+      <div class="card lane-detail-card">
+        <p><a href="${session.route}" class="secondary">Back</a></p>
+        <h3>${safeText(lane.title)}</h3>
         <p>${safeText(lane.taskDescription || 'No task description')}</p>
         ${lane.taskPrompt ? `<div class="tiny"><strong>Task prompt:</strong> ${safeText(lane.taskPrompt)}</div>` : ''}
         ${lane.targetUrl ? `<div class="tiny"><strong>Target URL:</strong> <a class="secondary" href="${safeText(lane.targetUrl)}" target="_blank" rel="noopener noreferrer">${safeText(lane.targetUrl)}</a></div>` : ''}
-        <div class="tiny muted">MCP tools: ${(lane.mcpTools || []).map((item) => safeText(item.name)).join(', ') || 'none'}</div>
-        <div class="tiny muted">Route: ${safeText(laneDetailRoute(project, session, lane))}</div>
         <div class="tiny">Owner: ${safeText(lane.owner)} / Executor: ${safeText(lane.executorType)} / State: <span class="tag ${stateTagClass(lane.state)}">${safeText(lane.state)}</span></div>
-        ${lane.model || lane.permissionsProfile || lane.branch ? `<div class="tiny">Model: ${safeText(lane.model || '—')} / Permissions: ${safeText(lane.permissionsProfile || '—')} / Branch: ${safeText(lane.branch || '—')}</div>` : ''}
-        ${lane.workdir ? `<div class="tiny">Workdir: ${safeText(lane.workdir)}</div>` : ''}
-        ${lane.processMeta && lane.processMeta.pid !== null ? `<div class="tiny">Process: PID ${safeText(String(lane.processMeta.pid))} / exit ${safeText(String(lane.processMeta.exitCode ?? '—'))} / signal ${safeText(String(lane.processMeta.signal ?? '—'))}${lane.processMeta.stopRequestedBy ? ' / stopped by ' + safeText(lane.processMeta.stopRequestedBy) : ''}</div>` : ''}
-        <div class="tiny">Pending audits: ${pendingAudits.length}</div>
-        <div class="tiny">Pending events: ${pendingAuditRows}</div>
-        <div class="tiny">Created: ${formatMeta(lane.createdAt)} / Started: ${formatMeta(lane.startedAt)} / Completed: ${formatMeta(lane.completedAt)}</div>
       </div>
       <div class="card">
-        <h4>Actions</h4>
         <div class="lane-row">
           ${stopButton}
           ${retryButton}
           <button class="secondary" data-action="captureEvidence" data-lane-id="${lane.id}" type="button">Capture evidence</button>
-          <button class="secondary" data-action="clearEvidence" data-lane-id="${lane.id}" type="button">Clear evidence</button>
           <button class="secondary" data-action="auditLane" data-lane-id="${lane.id}" type="button">${auditLabel}</button>
-          <button class="secondary" data-action="showArtifacts" data-lane-id="${lane.id}" type="button">Artifacts</button>
-          ${lane.worktreePath && lane.repoRoot ? `<button class="secondary" data-action="removeWorktree" data-lane-id="${lane.id}" type="button">Remove worktree</button>` : ''}
-          <a class="secondary" href="${artifactUrl}" target="_blank" rel="noopener noreferrer">Artifacts API</a>
-          <a class="secondary" href="${evidenceUrl}" target="_blank" rel="noopener noreferrer">Evidence API</a>
-          <a class="secondary" href="${evidenceLatestUrl}" target="_blank" rel="noopener noreferrer">Latest evidence API</a>
         </div>
       </div>
-      <div class="card">
-        <h4>Recent lane logs</h4>
+      <details class="disclosure card">
+        <summary>
+          <span>Details</span>
+          <small>metadata, APIs, worktree</small>
+        </summary>
+        <div class="disclosure-body">
+          <div class="tiny muted">MCP tools: ${(lane.mcpTools || []).map((item) => safeText(item.name)).join(', ') || 'none'}</div>
+          <div class="tiny muted">Route: ${safeText(laneDetailRoute(project, session, lane))}</div>
+          ${lane.model || lane.permissionsProfile || lane.branch ? `<div class="tiny">Model: ${safeText(lane.model || '—')} / Permissions: ${safeText(lane.permissionsProfile || '—')} / Branch: ${safeText(lane.branch || '—')}</div>` : ''}
+          ${lane.workdir ? `<div class="tiny">Workdir: ${safeText(lane.workdir)}</div>` : ''}
+          ${lane.processMeta && lane.processMeta.pid !== null ? `<div class="tiny">Process: PID ${safeText(String(lane.processMeta.pid))} / exit ${safeText(String(lane.processMeta.exitCode ?? '—'))} / signal ${safeText(String(lane.processMeta.signal ?? '—'))}${lane.processMeta.stopRequestedBy ? ' / stopped by ' + safeText(lane.processMeta.stopRequestedBy) : ''}</div>` : ''}
+          <div class="tiny">Pending audits: ${pendingAudits.length}</div>
+          <div class="tiny">Pending events: ${pendingAuditRows}</div>
+          <div class="tiny">Created: ${formatMeta(lane.createdAt)} / Started: ${formatMeta(lane.startedAt)} / Completed: ${formatMeta(lane.completedAt)}</div>
+          <div class="lane-row">
+            <button class="secondary" data-action="clearEvidence" data-lane-id="${lane.id}" type="button">Clear evidence</button>
+            <button class="secondary" data-action="showArtifacts" data-lane-id="${lane.id}" type="button">Artifacts</button>
+            ${lane.worktreePath && lane.repoRoot ? `<button class="secondary" data-action="removeWorktree" data-lane-id="${lane.id}" type="button">Remove worktree</button>` : ''}
+            <a class="secondary" href="${artifactUrl}" target="_blank" rel="noopener noreferrer">Artifacts API</a>
+            <a class="secondary" href="${evidenceUrl}" target="_blank" rel="noopener noreferrer">Evidence API</a>
+            <a class="secondary" href="${evidenceLatestUrl}" target="_blank" rel="noopener noreferrer">Latest evidence API</a>
+          </div>
+        </div>
+      </details>
+      <details class="disclosure card">
+        <summary>
+          <span>Recent logs</span>
+          <small>${safeText(laneLogs.length)} entries</small>
+        </summary>
         <pre>${safeText(JSON.stringify(laneLogs, null, 2))}</pre>
-      </div>
+      </details>
       <div class="card">
         <h4>Last evidence</h4>
         <div class="tiny muted">Captured: ${safeText(lane.lastEvidenceCaptureAt || 'never')}</div>

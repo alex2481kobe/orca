@@ -797,6 +797,25 @@ body.sidebar-collapsed .sidebar-project-line {
   gap: 1rem;
 }
 
+.session-shell,
+.lane-detail-shell {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.session-toolbar {
+  min-height: 1.2rem;
+}
+
+.session-controls {
+  grid-template-columns: 1fr;
+}
+
+.lane-queue {
+  display: grid;
+  gap: 0.65rem;
+}
+
 .project-titlebar {
   align-items: flex-start;
   display: flex;
@@ -850,7 +869,11 @@ body.sidebar-collapsed .sidebar-project-line {
 
 .project-main > .card,
 .project-side-panel > .disclosure,
-.home-panels > .card {
+.home-panels > .card,
+.session-shell > .card,
+.session-controls > .card,
+.lane-detail-shell > .card,
+.lane-detail-shell > details.card {
   background: rgba(18, 20, 17, 0.72);
   border-color: rgba(78, 81, 70, 0.62);
   box-shadow: none;
@@ -882,11 +905,11 @@ body.sidebar-collapsed .sidebar-project-line {
 }
 
 .card {
-  border: 1px solid rgba(64, 67, 58, 0.86);
-  background: linear-gradient(180deg, rgba(25, 27, 23, 0.92), rgba(16, 17, 15, 0.9));
-  border-radius: 16px;
-  padding: 0.82rem;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(64, 67, 58, 0.68);
+  background: rgba(18, 20, 17, 0.72);
+  border-radius: 15px;
+  padding: 0.78rem;
+  box-shadow: none;
 }
 
 .card h3 {
@@ -915,9 +938,9 @@ body.sidebar-collapsed .sidebar-project-line {
 
 .click-card:hover,
 .click-card:focus-visible {
-  border-color: var(--accent);
+  border-color: rgba(96, 99, 87, 0.82);
   transform: translateY(-1px);
-  background: linear-gradient(180deg, rgba(34, 36, 31, 0.96), rgba(18, 19, 16, 0.93));
+  background: rgba(26, 28, 24, 0.82);
   outline: none;
 }
 
@@ -960,11 +983,11 @@ body.sidebar-collapsed .sidebar-project-line {
 }
 
 .card-meta span {
-  border: 1px solid var(--line-soft);
-  border-radius: 999px;
+  border: 0;
+  border-radius: 0;
   color: var(--muted);
   font-size: 0.72rem;
-  padding: 0.16rem 0.48rem;
+  padding: 0;
 }
 
 .control-card {
@@ -993,7 +1016,7 @@ body.sidebar-collapsed .sidebar-project-line {
 .disclosure summary::after {
   content: "+";
   align-items: center;
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: 999px;
   color: var(--accent-strong);
   display: inline-flex;
@@ -1056,25 +1079,25 @@ select,
 textarea {
   border-radius: 9px;
   border: 1px solid var(--line);
-  background: rgba(6, 20, 34, 0.9);
+  background: rgba(12, 14, 12, 0.88);
   color: var(--text);
   padding: 0.5rem 0.65rem;
   font: inherit;
 }
 
 button {
-  background: linear-gradient(120deg, #ead3a5, #c9aa72);
-  border: none;
+  background: #f3f0e8;
+  border: 0;
   cursor: pointer;
   font-weight: 600;
-  color: #1a1308;
+  color: #080907;
 }
 
 button.secondary,
 a.secondary,
 .button-secondary {
-  background: rgba(30, 32, 28, 0.88);
-  border: 1px solid var(--line);
+  background: rgba(28, 30, 26, 0.72);
+  border: 1px solid rgba(64, 67, 58, 0.72);
   text-decoration: none;
   color: var(--text);
   cursor: pointer;
@@ -1147,7 +1170,7 @@ select[multiple] {
   flex-wrap: wrap;
   gap: 0.45rem;
   align-items: center;
-  margin-top: 0.55rem;
+  margin-top: 0.45rem;
 }
 
 .lane-row button,
@@ -1159,10 +1182,10 @@ select[multiple] {
 }
 
 .lane-list-item {
-  background: linear-gradient(180deg, rgba(24, 26, 22, 0.92), rgba(14, 15, 13, 0.9));
+  background: rgba(18, 20, 17, 0.72);
   border-radius: 14px;
-  border: 1px solid rgba(64, 67, 58, 0.78);
-  padding: 0.65rem;
+  border: 1px solid rgba(64, 67, 58, 0.64);
+  padding: 0.72rem;
 }
 
 pre {
@@ -1280,6 +1303,9 @@ pre {
     padding-bottom: 0.1rem;
   }
   .project-workspace {
+    grid-template-columns: 1fr;
+  }
+  .session-controls {
     grid-template-columns: 1fr;
   }
   .grid-2 { grid-template-columns: 1fr; }
