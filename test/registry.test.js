@@ -542,6 +542,38 @@ test('executor CLI info and managed reinstall require approval', async () => {
   }
 });
 
+test('executor CLI reinstall has secure official-package defaults when no override is provided', async () => {
+  const restore = restoreEnv({
+    COMMAND_DECK_CODEX_BINARY: process.env.COMMAND_DECK_CODEX_BINARY,
+    COMMAND_DECK_CLAUDE_BINARY: process.env.COMMAND_DECK_CLAUDE_BINARY,
+    COMMAND_DECK_CODEX_REINSTALL_COMMAND: process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND,
+    COMMAND_DECK_CLAUDE_REINSTALL_COMMAND: process.env.COMMAND_DECK_CLAUDE_REINSTALL_COMMAND,
+  });
+
+  try {
+    process.env.COMMAND_DECK_CODEX_BINARY = '/usr/bin/codex';
+    process.env.COMMAND_DECK_CLAUDE_BINARY = '/usr/bin/claude';
+    delete process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND;
+    delete process.env.COMMAND_DECK_CLAUDE_REINSTALL_COMMAND;
+
+    const { registry, cleanup } = await withIsolatedRegistry();
+    try {
+      const codexInfo = registry.getExecutorCliInfo('codex');
+      const claudeInfo = registry.getExecutorCliInfo('claude');
+      assert.equal(codexInfo.reinstall.available, true);
+      assert.equal(codexInfo.reinstall.command.includes('npm'), true);
+      assert.equal(codexInfo.reinstall.command.includes('@openai/codex'), true);
+      assert.equal(claudeInfo.reinstall.available, true);
+      assert.equal(claudeInfo.reinstall.command.includes('npm'), true);
+      assert.equal(claudeInfo.reinstall.command.includes('@anthropic/claude-code'), true);
+    } finally {
+      await cleanup();
+    }
+  } finally {
+    restore();
+  }
+});
+
 test('executor CLI reinstall command validation is executor-specific and safe', async () => {
   const restore = restoreEnv({
     COMMAND_DECK_CODEX_BINARY: process.env.COMMAND_DECK_CODEX_BINARY,

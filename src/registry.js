@@ -43,6 +43,10 @@ const REINSTALL_INSTALL_VERBS = {
   pip: ['install'],
   pip3: ['install'],
 };
+const DEFAULT_REINSTALL_COMMANDS = {
+  codex: ['npm', 'install', '--yes', '-g', '@openai/codex'],
+  claude: ['npm', 'install', '--yes', '-g', '@anthropic/claude-code'],
+};
 const MCP_TOOL_SCOPE_ALLOWLIST = new Set(['all', 'codex', 'claude', 'mock']);
 
 function getMcpCommandAllowlist() {
@@ -165,7 +169,11 @@ function getReinstallCommand(type) {
   };
   const envVar = config[executorType];
   if (!envVar) return null;
-  return normalizeReinstallCommand(process.env[envVar], executorType);
+  const configured = process.env[envVar];
+  if (configured === undefined) {
+    return normalizeReinstallCommand(DEFAULT_REINSTALL_COMMANDS[executorType], executorType);
+  }
+  return normalizeReinstallCommand(configured, executorType);
 }
 
 function getCliVersion(binary) {

@@ -71,13 +71,18 @@ For private mobile control guidance, see:
 
 ## CLI management
 
-- Configure managed reinstall commands with:
+- Configure managed reinstall commands with (optional; defaults target official npm packages):
   - `COMMAND_DECK_CODEX_REINSTALL_COMMAND`
   - `COMMAND_DECK_CLAUDE_REINSTALL_COMMAND`
 
   These values should be JSON arrays of command arguments, for example:
 
   - `"[\"npm\",\"install\",\"-g\",\"--yes\",\"codex-cli\"]"`
+
+  If unset, Command Deck uses:
+
+  - `npm install --yes -g @openai/codex` for Codex
+  - `npm install --yes -g @anthropic/claude-code` for Claude
 
   Optionally constrain allowed reinstall packages per executor with:
   - `COMMAND_DECK_CODEX_REINSTALL_PACKAGES`
