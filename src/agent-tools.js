@@ -108,8 +108,8 @@ const TOOL_DEFINITIONS = [
     group: 'capacity',
     roles: ['orchestrator'],
     method: 'POST',
-    route: null,
-    implemented: false,
+    route: '/api/sessions/{sessionId}/capacity/request',
+    implemented: true,
     mutating: true,
     summary: 'Request additional executor capacity.',
   },
@@ -118,8 +118,8 @@ const TOOL_DEFINITIONS = [
     group: 'capacity',
     roles: ['dashboard'],
     method: 'POST',
-    route: null,
-    implemented: false,
+    route: '/api/sessions/{sessionId}/capacity/requests/{requestId}/approve',
+    implemented: true,
     mutating: true,
     summary: 'Approve a structured capacity request.',
   },
@@ -128,8 +128,8 @@ const TOOL_DEFINITIONS = [
     group: 'capacity',
     roles: ['dashboard'],
     method: 'POST',
-    route: null,
-    implemented: false,
+    route: '/api/sessions/{sessionId}/capacity/requests/{requestId}/reject',
+    implemented: true,
     mutating: true,
     summary: 'Reject a structured capacity request.',
   },
@@ -138,8 +138,8 @@ const TOOL_DEFINITIONS = [
     group: 'capacity',
     roles: ['dashboard', 'orchestrator'],
     method: 'POST',
-    route: null,
-    implemented: false,
+    route: '/api/sessions/{sessionId}/capacity/policy',
+    implemented: true,
     mutating: true,
     summary: 'Update capacity and spawn policy.',
   },
@@ -616,19 +616,15 @@ function chooseNextTool({ role, project, session, lane, auditQueued }) {
 }
 
 function buildCapacity(registry, session) {
-  const sessionId = session?.id || null;
-  const approvedCapacity = Number.parseInt(session?.laneConcurrencyLimit, 10) || 2;
-  const activeAgents = sessionId
-    ? (registry?.lanes || []).filter((lane) =>
-      lane.sessionId === sessionId &&
-      ['starting', 'running'].includes(lane.state)
-    ).length
-    : 0;
+  if (session?.id && typeof registry?.getSessionCapacity === 'function') {
+    return registry.getSessionCapacity(session.id);
+  }
   return {
-    spawnPolicy: session?.spawnPolicy || 'within_capacity',
-    approvedCapacity,
-    activeAgents,
-    idleSlots: Math.max(0, approvedCapacity - activeAgents),
+    spawnPolicy: 'within_capacity',
+    approvedCapacity: 2,
+    activeAgents: 0,
+    idleSlots: 2,
+    capacityRequests: [],
   };
 }
 

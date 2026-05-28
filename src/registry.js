@@ -69,6 +69,25 @@ const MAX_WORKDIR_BYTES = 2048;
 const MCP_TOOL_SCOPE_ALLOWLIST = new Set(['all', 'codex', 'claude', 'mock']);
 const MAX_MCP_TOOL_ARG_LENGTH = 255;
 const MAX_MCP_TOOL_ARGS = 64;
+const SPAWN_POLICIES = new Set(['never', 'ask', 'within_capacity', 'auto']);
+const IDLE_SHUTDOWN_MODES = new Set(['immediate', 'short_keepalive', 'policy']);
+const DEFAULT_APPROVED_CAPACITY = 2;
+
+function normalizeSpawnPolicy(value, fallback = 'within_capacity') {
+  const normalized = String(value || fallback).trim().toLowerCase();
+  return SPAWN_POLICIES.has(normalized) ? normalized : fallback;
+}
+
+function normalizeIdleShutdownMode(value, fallback = 'immediate') {
+  const normalized = String(value || fallback).trim().toLowerCase();
+  return IDLE_SHUTDOWN_MODES.has(normalized) ? normalized : fallback;
+}
+
+function normalizeApprovedCapacity(value, fallback = DEFAULT_APPROVED_CAPACITY) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) return fallback;
+  return Math.min(64, parsed);
+}
 
 function isPathWithinBoundary(candidatePath, boundaryPath) {
   const boundary = path.resolve(String(boundaryPath || '').trim() || process.cwd());
@@ -444,6 +463,16 @@ const defaultPolicy = {
     risk: 'high',
     message: 'MCP tool changes can run arbitrary local commands.',
   },
+  manageCapacity: {
+    requiresApproval: true,
+    risk: 'medium',
+    message: 'Changes session agent capacity and spawn policy.',
+  },
+  requestCapacity: {
+    requiresApproval: false,
+    risk: 'medium',
+    message: 'Requests more executor capacity without spawning agents.',
+  },
 };
 
 function normalizeSlug(value) {
@@ -776,6 +805,26 @@ export class CommandDeckRegistry {
       }
       if (!session.worktreeRoot) {
         session.worktreeRoot = path.join(this.workspacesRoot, session.id);
+        migrated = true;
+      }
+      if (!Number.isFinite(Number.parseInt(session.approvedCapacity, 10))) {
+        session.approvedCapacity = normalizeApprovedCapacity(session.laneConcurrencyLimit, DEFAULT_APPROVED_CAPACITY);
+        migrated = true;
+      }
+      if (!SPAWN_POLICIES.has(session.spawnPolicy)) {
+        session.spawnPolicy = 'within_capacity';
+        migrated = true;
+      }
+      if (typeof session.soloMode !== 'boolean') {
+        session.soloMode = true;
+        migrated = true;
+      }
+      if (!IDLE_SHUTDOWN_MODES.has(session.idleShutdownMode)) {
+        session.idleShutdownMode = 'immediate';
+        migrated = true;
+      }
+      if (!Array.isArray(session.capacityRequests)) {
+        session.capacityRequests = [];
         migrated = true;
       }
       ensureDirectorySync(session.artifactsRoot);
@@ -1357,7 +1406,11 @@ export class CommandDeckRegistry {
   createSession(projectLocator, {
     name,
     leader = 'codex',
-    laneConcurrencyLimit = 1,
+    laneConcurrencyLimit = DEFAULT_APPROVED_CAPACITY,
+    approvedCapacity = laneConcurrencyLimit,
+    spawnPolicy = 'within_capacity',
+    soloMode = true,
+    idleShutdownMode = 'immediate',
     artifactRetentionDays = 14,
     actor = 'dashboard',
     repoRoot = '',
@@ -1386,7 +1439,8 @@ export class CommandDeckRegistry {
     }
 
     const now = nowIso();
-    const concurrencyLimit = Math.max(1, Number.parseInt(laneConcurrencyLimit, 10) || 1);
+    const concurrencyLimit = Math.max(1, Number.parseInt(laneConcurrencyLimit, 10) || DEFAULT_APPROVED_CAPACITY);
+    const normalizedApprovedCapacity = normalizeApprovedCapacity(approvedCapacity, concurrencyLimit);
     const retention = Number.parseInt(artifactRetentionDays, 10) || 14;
     const sessionId = randomUUID();
     let validatedRepoRoot = '';
@@ -1414,6 +1468,11 @@ export class CommandDeckRegistry {
       name: String(name).trim(),
       leader,
       laneConcurrencyLimit: concurrencyLimit,
+      approvedCapacity: normalizedApprovedCapacity,
+      spawnPolicy: normalizeSpawnPolicy(spawnPolicy),
+      soloMode: soloMode !== false,
+      idleShutdownMode: normalizeIdleShutdownMode(idleShutdownMode),
+      capacityRequests: [],
       artifactRetentionDays: retention,
       route: `/projects/${project.slug}/sessions/${sessionId}`,
       createdAt: now,
@@ -2527,6 +2586,227 @@ export class CommandDeckRegistry {
     return clonePayload(this.policies);
   }
 
+  getSessionCapacity(sessionLocator) {
+    const session = this.getSession(sessionLocator);
+    if (!session) {
+      throw { status: 404, message: 'Session not found.' };
+    }
+    const approvedCapacity = normalizeApprovedCapacity(session.approvedCapacity, normalizeApprovedCapacity(session.laneConcurrencyLimit));
+    const activeAgents = this.lanes.filter((lane) =>
+      lane.sessionId === session.id &&
+      [QUEUED_STATE, STARTING_STATE, RUNNING_STATE].includes(lane.state)
+    ).length;
+    return {
+      sessionId: session.id,
+      spawnPolicy: normalizeSpawnPolicy(session.spawnPolicy),
+      approvedCapacity,
+      activeAgents,
+      idleSlots: Math.max(0, approvedCapacity - activeAgents),
+      soloMode: session.soloMode !== false,
+      idleShutdownMode: normalizeIdleShutdownMode(session.idleShutdownMode),
+      capacityRequests: safeArray(session.capacityRequests).map((request) => clonePayload(request)),
+    };
+  }
+
+  requestCapacity(sessionLocator, {
+    requestedCapacity,
+    reason = '',
+    tasksUnlocked = [],
+    costRisk = '',
+    actor = 'dashboard',
+  } = {}) {
+    const session = this.getSession(sessionLocator);
+    if (!session) {
+      throw { status: 404, message: 'Session not found.' };
+    }
+    const policyCheck = this.evaluateActionPolicy('requestCapacity', { actor, approved: true });
+    if (!policyCheck.allowed) {
+      throw {
+        status: 409,
+        message: policyCheck.message,
+        requiresApproval: true,
+        risk: policyCheck.policy.risk,
+      };
+    }
+    const current = this.getSessionCapacity(session.id);
+    const requested = normalizeApprovedCapacity(requestedCapacity, current.approvedCapacity);
+    if (requested <= current.approvedCapacity) {
+      return {
+        alreadyWithinCapacity: true,
+        request: null,
+        capacity: current,
+      };
+    }
+    const existing = safeArray(session.capacityRequests).find((request) =>
+      request.status === 'pending' && request.requestedCapacity === requested
+    );
+    if (existing) {
+      return {
+        alreadyPending: true,
+        request: clonePayload(existing),
+        capacity: current,
+      };
+    }
+    const request = {
+      id: randomUUID(),
+      status: 'pending',
+      actor: String(actor || 'dashboard').slice(0, 120),
+      requestedCapacity: requested,
+      currentApprovedCapacity: current.approvedCapacity,
+      reason: String(reason || '').trim().slice(0, 1000),
+      tasksUnlocked: safeArray(tasksUnlocked).map((item) => String(item || '').trim()).filter(Boolean).slice(0, 20),
+      costRisk: String(costRisk || '').trim().slice(0, 1000),
+      createdAt: nowIso(),
+      decidedAt: null,
+      decidedBy: null,
+      decisionReason: null,
+    };
+    session.capacityRequests = [request, ...safeArray(session.capacityRequests)].slice(0, 100);
+    session.updatedAt = nowIso();
+    this.recordAudit({
+      type: 'capacity_request_created',
+      actor: request.actor,
+      projectId: session.projectId,
+      sessionId: session.id,
+      summary: `Requested capacity ${requested} for session ${session.name}`,
+      status: 'pending',
+      followUpQueued: true,
+      evidence: { request },
+    });
+    this.persistState();
+    return {
+      request: clonePayload(request),
+      capacity: this.getSessionCapacity(session.id),
+    };
+  }
+
+  approveCapacityRequest(sessionLocator, requestId, {
+    actor = 'dashboard',
+    approved,
+    reason = '',
+  } = {}) {
+    const session = this.getSession(sessionLocator);
+    if (!session) {
+      throw { status: 404, message: 'Session not found.' };
+    }
+    const policyCheck = this.evaluateActionPolicy('manageCapacity', { actor, approved });
+    if (!policyCheck.allowed) {
+      throw {
+        status: 409,
+        message: policyCheck.message,
+        requiresApproval: true,
+        risk: policyCheck.policy.risk,
+      };
+    }
+    const request = safeArray(session.capacityRequests).find((item) => item.id === requestId);
+    if (!request) throw { status: 404, message: 'Capacity request not found.' };
+    if (request.status !== 'pending') {
+      return { alreadyDecided: true, request: clonePayload(request), capacity: this.getSessionCapacity(session.id) };
+    }
+    request.status = 'approved';
+    request.decidedAt = nowIso();
+    request.decidedBy = String(actor || 'dashboard').slice(0, 120);
+    request.decisionReason = String(reason || '').trim().slice(0, 1000);
+    session.approvedCapacity = Math.max(normalizeApprovedCapacity(session.approvedCapacity), request.requestedCapacity);
+    session.laneConcurrencyLimit = session.approvedCapacity;
+    session.updatedAt = nowIso();
+    this.recordAudit({
+      type: 'capacity_request_approved',
+      actor: request.decidedBy,
+      projectId: session.projectId,
+      sessionId: session.id,
+      summary: `Approved capacity ${session.approvedCapacity} for session ${session.name}`,
+      status: 'passed',
+      evidence: { request },
+    });
+    this.persistState();
+    return { request: clonePayload(request), capacity: this.getSessionCapacity(session.id) };
+  }
+
+  rejectCapacityRequest(sessionLocator, requestId, {
+    actor = 'dashboard',
+    approved,
+    reason = '',
+  } = {}) {
+    const session = this.getSession(sessionLocator);
+    if (!session) {
+      throw { status: 404, message: 'Session not found.' };
+    }
+    const policyCheck = this.evaluateActionPolicy('manageCapacity', { actor, approved });
+    if (!policyCheck.allowed) {
+      throw {
+        status: 409,
+        message: policyCheck.message,
+        requiresApproval: true,
+        risk: policyCheck.policy.risk,
+      };
+    }
+    const request = safeArray(session.capacityRequests).find((item) => item.id === requestId);
+    if (!request) throw { status: 404, message: 'Capacity request not found.' };
+    if (request.status !== 'pending') {
+      return { alreadyDecided: true, request: clonePayload(request), capacity: this.getSessionCapacity(session.id) };
+    }
+    request.status = 'rejected';
+    request.decidedAt = nowIso();
+    request.decidedBy = String(actor || 'dashboard').slice(0, 120);
+    request.decisionReason = String(reason || '').trim().slice(0, 1000);
+    session.updatedAt = nowIso();
+    this.recordAudit({
+      type: 'capacity_request_rejected',
+      actor: request.decidedBy,
+      projectId: session.projectId,
+      sessionId: session.id,
+      summary: `Rejected capacity request for session ${session.name}`,
+      status: 'passed',
+      evidence: { request },
+    });
+    this.persistState();
+    return { request: clonePayload(request), capacity: this.getSessionCapacity(session.id) };
+  }
+
+  setCapacityPolicy(sessionLocator, {
+    spawnPolicy,
+    approvedCapacity,
+    soloMode,
+    idleShutdownMode,
+    actor = 'dashboard',
+    approved,
+  } = {}) {
+    const session = this.getSession(sessionLocator);
+    if (!session) {
+      throw { status: 404, message: 'Session not found.' };
+    }
+    const policyCheck = this.evaluateActionPolicy('manageCapacity', { actor, approved });
+    if (!policyCheck.allowed) {
+      throw {
+        status: 409,
+        message: policyCheck.message,
+        requiresApproval: true,
+        risk: policyCheck.policy.risk,
+      };
+    }
+    if (spawnPolicy !== undefined) session.spawnPolicy = normalizeSpawnPolicy(spawnPolicy, session.spawnPolicy || 'within_capacity');
+    if (approvedCapacity !== undefined) {
+      session.approvedCapacity = normalizeApprovedCapacity(approvedCapacity, normalizeApprovedCapacity(session.approvedCapacity));
+      session.laneConcurrencyLimit = session.approvedCapacity;
+    }
+    if (soloMode !== undefined) session.soloMode = soloMode !== false;
+    if (idleShutdownMode !== undefined) session.idleShutdownMode = normalizeIdleShutdownMode(idleShutdownMode, session.idleShutdownMode || 'immediate');
+    session.updatedAt = nowIso();
+    const capacity = this.getSessionCapacity(session.id);
+    this.recordAudit({
+      type: 'capacity_policy_updated',
+      actor: String(actor || 'dashboard').slice(0, 120),
+      projectId: session.projectId,
+      sessionId: session.id,
+      summary: `Updated capacity policy for session ${session.name}`,
+      status: 'passed',
+      evidence: { capacity },
+    });
+    this.persistState();
+    return capacity;
+  }
+
   createToolLease({
     role = 'orchestrator',
     projectId = null,
@@ -3162,7 +3442,9 @@ Changed files: ${changedFiles.length}
         .filter((lane) => lane.state === QUEUED_STATE)
         .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
       const runningCount = this.getRunningCountForSession(session.id);
-      const availableSlots = Math.max(0, session.laneConcurrencyLimit - runningCount);
+      const approvedCapacity = normalizeApprovedCapacity(session.approvedCapacity, normalizeApprovedCapacity(session.laneConcurrencyLimit));
+      const capacityLimit = normalizeSpawnPolicy(session.spawnPolicy) === 'never' ? 0 : approvedCapacity;
+      const availableSlots = Math.max(0, capacityLimit - runningCount);
 
       for (let i = 0; i < availableSlots; i += 1) {
         const lane = queued[i];

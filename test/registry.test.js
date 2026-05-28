@@ -17,7 +17,7 @@ async function withIsolatedRegistry() {
       await registry.drainPendingWrites();
     }
     process.chdir(previousCwd);
-    await fs.rm(tempDir, { force: true, recursive: true });
+    await fs.rm(tempDir, { force: true, recursive: true, maxRetries: 5, retryDelay: 25 });
   };
 
   return { registry, cleanup, tempDir };

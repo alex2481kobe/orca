@@ -329,6 +329,9 @@ function buildMobileManifest(req) {
             sessionName: session.name,
             route: `${origin}${session.route}`,
             lanesUrl: `${origin}/api/sessions/${session.id}/lanes`,
+            capacityUrl: `${origin}/api/sessions/${session.id}/capacity`,
+            capacityRequestUrl: `${origin}/api/sessions/${session.id}/capacity/request`,
+            capacityPolicyUrl: `${origin}/api/sessions/${session.id}/capacity/policy`,
             auditEventsUrl: `${origin}/api/sessions/${session.id}/audit-events`,
             auditDoneLanesUrl: `${origin}/api/sessions/${session.id}/audit-done-lanes`,
             lanes: lanes.map((lane) => {
@@ -1075,6 +1078,78 @@ async function handleApi(req, res, pathname, method, parts) {
 
     if (parts.length === 3 && method === 'GET') {
       return sendJson(res, 200, session);
+    }
+
+    if (parts.length === 4 && parts[3] === 'capacity' && method === 'GET') {
+      try {
+        return sendJson(res, 200, registry.getSessionCapacity(session.id));
+      } catch (error) {
+        return sendJson(res, error.status || 500, { error: error.message || 'Could not load session capacity.' });
+      }
+    }
+
+    if (parts.length === 5 && parts[3] === 'capacity' && parts[4] === 'request' && method === 'POST') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+      if (rejectSpoofedActor(body, res)) return;
+      try {
+        const result = registry.requestCapacity(session.id, {
+          ...body,
+          actor: body.actor || 'dashboard',
+        });
+        return sendJson(res, 201, result);
+      } catch (error) {
+        return sendJson(res, error.status || 500, {
+          error: error.message || 'Could not request capacity.',
+          requiresApproval: error.requiresApproval || false,
+          risk: error.risk || null,
+        });
+      }
+    }
+
+    if (parts.length === 5 && parts[3] === 'capacity' && parts[4] === 'policy' && method === 'POST') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+      if (rejectSpoofedActor(body, res)) return;
+      try {
+        const result = registry.setCapacityPolicy(session.id, {
+          ...body,
+          actor: body.actor || 'dashboard',
+        });
+        return sendJson(res, 200, result);
+      } catch (error) {
+        return sendJson(res, error.status || 500, {
+          error: error.message || 'Could not update capacity policy.',
+          requiresApproval: error.requiresApproval || false,
+          risk: error.risk || null,
+        });
+      }
+    }
+
+    if (parts.length === 7 && parts[3] === 'capacity' && parts[4] === 'requests' && ['approve', 'reject'].includes(parts[6]) && method === 'POST') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+      if (rejectSpoofedActor(body, res)) return;
+      try {
+        const result = parts[6] === 'approve'
+          ? registry.approveCapacityRequest(session.id, parts[5], {
+            actor: body.actor || 'dashboard',
+            approved: body.approved,
+            reason: body.reason,
+          })
+          : registry.rejectCapacityRequest(session.id, parts[5], {
+            actor: body.actor || 'dashboard',
+            approved: body.approved,
+            reason: body.reason,
+          });
+        return sendJson(res, 200, result);
+      } catch (error) {
+        return sendJson(res, error.status || 500, {
+          error: error.message || 'Could not decide capacity request.',
+          requiresApproval: error.requiresApproval || false,
+          risk: error.risk || null,
+        });
+      }
     }
 
     if (parts.length === 4 && parts[3] === 'lanes') {

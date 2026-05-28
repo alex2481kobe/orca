@@ -1203,6 +1203,9 @@ test('mobile manifest exposes deep links for projects, sessions, and lane artifa
     assert.equal(sessionEntry.sessionId, session.body.id);
     assert.equal(sessionEntry.route.includes(`/projects/${project.body.slug}/sessions/${session.body.id}`), true);
     assert.equal(sessionEntry.lanes.length, 1);
+    assert.equal(typeof sessionEntry.capacityUrl, 'string');
+    assert.equal(typeof sessionEntry.capacityRequestUrl, 'string');
+    assert.equal(typeof sessionEntry.capacityPolicyUrl, 'string');
 
     const laneEntry = sessionEntry.lanes[0];
     assert.equal(laneEntry.laneId, lane.body.id);
@@ -1295,6 +1298,126 @@ test('agent tool routes expose discovery, nextAction, and token-gated leases', a
     assert.equal(lease.body?.lease?.allowedTools.includes('lane.create'), true);
     assert.equal(JSON.stringify(lease.body?.lease || {}).includes(lease.body.leaseToken), false);
     assert.equal(lease.body?.nextAction?.nextRequiredTool, 'lane.create');
+  } finally {
+    await server.stop();
+  }
+});
+
+test('session capacity API supports request, approval, rejection, and policy updates', async () => {
+  const token = 'route-token-capacity';
+  const server = await startServer({ token });
+
+  try {
+    const project = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        name: 'Capacity API Project',
+        approved: true,
+      },
+    });
+    assert.equal(project.status, 201);
+
+    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        name: 'Capacity API Session',
+        approved: true,
+      },
+    });
+    assert.equal(session.status, 201);
+
+    const capacity = await server.requestJson(`/api/sessions/${session.body.id}/capacity`, { method: 'GET' });
+    assert.equal(capacity.status, 200);
+    assert.equal(capacity.body?.approvedCapacity, 2);
+    assert.equal(capacity.body?.spawnPolicy, 'within_capacity');
+
+    const request = await server.requestJson(`/api/sessions/${session.body.id}/capacity/request`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'orchestrator',
+        requestedCapacity: 5,
+        reason: 'Need parallel lanes',
+        tasksUnlocked: ['lane one', 'lane two'],
+        costRisk: 'more processes',
+      },
+    });
+    assert.equal(request.status, 201);
+    assert.equal(request.body?.request?.status, 'pending');
+
+    const deniedPolicy = await server.requestJson(`/api/sessions/${session.body.id}/capacity/policy`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: false,
+        spawnPolicy: 'never',
+      },
+    });
+    assert.equal(deniedPolicy.status, 409);
+
+    const updatedPolicy = await server.requestJson(`/api/sessions/${session.body.id}/capacity/policy`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+        spawnPolicy: 'ask',
+        approvedCapacity: 3,
+        idleShutdownMode: 'short_keepalive',
+      },
+    });
+    assert.equal(updatedPolicy.status, 200);
+    assert.equal(updatedPolicy.body?.spawnPolicy, 'ask');
+    assert.equal(updatedPolicy.body?.approvedCapacity, 3);
+    assert.equal(updatedPolicy.body?.idleShutdownMode, 'short_keepalive');
+
+    const deniedApprove = await server.requestJson(`/api/sessions/${session.body.id}/capacity/requests/${request.body.request.id}/approve`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: false,
+      },
+    });
+    assert.equal(deniedApprove.status, 409);
+
+    const approved = await server.requestJson(`/api/sessions/${session.body.id}/capacity/requests/${request.body.request.id}/approve`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+        reason: 'Approved',
+      },
+    });
+    assert.equal(approved.status, 200);
+    assert.equal(approved.body?.request?.status, 'approved');
+    assert.equal(approved.body?.capacity?.approvedCapacity, 5);
+
+    const secondRequest = await server.requestJson(`/api/sessions/${session.body.id}/capacity/request`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'orchestrator',
+        requestedCapacity: 6,
+        reason: 'Need one more',
+      },
+    });
+    assert.equal(secondRequest.status, 201);
+    const rejected = await server.requestJson(`/api/sessions/${session.body.id}/capacity/requests/${secondRequest.body.request.id}/reject`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+        reason: 'Not needed',
+      },
+    });
+    assert.equal(rejected.status, 200);
+    assert.equal(rejected.body?.request?.status, 'rejected');
   } finally {
     await server.stop();
   }
