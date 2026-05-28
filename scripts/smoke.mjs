@@ -19,26 +19,45 @@
  *  11. audit queue + ack + cleanup dry-run + worktree route shape
  *
  * Usage:
- *   COMMAND_DECK_API_TOKEN=<token> node scripts/smoke.mjs [--base http://127.0.0.1:3000]
+ *   node scripts/smoke.mjs
+ *   COMMAND_DECK_API_TOKEN=<token> node scripts/smoke.mjs --base http://127.0.0.1:3000
  *
  * Exits non-zero on the first failing step so it can gate startup.
  */
 
-import process from 'node:process';
+import fs from 'node:fs/promises';
 import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
+import process from 'node:process';
 
 const args = process.argv.slice(2);
+const previousCwd = process.cwd();
+const previousEnv = { ...process.env };
+const repoRoot = previousCwd;
+let explicitBase = Boolean(process.env.COMMAND_DECK_BASE_URL);
 let base = process.env.COMMAND_DECK_BASE_URL || 'http://127.0.0.1:3000';
 for (let i = 0; i < args.length; i += 1) {
-  if (args[i] === '--base' && args[i + 1]) base = args[i + 1];
+  if (args[i] === '--base' && args[i + 1]) {
+    base = args[i + 1];
+    explicitBase = true;
+  }
 }
-const token = process.env.COMMAND_DECK_API_TOKEN || '';
+let token = process.env.COMMAND_DECK_API_TOKEN || '';
 
-const tokenHeaders = {
-  'content-type': 'application/json',
-  ...(token ? { 'x-commanddeck-token': token } : {}),
-};
+let tokenHeaders = {};
 const noTokenHeaders = { 'content-type': 'application/json' };
+function refreshTokenHeaders() {
+  tokenHeaders = {
+    'content-type': 'application/json',
+    ...(token ? { 'x-commanddeck-token': token } : {}),
+  };
+}
+refreshTokenHeaders();
+
+const tempDir = explicitBase ? null : await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-full-flow-'));
+let server = null;
+let stopServer = null;
 
 const log = (label, info = '') => console.log(`[smoke] ${label}${info ? ' — ' + info : ''}`);
 const fail = (label, info) => {
@@ -53,9 +72,10 @@ async function req(method, path, body, opts = {}) {
     headers: opts.headers || tokenHeaders,
     body: body === undefined ? undefined : (typeof body === 'string' ? body : JSON.stringify(body)),
   });
+  const text = await res.text();
   let json = null;
-  try { json = await res.json(); } catch { /* empty */ }
-  return { status: res.status, body: json };
+  try { json = text ? JSON.parse(text) : null; } catch { /* non-json */ }
+  return { status: res.status, body: json, text, headers: Object.fromEntries(res.headers.entries()) };
 }
 
 async function startDummyApiProvider(secret) {
@@ -88,6 +108,36 @@ async function startDummyApiProvider(secret) {
   };
 }
 
+async function startDummyGeminiProvider(secret) {
+  const requests = [];
+  const server = http.createServer((request, response) => {
+    let raw = '';
+    request.setEncoding('utf8');
+    request.on('data', (chunk) => { raw += chunk; });
+    request.on('end', () => {
+      const body = raw ? JSON.parse(raw) : null;
+      requests.push({
+        method: request.method,
+        url: request.url,
+        headers: request.headers,
+        body,
+      });
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: `full-flow gemini ok ${secret}` }] } }],
+        usageMetadata: { promptTokenCount: 8, candidatesTokenCount: 4 },
+      }));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}/v1`,
+    requests,
+    close: () => new Promise((resolve) => server.close(resolve)),
+  };
+}
+
 async function waitForLaneTerminal(laneId, label) {
   let state = 'unknown';
   let latest = null;
@@ -99,6 +149,98 @@ async function waitForLaneTerminal(laneId, label) {
   if (!latest) latest = await req('GET', `/api/lanes/${laneId}`);
   if (latest.status !== 200) fail(`${label} lane status`, JSON.stringify(latest));
   return latest;
+}
+
+async function captureBrowserScreenshots({ sessionCookie = null, projectId = null, sessionId = null, laneId = null } = {}) {
+  let chromium;
+  try {
+    ({ chromium } = await import('playwright'));
+  } catch (error) {
+    log('browser screenshots', `skipped (${error.message})`);
+    return { skipped: true, reason: error.message };
+  }
+
+  const artifactDir = path.join(repoRoot, 'artifacts', 'full-flow-smoke');
+  await fs.mkdir(artifactDir, { recursive: true });
+  const browser = await chromium.launch({ headless: true });
+  const screenshots = [];
+  try {
+    for (const viewport of [
+      { name: 'desktop', width: 1440, height: 920, path: projectId ? `/#project:${projectId}` : '/' },
+      { name: 'phone', width: 390, height: 844, path: sessionId ? `/#session:${sessionId}` : '/' },
+      { name: 'lane', width: 390, height: 844, path: laneId ? `/#lane:${laneId}` : '/' },
+    ]) {
+      const context = await browser.newContext({
+        viewport: { width: viewport.width, height: viewport.height },
+      });
+      if (sessionCookie) {
+        const [cookiePair] = String(sessionCookie).split(';');
+        const [name, ...valueParts] = cookiePair.split('=');
+        if (name && valueParts.length) {
+          await context.addCookies([{
+            name: name.trim(),
+            value: valueParts.join('=').trim(),
+            url: base,
+            httpOnly: true,
+            sameSite: 'Lax',
+          }]);
+        }
+      }
+      const page = await context.newPage();
+      const errors = [];
+      page.on('pageerror', (error) => errors.push(error.message || String(error)));
+      page.on('console', (message) => {
+        if (message.type() === 'error') errors.push(message.text());
+      });
+      await page.goto(new URL(viewport.path, base).toString(), { waitUntil: 'networkidle', timeout: 20000 });
+      await page.waitForFunction(() => {
+        const content = document.getElementById('content');
+        return content && !content.textContent.trim().startsWith('Loading');
+      }, { timeout: 15000 });
+      const overflowPx = await page.evaluate((width) => document.documentElement.scrollWidth - width, viewport.width);
+      if (overflowPx > 1) fail(`browser ${viewport.name} horizontal overflow`, `${overflowPx}px`);
+      if (errors.length) fail(`browser ${viewport.name} console errors`, errors.join(' | '));
+      const screenshotPath = path.join(artifactDir, `${viewport.name}.png`);
+      await page.screenshot({ path: screenshotPath, fullPage: true });
+      screenshots.push(screenshotPath);
+      await context.close();
+    }
+  } finally {
+    await browser.close();
+  }
+  log('browser screenshots', screenshots.join(', '));
+  return { screenshots };
+}
+
+async function cleanupStartedServer() {
+  if (stopServer) await stopServer();
+  if (server) await new Promise((resolve) => server.close(resolve));
+  if (tempDir) {
+    process.chdir(previousCwd);
+    await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
+  }
+  for (const key of Object.keys(process.env)) {
+    if (!(key in previousEnv)) delete process.env[key];
+  }
+  for (const [key, value] of Object.entries(previousEnv)) {
+    process.env[key] = value;
+  }
+}
+
+async function main() {
+if (!explicitBase) {
+  process.chdir(tempDir);
+  process.env.PORT = '0';
+  process.env.COMMAND_DECK_HOST = '127.0.0.1';
+  process.env.COMMAND_DECK_CREDENTIAL_BACKEND = 'memory';
+  process.env.COMMAND_DECK_API_TOKEN = 'full-flow-smoke-token';
+  token = process.env.COMMAND_DECK_API_TOKEN;
+  refreshTokenHeaders();
+  const serverModule = await import('../src/server.js');
+  server = await serverModule.startServer(0, '127.0.0.1');
+  stopServer = serverModule.stopServer;
+  const address = server.address();
+  base = `http://127.0.0.1:${address.port}`;
 }
 
 const start = Date.now();
@@ -120,6 +262,28 @@ log('blockers', `${(blockers.body.blockers || []).length} blocker(s)`);
 const manifest = await req('GET', '/api/mobile/manifest');
 if (manifest.status !== 200) fail('manifest', JSON.stringify(manifest));
 log('manifest', `apiTokenRequired=${manifest.body.apiTokenRequired}`);
+
+// --- phone/browser auth pairing ---
+const authStatus = await req('GET', '/api/auth/status');
+if (authStatus.status !== 200) fail('auth status', JSON.stringify(authStatus));
+const pairing = await req('POST', '/api/auth/pairing-codes', {
+  actor: 'dashboard',
+  label: 'Full-flow phone',
+  ttlMs: 60_000,
+});
+if (pairing.status !== 201) fail('create pairing code', JSON.stringify(pairing));
+const pairingCode = pairing.body?.pairing?.code;
+if (!/^[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}$/.test(pairingCode || '')) fail('pairing code shape', JSON.stringify(pairing.body));
+const paired = await req('POST', '/api/auth/pair', {
+  code: pairingCode,
+  label: 'Full-flow browser',
+}, { headers: noTokenHeaders });
+if (paired.status !== 200) fail('pair browser session', JSON.stringify(paired));
+const sessionCookie = paired.headers['set-cookie'] || '';
+if (!sessionCookie.includes(`${authStatus.body.cookieName}=`)) fail('pair response missing session cookie', JSON.stringify(paired.headers));
+const authSessions = await req('GET', '/api/auth/sessions');
+if (authSessions.status !== 200 || !Array.isArray(authSessions.body?.sessions)) fail('auth sessions list', JSON.stringify(authSessions));
+log('auth pairing', `${authSessions.body.sessions.length} session(s)`);
 
 // --- negative auth/spoof/size/malform tests ---
 if (token) {
@@ -214,6 +378,8 @@ if (providers.body?.credentialBackend !== 'memory') {
 }
 const apiSecret = `full-flow-api-secret-${slugSuffix}`;
 const dummyProvider = await startDummyApiProvider(apiSecret);
+const geminiSecret = `full-flow-gemini-secret-${slugSuffix}`;
+const dummyGeminiProvider = await startDummyGeminiProvider(geminiSecret);
 try {
   const profileUpdate = await req('PATCH', '/api/providers/openai-compatible', {
     actor: 'dashboard',
@@ -249,8 +415,44 @@ try {
   if (dummyProvider.requests[0].body.model !== 'full-flow-model') fail('dummy provider model mismatch', JSON.stringify(dummyProvider.requests[0].body));
   if (JSON.stringify(apiLaneDone.body).includes(apiSecret)) fail('API provider lane leaked secret value');
   log('apiProviderLane', `${apiLaneDone.body.state} via ${apiLaneDone.body.processMeta?.credentialBackend || 'unknown'} credential backend`);
+
+  const geminiProfileUpdate = await req('PATCH', '/api/providers/gemini', {
+    actor: 'dashboard',
+    approved: true,
+    enabled: true,
+    baseUrl: dummyGeminiProvider.baseUrl,
+    apiStyle: 'gemini',
+    secretRef: 'provider:gemini',
+    apiKeyEnv: 'COMMAND_DECK_GEMINI_API_KEY',
+  });
+  if (geminiProfileUpdate.status !== 200) fail('Gemini provider profile update', JSON.stringify(geminiProfileUpdate));
+  const setGeminiSecret = await req('POST', '/api/providers/gemini/secret', {
+    actor: 'dashboard',
+    approved: true,
+    secret: geminiSecret,
+  });
+  if (setGeminiSecret.status !== 200) fail('Gemini provider secret set', JSON.stringify(setGeminiSecret));
+  if (JSON.stringify(setGeminiSecret.body).includes(geminiSecret)) fail('Gemini provider secret response leaked secret');
+
+  const geminiLane = await req('POST', `/api/sessions/${session.body.id}/lanes`, {
+    title: 'smoke Gemini provider lane',
+    executorType: 'gemini',
+    owner: 'smoke',
+    approved: true,
+    taskPrompt: 'Run the full-flow local Gemini provider check.',
+    model: 'gemini-1.5-flash',
+  });
+  if (geminiLane.status !== 201) fail('createGeminiProviderLane', JSON.stringify(geminiLane));
+  const geminiLaneDone = await waitForLaneTerminal(geminiLane.body.id, 'gemini provider');
+  if (geminiLaneDone.body?.state !== 'done') fail('Gemini provider lane should reach done', geminiLaneDone.body?.exitReason || JSON.stringify(geminiLaneDone.body));
+  if (dummyGeminiProvider.requests.length !== 1) fail('dummy Gemini provider should receive one request', String(dummyGeminiProvider.requests.length));
+  if (dummyGeminiProvider.requests[0].headers['x-goog-api-key'] !== geminiSecret) fail('dummy Gemini provider API key header mismatch');
+  if (dummyGeminiProvider.requests[0].headers.authorization) fail('dummy Gemini provider must not receive Authorization header');
+  if (JSON.stringify(geminiLaneDone.body).includes(geminiSecret)) fail('Gemini provider lane leaked secret value');
+  log('geminiProviderLane', `${geminiLaneDone.body.state} via ${geminiLaneDone.body.processMeta?.credentialBackend || 'unknown'} credential backend`);
 } finally {
   await dummyProvider.close();
+  await dummyGeminiProvider.close();
 }
 
 // --- evidence: real if Playwright present, degraded otherwise ---
@@ -305,5 +507,95 @@ const wtRemove = await req('POST', `/api/lanes/${lane.body.id}/worktree/remove`,
 if (wtRemove.status !== 422) fail('worktree remove without managed worktree should be 422', JSON.stringify(wtRemove));
 log('worktreeRemoveShape', `${wtRemove.status} ok`);
 
+// --- private access + PWA static assets ---
+const privateState = await req('GET', '/api/private-access?fakeTailnetState=serve-https');
+if (privateState.status !== 200) fail('private access state', JSON.stringify(privateState));
+if (privateState.body.tailnet?.provider !== 'fake') fail('private access fake tailnet state missing', JSON.stringify(privateState.body));
+const privatePlan = await req('GET', `/api/private-access/setup-plan?localUrl=${encodeURIComponent(base)}`);
+if (privatePlan.status !== 200) fail('private access setup plan', JSON.stringify(privatePlan));
+if (!JSON.stringify(privatePlan.body.commands || []).includes('tailscale serve')) fail('private access setup plan missing tailscale serve command');
+const privateTarget = await req('POST', '/api/private-access/targets', {
+  actor: 'dashboard',
+  label: `Full-flow ${slugSuffix}`,
+  mode: 'local',
+  localUrl: base,
+});
+if (privateTarget.status !== 201) fail('private access target create', JSON.stringify(privateTarget));
+const funnelTarget = await req('POST', '/api/private-access/targets', {
+  actor: 'dashboard',
+  label: 'Blocked Funnel',
+  mode: 'tailnet-https-serve',
+  localUrl: base,
+  httpsServeUrl: 'https://command-deck.funnel.ts.net',
+});
+if (funnelTarget.status !== 422) fail('Funnel private access target should be rejected', JSON.stringify(funnelTarget));
+const privateCheck = await req('POST', `/api/private-access/targets/${privateTarget.body.id}/check`, { actor: 'dashboard' });
+if (privateCheck.status !== 200) fail('private access target check', JSON.stringify(privateCheck));
+const privateDelete = await req('DELETE', `/api/private-access/targets/${privateTarget.body.id}`, { actor: 'dashboard' });
+if (privateDelete.status !== 200) fail('private access target delete', JSON.stringify(privateDelete));
+log('privateAccess', 'fake states, dry-run setup, target check, and Funnel rejection ok');
+
+const webManifest = await req('GET', '/manifest.webmanifest');
+if (webManifest.status !== 200 || !webManifest.text.includes('"start_url"')) fail('web manifest', String(webManifest.status));
+const serviceWorker = await req('GET', '/service-worker.js');
+if (serviceWorker.status !== 200) fail('service worker', String(serviceWorker.status));
+if (!serviceWorker.text.includes('/api/') || !serviceWorker.text.includes('/artifacts/')) fail('service worker missing sensitive route bypasses');
+log('pwa', 'manifest and static-only service worker guards present');
+
+// --- notifications ---
+const notificationSettings = await req('PATCH', '/api/notifications/settings', {
+  actor: 'dashboard',
+  approved: true,
+  inAppEnabled: true,
+  browserEnabled: true,
+  minSeverity: 'info',
+  muted: false,
+});
+if (notificationSettings.status !== 200) fail('notification settings update', JSON.stringify(notificationSettings));
+const notifications = await req('GET', '/api/notifications');
+if (notifications.status !== 200) fail('notifications list', JSON.stringify(notifications));
+if (JSON.stringify(notifications.body).includes(apiSecret) || JSON.stringify(notifications.body).includes(geminiSecret)) {
+  fail('notifications leaked provider secret');
+}
+const markAll = await req('POST', '/api/notifications/read-all', { actor: 'dashboard' });
+if (markAll.status !== 200) fail('notifications mark all read', JSON.stringify(markAll));
+log('notifications', `readAll=${markAll.body.updatedCount ?? 'ok'}`);
+
+// --- import/export redaction ---
+const appExport = await req('GET', '/api/app/export');
+if (appExport.status !== 200) fail('app export', JSON.stringify(appExport));
+if (appExport.body.excludesSecrets !== true || appExport.body.includesAuthSessions !== false) fail('app export redaction flags', JSON.stringify(appExport.body));
+if (JSON.stringify(appExport.body).includes(apiSecret) || JSON.stringify(appExport.body).includes(geminiSecret)) fail('app export leaked provider secret');
+const appImportDryRun = await req('POST', '/api/app/import/dry-run', appExport.body);
+if (appImportDryRun.status !== 200 || appImportDryRun.body.dryRun !== true) fail('app import dry-run', JSON.stringify(appImportDryRun));
+const leakyImport = await req('POST', '/api/app/import/dry-run', {
+  ...appExport.body,
+  secretValue: apiSecret,
+});
+if (leakyImport.status !== 422) fail('leaky app import should be rejected', JSON.stringify(leakyImport));
+if (JSON.stringify(leakyImport.body).includes(apiSecret)) fail('leaky app import echoed secret');
+const supportBundle = await req('GET', '/api/app/support-bundle');
+if (supportBundle.status !== 200) fail('support bundle', JSON.stringify(supportBundle));
+if (JSON.stringify(supportBundle.body).includes(apiSecret) || JSON.stringify(supportBundle.body).includes(geminiSecret)) fail('support bundle leaked provider secret');
+log('appBackup', 'export/import/support redaction ok');
+
+// --- browser proof: paired-cookie desktop and phone screenshots ---
+const browserProof = await captureBrowserScreenshots({
+  sessionCookie,
+  projectId: project.body.id,
+  sessionId: session.body.id,
+  laneId: lane.body.id,
+});
+if (!browserProof.skipped && (!browserProof.screenshots || browserProof.screenshots.length < 2)) {
+  fail('browser screenshot proof incomplete', JSON.stringify(browserProof));
+}
+
 const elapsed = Date.now() - start;
 log('done', `${elapsed}ms`);
+}
+
+try {
+  await main();
+} finally {
+  await cleanupStartedServer();
+}

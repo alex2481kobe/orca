@@ -48,10 +48,14 @@ smoke gates before being listed.
 - `npm run smoke:app-backup` proves whole-app local backup export,
   import dry-run/apply approval, redacted support bundle output, and
   rejection of secret/auth/artifact fields without echoing secret values.
-- `npm run smoke:full-flow` is the named full operator-flow gate and runs
-  the same server-based path as `npm run smoke`, including the local
-  dummy API-provider lane proof when the server uses the safe memory
-  credential backend.
+- `npm run smoke:full-flow` is the named full operator-flow gate. It
+  starts an isolated local server with the safe memory credential
+  backend when no `--base` is supplied, then proves token auth,
+  browser pairing, project/session/lane flow, MCP attachment,
+  OpenAI-compatible and native Gemini dummy API lanes, evidence capture,
+  audit, cleanup dry-run, private-access fake states, PWA static guards,
+  notifications, import/export redaction, and paired-cookie desktop/
+  phone/lane screenshots under `artifacts/full-flow-smoke/`.
 - Real Claude CLI execution flows through the adapter (`claude
   --version` → PID + exit 0).
 - Real Codex CLI is repaired on this host through Homebrew
@@ -162,8 +166,8 @@ executable, and the broken Homebrew Codex symlink was repaired with
 
 ```bash
 npm test
-COMMAND_DECK_API_TOKEN=... COMMAND_DECK_BASE_URL=http://127.0.0.1:3000 npm run smoke
-COMMAND_DECK_API_TOKEN=... COMMAND_DECK_BASE_URL=http://127.0.0.1:3000 npm run smoke:full-flow
+npm run smoke
+npm run smoke:full-flow
 COMMAND_DECK_API_TOKEN=... COMMAND_DECK_BASE_URL=http://127.0.0.1:3000 npm run smoke:ui
 COMMAND_DECK_API_TOKEN=... COMMAND_DECK_BASE_URL=http://127.0.0.1:3000 npm run smoke:ui-inventory
 COMMAND_DECK_API_TOKEN=... COMMAND_DECK_BASE_URL=http://127.0.0.1:3000 npm run smoke:ui-contract
