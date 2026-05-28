@@ -1431,3 +1431,106 @@ test('executor CLI reinstall preference for source commands is respected and sur
     restore();
   }
 });
+
+test('MCP config is generated per-lane with safe path and executor-specific shape', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const project = registry.createProject({ name: 'MCP Config Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'MCP Config Session' }, { actor: 'test', approved: true });
+
+    await registry.createMcpTool({
+      name: 'demo-tool',
+      command: 'node',
+      args: ['-v'],
+      scope: ['all'],
+      enabled: true,
+    }, { actor: 'test', approved: true });
+
+    const lane = registry.createLane(session.id, {
+      title: 'MCP lane',
+      executorType: 'codex',
+      executorBinary: '/usr/bin/codex',
+      mcpToolIds: ['demo-tool'],
+    }, { actor: 'test', approved: true });
+
+    const adapter = registry.getExecutorForType('codex');
+    const runtimeDir = path.join(process.cwd(), 'artifacts', session.id, lane.id);
+    await fs.mkdir(runtimeDir, { recursive: true });
+    const configPath = await adapter._buildMcpConfig(runtimeDir, registry.getLane(lane.id));
+    assert.equal(typeof configPath, 'string');
+    assert.equal(configPath.startsWith(runtimeDir), true);
+    const raw = await fs.readFile(configPath, 'utf8');
+    const parsed = JSON.parse(raw);
+    assert.equal(parsed.laneId, lane.id);
+    assert.equal(parsed.executorType, 'codex');
+    assert.equal(Object.prototype.hasOwnProperty.call(parsed.mcpServers, 'demo-tool'), true);
+    assert.equal(parsed.mcpServers['demo-tool'].command, 'node');
+    assert.deepEqual(parsed.mcpServers['demo-tool'].args, ['-v']);
+
+    const noToolLane = registry.createLane(session.id, {
+      title: 'No tool lane',
+      executorType: 'codex',
+      executorBinary: '/usr/bin/codex',
+    }, { actor: 'test', approved: true });
+    const adapter2 = registry.getExecutorForType('codex');
+    const runtimeDir2 = path.join(process.cwd(), 'artifacts', session.id, noToolLane.id);
+    await fs.mkdir(runtimeDir2, { recursive: true });
+    const noConfig = await adapter2._buildMcpConfig(runtimeDir2, registry.getLane(noToolLane.id));
+    assert.equal(noConfig, null);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('buildExecutorCommandArgs derives safe argv from lane task prompt', async () => {
+  const { buildExecutorCommandArgs } = await import('../src/executor-factory.js');
+  const codexArgs = buildExecutorCommandArgs('codex', {
+    taskPrompt: 'Ship the dashboard',
+    model: 'gpt-5',
+    permissionsProfile: 'restricted',
+    targetUrl: 'http://localhost:5173',
+    mcpConfigPath: '/tmp/mcp.json',
+  });
+  assert.ok(codexArgs.includes('--model'));
+  assert.ok(codexArgs.includes('gpt-5'));
+  assert.ok(codexArgs.includes('--permissions'));
+  assert.ok(codexArgs.includes('restricted'));
+  assert.ok(codexArgs.includes('--mcp-config'));
+  assert.ok(codexArgs.includes('/tmp/mcp.json'));
+  assert.ok(codexArgs.includes('--prompt'));
+  assert.ok(codexArgs.includes('Ship the dashboard'));
+
+  const claudeArgs = buildExecutorCommandArgs('claude', {
+    taskPrompt: 'Audit the auth flow',
+    model: 'claude-opus-4-7',
+    permissionsProfile: 'plan',
+  });
+  assert.ok(claudeArgs.includes('--model'));
+  assert.ok(claudeArgs.includes('claude-opus-4-7'));
+  assert.ok(claudeArgs.includes('--permission-mode'));
+  assert.ok(claudeArgs.includes('plan'));
+  assert.ok(claudeArgs.includes('--print'));
+  // Refuse control characters in derived prompt.
+  const stripped = buildExecutorCommandArgs('codex', { taskPrompt: 'safe\nprompt' });
+  const text = stripped.join('\n');
+  assert.equal(/\x01/.test(text), false);
+});
+
+test('Recovery flips orphaned running lanes to failed with explicit reason', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const project = registry.createProject({ name: 'Lifecycle Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Lifecycle Session' }, { actor: 'test', approved: true });
+    const stuckLane = registry.createLane(session.id, {
+      title: 'stuck lane',
+      executorType: 'mock',
+    }, { actor: 'test', approved: true });
+    const stuck = registry.getLane(stuckLane.id);
+    stuck.state = 'running';
+    registry.recoverInterruptedLanes();
+    assert.equal(registry.getLane(stuckLane.id).state, 'failed');
+    assert.equal(typeof registry.getLane(stuckLane.id).exitReason, 'string');
+  } finally {
+    await cleanup();
+  }
+});

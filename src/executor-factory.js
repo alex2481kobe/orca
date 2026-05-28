@@ -151,6 +151,37 @@ function normalizeAllowedBinaries(value) {
   return out;
 }
 
+function buildExecutorCommandArgs(label, lane) {
+  const taskPrompt = String(lane.taskPrompt || '').trim();
+  if (!taskPrompt) return [];
+  const safePrompt = taskPrompt.replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 4096);
+  const model = String(lane.model || '').trim().slice(0, 120);
+  const permissions = String(lane.permissionsProfile || '').trim().slice(0, 120);
+  const targetUrl = String(lane.targetUrl || '').trim().slice(0, 1024);
+  const out = [];
+  switch (String(label).toLowerCase()) {
+    case 'codex': {
+      if (model) out.push('--model', model);
+      if (permissions) out.push('--permissions', permissions);
+      if (lane.mcpConfigPath) out.push('--mcp-config', lane.mcpConfigPath);
+      if (targetUrl) out.push('--target', targetUrl);
+      out.push('--prompt', safePrompt);
+      break;
+    }
+    case 'claude': {
+      if (model) out.push('--model', model);
+      if (permissions) out.push('--permission-mode', permissions);
+      if (lane.mcpConfigPath) out.push('--mcp-config', lane.mcpConfigPath);
+      if (targetUrl) out.push('--print', `Target: ${targetUrl}\n${safePrompt}`);
+      else out.push('--print', safePrompt);
+      break;
+    }
+    default:
+      out.push(safePrompt);
+  }
+  return out;
+}
+
 function parseEnv(raw) {
   if (!raw || typeof raw !== 'object') return {};
   const output = {};
@@ -273,11 +304,28 @@ class CliExecutorAdapter {
     if (!Array.isArray(lane.mcpTools) || !lane.mcpTools.length) {
       return null;
     }
+    const label = String(this.label || '').toLowerCase();
+    // Codex/Claude both consume a JSON map of servers; preserving the same
+    // shape across executors keeps the dashboard simple while still letting
+    // the file be loaded with executor-native config flags.
+    const servers = {};
+    for (const tool of lane.mcpTools) {
+      const id = String(tool?.id || tool?.name || '').trim();
+      if (!id) continue;
+      servers[id] = {
+        command: tool.command,
+        args: Array.isArray(tool.args) ? tool.args : [],
+        env: tool.env && typeof tool.env === 'object' ? tool.env : {},
+        scope: Array.isArray(tool.scope) ? tool.scope : [],
+        description: tool.description || '',
+      };
+    }
     const config = {
       createdAt: new Date().toISOString(),
       laneId: lane.id,
-      executorType: this.label,
+      executorType: label,
       tools: lane.mcpTools,
+      mcpServers: servers,
     };
     const configPath = path.join(runtimeDir, 'mcp-tools.json');
     await fs.writeFile(configPath, JSON.stringify(config, null, 2));
@@ -329,6 +377,10 @@ class CliExecutorAdapter {
       args = explicitArgs;
     } else if (this.defaultArgs.length) {
       args = [...this.defaultArgs];
+    } else if (lane.taskPrompt) {
+      // Derive a safe, executor-shaped command line from the lane's task prompt
+      // so dashboard users do not have to hand-write shell strings.
+      args = buildExecutorCommandArgs(this.label, lane);
     }
 
     try {
@@ -353,9 +405,26 @@ class CliExecutorAdapter {
         shell: false,
         cwd: safeWorkdir,
         env: this._buildEnv(lane),
+        detached: process.platform !== 'win32',
       });
       runtime.process = child;
       this.runtimes.set(String(lane.id), runtime);
+      lane.processMeta = {
+        pid: child.pid || null,
+        pgid: process.platform === 'win32' ? null : (child.pid || null),
+        binary: safeBinary,
+        args: [...args],
+        cwd: safeWorkdir,
+        envPolicy: this.envWhitelist?.length ? 'allowlist' : 'default',
+        startedAt: new Date(runtime.startedAt).toISOString(),
+        endedAt: null,
+        exitCode: null,
+        signal: null,
+        stopRequestedBy: null,
+        stopResult: null,
+        platform: process.platform,
+        processGroupSupported: process.platform !== 'win32',
+      };
 
       child.stdout?.setEncoding('utf8');
       child.stderr?.setEncoding('utf8');
@@ -374,6 +443,11 @@ class CliExecutorAdapter {
       });
 
       child.on('exit', (code, signal) => {
+        if (lane.processMeta) {
+          lane.processMeta.endedAt = new Date().toISOString();
+          lane.processMeta.exitCode = code;
+          lane.processMeta.signal = signal || null;
+        }
         if (runtime.status !== 'active') return;
         runtime.status = code === 0 ? 'done' : 'failed';
         this.runtimes.delete(String(lane.id));
@@ -414,18 +488,61 @@ class CliExecutorAdapter {
     runtime.status = 'stopping';
     runtime.process.removeAllListeners('exit');
     const proc = runtime.process;
+    const pid = proc.pid;
     this.runtimes.delete(laneKey);
 
-    const killed = proc.kill('SIGTERM');
+    const meta = runtime.lane?.processMeta || null;
+    const tryKillTree = (signal) => {
+      if (!pid) return false;
+      if (process.platform === 'win32') {
+        try { return proc.kill(signal); } catch { return false; }
+      }
+      try {
+        // Negative PID targets the process group created via detached:true.
+        process.kill(-pid, signal);
+        return true;
+      } catch {
+        try { return proc.kill(signal); } catch { return false; }
+      }
+    };
+
+    const killedTerm = tryKillTree('SIGTERM');
+    // Graceful timeout before escalating to SIGKILL.
+    const escalateAfterMs = Number.parseInt(process.env.COMMAND_DECK_STOP_ESCALATE_MS || '', 10) || 4000;
+    const escalation = new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        let escalated = false;
+        if (proc.exitCode === null) {
+          escalated = tryKillTree('SIGKILL');
+        }
+        resolve(escalated);
+      }, escalateAfterMs);
+      timer.unref?.();
+      proc.once('exit', () => {
+        clearTimeout(timer);
+        resolve(false);
+      });
+    });
+    const escalated = await escalation;
+
+    if (meta) {
+      meta.endedAt = meta.endedAt || new Date().toISOString();
+      meta.stopRequestedBy = context.actor || 'dashboard';
+      meta.stopResult = killedTerm
+        ? (escalated ? 'escalated_sigkill' : 'sigterm')
+        : 'no_active_process';
+    }
+
     await safeFire(this.onStop, runtime.lane, {
       actor: context.actor || 'dashboard',
       reason: context.reason || `${this.label} adapter stop requested`,
     });
-    await safeFire(this.onLog, runtime.lane, `${this.label} adapter stopped (${killed ? 'killed' : 'already exited'}).`);
+    await safeFire(this.onLog, runtime.lane, `${this.label} adapter stopped (${killedTerm ? (escalated ? 'sigkill after timeout' : 'sigterm sent') : 'already exited'}).`);
 
     return {
       stopped: true,
-      reason: killed ? 'Stop signal sent.' : 'No running process to stop.',
+      reason: killedTerm ? (escalated ? 'Stop escalated to SIGKILL.' : 'Stop signal sent.') : 'No running process to stop.',
+      processGroupSupported: process.platform !== 'win32',
     };
   }
 
@@ -542,6 +659,8 @@ export function getExecutorProfiles() {
     return accum;
   }, {});
 }
+
+export { buildExecutorCommandArgs };
 
 export function createExecutorAdapter(type, callbacks = {}) {
   const executorType = String(type || 'mock').toLowerCase();
