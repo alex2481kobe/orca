@@ -17,7 +17,20 @@ import {
   changedFilesIn,
 } from './worktree-manager.js';
 
-const { QUEUED: QUEUED_STATE, STARTING: STARTING_STATE, RUNNING: RUNNING_STATE, STOPPED: STOPPED_STATE, DONE: DONE_STATE, FAILED: FAILED_STATE } = LANE_STATES;
+const {
+  QUEUED: QUEUED_STATE,
+  STARTING: STARTING_STATE,
+  RUNNING: RUNNING_STATE,
+  NEEDS_CRITIQUE: NEEDS_CRITIQUE_STATE,
+  READY_FOR_AUDIT: READY_FOR_AUDIT_STATE,
+  AUDITING: AUDITING_STATE,
+  FIX_REQUESTED: FIX_REQUESTED_STATE,
+  ACCEPTED: ACCEPTED_STATE,
+  BLOCKED: BLOCKED_STATE,
+  STOPPED: STOPPED_STATE,
+  DONE: DONE_STATE,
+  FAILED: FAILED_STATE,
+} = LANE_STATES;
 
 const nowIso = () => new Date().toISOString();
 const sleep = async (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -71,6 +84,7 @@ const MAX_MCP_TOOL_ARG_LENGTH = 255;
 const MAX_MCP_TOOL_ARGS = 64;
 const SPAWN_POLICIES = new Set(['never', 'ask', 'within_capacity', 'auto']);
 const IDLE_SHUTDOWN_MODES = new Set(['immediate', 'short_keepalive', 'policy']);
+const CRITIQUE_MODES = new Set(['off', 'suggested', 'required', 'visual-required']);
 const DEFAULT_APPROVED_CAPACITY = 2;
 
 function normalizeSpawnPolicy(value, fallback = 'within_capacity') {
@@ -81,6 +95,11 @@ function normalizeSpawnPolicy(value, fallback = 'within_capacity') {
 function normalizeIdleShutdownMode(value, fallback = 'immediate') {
   const normalized = String(value || fallback).trim().toLowerCase();
   return IDLE_SHUTDOWN_MODES.has(normalized) ? normalized : fallback;
+}
+
+function normalizeCritiqueMode(value, fallback = 'suggested') {
+  const normalized = String(value || fallback).trim().toLowerCase();
+  return CRITIQUE_MODES.has(normalized) ? normalized : fallback;
 }
 
 function normalizeApprovedCapacity(value, fallback = DEFAULT_APPROVED_CAPACITY) {
@@ -442,6 +461,11 @@ const defaultPolicy = {
     requiresApproval: true,
     risk: 'medium',
     message: 'Clears generated evidence artifacts for a lane.',
+  },
+  waiveCritique: {
+    requiresApproval: true,
+    risk: 'medium',
+    message: 'Waives a required self-verification gate before audit.',
   },
   cleanupArtifacts: {
     requiresApproval: true,
@@ -825,6 +849,10 @@ export class CommandDeckRegistry {
       }
       if (!Array.isArray(session.capacityRequests)) {
         session.capacityRequests = [];
+        migrated = true;
+      }
+      if (!CRITIQUE_MODES.has(session.critiqueMode)) {
+        session.critiqueMode = 'suggested';
         migrated = true;
       }
       ensureDirectorySync(session.artifactsRoot);
@@ -1411,6 +1439,7 @@ export class CommandDeckRegistry {
     spawnPolicy = 'within_capacity',
     soloMode = true,
     idleShutdownMode = 'immediate',
+    critiqueMode = 'suggested',
     artifactRetentionDays = 14,
     actor = 'dashboard',
     repoRoot = '',
@@ -1472,6 +1501,7 @@ export class CommandDeckRegistry {
       spawnPolicy: normalizeSpawnPolicy(spawnPolicy),
       soloMode: soloMode !== false,
       idleShutdownMode: normalizeIdleShutdownMode(idleShutdownMode),
+      critiqueMode: normalizeCritiqueMode(critiqueMode),
       capacityRequests: [],
       artifactRetentionDays: retention,
       route: `/projects/${project.slug}/sessions/${sessionId}`,
@@ -1575,6 +1605,152 @@ export class CommandDeckRegistry {
 
     this.persistState();
     return result;
+  }
+
+  critiqueRequiredForLane(lane) {
+    return ['required', 'visual-required'].includes(normalizeCritiqueMode(lane?.critiqueMode, 'suggested'));
+  }
+
+  critiqueSatisfiedForLane(lane) {
+    if (!this.critiqueRequiredForLane(lane)) return true;
+    return lane?.critiqueState === 'satisfied' || lane?.critiqueState === 'waived';
+  }
+
+  hasFreshVisualEvidence(lane) {
+    if (!lane?.lastEvidenceCaptureAt || !lane?.lastEvidence) return false;
+    if (lane.completedAt && Date.parse(lane.lastEvidenceCaptureAt) < Date.parse(lane.completedAt)) return false;
+    const requested = Array.isArray(lane.lastEvidence.requested) ? lane.lastEvidence.requested : [];
+    const produced = Array.isArray(lane.lastEvidence.produced) ? lane.lastEvidence.produced : [];
+    const askedForScreenshot = requested.includes('screenshot') || produced.some((item) => String(item || '').includes('screenshot'));
+    return askedForScreenshot && !['failed', 'degraded'].includes(String(lane.lastEvidence.status || '').toLowerCase());
+  }
+
+  createCritiqueBundle(laneLocator, { actor = 'dashboard' } = {}) {
+    const lane = this.getLane(laneLocator);
+    if (!lane) throw { status: 404, message: 'Lane not found.' };
+    const nonce = randomUUID();
+    lane.critiqueNonce = nonce;
+    lane.critiqueState = 'in_progress';
+    lane.updatedAt = nowIso();
+    const bundle = {
+      laneId: lane.id,
+      sessionId: lane.sessionId,
+      projectId: lane.projectId,
+      critiqueMode: normalizeCritiqueMode(lane.critiqueMode),
+      critiqueRevision: lane.critiqueRevision || 1,
+      critiqueNonce: nonce,
+      evidenceRequired: lane.critiqueMode === 'visual-required',
+      evidenceFresh: lane.critiqueMode === 'visual-required' ? this.hasFreshVisualEvidence(lane) : Boolean(lane.lastEvidence),
+      latestEvidence: clonePayload(lane.lastEvidence || null),
+      state: lane.state,
+      taskPrompt: lane.taskPrompt || '',
+      targetUrl: lane.targetUrl || '',
+    };
+    this.recordAudit({
+      type: 'critique_bundle_created',
+      actor,
+      projectId: lane.projectId,
+      sessionId: lane.sessionId,
+      laneId: lane.id,
+      summary: `Critique bundle created for lane ${lane.title}`,
+      status: 'passed',
+      evidence: { laneId: lane.id, critiqueMode: lane.critiqueMode, critiqueRevision: bundle.critiqueRevision },
+    });
+    this.persistState();
+    return bundle;
+  }
+
+  recordCritiqueFindings(laneLocator, {
+    critiqueNonce,
+    checksRun = [],
+    visualEvidenceReviewed = false,
+    issues = [],
+    fixes = [],
+    risks = [],
+    ready = false,
+    actor = 'dashboard',
+  } = {}) {
+    const lane = this.getLane(laneLocator);
+    if (!lane) throw { status: 404, message: 'Lane not found.' };
+    if (!lane.critiqueNonce || critiqueNonce !== lane.critiqueNonce) {
+      throw { status: 409, message: 'Critique findings are stale or missing the current critique nonce.' };
+    }
+    if (lane.critiqueMode === 'visual-required' && !this.hasFreshVisualEvidence(lane)) {
+      throw { status: 409, message: 'Visual-required critique needs fresh screenshot evidence before findings can satisfy the gate.' };
+    }
+    const finding = {
+      id: randomUUID(),
+      actor: String(actor || 'dashboard').slice(0, 120),
+      recordedAt: nowIso(),
+      critiqueRevision: lane.critiqueRevision || 1,
+      critiqueNonce,
+      checksRun: safeArray(checksRun).map((item) => String(item || '').trim()).filter(Boolean).slice(0, 50),
+      visualEvidenceReviewed: Boolean(visualEvidenceReviewed),
+      issues: safeArray(issues).map((item) => String(item || '').trim()).filter(Boolean).slice(0, 50),
+      fixes: safeArray(fixes).map((item) => String(item || '').trim()).filter(Boolean).slice(0, 50),
+      risks: safeArray(risks).map((item) => String(item || '').trim()).filter(Boolean).slice(0, 50),
+      ready: Boolean(ready),
+    };
+    lane.critiqueFindings = [...safeArray(lane.critiqueFindings), finding].slice(-50);
+    lane.critiqueState = finding.ready ? 'satisfied' : 'needed';
+    lane.critiqueNonce = null;
+    if (finding.ready && lane.state === NEEDS_CRITIQUE_STATE) {
+      lane.state = READY_FOR_AUDIT_STATE;
+    }
+    lane.updatedAt = nowIso();
+    this.recordAudit({
+      type: 'critique_findings_recorded',
+      actor: finding.actor,
+      projectId: lane.projectId,
+      sessionId: lane.sessionId,
+      laneId: lane.id,
+      summary: `Critique findings recorded for lane ${lane.title}`,
+      status: finding.ready ? 'passed' : 'pending',
+      evidence: finding,
+    });
+    this.persistState();
+    return { lane: clonePayload(lane), finding: clonePayload(finding) };
+  }
+
+  waiveCritique(laneLocator, { reason = '', actor = 'dashboard', approved } = {}) {
+    const lane = this.getLane(laneLocator);
+    if (!lane) throw { status: 404, message: 'Lane not found.' };
+    const policyCheck = this.evaluateActionPolicy('waiveCritique', { actor, approved });
+    if (!policyCheck.allowed) {
+      throw {
+        status: 409,
+        message: policyCheck.message,
+        requiresApproval: true,
+        risk: policyCheck.policy.risk,
+      };
+    }
+    const waiverReason = String(reason || '').trim();
+    if (!waiverReason) throw { status: 422, message: 'Critique waiver requires a reason.' };
+    lane.critiqueState = 'waived';
+    lane.critiqueNonce = null;
+    if (lane.state === NEEDS_CRITIQUE_STATE) lane.state = READY_FOR_AUDIT_STATE;
+    lane.updatedAt = nowIso();
+    const waiver = {
+      id: randomUUID(),
+      actor: String(actor || 'dashboard').slice(0, 120),
+      reason: waiverReason.slice(0, 1000),
+      waivedAt: nowIso(),
+      critiqueMode: lane.critiqueMode,
+      evidenceFresh: this.hasFreshVisualEvidence(lane),
+    };
+    lane.critiqueFindings = [...safeArray(lane.critiqueFindings), { ...waiver, waived: true }].slice(-50);
+    this.recordAudit({
+      type: 'critique_waived',
+      actor: waiver.actor,
+      projectId: lane.projectId,
+      sessionId: lane.sessionId,
+      laneId: lane.id,
+      summary: `Critique waived for lane ${lane.title}`,
+      status: 'passed',
+      evidence: waiver,
+    });
+    this.persistState();
+    return { lane: clonePayload(lane), waiver };
   }
 
   async clearLaneEvidenceArtifacts(laneLocator, {
@@ -1707,6 +1883,7 @@ export class CommandDeckRegistry {
     verificationCommand,
     expectedArtifacts,
     targetUrl,
+    critiqueMode,
     repoRoot,
     branch,
     sharedWorktree,
@@ -1842,6 +2019,10 @@ export class CommandDeckRegistry {
     const sanitizedVerificationCommand = typeof verificationCommand === 'string'
       ? verificationCommand.trim().slice(0, 1000) : '';
     const sanitizedTargetUrl = typeof targetUrl === 'string' ? targetUrl.trim().slice(0, 2048) : '';
+    const normalizedCritiqueMode = normalizeCritiqueMode(
+      critiqueMode,
+      sanitizedTargetUrl ? 'visual-required' : normalizeCritiqueMode(session.critiqueMode, 'suggested'),
+    );
     const sanitizedRepoRoot = (derivedRepoRoot || (typeof repoRoot === 'string' ? repoRoot.trim() : '')).slice(0, MAX_WORKDIR_BYTES);
     const sanitizedBranch = (derivedBranch || (typeof branch === 'string' ? branch.trim() : ''))
       .replace(/[^A-Za-z0-9._\-/]/g, '')
@@ -1887,6 +2068,13 @@ export class CommandDeckRegistry {
       changedFiles: [],
       lastEvidenceCaptureAt: null,
       lastEvidence: null,
+      critiqueMode: normalizedCritiqueMode,
+      critiqueState: ['required', 'visual-required'].includes(normalizedCritiqueMode) ? 'needed' : 'not_required',
+      critiqueRevision: 1,
+      critiqueNonce: null,
+      critiqueFindings: [],
+      auditState: 'not_queued',
+      auditFindings: [],
       route: buildLaneRoute(project.slug, session.id, laneId),
       runProfile: {
         autoCompleteMs: Number.parseInt(autoCompleteMs, 10) || this.autoCompleteMs,
@@ -2014,7 +2202,7 @@ export class CommandDeckRegistry {
       };
     }
 
-    if (lane.state !== FAILED_STATE && lane.state !== STOPPED_STATE) {
+    if (![FAILED_STATE, STOPPED_STATE, FIX_REQUESTED_STATE].includes(lane.state)) {
       throw { status: 409, message: `Lane state "${lane.state}" is not retryable.` };
     }
     this.clearLaneExecutor(lane.id);
@@ -2024,6 +2212,10 @@ export class CommandDeckRegistry {
     lane.exitReason = null;
     lane.completedAt = null;
     lane.startedAt = null;
+    lane.auditState = 'not_queued';
+    lane.critiqueState = this.critiqueRequiredForLane(lane) ? 'needed' : 'not_required';
+    lane.critiqueNonce = null;
+    lane.critiqueRevision = (Number.parseInt(lane.critiqueRevision, 10) || 1) + 1;
     this.appendLaneLog(lane, `Retry requested by ${context.actor || 'dashboard'}`);
     this.recordAudit({
       type: 'lane_retried',
@@ -2054,6 +2246,9 @@ export class CommandDeckRegistry {
         risk: policyCheck.policy.risk,
       };
     }
+    if (this.critiqueRequiredForLane(lane) && !this.critiqueSatisfiedForLane(lane)) {
+      throw { status: 409, message: 'Lane requires self-verification before audit can be queued.' };
+    }
 
     const existing = this.auditEvents.find((event) =>
       event.type === 'lane_audit_queued' &&
@@ -2072,6 +2267,7 @@ export class CommandDeckRegistry {
     }
 
     this.appendLaneLog(lane, `Audit requested by ${context.actor || 'dashboard'}`);
+    lane.auditState = 'queued';
     const queueId = this.recordAudit({
       type: 'lane_audit_queued',
       actor: context.actor || 'dashboard',
@@ -2100,7 +2296,11 @@ export class CommandDeckRegistry {
       throw { status: 404, message: 'Session not found.' };
     }
 
-    const doneLanes = this.lanes.filter((lane) => lane.sessionId === session.id && lane.state === DONE_STATE);
+    const doneLanes = this.lanes.filter((lane) =>
+      lane.sessionId === session.id &&
+      [DONE_STATE, READY_FOR_AUDIT_STATE].includes(lane.state) &&
+      (!this.critiqueRequiredForLane(lane) || this.critiqueSatisfiedForLane(lane))
+    );
     if (!doneLanes.length) {
       return { enqueued: 0, queueIds: [] };
     }
@@ -2129,6 +2329,7 @@ export class CommandDeckRegistry {
         continue;
       }
       this.appendLaneLog(lane, `Session-level audit queued by ${context.actor || 'dashboard'}`);
+      lane.auditState = 'queued';
       const queueId = this.recordAudit({
         type: 'session_audit_batch_queued',
         actor: context.actor || 'dashboard',
@@ -2151,6 +2352,116 @@ export class CommandDeckRegistry {
       queueIds,
       alreadyQueued: doneLanes.length - enqueuedNew,
     };
+  }
+
+  acceptLaneAudit(laneLocator, {
+    actor = 'dashboard',
+    findings = [],
+    reviewedFiles = [],
+    verdict = 'accepted',
+  } = {}) {
+    const lane = this.getLane(laneLocator);
+    if (!lane) throw { status: 404, message: 'Lane not found.' };
+    if (this.critiqueRequiredForLane(lane) && !this.critiqueSatisfiedForLane(lane)) {
+      throw { status: 409, message: 'Cannot accept lane before required critique is satisfied.' };
+    }
+    lane.auditState = 'accepted';
+    lane.state = ACCEPTED_STATE;
+    lane.updatedAt = nowIso();
+    const record = {
+      id: randomUUID(),
+      actor: String(actor || 'dashboard').slice(0, 120),
+      verdict,
+      findings: safeArray(findings).map((item) => String(item || '').trim()).filter(Boolean).slice(0, 100),
+      reviewedFiles: safeArray(reviewedFiles).map((item) => String(item || '').trim()).filter(Boolean).slice(0, 200),
+      recordedAt: nowIso(),
+    };
+    lane.auditFindings = [...safeArray(lane.auditFindings), record].slice(-50);
+    for (const event of this.auditEvents) {
+      if (event.laneId === lane.id && event.status === 'pending' && ['lane_audit_queued', 'session_audit_batch_queued'].includes(event.type)) {
+        event.status = 'passed';
+        event.reviewedAt = nowIso();
+      }
+    }
+    this.recordAudit({
+      type: 'lane_audit_accepted',
+      actor: record.actor,
+      projectId: lane.projectId,
+      sessionId: lane.sessionId,
+      laneId: lane.id,
+      summary: `Audit accepted lane ${lane.title}`,
+      status: 'passed',
+      evidence: record,
+    });
+    this.persistState();
+    return { lane: clonePayload(lane), audit: clonePayload(record) };
+  }
+
+  requestLaneFix(laneLocator, {
+    actor = 'dashboard',
+    findings = [],
+    nextTask = '',
+  } = {}) {
+    const lane = this.getLane(laneLocator);
+    if (!lane) throw { status: 404, message: 'Lane not found.' };
+    lane.auditState = 'fix_requested';
+    lane.state = FIX_REQUESTED_STATE;
+    lane.updatedAt = nowIso();
+    const record = {
+      id: randomUUID(),
+      actor: String(actor || 'dashboard').slice(0, 120),
+      findings: safeArray(findings).map((item) => String(item || '').trim()).filter(Boolean).slice(0, 100),
+      nextTask: String(nextTask || '').trim().slice(0, 2000),
+      recordedAt: nowIso(),
+    };
+    lane.auditFindings = [...safeArray(lane.auditFindings), record].slice(-50);
+    this.recordAudit({
+      type: 'lane_audit_fix_requested',
+      actor: record.actor,
+      projectId: lane.projectId,
+      sessionId: lane.sessionId,
+      laneId: lane.id,
+      summary: `Audit requested fix pass for lane ${lane.title}`,
+      status: 'pending',
+      followUpQueued: true,
+      evidence: record,
+    });
+    this.persistState();
+    return { lane: clonePayload(lane), audit: clonePayload(record) };
+  }
+
+  blockLaneAudit(laneLocator, {
+    actor = 'dashboard',
+    reason = '',
+    findings = [],
+  } = {}) {
+    const lane = this.getLane(laneLocator);
+    if (!lane) throw { status: 404, message: 'Lane not found.' };
+    const blockReason = String(reason || '').trim();
+    if (!blockReason) throw { status: 422, message: 'Blocking an audit requires a reason.' };
+    lane.auditState = 'blocked';
+    lane.state = BLOCKED_STATE;
+    lane.updatedAt = nowIso();
+    const record = {
+      id: randomUUID(),
+      actor: String(actor || 'dashboard').slice(0, 120),
+      reason: blockReason.slice(0, 2000),
+      findings: safeArray(findings).map((item) => String(item || '').trim()).filter(Boolean).slice(0, 100),
+      recordedAt: nowIso(),
+    };
+    lane.auditFindings = [...safeArray(lane.auditFindings), record].slice(-50);
+    this.recordAudit({
+      type: 'lane_audit_blocked',
+      actor: record.actor,
+      projectId: lane.projectId,
+      sessionId: lane.sessionId,
+      laneId: lane.id,
+      summary: `Audit blocked lane ${lane.title}`,
+      status: 'failed',
+      evidence: record,
+    });
+    this.persistState();
+    return { lane: clonePayload(lane), audit: clonePayload(record) };
   }
 
   async touchHeartbeat(laneLocator, context = {}) {
@@ -2239,7 +2550,7 @@ export class CommandDeckRegistry {
       };
     }
 
-    const terminalStates = new Set([DONE_STATE, FAILED_STATE, STOPPED_STATE]);
+    const terminalStates = new Set([DONE_STATE, READY_FOR_AUDIT_STATE, ACCEPTED_STATE, FIX_REQUESTED_STATE, BLOCKED_STATE, FAILED_STATE, STOPPED_STATE]);
     const now = Date.now();
     const msPerDay = 24 * 60 * 60 * 1000;
     const summary = {
@@ -2504,7 +2815,7 @@ export class CommandDeckRegistry {
         risk: policyCheck.policy.risk,
       };
     }
-    if (![DONE_STATE, FAILED_STATE, STOPPED_STATE].includes(lane.state)) {
+    if (![DONE_STATE, READY_FOR_AUDIT_STATE, ACCEPTED_STATE, FIX_REQUESTED_STATE, BLOCKED_STATE, FAILED_STATE, STOPPED_STATE].includes(lane.state)) {
       throw { status: 409, message: 'Lane is still active; stop it before removing its worktree.' };
     }
     const result = removeLaneWorktree({
@@ -3231,22 +3542,24 @@ export class CommandDeckRegistry {
 
   markLaneCompleted(lane) {
     const now = nowIso();
-    lane.state = DONE_STATE;
+    const needsCritique = this.critiqueRequiredForLane(lane) && !this.critiqueSatisfiedForLane(lane);
+    lane.state = needsCritique ? NEEDS_CRITIQUE_STATE : DONE_STATE;
     lane.updatedAt = now;
     lane.completedAt = now;
-    lane.exitReason = 'Mock execution completed';
+    lane.exitReason = needsCritique ? 'Execution completed; self-verification required before audit.' : 'Mock execution completed';
     lane.logs.push({ at: now, message: lane.exitReason });
     this.recordAudit({
-      type: 'lane_completed',
+      type: needsCritique ? 'lane_needs_critique' : 'lane_completed',
       actor: 'mock-worker',
       projectId: lane.projectId,
       sessionId: lane.sessionId,
       laneId: lane.id,
-      summary: `Lane ${lane.title} completed`,
+      summary: needsCritique ? `Lane ${lane.title} needs self-verification` : `Lane ${lane.title} completed`,
       evidence: { lane },
-      status: 'passed',
+      status: needsCritique ? 'pending' : 'passed',
+      followUpQueued: needsCritique,
     });
-    this._trackAsync(this.writeLaneArtifacts(lane, 'done').catch(() => {}));
+    this._trackAsync(this.writeLaneArtifacts(lane, lane.state).catch(() => {}));
     this.clearLaneExecutor(lane.id);
     this.persistState();
   }

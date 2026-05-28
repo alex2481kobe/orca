@@ -94,6 +94,16 @@ const TOOL_DEFINITIONS = [
     summary: 'Stop or shut down a lane worker.',
   },
   {
+    id: 'lane.retry',
+    group: 'lane',
+    roles: ['orchestrator', 'dashboard'],
+    method: 'POST',
+    route: '/api/lanes/{laneId}/retry',
+    implemented: true,
+    mutating: true,
+    summary: 'Retry a failed, stopped, or fix-requested lane.',
+  },
+  {
     id: 'lane.archive',
     group: 'lane',
     roles: ['orchestrator', 'dashboard'],
@@ -146,20 +156,20 @@ const TOOL_DEFINITIONS = [
   {
     id: 'critique.bundle.create',
     group: 'critique',
-    roles: ['executor', 'orchestrator', 'critique'],
+    roles: ['executor', 'orchestrator', 'critique', 'dashboard'],
     method: 'POST',
-    route: null,
-    implemented: false,
+    route: '/api/lanes/{laneId}/critique/bundle',
+    implemented: true,
     mutating: true,
     summary: 'Create a self-verification bundle for the current lane revision.',
   },
   {
     id: 'critique.findings.record',
     group: 'critique',
-    roles: ['executor', 'critique'],
+    roles: ['executor', 'orchestrator', 'critique', 'dashboard'],
     method: 'POST',
-    route: null,
-    implemented: false,
+    route: '/api/lanes/{laneId}/critique/findings',
+    implemented: true,
     mutating: true,
     summary: 'Record critique findings against a nonce/revision.',
   },
@@ -168,8 +178,8 @@ const TOOL_DEFINITIONS = [
     group: 'critique',
     roles: ['orchestrator', 'dashboard'],
     method: 'POST',
-    route: null,
-    implemented: false,
+    route: '/api/lanes/{laneId}/critique/waive',
+    implemented: true,
     mutating: true,
     summary: 'Waive critique with reason and audit record.',
   },
@@ -206,40 +216,40 @@ const TOOL_DEFINITIONS = [
   {
     id: 'audit.findings.record',
     group: 'audit',
-    roles: ['auditor', 'orchestrator'],
+    roles: ['auditor', 'orchestrator', 'dashboard'],
     method: 'POST',
-    route: null,
-    implemented: false,
+    route: '/api/lanes/{laneId}/audit/findings',
+    implemented: true,
     mutating: true,
-    summary: 'Record audit findings.',
+    summary: 'Record audit findings and choose accept, request-fix, or block verdict.',
   },
   {
     id: 'audit.accept',
     group: 'audit',
-    roles: ['auditor', 'orchestrator'],
+    roles: ['auditor', 'orchestrator', 'dashboard'],
     method: 'POST',
-    route: null,
-    implemented: false,
+    route: '/api/lanes/{laneId}/audit/accept',
+    implemented: true,
     mutating: true,
     summary: 'Accept audited lane work.',
   },
   {
     id: 'audit.request_fix',
     group: 'audit',
-    roles: ['auditor', 'orchestrator'],
+    roles: ['auditor', 'orchestrator', 'dashboard'],
     method: 'POST',
-    route: null,
-    implemented: false,
+    route: '/api/lanes/{laneId}/audit/request-fix',
+    implemented: true,
     mutating: true,
     summary: 'Request a fix pass after audit.',
   },
   {
     id: 'audit.block',
     group: 'audit',
-    roles: ['auditor', 'orchestrator'],
+    roles: ['auditor', 'orchestrator', 'dashboard'],
     method: 'POST',
-    route: null,
-    implemented: false,
+    route: '/api/lanes/{laneId}/audit/block',
+    implemented: true,
     mutating: true,
     summary: 'Block an audit with a reason.',
   },
@@ -583,7 +593,7 @@ function latestPendingAudit(registry, laneId) {
   return events.find((event) =>
     event &&
     event.laneId === laneId &&
-    event.type === 'lane_audit_queued' &&
+    ['lane_audit_queued', 'session_audit_batch_queued'].includes(event.type) &&
     event.status === 'pending'
   ) || null;
 }
@@ -592,13 +602,44 @@ function laneLoopState(lane) {
   if (!lane) return 'session_planning';
   if (lane.state === 'queued') return 'lane_queued';
   if (lane.state === 'starting' || lane.state === 'running') return 'lane_active';
+  if (lane.state === 'needs_critique') return 'needs_self_verification';
+  if (lane.state === 'ready_for_audit') return 'ready_for_audit';
+  if (lane.state === 'auditing') return 'audit_in_progress';
+  if (lane.state === 'fix_requested') return 'fix_requested';
+  if (lane.state === 'accepted') return 'accepted';
+  if (lane.state === 'blocked') return 'blocked';
   if (lane.state === 'done') return 'ready_for_audit';
   if (lane.state === 'failed') return 'lane_failed';
   if (lane.state === 'stopped') return 'lane_stopped';
   return `lane_${lane.state || 'unknown'}`;
 }
 
-function chooseNextTool({ role, project, session, lane, auditQueued }) {
+function critiqueRequiredForLane(registry, lane) {
+  if (!lane) return false;
+  if (typeof registry?.critiqueRequiredForLane === 'function') {
+    return registry.critiqueRequiredForLane(lane);
+  }
+  return ['required', 'visual-required'].includes(String(lane.critiqueMode || '').toLowerCase());
+}
+
+function critiqueSatisfiedForLane(registry, lane) {
+  if (!lane) return true;
+  if (typeof registry?.critiqueSatisfiedForLane === 'function') {
+    return registry.critiqueSatisfiedForLane(lane);
+  }
+  if (!critiqueRequiredForLane(registry, lane)) return true;
+  return ['satisfied', 'waived'].includes(lane.critiqueState);
+}
+
+function evidenceFreshForLane(registry, lane) {
+  if (!lane) return false;
+  if (lane.critiqueMode === 'visual-required' && typeof registry?.hasFreshVisualEvidence === 'function') {
+    return registry.hasFreshVisualEvidence(lane);
+  }
+  return Boolean(lane.lastEvidence && lane.lastEvidenceCaptureAt);
+}
+
+function chooseNextTool({ registry, role, project, session, lane, auditQueued }) {
   const normalizedRole = normalizeRole(role);
   if (!project) return 'project.list';
   if (!session) return 'project.describe';
@@ -609,9 +650,16 @@ function chooseNextTool({ role, project, session, lane, auditQueued }) {
   }
   if (lane.state === 'queued') return normalizedRole === 'executor' ? 'session.next_action' : 'session.next_action';
   if (lane.state === 'starting' || lane.state === 'running') return normalizedRole === 'executor' ? 'lane.heartbeat' : 'session.next_action';
-  if (lane.state === 'done') return auditQueued ? 'session.next_action' : 'audit.queue_one';
-  if (lane.state === 'failed') return 'session.next_action';
-  if (lane.state === 'stopped') return 'session.next_action';
+  if (lane.state === 'needs_critique') {
+    if (lane.critiqueMode === 'visual-required' && !evidenceFreshForLane(registry, lane)) {
+      return 'evidence.capture_screenshot';
+    }
+    return lane.critiqueNonce ? 'critique.findings.record' : 'critique.bundle.create';
+  }
+  if (lane.state === 'done' || lane.state === 'ready_for_audit') return auditQueued ? 'audit.findings.record' : 'audit.queue_one';
+  if (lane.state === 'fix_requested') return 'lane.retry';
+  if (lane.state === 'failed') return 'lane.retry';
+  if (lane.state === 'stopped') return 'lane.retry';
   return 'session.next_action';
 }
 
@@ -661,6 +709,7 @@ function buildNextActionEnvelope(registry, {
   const allowedTools = availableToolIdsForRole(normalizedRole);
   const auditQueued = lane ? Boolean(latestPendingAudit(registry, lane.id)) : false;
   const nextRequiredTool = chooseNextTool({
+    registry,
     role: normalizedRole,
     project,
     session,
@@ -668,9 +717,12 @@ function buildNextActionEnvelope(registry, {
     auditQueued,
   });
   const nextTool = findTool(nextRequiredTool);
-  const evidenceRequired = Boolean(lane?.targetUrl);
-  const evidenceFresh = Boolean(lane?.lastEvidence && lane?.lastEvidenceCaptureAt);
-  const auditRequired = Boolean(lane && lane.state === 'done');
+  const critiqueRequired = critiqueRequiredForLane(registry, lane);
+  const critiqueSatisfied = critiqueSatisfiedForLane(registry, lane);
+  const evidenceRequired = Boolean(lane?.targetUrl || lane?.critiqueMode === 'visual-required');
+  const evidenceFresh = evidenceFreshForLane(registry, lane);
+  const auditRequired = Boolean(lane && ['done', 'ready_for_audit'].includes(lane.state));
+  const auditSatisfied = Boolean(lane && (lane.auditState === 'accepted' || lane.state === 'accepted'));
 
   return {
     contractVersion: CONTRACT_VERSION,
@@ -688,10 +740,10 @@ function buildNextActionEnvelope(registry, {
       : (session ? `Session "${session.name}" is ready for orchestration.` : (project ? `Project "${project.name}" is selected.` : 'No project selected.')),
     evidenceRequired,
     evidenceFresh,
-    critiqueRequired: false,
-    critiqueSatisfied: true,
+    critiqueRequired,
+    critiqueSatisfied,
     auditRequired,
-    auditSatisfied: auditRequired ? auditQueued : true,
+    auditSatisfied: auditRequired ? auditSatisfied : true,
     capacity: buildCapacity(registry, session),
     links: buildLinks({ project, session, lane }),
   };

@@ -352,6 +352,13 @@ function buildMobileManifest(req) {
                 evidencePresetsUrl: `${origin}/api/lanes/${lane.id}/evidence/presets`,
                 evidenceClearUrl: `${origin}/api/lanes/${lane.id}/evidence/clear`,
                 auditApi: `/api/lanes/${lane.id}/audit`,
+                critiqueBundleUrl: `${origin}/api/lanes/${lane.id}/critique/bundle`,
+                critiqueFindingsUrl: `${origin}/api/lanes/${lane.id}/critique/findings`,
+                critiqueWaiveUrl: `${origin}/api/lanes/${lane.id}/critique/waive`,
+                auditAcceptUrl: `${origin}/api/lanes/${lane.id}/audit/accept`,
+                auditFindingsUrl: `${origin}/api/lanes/${lane.id}/audit/findings`,
+                auditRequestFixUrl: `${origin}/api/lanes/${lane.id}/audit/request-fix`,
+                auditBlockUrl: `${origin}/api/lanes/${lane.id}/audit/block`,
                 auditEventsUrl: `${origin}/api/lanes/${lane.id}/audit-events`,
               };
             }),
@@ -1257,6 +1264,94 @@ async function handleApi(req, res, pathname, method, parts) {
           error: error.message || 'Could not queue lane audit.',
           requiresApproval: error.requiresApproval || false,
           risk: error.risk || null,
+        });
+      }
+    }
+
+    if (parts.length === 5 && parts[3] === 'critique' && parts[4] === 'bundle' && method === 'POST') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
+      try {
+        const bundle = registry.createCritiqueBundle(lane.id, {
+          actor: body.actor || 'dashboard',
+        });
+        return sendJson(res, 201, bundle);
+      } catch (error) {
+        return sendJson(res, error.status || 500, {
+          error: error.message || 'Could not create critique bundle.',
+        });
+      }
+    }
+
+    if (parts.length === 5 && parts[3] === 'critique' && parts[4] === 'findings' && method === 'POST') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
+      try {
+        const result = registry.recordCritiqueFindings(lane.id, {
+          ...body,
+          actor: body.actor || 'dashboard',
+        });
+        return sendJson(res, 200, result);
+      } catch (error) {
+        return sendJson(res, error.status || 500, {
+          error: error.message || 'Could not record critique findings.',
+        });
+      }
+    }
+
+    if (parts.length === 5 && parts[3] === 'critique' && parts[4] === 'waive' && method === 'POST') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
+      try {
+        const result = registry.waiveCritique(lane.id, {
+          ...body,
+          actor: body.actor || 'dashboard',
+        });
+        return sendJson(res, 200, result);
+      } catch (error) {
+        return sendJson(res, error.status || 500, {
+          error: error.message || 'Could not waive critique.',
+          requiresApproval: error.requiresApproval || false,
+          risk: error.risk || null,
+        });
+      }
+    }
+
+    if (parts.length === 5 && parts[3] === 'audit' && ['accept', 'findings', 'request-fix', 'block'].includes(parts[4]) && method === 'POST') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
+      try {
+        let result;
+        const verdict = String(body.verdict || body.disposition || '').trim().toLowerCase();
+        if (parts[4] === 'accept' || (parts[4] === 'findings' && ['accept', 'accepted', 'pass', 'passed'].includes(verdict))) {
+          result = registry.acceptLaneAudit(lane.id, {
+            ...body,
+            actor: body.actor || 'dashboard',
+            verdict: body.verdict || 'accepted',
+          });
+        } else if (parts[4] === 'request-fix' || (parts[4] === 'findings' && ['fix', 'request_fix', 'fix_requested', 'needs_fix'].includes(verdict))) {
+          result = registry.requestLaneFix(lane.id, {
+            ...body,
+            actor: body.actor || 'dashboard',
+          });
+        } else if (parts[4] === 'block' || (parts[4] === 'findings' && ['block', 'blocked'].includes(verdict))) {
+          result = registry.blockLaneAudit(lane.id, {
+            ...body,
+            actor: body.actor || 'dashboard',
+          });
+        } else {
+          return sendJson(res, 422, {
+            error: 'Audit findings require verdict: accepted, fix_requested, or blocked.',
+          });
+        }
+        return sendJson(res, 200, result);
+      } catch (error) {
+        return sendJson(res, error.status || 500, {
+          error: error.message || 'Could not record audit outcome.',
         });
       }
     }

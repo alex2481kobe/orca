@@ -120,6 +120,30 @@ test('nextAction envelope only advertises an implemented nextRequiredTool', asyn
     assert.equal(active.evidenceFresh, false);
 
     registry.markLaneCompleted(registry.getLane(lane.id));
+    const critique = buildNextActionEnvelope(registry, {
+      role: 'orchestrator',
+      projectId: project.id,
+      sessionId: session.id,
+      laneId: lane.id,
+    });
+    assert.equal(critique.nextRequiredTool, 'evidence.capture_screenshot');
+    assert.equal(critique.critiqueRequired, true);
+    assert.equal(critique.critiqueSatisfied, false);
+    const target = registry.getLane(lane.id);
+    target.lastEvidenceCaptureAt = new Date(Date.now() + 1000).toISOString();
+    target.lastEvidence = {
+      status: 'captured',
+      requested: ['screenshot'],
+      produced: ['evidence-screenshot.png'],
+    };
+    const bundle = registry.createCritiqueBundle(lane.id, { actor: 'test' });
+    registry.recordCritiqueFindings(lane.id, {
+      actor: 'test',
+      critiqueNonce: bundle.critiqueNonce,
+      checksRun: ['reviewed screenshot'],
+      visualEvidenceReviewed: true,
+      ready: true,
+    });
     const audit = buildNextActionEnvelope(registry, {
       role: 'orchestrator',
       projectId: project.id,
