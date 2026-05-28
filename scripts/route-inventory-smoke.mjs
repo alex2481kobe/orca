@@ -182,6 +182,7 @@ async function main() {
     'sessions',
     'static-app',
     'static-artifacts',
+    'streams',
     'system',
   ];
   for (const group of requiredGroups) {

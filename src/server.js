@@ -17,6 +17,11 @@ import {
   classifyRequestForRateLimit,
   createRateLimiter,
 } from './rate-limiter.js';
+import {
+  buildStreamSnapshot,
+  streamHeartbeatMs,
+  writeSse,
+} from './event-streams.js';
 import { fileURLToPath } from 'node:url';
 
 const PORT = Number(process.env.PORT || 3000);
@@ -80,6 +85,13 @@ function sameOriginAllowed(req) {
 
 function currentBrowserSession(req) {
   return authSessions.sessionFromCookieHeader(req.headers.cookie || '');
+}
+
+function hasStreamAuth(req) {
+  if (!API_TOKEN) return true;
+  if (hasValidApiToken(req)) return true;
+  const session = currentBrowserSession(req);
+  return Boolean(session && sameOriginAllowed(req));
 }
 
 function requireMutatingToken(req, res) {
@@ -197,6 +209,56 @@ function sendText(res, status, text, type = 'text/plain; charset=utf-8') {
   res.setHeader('Content-Type', type);
   res.setHeader('Cache-Control', 'no-cache');
   res.end(String(text));
+}
+
+function handleEventStream(req, res) {
+  if (!hasStreamAuth(req)) {
+    return sendJson(res, 401, {
+      error: 'Unauthorized stream. Supply a valid COMMAND_DECK_API_TOKEN header or pair this browser session.',
+    });
+  }
+  const searchParams = getSearchParams(req.url || '/');
+  if (!searchParams) return sendJson(res, 400, { error: 'Invalid request query string.' });
+  const once = searchParams.get('once') === 'true';
+  const startedAt = new Date().toISOString();
+  res.statusCode = 200;
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.setHeader('X-CommandDeck-Stream', 'events');
+  writeSse(res, 'stream_open', {
+    contractVersion: 'command-deck.streams.v1',
+    startedAt,
+    heartbeatMs: streamHeartbeatMs(),
+  });
+  writeSse(res, 'snapshot', buildStreamSnapshot(registry));
+  if (once) {
+    writeSse(res, 'stream_close', {
+      reason: 'once',
+      closedAt: new Date().toISOString(),
+    });
+    res.end();
+    return undefined;
+  }
+  const interval = setInterval(() => {
+    if (!hasStreamAuth(req)) {
+      writeSse(res, 'stream_close', {
+        reason: 'auth_revoked',
+        closedAt: new Date().toISOString(),
+      });
+      clearInterval(interval);
+      res.end();
+      return;
+    }
+    writeSse(res, 'heartbeat', {
+      at: new Date().toISOString(),
+      counts: buildStreamSnapshot(registry).counts,
+    });
+  }, streamHeartbeatMs());
+  if (typeof interval.unref === 'function') interval.unref();
+  res.on?.('close', () => clearInterval(interval));
+  return undefined;
 }
 
 function normalizePathname(requestUrl) {
@@ -341,6 +403,7 @@ function buildMobileManifest(req) {
     agentToolsNextActionUrl: `${origin}/api/agent-tools/next-action`,
     agentToolsLeaseUrl: `${origin}/api/agent-tools/leases`,
     routeInventoryUrl: `${origin}/api/route-inventory`,
+    eventStreamUrl: `${origin}/api/streams/events`,
     pwaManifestUrl: `${origin}/manifest.webmanifest`,
     serviceWorkerUrl: `${origin}/service-worker.js`,
     mobileManifestUrl: `${origin}/api/mobile/manifest`,
@@ -744,6 +807,10 @@ async function handleApi(req, res, pathname, method, parts) {
 
   if (parts[1] === 'route-inventory' && method === 'GET') {
     return sendJson(res, 200, buildRouteInventory());
+  }
+
+  if (parts[1] === 'streams' && parts[2] === 'events' && method === 'GET') {
+    return handleEventStream(req, res);
   }
 
   if (parts[1] === 'agent-tools') {

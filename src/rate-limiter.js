@@ -11,6 +11,7 @@ const DEFAULT_LIMITS = {
   processControl: { limit: 60, windowMs: 60_000 },
   cleanup: { limit: 12, windowMs: 60_000 },
   agentLease: { limit: 60, windowMs: 60_000 },
+  stream: { limit: 30, windowMs: 60_000 },
   privateAccess: { limit: 60, windowMs: 60_000 },
   mcpMutation: { limit: 60, windowMs: 60_000 },
   defaultMutation: { limit: 180, windowMs: 60_000 },
@@ -84,6 +85,7 @@ function classifyRoute(method, parts) {
   if (p1 === 'executors' && p4 === 'reinstall') return 'processControl';
   if (p1 === 'artifacts' && p2 === 'cleanup') return 'cleanup';
   if (p1 === 'agent-tools' && p2 === 'leases') return 'agentLease';
+  if (p1 === 'streams') return 'stream';
   if (p1 === 'private-access') return verb === 'GET' ? 'defaultRead' : 'privateAccess';
   if (p1 === 'mcp' && verb !== 'GET') return 'mcpMutation';
   if (verb !== 'GET') return 'defaultMutation';

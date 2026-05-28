@@ -51,6 +51,7 @@ test('route inventory has complete security metadata for every inventoried route
     'private-access',
     'providers',
     'pwa',
+    'streams',
     'system',
   ]) {
     assert.ok(inventory.groups[group] > 0, `missing group ${group}`);
