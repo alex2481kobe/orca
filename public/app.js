@@ -467,11 +467,6 @@ function renderHome() {
       <span>${safeText(project.name)}</span>
     </a>
   `).join('');
-  const preferredSession = shell.sessions.find((session) => {
-    const project = shell.projects.find((item) => item.id === session.projectId);
-    return project && !isVerificationProject(project);
-  });
-  const chatHref = preferredSession?.route || '#projects';
   const showMainHome = panel === 'overview' || panel === 'projects';
 
   refs.content.innerHTML = `
@@ -479,11 +474,10 @@ function renderHome() {
       <h3>Projects</h3>
       <a class="simple-row" href="#create">
         <span class="row-icon">＋</span>
-        <span>New chat</span>
+        <span>New project</span>
       </a>
       ${projectRows || '<div class="muted">No projects yet.</div>'}
     </section>
-    <a class="floating-chat ${showMainHome ? '' : 'is-hidden'}" href="${safeAttr(chatHref)}">Chat</a>
     <div class="stat-grid compact-stats settings-stats is-hidden">
       <div class="stat">
         <b>${shell.projects.length}</b>
@@ -813,7 +807,7 @@ function renderSession(project, session) {
         <p>Policy profile: ${safeText(session.policyProfile || 'default')}</p>
       </div>
       <div class="grid-2">
-        <article class="card control-card">
+        <article class="card control-card" id="create-session">
           <details class="disclosure">
             <summary>
               <span>Create lane</span>
@@ -1108,25 +1102,19 @@ function renderSidebarProjects(activeProject) {
     }).join('');
     return `
       <div class="sidebar-project-group ${isActive ? 'active' : ''}">
-        <a class="sidebar-link" href="${safeAttr(project.route)}" data-route-project="${safeAttr(project.slug)}">
-          <span>${safeText(project.name)}</span>
-          ${active ? `<span class="pill" title="${active} active lanes">${active}</span>` : ''}
-        </a>
+        <div class="sidebar-project-line">
+          <a class="sidebar-link" href="${safeAttr(project.route)}" data-route-project="${safeAttr(project.slug)}">
+            <span>${safeText(project.name)}</span>
+            ${active ? `<span class="pill" title="${active} active lanes">${active}</span>` : ''}
+          </a>
+          <a class="sidebar-compose" href="${safeAttr(project.route)}#create-session" aria-label="Create session in ${safeAttr(project.name)}">✎</a>
+        </div>
         ${sessionRows || '<div class="tiny muted sidebar-empty">No sessions yet.</div>'}
       </div>
     `;
   };
   const primaryProjects = projects.filter((project) => !isVerificationProject(project));
-  const verificationProjects = projects.filter(isVerificationProject);
-  refs.sidebarProjects.innerHTML = [
-    primaryProjects.map(renderSidebarProject).join(''),
-    verificationProjects.length ? `
-      <details class="sidebar-disclosure">
-        <summary>Verification runs <span class="pill">${verificationProjects.length}</span></summary>
-        <div class="sidebar-list">${verificationProjects.map(renderSidebarProject).join('')}</div>
-      </details>
-    ` : '',
-  ].filter(Boolean).join('');
+  refs.sidebarProjects.innerHTML = primaryProjects.map(renderSidebarProject).join('');
 }
 
 async function loadEvidenceGallery(laneId) {
