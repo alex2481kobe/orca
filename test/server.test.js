@@ -212,3 +212,71 @@ test('executor CLI reinstall endpoints require explicit confirmation before exec
     await server.stop();
   }
 });
+
+test('server MCP tooling routes require token and support CRUD workflow', async () => {
+  const token = 'route-token-04';
+  const server = await startServer({ token });
+
+  try {
+    const deniedCreate = await server.requestJson('/api/mcp/tools', {
+      method: 'POST',
+      body: {
+        name: 'route-tool',
+        command: 'node',
+        scope: ['all'],
+        args: ['--version'],
+        enabled: true,
+      },
+    });
+    assert.equal(deniedCreate.status, 401);
+
+    const created = await server.requestJson('/api/mcp/tools', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        name: 'route-tool',
+        command: 'node',
+        scope: ['all'],
+        args: ['--version'],
+        enabled: true,
+        approved: true,
+      },
+    });
+    assert.equal(created.status, 201);
+    assert.equal(created.body.name, 'route-tool');
+
+    const listed = await server.requestJson('/api/mcp/tools', { method: 'GET' });
+    assert.equal(listed.status, 200);
+    assert.equal(Array.isArray(listed.body), true);
+    assert.equal(listed.body.length, 1);
+
+    const fetched = await server.requestJson(`/api/mcp/tools/${created.body.id}`, { method: 'GET' });
+    assert.equal(fetched.status, 200);
+    assert.equal(fetched.body.id, created.body.id);
+
+    const updated = await server.requestJson(`/api/mcp/tools/${created.body.id}`, {
+      method: 'PATCH',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        enabled: false,
+        approved: true,
+      },
+    });
+    assert.equal(updated.status, 200);
+    assert.equal(updated.body.enabled, false);
+
+    const deleted = await server.requestJson(`/api/mcp/tools/${created.body.id}`, {
+      method: 'DELETE',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        approved: true,
+      },
+    });
+    assert.equal(deleted.status, 200);
+
+    const afterDelete = await server.requestJson(`/api/mcp/tools/${created.body.id}`, { method: 'GET' });
+    assert.equal(afterDelete.status, 404);
+  } finally {
+    await server.stop();
+  }
+});
