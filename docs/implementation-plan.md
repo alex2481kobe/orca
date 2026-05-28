@@ -157,8 +157,17 @@ smoke gates before being listed.
 
 ## External blockers (operator-actionable, surfaced in the dashboard)
 
-There are no known external blockers as of this writing. Playwright +
-Chromium are installed locally and exercised end-to-end, Claude is
+The app-side implementation is locally proven. Remaining blockers are external
+operator/device setup, not missing local code:
+
+- Live Tailscale Serve activation requires the user-owned tailnet and device
+  approval. Use `docs/tailscale-mobile-access.md` for exact HTTP and HTTPS
+  Serve commands, status checks, Funnel-off verification, shutdown commands,
+  and phone reachability checks.
+- Native Tauri/iOS/Android packaging is a later product phase. PWA phone-first
+  support is the v1 app path.
+
+Playwright + Chromium are installed locally and exercised end-to-end, Claude is
 executable, and the broken Homebrew Codex symlink was repaired with
 `brew reinstall --cask codex`.
 
@@ -168,6 +177,7 @@ executable, and the broken Homebrew Codex symlink was repaired with
 npm test
 npm run smoke
 npm run smoke:full-flow
+npm run smoke:private-access
 COMMAND_DECK_API_TOKEN=... COMMAND_DECK_BASE_URL=http://127.0.0.1:3000 npm run smoke:ui
 COMMAND_DECK_API_TOKEN=... COMMAND_DECK_BASE_URL=http://127.0.0.1:3000 npm run smoke:ui-inventory
 COMMAND_DECK_API_TOKEN=... COMMAND_DECK_BASE_URL=http://127.0.0.1:3000 npm run smoke:ui-contract

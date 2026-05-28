@@ -40,39 +40,69 @@ lane workdirs), etc. before `npm run dev`.
 ## 3. Smoke the API + UI from the Mac
 
 ```bash
-COMMAND_DECK_API_TOKEN=$COMMAND_DECK_API_TOKEN \
-  COMMAND_DECK_BASE_URL=http://127.0.0.1:3000 \
-  npm run smoke
+npm run smoke
 ```
 
-This walks the full operator flow: health, policy, mobile manifest, project /
-session / lane creation, mock lane completion, MCP tool CRUD + Codex lane
-attachment, evidence capture (degraded if Playwright is missing), audit queue
-and acknowledgement, cleanup dry-run. Exit code `0` means tonight is good.
+This starts an isolated local test server and walks the full operator flow:
+token auth, browser pairing, project/session/lane creation, mock lane
+completion, MCP tool CRUD + Codex lane attachment, OpenAI-compatible and
+Gemini dummy API provider lanes, evidence capture, audit, cleanup dry-run,
+private-access fake states, PWA guards, notifications, import/export redaction,
+and desktop/phone/lane screenshots. Exit code `0` means the app-side flow is
+ready for live Tailscale verification.
 
 ## 4. Expose privately through Tailscale Serve
 
+Default recommendation for v1 is HTTP over the tailnet. It keeps the URL as a
+MagicDNS/private tailnet name and avoids advertising a public `*.ts.net` HTTPS
+hostname, while still staying private to devices on the same tailnet.
+
 ```bash
-# Serve the local Command Deck origin to the tailnet. HTTPS only.
-tailscale serve --bg --tls-terminated-tcp=443 http://127.0.0.1:3000
+# HTTP over Tailscale, private to the tailnet.
+tailscale serve --bg --http=80 localhost:3000
 
 # Verify what's published.
 tailscale serve status
 ```
 
-Expected output: one entry mapping `https://<your-mac>.<tailnet>.ts.net/` to
-`http://127.0.0.1:3000`. Funnel must be OFF (`tailscale funnel status` should
-print "no Funnel"). If it shows a Funnel entry, run
-`tailscale funnel off` immediately.
+Expected HTTP URL shape: `http://<your-mac>/` through MagicDNS from devices on
+the same tailnet.
+
+Use HTTPS Serve only when you need secure-context browser features such as PWA
+install behavior, stricter browser notification behavior, or APIs that require
+HTTPS:
+
+```bash
+# HTTPS over Tailscale Serve, still private to the tailnet.
+tailscale serve --bg --https=443 localhost:3000
+
+# Verify what's published.
+tailscale serve status
+```
+
+Expected HTTPS URL shape: `https://<your-mac>.<tailnet>.ts.net/`.
+
+Funnel must be OFF. Check with:
+
+```bash
+tailscale funnel status
+```
+
+If it shows any Funnel entry, run:
+
+```bash
+tailscale funnel off
+```
 
 ## 5. Verify from the phone (on the same tailnet)
 
 Open the following in mobile Safari/Chrome:
 
-1. `https://<your-mac>.<tailnet>.ts.net/` — dashboard loads. Set the API token
-   in the dashboard token field (or use `?apiToken=...` once to bootstrap).
-2. `https://<your-mac>.<tailnet>.ts.net/api/health` — JSON `{ "status": "ok" }`.
-3. `https://<your-mac>.<tailnet>.ts.net/api/mobile/manifest` — JSON containing
+1. `http://<your-mac>/` or `https://<your-mac>.<tailnet>.ts.net/` — dashboard
+   loads. Pair the browser with a one-time pairing code or enter the API token
+   in the dashboard token field. Do not put tokens in URLs.
+2. `<base-url>/api/health` — JSON `{ "status": "ok" }`.
+3. `<base-url>/api/mobile/manifest` — JSON containing
    `apiTokenRequired: true`, all your projects, lanes, and the full set of
    action URLs the dashboard uses.
 
@@ -121,8 +151,23 @@ overflows the viewport, and saves screenshots into
 ## 8. Shutdown
 
 - `Ctrl-C` the `npm run dev` process.
-- `tailscale serve --bg http://127.0.0.1:3000 off` (or
-  `tailscale serve reset`) to take the URL down when you are done.
+- If you used HTTP Serve:
+
+```bash
+tailscale serve --http=80 localhost:3000 off
+```
+
+- If you used HTTPS Serve:
+
+```bash
+tailscale serve --https=443 localhost:3000 off
+```
+
+- Or reset all Serve config on this device:
+
+```bash
+tailscale serve reset
+```
 
 ## 9. Things that must stay off
 

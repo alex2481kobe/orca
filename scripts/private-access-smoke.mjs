@@ -5,18 +5,35 @@
  * This never mutates Tailscale. It exercises mocked tailnet states, URL
  * validation, dry-run setup plans, Funnel rejection, and static-only PWA assets.
  */
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import process from 'node:process';
 
 const args = process.argv.slice(2);
+const previousCwd = process.cwd();
+const previousEnv = { ...process.env };
+let explicitBase = Boolean(process.env.COMMAND_DECK_BASE_URL);
 let base = process.env.COMMAND_DECK_BASE_URL || 'http://127.0.0.1:3000';
 for (let i = 0; i < args.length; i += 1) {
-  if (args[i] === '--base' && args[i + 1]) base = args[i + 1];
+  if (args[i] === '--base' && args[i + 1]) {
+    base = args[i + 1];
+    explicitBase = true;
+  }
 }
-const token = process.env.COMMAND_DECK_API_TOKEN || '';
-const headers = {
-  'content-type': 'application/json',
-  ...(token ? { 'x-commanddeck-token': token } : {}),
-};
+let token = process.env.COMMAND_DECK_API_TOKEN || '';
+let headers = {};
+function refreshHeaders() {
+  headers = {
+    'content-type': 'application/json',
+    ...(token ? { 'x-commanddeck-token': token } : {}),
+  };
+}
+refreshHeaders();
+
+const tempDir = explicitBase ? null : await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-private-access-'));
+let server = null;
+let stopServer = null;
 
 const log = (label, info = '') => console.log(`[private-access-smoke] ${label}${info ? ' — ' + info : ''}`);
 const fail = (label, info = '') => {
@@ -37,6 +54,37 @@ async function req(method, pathname, body) {
   return { status: response.status, data, text };
 }
 
+async function cleanupStartedServer() {
+  if (stopServer) await stopServer();
+  if (server) await new Promise((resolve) => server.close(resolve));
+  if (tempDir) {
+    process.chdir(previousCwd);
+    await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
+  }
+  for (const key of Object.keys(process.env)) {
+    if (!(key in previousEnv)) delete process.env[key];
+  }
+  for (const [key, value] of Object.entries(previousEnv)) {
+    process.env[key] = value;
+  }
+}
+
+async function main() {
+if (!explicitBase) {
+  process.chdir(tempDir);
+  process.env.PORT = '0';
+  process.env.COMMAND_DECK_HOST = '127.0.0.1';
+  process.env.COMMAND_DECK_API_TOKEN = 'private-access-smoke-token';
+  token = process.env.COMMAND_DECK_API_TOKEN;
+  refreshHeaders();
+  const serverModule = await import('../src/server.js');
+  server = await serverModule.startServer(0, '127.0.0.1');
+  stopServer = serverModule.stopServer;
+  const address = server.address();
+  base = `http://127.0.0.1:${address.port}`;
+  log('server', `started isolated local server at ${base}`);
+}
+
 const state = await req('GET', '/api/private-access?fakeTailnetState=serve-https');
 if (state.status !== 200) fail('GET /api/private-access', JSON.stringify(state.data));
 if (state.data.tailnet?.provider !== 'fake') fail('fake tailnet provider not used');
@@ -52,7 +100,7 @@ for (const fake of ['missing', 'installed', 'logged-in', 'serve-http', 'serve-ht
 }
 log('fake states', 'ok');
 
-const plan = await req('GET', '/api/private-access/setup-plan?localUrl=http%3A%2F%2F127.0.0.1%3A3000');
+const plan = await req('GET', `/api/private-access/setup-plan?localUrl=${encodeURIComponent(base)}`);
 if (plan.status !== 200) fail('setup plan', JSON.stringify(plan.data));
 if ((plan.data.commands || []).some((command) => command.id !== 'local' && command.status !== 'dry_run_only' && command.status !== 'read_only')) {
   fail('setup commands must be dry-run/read-only');
@@ -96,3 +144,10 @@ log('pwa assets', 'ok');
 const deleted = await req('DELETE', `/api/private-access/targets/${target.data.id}`, { actor: 'dashboard' });
 if (deleted.status !== 200) fail('delete target', JSON.stringify(deleted.data));
 log('done', 'ok');
+}
+
+try {
+  await main();
+} finally {
+  await cleanupStartedServer();
+}
