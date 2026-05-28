@@ -329,6 +329,10 @@ async function handleApi(req, res, pathname, method, parts) {
     return sendJson(res, 200, { policies: registry.getPolicyMap() });
   }
 
+  if (parts[1] === 'system' && parts[2] === 'blockers' && method === 'GET') {
+    return sendJson(res, 200, registry.describeSystemBlockers());
+  }
+
   if (parts[1] === 'executors' && parts[2] === 'profiles' && method === 'GET') {
     return sendJson(res, 200, {
       profiles: registry.getExecutorProfiles(),
@@ -857,6 +861,26 @@ async function handleApi(req, res, pathname, method, parts) {
       } catch (error) {
         return sendJson(res, error.status || 500, {
           error: error.message || 'Could not capture evidence.',
+          requiresApproval: error.requiresApproval || false,
+          risk: error.risk || null,
+        });
+      }
+    }
+
+    if (parts.length === 5 && parts[3] === 'worktree' && parts[4] === 'remove' && method === 'POST') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+      if (rejectSpoofedActor(body, res)) return;
+      try {
+        const result = await registry.removeLaneWorktree(lane.id, {
+          actor: body.actor || 'dashboard',
+          approved: body.approved,
+          removeBranch: Boolean(body.removeBranch),
+        });
+        return sendJson(res, 200, result);
+      } catch (error) {
+        return sendJson(res, error.status || 500, {
+          error: error.message || 'Could not remove worktree.',
           requiresApproval: error.requiresApproval || false,
           risk: error.risk || null,
         });

@@ -41,12 +41,20 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+let _playwrightCache;
 async function safeImportPlaywright() {
+  if (_playwrightCache !== undefined) return _playwrightCache;
   try {
-    return await import('playwright');
+    _playwrightCache = await import('playwright');
   } catch (error) {
-    return null;
+    _playwrightCache = null;
   }
+  return _playwrightCache;
+}
+
+export async function detectPlaywright() {
+  const pw = await safeImportPlaywright();
+  return Boolean(pw && pw.chromium);
 }
 
 export class PlaywrightEvidenceRunner {
@@ -58,6 +66,24 @@ export class PlaywrightEvidenceRunner {
     this.onLog = onLog;
     this.onError = onError;
     this.playwrightCommand = playwrightCommand;
+    this._hasPlaywright = null;
+  }
+
+  async ensurePlaywrightDetected() {
+    if (this._hasPlaywright === null) {
+      this._hasPlaywright = await detectPlaywright();
+    }
+    return this._hasPlaywright;
+  }
+
+  hasPlaywright() {
+    // Synchronous best-effort: trigger detect if we haven't yet, return cached.
+    if (this._hasPlaywright === null) {
+      // Fire and forget; first /api/system/blockers call after install picks it up.
+      this.ensurePlaywrightDetected().catch(() => {});
+      return false;
+    }
+    return this._hasPlaywright;
   }
 
   async capture(lane, options = {}) {

@@ -10,6 +10,12 @@ import {
   getExecutorProfile as getExecutorProfileFromFactory,
 } from './executor-factory.js';
 import { PlaywrightEvidenceRunner } from './evidence-runner.js';
+import {
+  describeRepoRoot,
+  createLaneWorktree,
+  removeLaneWorktree,
+  changedFilesIn,
+} from './worktree-manager.js';
 
 const { QUEUED: QUEUED_STATE, STARTING: STARTING_STATE, RUNNING: RUNNING_STATE, STOPPED: STOPPED_STATE, DONE: DONE_STATE, FAILED: FAILED_STATE } = LANE_STATES;
 
@@ -1349,6 +1355,7 @@ export class CommandDeckRegistry {
     laneConcurrencyLimit = 1,
     artifactRetentionDays = 14,
     actor = 'dashboard',
+    repoRoot = '',
   } = {}, context = {}) {
     const resolvedActor = context.actor || actor;
     const policyCheck = this.evaluateActionPolicy('createSession', {
@@ -1377,6 +1384,25 @@ export class CommandDeckRegistry {
     const concurrencyLimit = Math.max(1, Number.parseInt(laneConcurrencyLimit, 10) || 1);
     const retention = Number.parseInt(artifactRetentionDays, 10) || 14;
     const sessionId = randomUUID();
+    let validatedRepoRoot = '';
+    if (typeof repoRoot === 'string' && repoRoot.trim()) {
+      const candidate = path.resolve(repoRoot.trim());
+      const descriptor = describeRepoRoot(candidate);
+      if (!descriptor.ok) {
+        throw { status: 422, message: `Session repoRoot is not a git working tree: ${descriptor.reason}` };
+      }
+      // Repo root must live under an approved boundary so we can never auto-worktree
+      // into a directory the operator did not bless.
+      const approved = this.getApprovedRepoRoots();
+      const within = approved.some((root) => candidate === root || candidate.startsWith(root + path.sep));
+      if (!within) {
+        throw {
+          status: 422,
+          message: `Session repoRoot ${candidate} is outside the approved repo roots. Add it to COMMAND_DECK_REPO_ROOTS or run the server from its parent.`,
+        };
+      }
+      validatedRepoRoot = candidate;
+    }
     const session = {
       id: sessionId,
       projectId: project.id,
@@ -1390,6 +1416,7 @@ export class CommandDeckRegistry {
       state: 'active',
       artifactsRoot: path.join(this.artifactRoot, sessionId),
       worktreeRoot: path.join(this.workspacesRoot, sessionId),
+      repoRoot: validatedRepoRoot,
       notes: [],
     };
     ensureDirectorySync(session.artifactsRoot);
@@ -1638,7 +1665,37 @@ export class CommandDeckRegistry {
     if (!title || !String(title).trim()) {
       throw { status: 422, message: 'Lane title is required.' };
     }
-    const resolvedWorkdir = this.resolveLaneWorkdir(session, workdir);
+
+    // Auto-create per-lane git worktree when the session has a vetted
+    // repoRoot and the lane is not explicitly shared. This is the default
+    // isolation model for implementation lanes.
+    let workdirOverride = workdir;
+    let derivedWorktree = null;
+    let derivedBranch = String(branch || '').trim();
+    let derivedRepoRoot = String(repoRoot || '').trim();
+    const sessionRepoRoot = session.repoRoot ? String(session.repoRoot).trim() : '';
+    const wantsShared = Boolean(sharedWorktree);
+    if (!wantsShared && sessionRepoRoot && !workdir) {
+      const laneId = randomUUID();
+      // Reserve the laneId via the create call below by reusing it for the worktree.
+      const result = createLaneWorktree({
+        repoRoot: sessionRepoRoot,
+        worktreeBase: path.join(this.workspacesRoot, session.id, 'worktrees'),
+        laneId,
+        branchHint: derivedBranch,
+      });
+      if (!result.ok) {
+        throw { status: 422, message: `Could not create lane worktree: ${result.reason}` };
+      }
+      workdirOverride = result.worktreePath;
+      derivedWorktree = result.worktreePath;
+      derivedBranch = result.branch || derivedBranch;
+      derivedRepoRoot = result.repoRoot;
+      // Stash the reserved laneId so the lane object reuses it instead of
+      // generating a different one further down.
+      this._reservedLaneId = laneId;
+    }
+    const resolvedWorkdir = this.resolveLaneWorkdir(session, workdirOverride);
 
     const normalizedExecutorType = normalizeExecutorType(executorType);
     if (!['mock', 'codex', 'claude'].includes(normalizedExecutorType)) {
@@ -1669,7 +1726,8 @@ export class CommandDeckRegistry {
 
     const project = this.projects.find((item) => item.id === session.projectId);
     const now = nowIso();
-    const laneId = randomUUID();
+    const laneId = this._reservedLaneId || randomUUID();
+    this._reservedLaneId = null;
     const scopedToolIds = new Set(this.listToolsForExecutor(normalizedExecutorType).map((tool) => tool.id));
     const resolvedToolIds = safeArray(mcpToolIds)
       .map((item) => String(item || '').trim())
@@ -1719,10 +1777,10 @@ export class CommandDeckRegistry {
     const sanitizedVerificationCommand = typeof verificationCommand === 'string'
       ? verificationCommand.trim().slice(0, 1000) : '';
     const sanitizedTargetUrl = typeof targetUrl === 'string' ? targetUrl.trim().slice(0, 2048) : '';
-    const sanitizedRepoRoot = typeof repoRoot === 'string' ? repoRoot.trim().slice(0, MAX_WORKDIR_BYTES) : '';
-    const sanitizedBranch = typeof branch === 'string'
-      ? branch.trim().replace(/[^A-Za-z0-9._\-/]/g, '').slice(0, 200)
-      : '';
+    const sanitizedRepoRoot = (derivedRepoRoot || (typeof repoRoot === 'string' ? repoRoot.trim() : '')).slice(0, MAX_WORKDIR_BYTES);
+    const sanitizedBranch = (derivedBranch || (typeof branch === 'string' ? branch.trim() : ''))
+      .replace(/[^A-Za-z0-9._\-/]/g, '')
+      .slice(0, 200);
     const expectedArtifactsList = Array.isArray(expectedArtifacts)
       ? expectedArtifacts.map((value) => String(value || '').trim()).filter(Boolean).slice(0, 32)
       : [];
@@ -1751,7 +1809,7 @@ export class CommandDeckRegistry {
       repoRoot: sanitizedRepoRoot,
       branch: sanitizedBranch,
       sharedWorktree: Boolean(sharedWorktree),
-      worktreePath: resolvedWorkdir,
+      worktreePath: derivedWorktree || resolvedWorkdir,
       state: QUEUED_STATE,
       owner,
       heartbeatAt: null,
@@ -2366,6 +2424,48 @@ export class CommandDeckRegistry {
     };
   }
 
+  async removeLaneWorktree(laneLocator, { actor = 'dashboard', approved, removeBranch = false } = {}) {
+    const lane = this.getLane(laneLocator);
+    if (!lane) throw { status: 404, message: 'Lane not found.' };
+    if (!lane.repoRoot || !lane.worktreePath) {
+      throw { status: 422, message: 'Lane has no managed worktree to remove.' };
+    }
+    const policyCheck = this.evaluateActionPolicy('cleanupArtifacts', { actor, approved });
+    if (!policyCheck.allowed) {
+      throw {
+        status: 409,
+        message: policyCheck.message,
+        requiresApproval: true,
+        risk: policyCheck.policy.risk,
+      };
+    }
+    if (![DONE_STATE, FAILED_STATE, STOPPED_STATE].includes(lane.state)) {
+      throw { status: 409, message: 'Lane is still active; stop it before removing its worktree.' };
+    }
+    const result = removeLaneWorktree({
+      repoRoot: lane.repoRoot,
+      worktreePath: lane.worktreePath,
+      removeBranch,
+      branch: lane.branch || null,
+    });
+    if (!result.removed) {
+      throw { status: 500, message: result.reason || 'Could not remove worktree.' };
+    }
+    lane.worktreePath = '';
+    this.recordAudit({
+      type: 'lane_worktree_removed',
+      actor,
+      projectId: lane.projectId,
+      sessionId: lane.sessionId,
+      laneId: lane.id,
+      summary: `Worktree removed for lane ${lane.title}`,
+      evidence: { lane, branchRemoved: result.branchRemoved },
+      status: 'passed',
+    });
+    this.persistState();
+    return { removed: true, branchRemoved: result.branchRemoved };
+  }
+
   listAuditEvents({ status, sessionId, laneId } = {}) {
     let events = this.auditEvents;
     if (status) {
@@ -2419,6 +2519,65 @@ export class CommandDeckRegistry {
 
   getPolicyMap() {
     return clonePayload(this.policies);
+  }
+
+  describeSystemBlockers() {
+    const blockers = [];
+    // Executor blockers
+    for (const executorType of ['codex', 'claude']) {
+      try {
+        const info = this.getExecutorCliInfo(executorType);
+        if (!info.binaryExists) {
+          blockers.push({
+            id: `executor-${executorType}-missing`,
+            severity: 'error',
+            area: 'executor',
+            summary: `${executorType.toUpperCase()} CLI not executable`,
+            detail: `Configured binary ${info.binary} could not be invoked (exitCode=${info.binaryExitCode || 'n/a'}).`,
+            remediation: executorType === 'codex'
+              ? 'Reinstall the Codex CLI: `brew reinstall --cask codex` OR `npm install -g @openai/codex`. Then restart Command Deck.'
+              : 'Reinstall Claude Code: `brew install anthropic-ai/tap/claude` or follow the official installer. Then restart Command Deck.',
+            approvalRequired: true,
+          });
+        } else if (!info.version) {
+          blockers.push({
+            id: `executor-${executorType}-version-unknown`,
+            severity: 'warn',
+            area: 'executor',
+            summary: `${executorType.toUpperCase()} CLI version is unknown`,
+            detail: `${info.binary} exists but did not return a version. Trust state cannot be verified.`,
+            remediation: `Run \`${info.binary} --version\` manually and confirm output.`,
+            approvalRequired: false,
+          });
+        }
+      } catch (error) {
+        blockers.push({
+          id: `executor-${executorType}-error`,
+          severity: 'error',
+          area: 'executor',
+          summary: `${executorType.toUpperCase()} CLI inspection failed`,
+          detail: error?.message || 'unknown',
+          remediation: 'Check Command Deck logs for the underlying error.',
+          approvalRequired: false,
+        });
+      }
+    }
+    // Playwright blocker
+    if (!this.evidenceRunner.hasPlaywright()) {
+      blockers.push({
+        id: 'playwright-missing',
+        severity: 'warn',
+        area: 'evidence',
+        summary: 'Playwright not installed; evidence capture is degraded',
+        detail: 'Without Playwright, /api/lanes/:id/evidence returns captured=false and writes a JSON marker only. Screenshots, traces, and videos cannot be produced.',
+        remediation: 'cd command-deck-client && npm install --save-dev playwright && npx playwright install chromium',
+        approvalRequired: true,
+      });
+    }
+    return {
+      generatedAt: nowIso(),
+      blockers,
+    };
   }
 
   getExecutorProfiles() {
@@ -2710,26 +2869,11 @@ export class CommandDeckRegistry {
   async writeLaneArtifacts(lane, status = DONE_STATE) {
     const laneArtifactDir = path.join(process.cwd(), 'artifacts', lane.sessionId, lane.id);
     await fs.mkdir(laneArtifactDir, { recursive: true });
-    // Try to capture changed-files via git status if the workdir looks like a git repo.
+    // Capture changed-files via git status when the lane lives in a git worktree.
     let changedFiles = Array.isArray(lane.changedFiles) ? lane.changedFiles : [];
-    if (lane.workdir) {
-      try {
-        const result = spawnSync('git', ['status', '--porcelain'], {
-          cwd: lane.workdir,
-          encoding: 'utf8',
-          timeout: 4000,
-          windowsHide: true,
-        });
-        if (!result.error && result.status === 0 && typeof result.stdout === 'string') {
-          changedFiles = result.stdout
-            .split('\n')
-            .map((line) => line.trim())
-            .filter(Boolean)
-            .slice(0, 500);
-        }
-      } catch {
-        // Non-git workdir or git unavailable: keep prior changedFiles.
-      }
+    if (lane.worktreePath || lane.workdir) {
+      const result = changedFilesIn(lane.worktreePath || lane.workdir);
+      if (result.length) changedFiles = result;
     }
     lane.changedFiles = changedFiles;
 

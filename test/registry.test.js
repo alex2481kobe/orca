@@ -1651,3 +1651,161 @@ test('Lane terminal artifacts include process/MCP/changed-files metadata', async
 });
 
 function nowIso() { return new Date().toISOString(); }
+
+test('Worktree manager creates per-lane worktree under approved base and cleanup removes it', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    // Build a real git repo inside the approved repo root (process.cwd()).
+    const repoDir = path.join(process.cwd(), 'demo-repo');
+    await fs.mkdir(repoDir, { recursive: true });
+    const { spawnSync } = await import('node:child_process');
+    const g = (...args) => spawnSync('git', args, { cwd: repoDir, encoding: 'utf8' });
+    g('init', '-q');
+    g('config', 'user.email', 'test@local');
+    g('config', 'user.name', 'Test');
+    await fs.writeFile(path.join(repoDir, 'README.md'), 'hello');
+    g('add', 'README.md');
+    g('commit', '-qm', 'init');
+
+    const project = registry.createProject({ name: 'WT Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, {
+      name: 'WT Session',
+      repoRoot: repoDir,
+    }, { actor: 'test', approved: true });
+
+    assert.equal(registry.getSession(session.id).repoRoot, repoDir);
+
+    const lane = registry.createLane(session.id, {
+      title: 'feature lane',
+      executorType: 'mock',
+      branch: 'feature/cleanup',
+    }, { actor: 'test', approved: true });
+
+    assert.ok(lane.worktreePath, 'lane should have a worktreePath');
+    assert.ok(lane.worktreePath.includes('worktrees'), 'worktreePath should sit under sessions/worktrees');
+    const wtStat = await fs.stat(lane.worktreePath);
+    assert.equal(wtStat.isDirectory(), true);
+    assert.equal(lane.branch, 'feature/cleanup');
+    assert.equal(lane.repoRoot, repoDir);
+
+    // Mark terminal so cleanup can run.
+    const target = registry.getLane(lane.id);
+    target.state = 'done';
+    target.completedAt = new Date().toISOString();
+    const cleanupResult = await registry.removeLaneWorktree(lane.id, {
+      actor: 'test',
+      approved: true,
+      removeBranch: true,
+    });
+    assert.equal(cleanupResult.removed, true);
+    await assert.rejects(fs.access(lane.worktreePath), (error) => error.code === 'ENOENT');
+  } finally {
+    await cleanup();
+  }
+});
+
+test('Session creation refuses repoRoot outside approved roots and non-git paths', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const project = registry.createProject({ name: 'WT Reject' }, { actor: 'test', approved: true });
+    assert.throws(() => registry.createSession(project.id, {
+      name: 'no repo',
+      repoRoot: path.join(process.cwd(), 'not-a-repo'),
+    }, { actor: 'test', approved: true }), (error) => error.status === 422);
+
+    // Build a git repo OUTSIDE the approved boundary.
+    const outsideRepo = await fs.mkdtemp(path.join(os.tmpdir(), 'outside-repo-'));
+    const { spawnSync } = await import('node:child_process');
+    spawnSync('git', ['init', '-q'], { cwd: outsideRepo });
+    spawnSync('git', ['config', 'user.email', 't@l'], { cwd: outsideRepo });
+    spawnSync('git', ['config', 'user.name', 't'], { cwd: outsideRepo });
+    await fs.writeFile(path.join(outsideRepo, 'R'), 'x');
+    spawnSync('git', ['add', 'R'], { cwd: outsideRepo });
+    spawnSync('git', ['commit', '-qm', 'init'], { cwd: outsideRepo });
+    try {
+      assert.throws(() => registry.createSession(project.id, {
+        name: 'outside repo',
+        repoRoot: outsideRepo,
+      }, { actor: 'test', approved: true }), (error) => error.status === 422);
+    } finally {
+      await fs.rm(outsideRepo, { recursive: true, force: true });
+    }
+  } finally {
+    await cleanup();
+  }
+});
+
+test('describeSystemBlockers reports executor and playwright state', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const result = registry.describeSystemBlockers();
+    assert.ok(Array.isArray(result.blockers));
+    // We should see one of these on a typical dev box. Just assert shape.
+    for (const blocker of result.blockers) {
+      assert.ok(typeof blocker.id === 'string' && blocker.id.length > 0);
+      assert.ok(['error', 'warn', 'info'].includes(blocker.severity));
+      assert.ok(typeof blocker.remediation === 'string');
+    }
+  } finally {
+    await cleanup();
+  }
+});
+
+test('Real Claude CLI launches through the executor adapter and reports PID + exit', async () => {
+  const claudeBinary = process.env.COMMAND_DECK_CLAUDE_BINARY || '/opt/homebrew/bin/claude';
+  let canExec = false;
+  try {
+    const { spawnSync } = await import('node:child_process');
+    const probe = spawnSync(claudeBinary, ['--version'], { encoding: 'utf8', timeout: 4000 });
+    canExec = probe.status === 0 && /\d+\.\d+/.test(probe.stdout || '');
+  } catch { canExec = false; }
+  if (!canExec) {
+    console.warn(`skipping real claude exec test (${claudeBinary} not available)`);
+    return;
+  }
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const { createExecutorAdapter } = await import('../src/executor-factory.js');
+    const adapter = createExecutorAdapter('claude', {
+      onLog: () => {},
+      onComplete: () => {},
+      onFail: () => {},
+      onStop: () => {},
+    });
+    adapter.enforceAllowedBinary = false;
+    adapter.allowedBinaries = [path.basename(claudeBinary), 'claude'];
+    adapter.defaultBinary = claudeBinary;
+    adapter.workdirRoots = [process.cwd()];
+
+    const project = registry.createProject({ name: 'Claude Exec' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Claude Session' }, { actor: 'test', approved: true });
+    const lane = registry.createLane(session.id, {
+      title: 'real claude exec',
+      executorType: 'mock',  // sidestep targeting check; we run adapter manually
+    }, { actor: 'test', approved: true });
+
+    const target = registry.getLane(lane.id);
+    target.workdir = process.cwd();
+    target.command = '';
+    target.executorBinary = '';
+    target.commandArgs = ['--version'];
+
+    const result = await adapter.start(target);
+    assert.equal(result.accepted, true, `start rejected: ${result.reason}`);
+    const proc = result.runtime.process;
+    if (proc && proc.pid === undefined) {
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, 200);
+        proc.once('spawn', () => { clearTimeout(timer); resolve(); });
+        proc.once('error', () => { clearTimeout(timer); resolve(); });
+      });
+    }
+    if (proc && typeof proc.pid === 'number') target.processMeta.pid = proc.pid;
+    await new Promise((resolve) => { if (!proc) return resolve(); proc.once('exit', resolve); });
+    assert.equal(target.processMeta.exitCode, 0, 'claude --version should exit 0');
+    assert.equal(typeof target.processMeta.startedAt, 'string');
+    assert.equal(typeof target.processMeta.endedAt, 'string');
+  } finally {
+    await cleanup();
+  }
+});
