@@ -26,6 +26,7 @@
     "smoke:private-access": "node scripts/private-access-smoke.mjs",
     "smoke:pwa-cache": "node scripts/pwa-cache-smoke.mjs",
     "smoke:providers": "node scripts/provider-smoke.mjs",
+    "smoke:api-provider": "node scripts/api-provider-smoke.mjs",
     "smoke:state-migrations": "node scripts/state-migrations-smoke.mjs",
     "smoke:auth-sessions": "node scripts/auth-sessions-smoke.mjs",
     "smoke:credential-redaction": "node scripts/credential-redaction-smoke.mjs",

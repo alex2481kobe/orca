@@ -6,6 +6,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { LANE_STATES } from './worker-contract.js';
 import {
   createExecutorAdapter,
+  getApiProviderExecutorTypes,
   getExecutorProfiles as getExecutorProfilesFromFactory,
   getExecutorProfile as getExecutorProfileFromFactory,
 } from './executor-factory.js';
@@ -91,7 +92,21 @@ const DEFAULT_REINSTALL_SOURCE_REPOS = {
   claude: ['anthropic/claude-code'],
 };
 const MAX_WORKDIR_BYTES = 2048;
-const MCP_TOOL_SCOPE_ALLOWLIST = new Set(['all', 'codex', 'claude', 'mock']);
+const MCP_TOOL_SCOPE_ALLOWLIST = new Set([
+  'all',
+  'mock',
+  'codex',
+  'claude',
+  'cli',
+  'custom-cli',
+  'api',
+  'openai-compatible',
+  'gemini',
+  'kimi',
+  'deepseek',
+  'openrouter',
+  'composer',
+]);
 const MAX_MCP_TOOL_ARG_LENGTH = 255;
 const MAX_MCP_TOOL_ARGS = 64;
 const SPAWN_POLICIES = new Set(['never', 'ask', 'within_capacity', 'auto']);
@@ -3427,11 +3442,11 @@ export class CommandDeckRegistry {
   }
 
   getSupportedExecutorTypes() {
-    const supported = ['mock', 'codex', 'claude'];
+    const supported = ['mock', 'codex', 'claude', ...getApiProviderExecutorTypes()];
     if (getExecutorProfileFromFactory('cli')) {
       supported.push('cli');
     }
-    return supported;
+    return [...new Set(supported)];
   }
 
   async describeSystemBlockers() {

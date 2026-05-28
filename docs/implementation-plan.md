@@ -30,6 +30,10 @@ smoke gates before being listed.
   `npm run smoke:credential-redaction`,
   `npm run smoke:evidence-redaction`, and
   `npm run smoke:process-lifecycle` pass as local deterministic gates.
+- `npm run smoke:api-provider` proves OpenAI-compatible API provider
+  lane execution against a local dummy server, including Authorization
+  header use, model/prompt request shape, terminal lane state, and
+  secret redaction from lane state, logs, and audit events.
 - `npm run smoke:full-flow` is the named full operator-flow gate and runs
   the same server-based path as `npm run smoke`.
 - Real Claude CLI execution flows through the adapter (`claude
@@ -95,6 +99,11 @@ smoke gates before being listed.
 - Atomic durable state writes and backup recovery for registry,
   provider profiles, private access, and auth sessions, with recovery
   audit events and `smoke:state-migrations`.
+- First-class API provider lanes can be created with executor types
+  `api`, `openai-compatible`, `kimi`, `deepseek`, `openrouter`, and
+  `composer` through the OpenAI-compatible adapter. `gemini` is exposed
+  as a first-class profile and currently fails closed with a clear
+  unsupported-style blocker until its native request adapter is added.
 
 ## External blockers (operator-actionable, surfaced in the dashboard)
 
@@ -120,6 +129,7 @@ npm run smoke:auth-sessions
 npm run smoke:credential-redaction
 npm run smoke:evidence-redaction
 npm run smoke:process-lifecycle
+npm run smoke:api-provider
 ```
 
 ## Work rules (still apply)

@@ -24,7 +24,16 @@ const shell = {
   authStatus: null,
 };
 
-const MCP_TOOL_SCOPE_ALLOWLIST = ['all', 'codex', 'claude', 'mock'];
+const API_PROVIDER_EXECUTOR_TYPES = ['api', 'openai-compatible', 'gemini', 'kimi', 'deepseek', 'openrouter', 'composer'];
+const MCP_TOOL_SCOPE_ALLOWLIST = [
+  'all',
+  'mock',
+  'codex',
+  'claude',
+  'cli',
+  'custom-cli',
+  ...API_PROVIDER_EXECUTOR_TYPES,
+];
 
 const refs = {
   breadcrumbs: document.getElementById('breadcrumbs'),
@@ -194,6 +203,29 @@ function getExecutorProfile(type) {
   return shell.executorProfiles && shell.executorProfiles[profileType] ? shell.executorProfiles[profileType] : null;
 }
 
+function getProviderProfile(type) {
+  const profileType = normalizeExecutorType(type);
+  const profiles = Array.isArray(shell.providerCatalog?.profiles) ? shell.providerCatalog.profiles : [];
+  return profiles.find((profile) => normalizeExecutorType(profile.id) === profileType) || null;
+}
+
+function isApiExecutorType(type) {
+  return API_PROVIDER_EXECUTOR_TYPES.includes(normalizeExecutorType(type));
+}
+
+function apiProviderOptions() {
+  const profiles = Array.isArray(shell.providerCatalog?.profiles) ? shell.providerCatalog.profiles : [];
+  return profiles
+    .filter((profile) => profile.kind === 'api')
+    .map((profile) => {
+      const id = safeAttr(profile.id);
+      const label = safeText(profile.displayName || profile.id);
+      const suffix = profile.enabled === false ? ' (setup)' : '';
+      return `<option value="${id}">${label}${suffix}</option>`;
+    })
+    .join('');
+}
+
 function getExecutorScopedMcpTools(executorType) {
   const normalizedType = normalizeExecutorType(executorType);
   const tools = Array.isArray(shell.mcpTools) ? shell.mcpTools : [];
@@ -234,6 +266,7 @@ function renderLaneExecutorGuidance(form) {
   if (!profileEl) return;
   const selectedType = normalizeExecutorType(form.executorType?.value || 'mock');
   const profile = getExecutorProfile(selectedType);
+  const providerProfile = getProviderProfile(selectedType);
   const lowerType = normalizeExecutorType(selectedType);
   const commandInput = form.elements.command;
   const binaryInput = form.elements.executorBinary;
@@ -285,6 +318,21 @@ function renderLaneExecutorGuidance(form) {
     profileEl.innerHTML = `
       <div class="tiny muted">
         ${toolSummary}
+      </div>
+    `.trim();
+    return;
+  }
+
+  if (isApiExecutorType(lowerType)) {
+    const credentialLabel = providerProfile?.apiKeyEnv || providerProfile?.secretRef || 'configured provider secret';
+    commandInput.placeholder = 'Not used for API provider lanes';
+    binaryInput.placeholder = 'Not used for API provider lanes';
+    profileEl.innerHTML = `
+      <div class="tiny muted">
+        API lane: uses ${safeText(providerProfile?.displayName || lowerType)} provider settings,
+        ${safeText(providerProfile?.apiStyle || 'configured')} request shape,
+        and secret reference ${safeText(credentialLabel)}. Configure secrets in Providers settings.
+        <br/>${toolSummary}
       </div>
     `.trim();
     return;
@@ -1339,7 +1387,7 @@ function renderSession(project, session) {
           <details class="disclosure">
             <summary>
               <span>Create lane</span>
-              <small>Queue Codex, Claude, or mock work</small>
+              <small>Queue Codex, Claude, API, CLI, or mock work</small>
             </summary>
             <div class="disclosure-body">
           <form id="create-lane-form" data-session-id="${session.id}">
@@ -1349,7 +1397,7 @@ function renderSession(project, session) {
             <label>Task description
               <textarea name="taskDescription" rows="3"></textarea>
             </label>
-            <label>Command (for codex/claude lanes)
+            <label>Command (for local CLI/Codex/Claude lanes)
               <input name="command" placeholder="e.g., codex run --help" />
             </label>
             <div id="lane-command-guidance" class="tiny muted"></div>
@@ -1368,9 +1416,10 @@ function renderSession(project, session) {
                 <option value="codex">codex</option>
                 <option value="claude">claude</option>
                 ${shell.executorProfiles?.cli ? '<option value="cli">cli</option>' : ''}
+                ${apiProviderOptions()}
               </select>
             </label>
-            <label>Task prompt (drives generated codex/claude argv when no explicit command)
+            <label>Task prompt (drives Codex/Claude/API requests when no explicit command)
               <textarea name="taskPrompt" rows="3" placeholder="e.g., Plan the cleanup ramp"></textarea>
             </label>
             <label>Model / profile

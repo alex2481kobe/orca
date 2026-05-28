@@ -3,6 +3,8 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import { defaultProfiles } from './provider-profiles.js';
+import { validateNetworkUrl } from './url-policy.js';
 
 const noopAsync = async () => {};
 
@@ -21,7 +23,17 @@ const DEFAULT_ENV_WHITELIST = [
 
 const MAX_ARGS = 256;
 const MAX_WORKDIR_BYTES = 2048;
+const API_RESPONSE_BYTES = 256 * 1024;
 const CONTROL_CHAR_RE = /[\x00-\x1f\x7f]/;
+const API_PROVIDER_TYPES = [
+  'api',
+  'openai-compatible',
+  'gemini',
+  'kimi',
+  'deepseek',
+  'openrouter',
+  'composer',
+];
 
 function safeFire(callback, ...args) {
   try {
@@ -192,6 +204,88 @@ function parseEnv(raw) {
     output[key.trim()] = String(value);
   }
   return output;
+}
+
+function parsePositiveInteger(raw, fallback, { min = 1, max = Number.MAX_SAFE_INTEGER } = {}) {
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < min) return fallback;
+  return Math.min(max, parsed);
+}
+
+function providerEnvPrefix(providerId) {
+  return String(providerId || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function isApiProviderType(type) {
+  return API_PROVIDER_TYPES.includes(String(type || '').toLowerCase());
+}
+
+function redactedText(value, secrets = []) {
+  let out = String(value ?? '');
+  for (const secret of secrets) {
+    const text = String(secret || '');
+    if (!text) continue;
+    out = out.split(text).join('[REDACTED]');
+  }
+  return out;
+}
+
+function trimForLog(value, max = 4000) {
+  const text = String(value ?? '');
+  return text.length > max ? `${text.slice(0, max)}...[truncated]` : text;
+}
+
+function buildOpenAiCompatibleBody(lane, profile) {
+  const prompt = String(lane.taskPrompt || lane.taskDescription || lane.title || 'Run Command Deck lane.').trim().slice(0, 8000);
+  const model = String(lane.model || profile.defaultModel || process.env[`COMMAND_DECK_${providerEnvPrefix(profile.id)}_MODEL`] || 'command-deck-default').trim();
+  return {
+    model,
+    messages: [
+      {
+        role: 'system',
+        content: 'You are an API provider lane running inside Command Deck. Return concise progress or completion output.',
+      },
+      {
+        role: 'user',
+        content: prompt,
+      },
+    ],
+    stream: false,
+  };
+}
+
+function apiEndpointForProfile(profile) {
+  const baseUrl = String(profile.baseUrl || '').replace(/\/+$/, '');
+  if (profile.apiStyle === 'openai-compatible') return `${baseUrl}/chat/completions`;
+  return null;
+}
+
+function getApiProviderProfile(type) {
+  const requested = String(type || '').toLowerCase().trim();
+  const providerId = requested === 'api' ? 'openai-compatible' : requested;
+  const seeded = defaultProfiles()[providerId];
+  if (!seeded || seeded.kind !== 'api') return null;
+  const prefix = providerEnvPrefix(providerId);
+  const baseUrl = process.env[`COMMAND_DECK_${prefix}_BASE_URL`] || seeded.baseUrl;
+  const apiKeyEnv = process.env[`COMMAND_DECK_${prefix}_API_KEY_ENV`] || seeded.apiKeyEnv || `COMMAND_DECK_${prefix}_API_KEY`;
+  return {
+    ...seeded,
+    type: requested,
+    id: providerId,
+    baseUrl,
+    apiKeyEnv,
+    timeoutMs: parsePositiveInteger(process.env[`COMMAND_DECK_${prefix}_TIMEOUT_MS`], seeded.timeoutMs || 30000, { min: 1000, max: 180000 }),
+    maxResponseBytes: parsePositiveInteger(process.env[`COMMAND_DECK_${prefix}_MAX_RESPONSE_BYTES`], API_RESPONSE_BYTES, { min: 1024, max: 2 * 1024 * 1024 }),
+    defaultModel: process.env[`COMMAND_DECK_${prefix}_MODEL`] || seeded.defaultModel || '',
+  };
+}
+
+function getApiProviderExecutorTypes() {
+  return API_PROVIDER_TYPES.filter((type) => Boolean(getApiProviderProfile(type)));
 }
 
 class CliExecutorAdapter {
@@ -581,6 +675,230 @@ class CliExecutorAdapter {
   }
 }
 
+class ApiExecutorAdapter {
+  constructor(label, options = {}) {
+    this.label = label;
+    this.profile = options.profile || getApiProviderProfile(label);
+    this.onLog = options.onLog || noopAsync;
+    this.onComplete = options.onComplete || noopAsync;
+    this.onFail = options.onFail || noopAsync;
+    this.onStop = options.onStop || noopAsync;
+    this.runtimes = new Map();
+  }
+
+  _credential() {
+    const envName = this.profile?.apiKeyEnv;
+    const secret = envName && typeof process.env[envName] === 'string' ? process.env[envName] : '';
+    return { envName, secret };
+  }
+
+  _validatedEndpoint() {
+    if (!this.profile) throw new Error('API provider profile is not configured.');
+    if (this.profile.apiStyle !== 'openai-compatible') {
+      throw new Error(`API style ${this.profile.apiStyle} is not executable yet. Use an OpenAI-compatible profile for API lanes.`);
+    }
+    const endpoint = apiEndpointForProfile(this.profile);
+    if (!endpoint) throw new Error('API provider endpoint could not be built.');
+    return validateNetworkUrl(endpoint, {
+      field: 'providerBaseUrl',
+      allowedHosts: ['loopback', 'tailnet', 'public'],
+      allowPublic: true,
+      allowSensitive: true,
+    }).url;
+  }
+
+  async start(lane) {
+    if (!lane || !lane.id) {
+      return {
+        accepted: false,
+        reason: 'Missing lane reference.',
+      };
+    }
+    try {
+      const endpoint = this._validatedEndpoint();
+      const credential = this._credential();
+      if (!credential.secret) {
+        return {
+          accepted: false,
+          reason: `API provider ${this.profile.id} is missing required env secret ${credential.envName}.`,
+        };
+      }
+      const runtimeDir = path.join(process.cwd(), 'artifacts', String(lane.sessionId || 'orphan'), String(lane.id));
+      await fs.mkdir(runtimeDir, { recursive: true });
+      lane.artifactPath = `/artifacts/${lane.sessionId || 'orphan'}/${lane.id}`;
+      const controller = new AbortController();
+      const now = Date.now();
+      const runtime = {
+        runtimeId: randomUUID(),
+        lane,
+        status: 'active',
+        startedAt: now,
+        heartbeatAt: now,
+        controller,
+        endpoint,
+      };
+      this.runtimes.set(String(lane.id), runtime);
+      lane.processMeta = {
+        pid: null,
+        pgid: null,
+        binary: null,
+        args: [],
+        cwd: lane.workdir || process.cwd(),
+        envPolicy: 'secret-env-ref',
+        providerId: this.profile.id,
+        providerType: this.label,
+        apiStyle: this.profile.apiStyle,
+        apiKeyEnv: credential.envName,
+        endpointHost: new URL(endpoint).host,
+        endpointPath: new URL(endpoint).pathname,
+        startedAt: new Date(now).toISOString(),
+        endedAt: null,
+        exitCode: null,
+        signal: null,
+        stopRequestedBy: null,
+        stopResult: null,
+        platform: process.platform,
+        processGroupSupported: false,
+      };
+      await safeFire(this.onLog, lane, `${this.label} API adapter queued request to ${lane.processMeta.endpointHost}${lane.processMeta.endpointPath}`);
+      setTimeout(() => {
+        this._execute(lane, runtime, credential.secret).catch((error) => {
+          if (runtime.status !== 'active') return;
+          runtime.status = 'failed';
+          this.runtimes.delete(String(lane.id));
+          if (lane.processMeta) {
+            lane.processMeta.endedAt = new Date().toISOString();
+            lane.processMeta.exitCode = 1;
+          }
+          safeFire(this.onFail, lane, redactedText(error.message || 'API provider execution failed.', [credential.secret]), 'scheduler');
+        });
+      }, 0).unref?.();
+      return { accepted: true, runtime };
+    } catch (error) {
+      return {
+        accepted: false,
+        reason: `Failed to launch API provider ${this.label}: ${error.message}`,
+      };
+    }
+  }
+
+  async _execute(lane, runtime, secret) {
+    const body = buildOpenAiCompatibleBody(lane, this.profile);
+    const timeout = setTimeout(() => runtime.controller.abort(), this.profile.timeoutMs || 30000);
+    let responseText = '';
+    try {
+      const response = await fetch(runtime.endpoint, {
+        method: 'POST',
+        signal: runtime.controller.signal,
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${secret}`,
+        },
+        body: JSON.stringify(body),
+      });
+      responseText = await response.text();
+      if (responseText.length > (this.profile.maxResponseBytes || API_RESPONSE_BYTES)) {
+        throw new Error('API provider response exceeded configured size cap.');
+      }
+      if (runtime.status !== 'active') return;
+      if (!response.ok) {
+        throw new Error(`API provider returned HTTP ${response.status}: ${trimForLog(redactedText(responseText, [secret]), 1000)}`);
+      }
+      let parsed = null;
+      try {
+        parsed = responseText ? JSON.parse(responseText) : null;
+      } catch {
+        parsed = null;
+      }
+      const content = parsed?.choices?.[0]?.message?.content
+        || parsed?.candidates?.[0]?.content?.parts?.[0]?.text
+        || parsed?.output_text
+        || responseText;
+      lane.apiProviderResult = {
+        providerId: this.profile.id,
+        apiStyle: this.profile.apiStyle,
+        model: body.model,
+        status: response.status,
+        receivedAt: new Date().toISOString(),
+        outputPreview: trimForLog(redactedText(content, [secret]), 2000),
+        usage: parsed?.usage || null,
+      };
+      lane.apiResponse = lane.apiProviderResult;
+      if (lane.processMeta) {
+        lane.processMeta.endedAt = new Date().toISOString();
+        lane.processMeta.exitCode = 0;
+        lane.processMeta.httpStatus = response.status;
+        lane.processMeta.responseBytes = responseText.length;
+      }
+      runtime.status = 'done';
+      this.runtimes.delete(String(lane.id));
+      await safeFire(this.onLog, lane, `${this.label} API provider completed with HTTP ${response.status}`);
+      await safeFire(this.onComplete, lane, `${this.label} API provider completed`);
+    } catch (error) {
+      if (runtime.status !== 'active') return;
+      runtime.status = 'failed';
+      this.runtimes.delete(String(lane.id));
+      if (lane.processMeta) {
+        lane.processMeta.endedAt = new Date().toISOString();
+        lane.processMeta.exitCode = 1;
+      }
+      const message = error?.name === 'AbortError'
+        ? `${this.label} API provider request aborted or timed out`
+        : `${this.label} API provider failed: ${redactedText(error.message || error, [secret])}`;
+      await safeFire(this.onFail, lane, message, 'scheduler');
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async stop(laneId, context = {}) {
+    const laneKey = String(laneId);
+    const runtime = this.runtimes.get(laneKey);
+    if (!runtime) {
+      return {
+        stopped: false,
+        reason: `No active API request found for lane ${laneKey}.`,
+      };
+    }
+    runtime.status = 'stopping';
+    this.runtimes.delete(laneKey);
+    runtime.controller.abort();
+    if (runtime.lane?.processMeta) {
+      runtime.lane.processMeta.endedAt = runtime.lane.processMeta.endedAt || new Date().toISOString();
+      runtime.lane.processMeta.stopRequestedBy = context.actor || 'dashboard';
+      runtime.lane.processMeta.stopResult = 'abort_controller';
+    }
+    await safeFire(this.onStop, runtime.lane, {
+      actor: context.actor || 'dashboard',
+      reason: context.reason || `${this.label} API request stop requested`,
+    });
+    return {
+      stopped: true,
+      reason: 'API request abort signal sent.',
+      processGroupSupported: false,
+    };
+  }
+
+  touchHeartbeat(laneId, actor = 'adapter') {
+    const runtime = this.runtimes.get(String(laneId));
+    if (!runtime || runtime.status !== 'active') return false;
+    runtime.heartbeatAt = Date.now();
+    safeFire(this.onLog, runtime.lane, `[${this.label}] heartbeat from ${actor}`);
+    return true;
+  }
+
+  async tick() {}
+
+  getRunningCountForSession(sessionId) {
+    const want = String(sessionId);
+    let count = 0;
+    for (const runtime of this.runtimes.values()) {
+      if (runtime.status === 'active' && String(runtime.lane.sessionId) === want) count += 1;
+    }
+    return count;
+  }
+}
+
 class PendingExecutorAdapter {
   constructor(label, callbacks = {}) {
     this.label = label;
@@ -663,7 +981,13 @@ export function getExecutorProfiles() {
   }, {});
 }
 
-export { buildExecutorCommandArgs };
+export {
+  API_PROVIDER_TYPES,
+  buildExecutorCommandArgs,
+  getApiProviderExecutorTypes,
+  getApiProviderProfile,
+  isApiProviderType,
+};
 
 export function createExecutorAdapter(type, callbacks = {}) {
   const executorType = String(type || 'mock').toLowerCase();
@@ -711,6 +1035,17 @@ export function createExecutorAdapter(type, callbacks = {}) {
       heartbeatTimeoutMs: callbacks.heartbeatTimeoutMs || 15000,
     };
     return new CliExecutorAdapter(executorType, options);
+  }
+
+  if (isApiProviderType(executorType)) {
+    const profile = getApiProviderProfile(executorType);
+    if (!profile) {
+      return new PendingExecutorAdapter(executorType, callbacks);
+    }
+    return new ApiExecutorAdapter(executorType, {
+      ...callbacks,
+      profile,
+    });
   }
 
   return new PendingExecutorAdapter(executorType, callbacks);
