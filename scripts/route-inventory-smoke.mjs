@@ -180,6 +180,7 @@ async function main() {
     'providers',
     'pwa',
     'sessions',
+    'settings',
     'static-app',
     'static-artifacts',
     'streams',

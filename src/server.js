@@ -57,11 +57,59 @@ const contentTypes = {
   '.zip': 'application/zip',
   '.txt': 'text/plain; charset=utf-8',
 };
+const SECURITY_HEADERS = {
+  'Content-Security-Policy': [
+    "default-src 'self'",
+    "base-uri 'self'",
+    "frame-ancestors 'none'",
+    "object-src 'none'",
+    "form-action 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    "connect-src 'self'",
+    "media-src 'self' blob:",
+    "worker-src 'self'",
+    "manifest-src 'self'",
+  ].join('; '),
+  'X-Frame-Options': 'DENY',
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), clipboard-read=(self), clipboard-write=(self)',
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Cross-Origin-Resource-Policy': 'same-origin',
+};
+const SENSITIVE_CACHE_CONTROL = 'no-store, no-cache, must-revalidate, private';
+const STATIC_CACHE_CONTROL = 'public, max-age=300, must-revalidate';
 const requestOrigin = (req) => {
   const host = req.headers.host || `localhost:${PORT}`;
   const proto = req.headers['x-forwarded-proto'] || 'http';
   return `${proto}://${host}`;
 };
+
+function applySecurityHeaders(res) {
+  Object.entries(SECURITY_HEADERS).forEach(([name, value]) => {
+    res.setHeader(name, value);
+  });
+}
+
+function setCacheHeaders(res, value = SENSITIVE_CACHE_CONTROL) {
+  res.setHeader('Cache-Control', value);
+  if (value.includes('no-store')) {
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+  }
+}
+
+function staticCachePolicy(filePath) {
+  const basename = path.basename(filePath || '').toLowerCase();
+  const ext = path.extname(filePath || '').toLowerCase();
+  if (!basename || basename === 'index.html' || basename === 'service-worker.js' || ext === '.html') {
+    return SENSITIVE_CACHE_CONTROL;
+  }
+  return STATIC_CACHE_CONTROL;
+}
 
 function getRequestToken(req) {
   const headerToken = req.headers['x-commanddeck-token'];
@@ -177,8 +225,9 @@ function rejectSpoofedActor(body, res) {
 function sendJson(res, status, payload) {
   const body = JSON.stringify(payload);
   res.statusCode = status;
+  applySecurityHeaders(res);
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.setHeader('Cache-Control', 'no-cache');
+  setCacheHeaders(res);
   res.end(body);
 }
 
@@ -206,8 +255,9 @@ function applyRateLimit(req, res, method, parts) {
 
 function sendText(res, status, text, type = 'text/plain; charset=utf-8') {
   res.statusCode = status;
+  applySecurityHeaders(res);
   res.setHeader('Content-Type', type);
-  res.setHeader('Cache-Control', 'no-cache');
+  setCacheHeaders(res);
   res.end(String(text));
 }
 
@@ -222,8 +272,9 @@ function handleEventStream(req, res) {
   const once = searchParams.get('once') === 'true';
   const startedAt = new Date().toISOString();
   res.statusCode = 200;
+  applySecurityHeaders(res);
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  setCacheHeaders(res);
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
   res.setHeader('X-CommandDeck-Stream', 'events');
@@ -336,8 +387,9 @@ async function serveStaticOrIndex(pathname, res) {
       }
       const artifactBuffer = await readArtifactBuffer(requested.filePath);
       res.statusCode = 200;
+      applySecurityHeaders(res);
       res.setHeader('Content-Type', artifactContentType(requested.filePath));
-      res.setHeader('Cache-Control', 'no-cache');
+      setCacheHeaders(res);
       return res.end(artifactBuffer);
     } catch {
       return sendText(res, 404, 'Artifact file not found');
@@ -359,8 +411,9 @@ async function serveFile(filePath, res) {
     const buffer = await fs.readFile(fullPath);
     const ext = path.extname(fullPath);
     res.statusCode = 200;
+    applySecurityHeaders(res);
     res.setHeader('Content-Type', contentTypes[ext] || 'application/octet-stream');
-    res.setHeader('Cache-Control', 'no-cache');
+    setCacheHeaders(res, staticCachePolicy(filePath));
     res.end(buffer);
   } catch (error) {
     if (error.code === 'ENOENT') {
@@ -1694,6 +1747,7 @@ async function handleApi(req, res, pathname, method, parts) {
 }
 
 function routeRequest(req, res) {
+  applySecurityHeaders(res);
   const method = req.method || 'GET';
   const pathname = normalizePathname(req.url || '/');
   if (!pathname) {
