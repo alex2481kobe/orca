@@ -341,6 +341,82 @@ test('MCP tool validation rejects invalid names and command payloads', async () 
   }
 });
 
+test('MCP tool validation enforces scope allowlist and single-token command', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+
+  try {
+    assert.throws(() => registry.createMcpTool({
+      name: 'space-command-tool',
+      command: 'node script.js',
+      scope: ['codex'],
+      enabled: true,
+    }, {
+      actor: 'test',
+      approved: true,
+    }), (error) => error.status === 422);
+
+    assert.throws(() => registry.createMcpTool({
+      name: 'invalid-scope-tool',
+      command: 'node',
+      scope: ['not-real'],
+      enabled: true,
+    }, {
+      actor: 'test',
+      approved: true,
+    }), (error) => error.status === 422);
+
+    const created = await registry.createMcpTool({
+      name: 'scoped-tool',
+      command: 'node',
+      scope: ['codex', 'all'],
+      enabled: true,
+    }, {
+      actor: 'test',
+      approved: true,
+    });
+    assert.deepEqual(created.scope.sort(), ['all', 'codex']);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('MCP tool command allowlist can be enforced via env override', async () => {
+  const restore = restoreEnv({
+    COMMAND_DECK_MCP_TOOL_COMMAND_ALLOWLIST: process.env.COMMAND_DECK_MCP_TOOL_COMMAND_ALLOWLIST,
+  });
+
+  try {
+    process.env.COMMAND_DECK_MCP_TOOL_COMMAND_ALLOWLIST = 'node,python';
+    const { registry, cleanup } = await withIsolatedRegistry();
+    try {
+      assert.throws(() => registry.createMcpTool({
+        name: 'blocked-tool',
+        command: 'bun',
+        scope: ['all'],
+        enabled: true,
+      }, {
+        actor: 'test',
+        approved: true,
+      }), (error) => error.status === 422);
+
+      const allowed = await registry.createMcpTool({
+        name: 'allowed-tool',
+        command: 'python',
+        scope: ['all'],
+        enabled: true,
+      }, {
+        actor: 'test',
+        approved: true,
+      });
+      assert.equal(allowed.command, 'python');
+    } finally {
+      await cleanup();
+    }
+  } finally {
+    restore();
+  }
+});
+
 test('Codex and Claude lanes accept executor overrides and command payloads', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
 

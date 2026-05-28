@@ -26,6 +26,11 @@ This implementation is a checkpointed buildout covering Phases 0/1, plus durable
 - Evidence cleanup is now approval-gated and can be run with `POST /api/artifacts/cleanup` and `dryRun` mode.
 - Artifact cleanup also supports optional targeting (`sessionId`) and retention override (`olderThanDays`) in the request body.
 - MCP tools are configurable via `POST /api/mcp/tools` and can be attached to Codex/Claude lanes.
+- MCP tool hardening options:
+  - `COMMAND_DECK_MCP_TOOL_COMMAND_ALLOWLIST`
+
+  Optional comma-separated list of allowed MCP executables (for example `node` or `npx`).
+  - `COMMAND_DECK_MCP_TOOL_COMMAND_ALLOWLIST=node,npx,python3`
 - Cleanup scheduling controls are now in UI and policy-gated:
   - `GET /api/artifacts/cleanup/schedule`
   - `POST /api/artifacts/cleanup/schedule`

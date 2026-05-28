@@ -43,6 +43,16 @@ const REINSTALL_INSTALL_VERBS = {
   pip: ['install'],
   pip3: ['install'],
 };
+const MCP_TOOL_SCOPE_ALLOWLIST = new Set(['all', 'codex', 'claude', 'mock']);
+
+function getMcpCommandAllowlist() {
+  const override = process.env.COMMAND_DECK_MCP_TOOL_COMMAND_ALLOWLIST;
+  if (!override) return null;
+  return String(override)
+    .split(',')
+    .map((value) => String(value || '').trim().toLowerCase())
+    .filter(Boolean);
+}
 
 function normalizeReinstallToken(raw) {
   const value = String(raw || '').trim().toLowerCase();
@@ -300,6 +310,19 @@ function sanitizeMcpName(value) {
   return name;
 }
 
+function normalizeMcpScope(raw) {
+  const rawList = Array.isArray(raw) ? raw : [];
+  const scopes = rawList
+    .map((value) => String(value || '').trim().toLowerCase())
+    .filter(Boolean);
+  const sanitized = Array.from(new Set(scopes));
+  const invalid = sanitized.filter((scope) => !MCP_TOOL_SCOPE_ALLOWLIST.has(scope));
+  if (invalid.length) {
+    throw { status: 422, message: `MCP tool scope contains unsupported values: ${invalid.join(', ')}` };
+  }
+  return sanitized;
+}
+
 function normalizeCommandArray(raw) {
   if (!Array.isArray(raw)) return [];
   return raw
@@ -313,11 +336,28 @@ function sanitizeMcpCommand(raw) {
   if (!command) {
     throw { status: 422, message: 'MCP tool command is required.' };
   }
+  if (/\s/.test(command)) {
+    throw { status: 422, message: 'MCP tool command must be a single executable token.' };
+  }
   if (command.length > 255) {
     throw { status: 422, message: 'MCP tool command is too long.' };
   }
   if (/[|&;<>$`]/.test(command)) {
     throw { status: 422, message: 'MCP tool command contains blocked characters.' };
+  }
+  const allowlist = getMcpCommandAllowlist();
+  if (allowlist && allowlist.length) {
+    const normalized = command.toLowerCase();
+    const baseCommand = path.basename(normalized);
+    const allowed = allowlist.some((allowedCommand) => {
+      const normalizedAllowed = String(allowedCommand || '').trim().toLowerCase();
+      if (!normalizedAllowed) return false;
+      if (normalized === normalizedAllowed) return true;
+      return baseCommand === normalizedAllowed;
+    });
+    if (!allowed) {
+      throw { status: 422, message: `MCP tool command "${command}" is not in the allowlist.` };
+    }
   }
   return command;
 }
@@ -784,6 +824,7 @@ export class CommandDeckRegistry {
     const command = sanitizeMcpCommand(payload.command);
     const args = normalizeCommandArray(payload.args);
     const enabled = payload.enabled !== false;
+    const scope = normalizeMcpScope(payload.scope);
     const now = nowIso();
     const tool = {
       id: name,
@@ -791,7 +832,7 @@ export class CommandDeckRegistry {
       command,
       args,
       enabled,
-      scope: Array.isArray(payload.scope) ? payload.scope.map((value) => String(value || '').toLowerCase()).filter(Boolean) : [],
+      scope,
       createdAt: now,
       updatedAt: now,
       owner: actor,
@@ -839,7 +880,7 @@ export class CommandDeckRegistry {
     if (Array.isArray(patch.args)) tool.args = normalizeCommandArray(patch.args);
     if (typeof patch.enabled === 'boolean') tool.enabled = patch.enabled;
     if (Array.isArray(patch.scope)) {
-      tool.scope = patch.scope.map((value) => String(value || '').toLowerCase()).filter(Boolean);
+      tool.scope = normalizeMcpScope(patch.scope);
     }
     if (patch.notes !== undefined) tool.notes = String(patch.notes);
 
