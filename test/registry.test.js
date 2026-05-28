@@ -102,6 +102,92 @@ test('cleanup schedule and cleanup artifacts use retention + approval', async ()
   }
 });
 
+test('scheduled cleanup tick runs artifacts cleanup when run-at is due', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+
+  try {
+    const project = registry.createProject({ name: 'Scheduled Cleanup Project' });
+    const session = registry.createSession(project.id, { name: 'Scheduled Cleanup Session' });
+    const lane = registry.createLane(session.id, {
+      title: 'stale lane',
+      executorType: 'mock',
+    }, { approved: true, actor: 'test' });
+
+    const target = registry.getLane(lane.id);
+    target.state = 'done';
+    target.completedAt = new Date(Date.now() - (10 * 24 * 60 * 60 * 1000)).toISOString();
+    target.updatedAt = target.completedAt;
+
+    const artifactDir = path.join(process.cwd(), 'artifacts', session.id, target.id);
+    await fs.mkdir(artifactDir, { recursive: true });
+    await fs.writeFile(path.join(artifactDir, 'evidence-test.log'), 'hello');
+
+    const schedule = registry.updateCleanupSchedule({
+      enabled: true,
+      intervalHours: 0.001,
+      olderThanDays: 1,
+      sessionId: session.id,
+      dryRun: false,
+    }, { actor: 'test', approved: true });
+    assert.equal(schedule.enabled, true);
+
+    registry.cleanupSchedule.nextRunAt = new Date(Date.now() - 1000).toISOString();
+
+    await registry.runCleanupSchedulerTick();
+
+    await assert.rejects(
+      fs.access(artifactDir),
+      (error) => error.code === 'ENOENT',
+    );
+
+    const updatedSchedule = registry.getCleanupSchedule();
+    assert.equal(updatedSchedule.lastRunAt !== null, true);
+    assert.equal(updatedSchedule.nextRunAt !== schedule.nextRunAt, true);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('scheduled cleanup tick waits until next run time', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+
+  try {
+    const project = registry.createProject({ name: 'Scheduled Cleanup Holdoff Project' });
+    const session = registry.createSession(project.id, { name: 'Scheduled Cleanup Holdoff Session' });
+    const lane = registry.createLane(session.id, {
+      title: 'stale lane',
+      executorType: 'mock',
+    }, { approved: true, actor: 'test' });
+
+    const target = registry.getLane(lane.id);
+    target.state = 'done';
+    target.completedAt = new Date(Date.now() - (10 * 24 * 60 * 60 * 1000)).toISOString();
+    target.updatedAt = target.completedAt;
+
+    const artifactDir = path.join(process.cwd(), 'artifacts', session.id, target.id);
+    await fs.mkdir(artifactDir, { recursive: true });
+    await fs.writeFile(path.join(artifactDir, 'evidence-test.log'), 'hello');
+
+    const schedule = registry.updateCleanupSchedule({
+      enabled: true,
+      intervalHours: 4,
+      olderThanDays: 1,
+      sessionId: session.id,
+      dryRun: false,
+    }, { actor: 'test', approved: true });
+
+    registry.cleanupSchedule.nextRunAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
+    await registry.runCleanupSchedulerTick();
+
+    const stillThere = await fs.readdir(artifactDir);
+    assert.equal(stillThere.length, 1);
+    assert.equal(schedule.lastRunAt, null);
+  } finally {
+    await cleanup();
+  }
+});
+
 test('cleanup artifacts and cleanup schedule require approval for manual invocation', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
@@ -772,6 +858,49 @@ test('Creating lanes rejects unsupported executor types', async () => {
       executorType: 'openai-orchestrator',
       mcpToolIds: [],
     }, { approved: true, actor: 'test' }), (error) => error.status === 422);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('Lane workdirs default to the session workspace and reject traversal outside session boundary', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+
+  try {
+    const project = registry.createProject({ name: 'Workspace Boundaries Project' });
+    const session = registry.createSession(project.id, {
+      name: 'Workspace Boundaries Session',
+      leader: 'codex',
+    });
+    const sessionRecord = registry.getSession(session.id);
+
+    const workspaceStats = await fs.stat(sessionRecord.worktreeRoot);
+    assert.equal(workspaceStats.isDirectory(), true);
+
+    const defaultLane = registry.createLane(session.id, {
+      title: 'Default workspace lane',
+      executorType: 'codex',
+      mcpToolIds: [],
+    }, { approved: true, actor: 'test' });
+    assert.equal(defaultLane.workdir, sessionRecord.worktreeRoot);
+
+    const relativeLane = registry.createLane(session.id, {
+      title: 'Relative workspace lane',
+      executorType: 'codex',
+      workdir: 'feature-run',
+      mcpToolIds: [],
+    }, { approved: true, actor: 'test' });
+    assert.equal(relativeLane.workdir, path.join(sessionRecord.worktreeRoot, 'feature-run'));
+
+    await assert.rejects(
+      () => registry.createLane(session.id, {
+        title: 'Escaping workspace lane',
+        executorType: 'codex',
+        workdir: '../outside',
+        mcpToolIds: [],
+      }, { approved: true, actor: 'test' }),
+      (error) => error.status === 422,
+    );
   } finally {
     await cleanup();
   }

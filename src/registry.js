@@ -59,9 +59,36 @@ const DEFAULT_REINSTALL_SOURCE_REPOS = {
   codex: ['openai/codex'],
   claude: ['anthropic/claude-code'],
 };
+const MAX_WORKDIR_BYTES = 2048;
 const MCP_TOOL_SCOPE_ALLOWLIST = new Set(['all', 'codex', 'claude', 'mock']);
 const MAX_MCP_TOOL_ARG_LENGTH = 255;
 const MAX_MCP_TOOL_ARGS = 64;
+
+function isPathWithinBoundary(candidatePath, boundaryPath) {
+  const boundary = path.resolve(String(boundaryPath || '').trim() || process.cwd());
+  const candidate = path.resolve(String(candidatePath || '').trim() || boundary);
+  const boundaryWithSep = boundary.endsWith(path.sep) ? boundary : `${boundary}${path.sep}`;
+  return candidate === boundary || candidate.startsWith(boundaryWithSep);
+}
+
+function ensureDirectorySync(directoryPath) {
+  const target = String(directoryPath || '').trim();
+  if (!target) return;
+  try {
+    fsSync.mkdirSync(target, { recursive: true });
+  } catch {
+    // Directory creation will be validated by runtime execution when needed.
+  }
+}
+
+function sanitizeWorkdirInput(raw) {
+  if (raw === undefined || raw === null) return '';
+  const text = String(raw).trim();
+  if (!text) return '';
+  if (text.length > MAX_WORKDIR_BYTES) return '__INVALID_LENGTH__';
+  if (/\x00/.test(text)) return '__INVALID_BYTES__';
+  return text;
+}
 
 function getMcpCommandAllowlist() {
   const override = process.env.COMMAND_DECK_MCP_TOOL_COMMAND_ALLOWLIST;
@@ -529,6 +556,7 @@ export class CommandDeckRegistry {
     this.auditEvents = [];
     this.mcpTools = [];
     this.artifactRoot = path.join(process.cwd(), 'artifacts');
+    this.workspacesRoot = path.join(process.cwd(), '.command-deck', 'workspaces');
     this.storageDir = path.join(process.cwd(), '.command-deck');
     this.stateFile = path.join(this.storageDir, 'state.json');
 
@@ -582,6 +610,7 @@ export class CommandDeckRegistry {
     this.unknownExecutorAdapters = new Map();
 
     fs.mkdir(this.artifactRoot, { recursive: true }).catch(() => {});
+    fs.mkdir(this.workspacesRoot, { recursive: true }).catch(() => {});
     this.restoreFromDisk();
     if (!this.projects.length) {
       this.seed();
@@ -609,6 +638,7 @@ export class CommandDeckRegistry {
           ...parsed.cleanupSchedule,
         };
       }
+      this.ensureSessionWorkspaces();
       this.recoverInterruptedLanes();
     } catch (error) {
       if (error.code !== 'ENOENT') {
@@ -645,8 +675,81 @@ export class CommandDeckRegistry {
     this._persistTimer.unref?.();
   }
 
+  ensureSessionWorkspaces() {
+    let migrated = false;
+    for (const session of this.sessions) {
+      if (!session) continue;
+      if (!session.id) {
+        session.id = randomUUID();
+        migrated = true;
+      }
+
+      if (!session.artifactsRoot) {
+        session.artifactsRoot = path.join(this.artifactRoot, session.id);
+        migrated = true;
+      }
+      if (!session.worktreeRoot) {
+        session.worktreeRoot = path.join(this.workspacesRoot, session.id);
+        migrated = true;
+      }
+      ensureDirectorySync(session.artifactsRoot);
+      ensureDirectorySync(session.worktreeRoot);
+    }
+
+    if (migrated) {
+      this.persistState().catch(() => {});
+    }
+  }
+
+  getSessionWorktreeRoot(session) {
+    if (!session || !session.id) {
+      return path.join(this.workspacesRoot, 'orphan');
+    }
+    return path.resolve(session.worktreeRoot || path.join(this.workspacesRoot, session.id));
+  }
+
+  resolveLaneWorkdir(session, rawWorkdir) {
+    const sessionWorkdir = this.getSessionWorktreeRoot(session);
+    const requested = sanitizeWorkdirInput(rawWorkdir);
+    if (requested === '__INVALID_LENGTH__') {
+      throw {
+        status: 422,
+        message: 'Lane workdir path is too long.',
+      };
+    }
+    if (requested === '__INVALID_BYTES__') {
+      throw {
+        status: 422,
+        message: 'Lane workdir path contains invalid characters.',
+      };
+    }
+    const workdir = requested
+      ? (path.isAbsolute(requested) ? path.resolve(requested) : path.resolve(sessionWorkdir, requested))
+      : sessionWorkdir;
+
+    if (!isPathWithinBoundary(workdir, sessionWorkdir)) {
+      throw {
+        status: 422,
+        message: 'Lane workdir is outside the session workspace boundary.',
+      };
+    }
+    return workdir;
+  }
+
   recoverInterruptedLanes() {
     for (const lane of this.lanes) {
+      const session = this.sessions.find((value) => value.id === lane.sessionId);
+      if (!lane.workdir) {
+        lane.workdir = session
+          ? this.resolveLaneWorkdir(session, null)
+          : path.join(process.cwd(), 'artifacts', lane.sessionId || 'orphan', lane.id);
+      } else if (session) {
+        try {
+          lane.workdir = this.resolveLaneWorkdir(session, lane.workdir);
+        } catch {
+          lane.workdir = this.resolveLaneWorkdir(session, null);
+        }
+      }
       if ([RUNNING_STATE, STARTING_STATE].includes(lane.state)) {
         this.markLaneFailed(lane, 'Controller restarted while lane was active', 'system', false);
       }
@@ -1106,21 +1209,23 @@ export class CommandDeckRegistry {
     const now = nowIso();
     const concurrencyLimit = Math.max(1, Number.parseInt(laneConcurrencyLimit, 10) || 1);
     const retention = Number.parseInt(artifactRetentionDays, 10) || 14;
+    const sessionId = randomUUID();
     const session = {
-      id: randomUUID(),
+      id: sessionId,
       projectId: project.id,
       name: String(name).trim(),
       leader,
       laneConcurrencyLimit: concurrencyLimit,
       artifactRetentionDays: retention,
-      route: `/projects/${project.slug}/sessions/${randomUUID()}`,
+      route: `/projects/${project.slug}/sessions/${sessionId}`,
       createdAt: now,
       updatedAt: now,
       state: 'active',
-      artifactsRoot: path.join(this.artifactRoot, randomUUID()),
+      artifactsRoot: path.join(this.artifactRoot, sessionId),
+      worktreeRoot: path.join(this.workspacesRoot, sessionId),
       notes: [],
     };
-    session.route = `/projects/${project.slug}/sessions/${session.id}`;
+    this.ensureSessionWorkspaces(session);
 
     this.sessions.push(session);
     this.recordAudit({
@@ -1356,6 +1461,7 @@ export class CommandDeckRegistry {
     if (!title || !String(title).trim()) {
       throw { status: 422, message: 'Lane title is required.' };
     }
+    const resolvedWorkdir = this.resolveLaneWorkdir(session, workdir);
 
     const normalizedExecutorType = normalizeExecutorType(executorType);
     if (!['mock', 'codex', 'claude'].includes(normalizedExecutorType)) {
@@ -1440,7 +1546,7 @@ export class CommandDeckRegistry {
       commandArgs,
       args,
       executorBinary,
-      workdir,
+      workdir: resolvedWorkdir,
       policyProfile,
       mcpTools,
       state: QUEUED_STATE,
