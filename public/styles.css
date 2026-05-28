@@ -178,20 +178,6 @@ body.sidebar-collapsed .shell-toggle {
   margin-left: 0.75rem;
 }
 
-.app-topbar::before {
-  background: rgba(19, 20, 17, 0.92);
-  border-right: 1px solid var(--line-soft);
-  content: "";
-  height: 45px;
-  grid-column: 1;
-  grid-row: 1;
-  width: 100%;
-}
-
-body.sidebar-collapsed .app-topbar::before {
-  display: none;
-}
-
 .shell-toggle,
 .app-topbar-title,
 .app-topbar-actions {
@@ -211,8 +197,6 @@ body.sidebar-collapsed .shell-toggle {
 .app-topbar-title {
   align-items: center;
   align-self: stretch;
-  background: rgba(14, 15, 13, 1);
-  border-bottom: 1px solid var(--line-soft);
   display: flex;
   grid-column: 2;
 }
@@ -249,8 +233,6 @@ body.sidebar-collapsed .shell-toggle {
 
 .app-topbar-actions {
   align-self: stretch;
-  background: rgba(14, 15, 13, 1);
-  border-bottom: 1px solid var(--line-soft);
   grid-column: 3;
   width: 2rem;
 }
