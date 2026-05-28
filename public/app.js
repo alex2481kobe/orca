@@ -947,6 +947,18 @@ async function handleCleanupSchedule(event) {
   event.preventDefault();
   const payload = buildCleanupScheduleBody(toObj(event.currentTarget));
   const endpoint = event.currentTarget.dataset.url || '/api/artifacts/cleanup/schedule';
+  const current = shell.cleanupSchedule || {};
+  const scheduled = payload.enabled ? 'Enabled' : 'Disabled';
+  const currentState = `${current.enabled ? 'enabled' : 'disabled'}`;
+  const interval = payload.intervalHours;
+  const retention = payload.olderThanDays || 'session default';
+  const targetSession = payload.sessionId || 'all sessions';
+  const dryRunMode = payload.dryRun ? 'Dry-run' : 'Live';
+  const confirmMessage = `Update cleanup schedule?\nCurrent: ${currentState}\nNext: ${scheduled.toLowerCase()}, ${interval}h, retention ${retention}, ${targetSession}, ${dryRunMode}.`;
+  if (!window.confirm(confirmMessage)) {
+    renderAlert('Cleanup schedule update canceled.');
+    return;
+  }
   const response = await api(endpoint, {
     method: 'POST',
     body: payload,
