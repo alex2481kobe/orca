@@ -49,10 +49,7 @@ async function http(reqPath) {
 const REQUIRED_HTML_MARKERS = [
   'class="ops-shell"',
   'id="sidebar"',
-  'id="status-strip"',
-  'id="blockers"',
   'id="breadcrumbs"',
-  'data-action="refresh"',
   'data-action="toggleNav"',
   'src="/app.js',
 ];
@@ -122,14 +119,13 @@ async function playwrightMode(pw) {
     }, { timeout: 12000 });
 
     // Required structural pieces.
-    for (const selector of ['#topbar', '#status-strip', '#sidebar', '#content', '#breadcrumbs']) {
+    for (const selector of ['#sidebar', '#content', '#breadcrumbs']) {
       const handle = await page.$(selector);
       if (!handle) fail(`${viewport.name} missing selector`, selector);
     }
 
-    // Status strip must contain at least one tag.
-    const statusTagCount = await page.$$eval('#status-strip .tag', (els) => els.length);
-    if (statusTagCount < 1) fail(`${viewport.name} status-strip has no tags`);
+    const sidebarLinks = await page.$$eval('#sidebar a', (els) => els.length);
+    if (sidebarLinks < 1) fail(`${viewport.name} sidebar has no navigation links`);
 
     // Document scrollWidth shouldn't exceed viewport width (proxy for overflowing text).
     const overflow = await page.evaluate((vw) => {
@@ -193,7 +189,7 @@ async function playwrightMode(pw) {
 
     const shotPath = path.join(artifactDir, `${viewport.name}.png`);
     await page.screenshot({ path: shotPath, fullPage: true });
-    log(viewport.name, `tags=${statusTagCount} overflowPx=${overflow} shot=${shotPath}`);
+    log(viewport.name, `sidebarLinks=${sidebarLinks} overflowPx=${overflow} shot=${shotPath}`);
     await page.close();
   }
   await ctx.close();

@@ -488,18 +488,11 @@ function renderHome() {
   const showMainHome = panel === 'overview' || panel === 'projects';
 
   refs.content.innerHTML = `
-    <section class="simple-home ${showMainHome ? '' : 'is-hidden'}">
-      <div>
-        <h2>Command Deck</h2>
-        <p class="muted">Open a project, jump to a recent lane, or start a new agent conversation.</p>
-      </div>
-      <a class="settings-link" href="#system">Settings</a>
-    </section>
     <section class="simple-section ${showMainHome ? '' : 'is-hidden'}">
       <h3>Projects</h3>
       <a class="simple-row" href="#create">
         <span class="row-icon">＋</span>
-        <span>New project</span>
+        <span>New chat</span>
       </a>
       ${projectRows || '<div class="muted">No projects yet.</div>'}
     </section>
@@ -509,6 +502,7 @@ function renderHome() {
     </section>
     <section class="simple-section simple-more ${showMainHome ? '' : 'is-hidden'}">
       <h3>More</h3>
+      <a class="simple-row" href="#system">Settings</a>
       <a class="simple-row" href="#audit">Audit queue</a>
       <a class="simple-row" href="#mcp">MCP tools</a>
       <a class="simple-row" href="#cleanup">Cleanup</a>
@@ -1102,14 +1096,30 @@ function renderSidebarProjects(activeProject) {
     return;
   }
   const renderSidebarProject = (project) => {
+    const projectSessions = (shell.sessions || []).filter((session) => session.projectId === project.id);
     const lanes = (shell.lanes || []).filter((lane) => lane.projectId === project.id);
     const active = lanes.filter((lane) => ['running', 'starting', 'queued'].includes(lane.state)).length;
     const isActive = activeProject && activeProject.id === project.id;
+    const sessionRows = projectSessions.slice(0, 4).map((session) => {
+      const sessionLanes = (shell.lanes || []).filter((lane) => lane.sessionId === session.id);
+      const recentLane = [...sessionLanes]
+        .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0))[0];
+      const label = recentLane?.title || session.name;
+      return `
+        <a class="sidebar-thread" href="${safeAttr(recentLane?.route || session.route)}">
+          <span>${safeText(label)}</span>
+          <small>${safeText(formatRelative(recentLane?.updatedAt || session.updatedAt || session.createdAt))}</small>
+        </a>
+      `;
+    }).join('');
     return `
-      <a class="sidebar-link ${isActive ? 'active' : ''}" href="${safeText(project.route)}" data-route-project="${safeText(project.slug)}">
-        ${safeText(project.name)}
-        <span class="pill" title="${active} active lanes">${active}</span>
-      </a>
+      <div class="sidebar-project-group ${isActive ? 'active' : ''}">
+        <a class="sidebar-link" href="${safeAttr(project.route)}" data-route-project="${safeAttr(project.slug)}">
+          <span>${safeText(project.name)}</span>
+          ${active ? `<span class="pill" title="${active} active lanes">${active}</span>` : ''}
+        </a>
+        ${sessionRows || '<div class="tiny muted sidebar-empty">No sessions yet.</div>'}
+      </div>
     `;
   };
   const primaryProjects = projects.filter((project) => !isVerificationProject(project));
@@ -2139,6 +2149,7 @@ document.addEventListener('click', async (event) => {
   const action = actionTarget?.dataset?.action;
   if (action === 'toggleNav') {
     document.body.classList.toggle('nav-open');
+    document.body.classList.toggle('sidebar-collapsed');
     return;
   }
   // Auto-close mobile sidebar when navigating.
