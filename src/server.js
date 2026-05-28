@@ -260,6 +260,7 @@ async function handleApi(req, res, pathname, method, parts) {
         approved: body.approved,
         execute: Boolean(body.execute),
         command: body.command,
+        confirmed: body.confirmed,
       });
       return sendJson(res, 200, result);
     } catch (error) {
@@ -335,6 +336,7 @@ async function handleApi(req, res, pathname, method, parts) {
         sessionId: normalizedSessionId || null,
         olderThanDays: normalizedRetention ?? null,
         dryRun: Boolean(normalizedDryRun),
+        confirmed: Boolean(body.confirmed),
       });
       return sendJson(res, 200, result);
     } catch (error) {

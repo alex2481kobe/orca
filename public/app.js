@@ -1402,8 +1402,8 @@ async function handleSystemActions(event) {
   if (action === 'reinstallExecutorCli') {
     const executorType = event.currentTarget.dataset.executor;
     if (!executorType) return;
-    const confirmed = window.confirm(`Plan ${executorType.toUpperCase()} CLI ${event.currentTarget.textContent.toLowerCase().includes('dry-run') ? 'dry run reinstall' : ''} now?`);
-    if (!confirmed) {
+    const confirmedPlan = window.confirm(`Plan ${executorType.toUpperCase()} CLI ${event.currentTarget.textContent.toLowerCase().includes('dry-run') ? 'dry run reinstall' : ''} now?`);
+    if (!confirmedPlan) {
       renderAlert('Executor CLI action canceled.');
       return;
     }
@@ -1412,14 +1412,14 @@ async function handleSystemActions(event) {
     );
     const parsedOverride = overrideCommand && overrideCommand.trim() ? overrideCommand.trim() : null;
     const execute = window.confirm('Run managed reinstall now (not dry-run)?\nChoose Cancel to only show the planned command.');
-    const confirmed = execute;
+    const confirmedExecute = execute;
     const response = await api(`/api/executors/${encodeURIComponent(executorType)}/cli/reinstall`, {
       method: 'POST',
       body: {
         actor: 'dashboard',
         approved: true,
         execute,
-        confirmed,
+        confirmed: confirmedExecute,
         ...(parsedOverride ? { command: parsedOverride } : {}),
       },
     });
