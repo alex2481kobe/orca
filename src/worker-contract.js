@@ -1,6 +1,13 @@
 const nowIso = () => new Date().toISOString();
 
 const noopAsync = async () => {};
+const safeFire = (callback, ...args) => {
+  try {
+    return Promise.resolve(callback(...args)).catch(() => {});
+  } catch {
+    return Promise.resolve();
+  }
+};
 
 export const LANE_STATES = {
   QUEUED: 'queued',
@@ -55,7 +62,7 @@ export class MockWorkerAdapter {
     runtime.timer.unref?.();
 
     this.runtimes.set(lane.id, runtime);
-    await this.onLog(lane, `Mock worker started with ${autoCompleteMs}ms runtime target.`);
+    await safeFire(this.onLog, lane, `Mock worker started with ${autoCompleteMs}ms runtime target.`);
     return { accepted: true, runtime };
   }
 
@@ -68,11 +75,11 @@ export class MockWorkerAdapter {
     runtime.status = 'stopping';
     clearTimeout(runtime.timer);
     this.runtimes.delete(runtime.lane.id);
-    await this.onStop(runtime.lane, {
+    await safeFire(this.onStop, runtime.lane, {
       actor: context.actor || 'dashboard',
       reason: context.reason || 'Stopped by controller',
     });
-    await this.onLog(runtime.lane, `Mock worker stopped by ${context.actor || 'controller'}.`);
+    await safeFire(this.onLog, runtime.lane, `Mock worker stopped by ${context.actor || 'controller'}.`);
     return { stopped: true, runtime };
   }
 
@@ -82,7 +89,7 @@ export class MockWorkerAdapter {
       return false;
     }
     runtime.heartbeatAt = Date.now();
-    this.onLog(runtime.lane, `Heartbeat from worker (${actor})`).catch(() => {});
+    safeFire(this.onLog, runtime.lane, `Heartbeat from worker (${actor})`);
     return true;
   }
 
@@ -94,7 +101,7 @@ export class MockWorkerAdapter {
         runtime.status = 'timed_out';
         clearTimeout(runtime.timer);
         this.runtimes.delete(runtime.lane.id);
-        await this.onFail(runtime.lane, 'Missed heartbeat window', 'heartbeat');
+        await safeFire(this.onFail, runtime.lane, 'Missed heartbeat window', 'heartbeat');
       }
     }
   }
@@ -106,7 +113,7 @@ export class MockWorkerAdapter {
     }
     runtime.status = 'done';
     this.runtimes.delete(runtime.lane.id);
-    await this.onComplete(runtime.lane);
+    await safeFire(this.onComplete, runtime.lane);
     return { done: true };
   }
 

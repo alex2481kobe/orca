@@ -23,6 +23,14 @@ const MAX_ARGS = 256;
 const MAX_WORKDIR_BYTES = 2048;
 const CONTROL_CHAR_RE = /[\x00-\x1f\x7f]/;
 
+function safeFire(callback, ...args) {
+  try {
+    return Promise.resolve(callback(...args)).catch(() => {});
+  } catch {
+    return Promise.resolve();
+  }
+}
+
 function normalizeArgs(raw) {
   if (!raw) return [];
   if (Array.isArray(raw)) {
@@ -352,17 +360,17 @@ class CliExecutorAdapter {
       child.stdout?.setEncoding('utf8');
       child.stderr?.setEncoding('utf8');
       child.stdout?.on('data', (chunk) => {
-        this.onLog(lane, `[${this.label}] ${String(chunk).trim()}`).catch(() => {});
+        safeFire(this.onLog, lane, `[${this.label}] ${String(chunk).trim()}`);
       });
       child.stderr?.on('data', (chunk) => {
-        this.onLog(lane, `[${this.label} err] ${String(chunk).trim()}`).catch(() => {});
+        safeFire(this.onLog, lane, `[${this.label} err] ${String(chunk).trim()}`);
       });
 
       child.on('error', (error) => {
         if (runtime.status !== 'active') return;
         runtime.status = 'failed';
         this.runtimes.delete(String(lane.id));
-        this.onFail(lane, `Executor process failed to launch: ${error.message}`, 'scheduler').catch(() => {});
+        safeFire(this.onFail, lane, `Executor process failed to launch: ${error.message}`, 'scheduler');
       });
 
       child.on('exit', (code, signal) => {
@@ -370,19 +378,19 @@ class CliExecutorAdapter {
         runtime.status = code === 0 ? 'done' : 'failed';
         this.runtimes.delete(String(lane.id));
         if (runtime.status === 'done') {
-          this.onComplete(lane, `${this.label} exited with code ${code}`).catch(() => {});
+          safeFire(this.onComplete, lane, `${this.label} exited with code ${code}`);
           return;
         }
         if (signal) {
-          this.onFail(lane, `${this.label} terminated by ${signal}`, 'scheduler').catch(() => {});
+          safeFire(this.onFail, lane, `${this.label} terminated by ${signal}`, 'scheduler');
         } else {
-          this.onFail(lane, `${this.label} exited with status ${code}`, 'scheduler').catch(() => {});
+          safeFire(this.onFail, lane, `${this.label} exited with status ${code}`, 'scheduler');
         }
       });
 
-      await this.onLog(lane, `${this.label} adapter started (runtime ${runtime.runtimeId})`);
+      await safeFire(this.onLog, lane, `${this.label} adapter started (runtime ${runtime.runtimeId})`);
       if (lane.mcpConfigPath) {
-        await this.onLog(lane, `${this.label} lane MCP config loaded at ${lane.mcpConfigPath}`);
+        await safeFire(this.onLog, lane, `${this.label} lane MCP config loaded at ${lane.mcpConfigPath}`);
       }
       return { accepted: true, runtime };
     } catch (error) {
@@ -409,11 +417,11 @@ class CliExecutorAdapter {
     this.runtimes.delete(laneKey);
 
     const killed = proc.kill('SIGTERM');
-    await this.onStop(runtime.lane, {
+    await safeFire(this.onStop, runtime.lane, {
       actor: context.actor || 'dashboard',
       reason: context.reason || `${this.label} adapter stop requested`,
     });
-    await this.onLog(runtime.lane, `${this.label} adapter stopped (${killed ? 'killed' : 'already exited'}).`);
+    await safeFire(this.onLog, runtime.lane, `${this.label} adapter stopped (${killed ? 'killed' : 'already exited'}).`);
 
     return {
       stopped: true,
@@ -427,7 +435,7 @@ class CliExecutorAdapter {
       return false;
     }
     runtime.heartbeatAt = Date.now();
-    this.onLog(runtime.lane, `[${this.label}] heartbeat from ${actor}`).catch(() => {});
+    safeFire(this.onLog, runtime.lane, `[${this.label}] heartbeat from ${actor}`);
     return true;
   }
 
@@ -439,7 +447,7 @@ class CliExecutorAdapter {
         runtime.status = 'timed_out';
         runtime.process.kill('SIGKILL');
         this.runtimes.delete(laneId);
-        await this.onFail(runtime.lane, `${this.label} adapter heartbeat timeout`, 'heartbeat');
+        await safeFire(this.onFail, runtime.lane, `${this.label} adapter heartbeat timeout`, 'heartbeat');
       }
     }
   }
@@ -467,7 +475,7 @@ class PendingExecutorAdapter {
   }
 
   async start(lane) {
-    await this.onLog(lane, `${this.label} executor is not supported by this build.`);
+    await safeFire(this.onLog, lane, `${this.label} executor is not supported by this build.`);
     return {
       accepted: false,
       reason: `${this.label} executor is not supported.`,

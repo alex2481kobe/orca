@@ -81,7 +81,7 @@ export class PlaywrightEvidenceRunner {
 
     if (!url) {
       summary.error = 'Evidence capture requires a target URL.';
-      await this.onError(lane, `Evidence capture skipped for lane ${lane.id} due to missing URL.`);
+      await safeFire(this.onError, lane, `Evidence capture skipped for lane ${lane.id} due to missing URL.`);
       return { captured: false, reason: summary.error, evidence: summary };
     }
 
@@ -99,7 +99,7 @@ export class PlaywrightEvidenceRunner {
       summary.produced.push(path.basename(manifestPath));
       summary.status = 'degraded';
       summary.error = 'Playwright is not installed in this environment.';
-      await this.onLog(lane, summary.error);
+      await safeFire(this.onLog, lane, summary.error);
       return {
         captured: false,
         reason: summary.error,
@@ -188,7 +188,7 @@ export class PlaywrightEvidenceRunner {
         },
       };
       await fs.writeFile(logPath, outputText(output));
-      await this.onLog(lane, `Evidence captured for ${url}. Modes: ${requestedModes.join(', ')}`);
+      await safeFire(this.onLog, lane, `Evidence captured for ${url}. Modes: ${requestedModes.join(', ')}`);
 
       return { captured: true, evidence: output, files: captureFiles };
     } catch (error) {
@@ -199,7 +199,7 @@ export class PlaywrightEvidenceRunner {
         completedAt: nowIso(),
       };
       await fs.writeFile(logPath, outputText(failure));
-      await this.onError(lane, failure.error);
+      await safeFire(this.onError, lane, failure.error);
       return {
         captured: false,
         reason: failure.error,
@@ -230,4 +230,12 @@ export class PlaywrightEvidenceRunner {
 function outputText(payload) {
   return `${JSON.stringify(payload, null, 2)}
 `;
+}
+
+function safeFire(callback, ...args) {
+  try {
+    return Promise.resolve(callback(...args)).catch(() => {});
+  } catch {
+    return Promise.resolve();
+  }
 }
