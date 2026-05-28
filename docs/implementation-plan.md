@@ -57,6 +57,13 @@ smoke gates before being listed.
   audit, cleanup dry-run, private-access fake states, PWA static guards,
   notifications, import/export redaction, and paired-cookie desktop/
   phone/lane screenshots under `artifacts/full-flow-smoke/`.
+- `npm run smoke:acceptance` runs the deterministic local acceptance
+  matrix in one command, covering `npm test`, the full-flow aliases,
+  security, UI, route matrix, provider, credential, evidence, private
+  access, PWA, notification, backup, stream, migration, and lifecycle
+  smokes. It writes `artifacts/acceptance/acceptance-summary.json` and
+  lists live Tailscale phone reachability plus native packaging as
+  external/manual checks.
 - Real Claude CLI execution flows through the adapter (`claude
   --version` → PID + exit 0).
 - Real Codex CLI is repaired on this host through Homebrew
@@ -176,6 +183,7 @@ executable, and the broken Homebrew Codex symlink was repaired with
 
 ```bash
 npm test
+npm run smoke:acceptance
 npm run smoke
 npm run smoke:full-flow
 npm run smoke:private-access

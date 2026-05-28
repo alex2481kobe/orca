@@ -100,3 +100,9 @@ try {
   process.chdir(previousCwd);
   await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
 }
+
+// The evidence runner can leave platform/browser internals with transient open
+// handles after assertions have passed. This smoke is a terminal proof script,
+// so exit explicitly after cleanup instead of letting those handles hang the
+// full acceptance gate.
+process.exit(0);

@@ -6,16 +6,63 @@
  * compact payloads, heartbeat/snapshot events, no token leakage, and no API
  * token in the URL.
  */
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import process from 'node:process';
 
-const base = process.env.COMMAND_DECK_BASE_URL || 'http://127.0.0.1:3000';
-const token = process.env.COMMAND_DECK_API_TOKEN || '';
+const previousCwd = process.cwd();
+const previousEnv = { ...process.env };
+const args = process.argv.slice(2);
+let explicitBase = Boolean(process.env.COMMAND_DECK_BASE_URL);
+let base = process.env.COMMAND_DECK_BASE_URL || 'http://127.0.0.1:3000';
+for (let i = 0; i < args.length; i += 1) {
+  if (args[i] === '--base' && args[i + 1]) {
+    base = args[i + 1];
+    explicitBase = true;
+  }
+}
+let token = process.env.COMMAND_DECK_API_TOKEN || '';
+const tempDir = explicitBase ? null : await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-streams-smoke-'));
+let server = null;
+let stopServer = null;
 const log = (label, info = '') => console.log(`[streams] ${label}${info ? ' — ' + info : ''}`);
 const fail = (label, info = '') => {
   console.error(`[streams FAIL] ${label}${info ? ' — ' + info : ''}`);
   process.exitCode = 1;
   throw new Error(`${label}${info ? `: ${info}` : ''}`);
 };
+
+async function startIsolatedServerIfNeeded() {
+  if (explicitBase) return;
+  process.chdir(tempDir);
+  process.env.PORT = '0';
+  process.env.COMMAND_DECK_HOST = '127.0.0.1';
+  process.env.COMMAND_DECK_API_TOKEN = 'streams-smoke-token';
+  process.env.COMMAND_DECK_RATE_LIMIT_DISABLED = 'true';
+  token = process.env.COMMAND_DECK_API_TOKEN;
+  const serverModule = await import('../src/server.js');
+  server = await serverModule.startServer(0, '127.0.0.1');
+  stopServer = serverModule.stopServer;
+  const address = server.address();
+  base = `http://127.0.0.1:${address.port}`;
+  log('server', `started isolated local server at ${base}`);
+}
+
+async function cleanupStartedServer() {
+  if (stopServer) await stopServer();
+  if (server) await new Promise((resolve) => server.close(resolve));
+  if (tempDir) {
+    process.chdir(previousCwd);
+    await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
+  }
+  for (const key of Object.keys(process.env)) {
+    if (!(key in previousEnv)) delete process.env[key];
+  }
+  for (const [key, value] of Object.entries(previousEnv)) {
+    process.env[key] = value;
+  }
+}
 
 function parseSseEvents(text) {
   return text.split(/\n\n+/).map((frame) => {
@@ -71,6 +118,7 @@ async function fetchOnceStream() {
 }
 
 async function main() {
+  await startIsolatedServerIfNeeded();
   await fetchOnceStream();
   log('done', 'ok');
 }
@@ -78,4 +126,6 @@ async function main() {
 await main().catch((error) => {
   console.error('[streams ERROR]', error?.stack || error?.message || error);
   if (!process.exitCode) process.exitCode = 1;
+}).finally(async () => {
+  await cleanupStartedServer();
 });

@@ -16,6 +16,7 @@
     "smoke:api": "node scripts/smoke.mjs",
     "smoke:full-flow": "node scripts/smoke.mjs",
     "smoke:security": "node scripts/smoke.mjs",
+    "smoke:acceptance": "node scripts/acceptance-smoke.mjs",
     "smoke:ssrf": "node scripts/ssrf-smoke.mjs",
     "smoke:ui": "node scripts/ui-smoke.mjs",
     "smoke:ui-inventory": "node scripts/ui-inventory-smoke.mjs",
