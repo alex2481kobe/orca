@@ -2798,6 +2798,9 @@ document.addEventListener('click', async (event) => {
   if ([
     'setApiToken',
     'clearApiToken',
+    'createPairingCode',
+    'pairBrowserSession',
+    'logoutBrowserSession',
     'cleanupArtifacts',
     'cleanupArtifactsRunNow',
     'deleteMcpTool',

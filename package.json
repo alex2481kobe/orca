@@ -17,6 +17,7 @@
     "smoke:security": "node scripts/smoke.mjs",
     "smoke:ui": "node scripts/ui-smoke.mjs",
     "smoke:ui-inventory": "node scripts/ui-inventory-smoke.mjs",
+    "smoke:ui-contract": "node scripts/ui-contract-smoke.mjs",
     "smoke:private-access": "node scripts/private-access-smoke.mjs",
     "smoke:providers": "node scripts/provider-smoke.mjs"
   },

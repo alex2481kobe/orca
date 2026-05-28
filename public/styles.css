@@ -462,7 +462,7 @@ body.sidebar-collapsed .ops-sidebar {
   border: 0;
   color: var(--muted);
   display: inline-flex;
-  height: 1.6rem;
+  height: 2rem;
   justify-content: center;
   opacity: 0;
   padding: 0;
@@ -471,7 +471,7 @@ body.sidebar-collapsed .ops-sidebar {
   top: 50%;
   transform: translateY(-50%);
   transition: opacity 0.12s ease, color 0.12s ease, stroke 0.12s ease;
-  width: 1.6rem;
+  width: 2rem;
 }
 
 .sidebar-session-line:hover .sidebar-archive,
