@@ -155,15 +155,66 @@ a {
 
 .app-topbar {
   align-items: center;
-  background: rgba(19, 20, 17, 0.92);
-  border-bottom: 1px solid var(--line-soft);
+  background: transparent;
+  border-bottom: 0;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: 280px minmax(0, 1fr) auto;
   height: 45px;
   inset: 0 0 auto 0;
-  padding: 0 0.75rem;
+  padding: 0;
   position: fixed;
   z-index: 60;
+}
+
+body.sidebar-collapsed .app-topbar {
+  grid-template-columns: 0 minmax(0, 1fr) auto;
+}
+
+.shell-toggle {
+  margin-left: 0.75rem;
+}
+
+body.sidebar-collapsed .shell-toggle {
+  margin-left: 0.75rem;
+}
+
+.app-topbar::before {
+  background: rgba(19, 20, 17, 0.92);
+  border-right: 1px solid var(--line-soft);
+  content: "";
+  height: 45px;
+  grid-column: 1;
+  grid-row: 1;
+  width: 100%;
+}
+
+body.sidebar-collapsed .app-topbar::before {
+  display: none;
+}
+
+.shell-toggle,
+.app-topbar-title,
+.app-topbar-actions {
+  grid-row: 1;
+}
+
+.shell-toggle {
+  grid-column: 1;
+  position: relative;
+  z-index: 1;
+}
+
+body.sidebar-collapsed .shell-toggle {
+  grid-column: 2;
+}
+
+.app-topbar-title {
+  align-items: center;
+  align-self: stretch;
+  background: rgba(14, 15, 13, 1);
+  border-bottom: 1px solid var(--line-soft);
+  display: flex;
+  grid-column: 2;
 }
 
 .shell-toggle {
@@ -191,12 +242,16 @@ a {
   font-size: 0.88rem;
   font-weight: 650;
   overflow: hidden;
-  padding-left: 0.75rem;
+  padding-left: 1rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .app-topbar-actions {
+  align-self: stretch;
+  background: rgba(14, 15, 13, 1);
+  border-bottom: 1px solid var(--line-soft);
+  grid-column: 3;
   width: 2rem;
 }
 
