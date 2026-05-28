@@ -159,6 +159,114 @@ test('server API requires token for mutating actions while allowing read actions
   }
 });
 
+test('auth pairing codes create revocable browser sessions for mutating routes', async () => {
+  const token = 'route-token-auth-session';
+  const server = await startServer({ token });
+
+  try {
+    const status = await server.requestJson('/api/auth/status', { method: 'GET' });
+    assert.equal(status.status, 200);
+    assert.equal(status.body?.apiTokenRequired, true);
+    assert.equal(status.body?.browserSessionAuthenticated, false);
+
+    const deniedPairing = await server.requestJson('/api/auth/pairing-codes', {
+      method: 'POST',
+      body: {
+        actor: 'dashboard',
+        label: 'phone',
+      },
+    });
+    assert.equal(deniedPairing.status, 401);
+
+    const pairing = await server.requestJson('/api/auth/pairing-codes', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        label: 'phone',
+      },
+    });
+    assert.equal(pairing.status, 201);
+    assert.match(pairing.body?.pairing?.code, /^[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}$/);
+
+    const paired = await server.requestJson('/api/auth/pair', {
+      method: 'POST',
+      body: {
+        actor: 'dashboard',
+        code: pairing.body.pairing.code,
+        label: 'phone browser',
+      },
+    });
+    assert.equal(paired.status, 200);
+    assert.equal(paired.body?.paired, true);
+    assert.equal(JSON.stringify(paired.body).includes('sessionToken'), false);
+    const cookie = paired.response.headers['set-cookie'];
+    assert.equal(String(cookie).includes('HttpOnly'), true);
+    assert.equal(String(cookie).includes('SameSite=Strict'), true);
+
+    const deniedCrossOrigin = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { cookie, origin: 'http://evil.example' },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+        name: 'Cross Origin Project',
+      },
+    });
+    assert.equal(deniedCrossOrigin.status, 401);
+
+    const createdWithCookie = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { cookie },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+        name: 'Cookie Auth Project',
+      },
+    });
+    assert.equal(createdWithCookie.status, 201);
+
+    const sessions = await server.requestJson('/api/auth/sessions', {
+      method: 'GET',
+      headers: { cookie },
+    });
+    assert.equal(sessions.status, 200);
+    assert.equal(sessions.body?.sessions?.some((session) => session.label === 'phone browser'), true);
+
+    const reusePairing = await server.requestJson('/api/auth/pair', {
+      method: 'POST',
+      body: {
+        actor: 'dashboard',
+        code: pairing.body.pairing.code,
+      },
+    });
+    assert.equal(reusePairing.status, 401);
+
+    const logout = await server.requestJson('/api/auth/logout', {
+      method: 'POST',
+      headers: { cookie },
+      body: {
+        actor: 'dashboard',
+      },
+    });
+    assert.equal(logout.status, 200);
+    assert.equal(String(logout.response.headers['set-cookie']).includes('Max-Age=0'), true);
+
+    const deniedAfterLogout = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { cookie },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+        name: 'Denied Cookie Project',
+      },
+    });
+    assert.equal(deniedAfterLogout.status, 401);
+  } finally {
+    await server.stop();
+  }
+});
+
 test('project and session API endpoints require explicit approval', async () => {
   const token = 'route-token-01c';
   const server = await startServer({ token });
@@ -1110,6 +1218,12 @@ test('mobile manifest exposes deep links for projects, sessions, and lane artifa
     assert.equal(typeof manifest.body?.executorProfilesUrl, 'string');
     assert.equal(typeof manifest.body?.executorCliInfoUrl, 'string');
     assert.equal(typeof manifest.body?.executorCliReinstallUrl, 'string');
+    assert.equal(manifest.body?.browserSessionSupported, true);
+    assert.equal(typeof manifest.body?.authStatusUrl, 'string');
+    assert.equal(typeof manifest.body?.authPairingCodeUrl, 'string');
+    assert.equal(typeof manifest.body?.authPairUrl, 'string');
+    assert.equal(typeof manifest.body?.authLogoutUrl, 'string');
+    assert.equal(typeof manifest.body?.authSessionsUrl, 'string');
     assert.equal(typeof manifest.body?.agentToolsDiscoveryUrl, 'string');
     assert.equal(typeof manifest.body?.agentToolsNextActionUrl, 'string');
     assert.equal(typeof manifest.body?.agentToolsLeaseUrl, 'string');

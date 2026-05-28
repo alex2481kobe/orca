@@ -5,6 +5,10 @@ import { CommandDeckRegistry } from './registry.js';
 import { PrivateAccessStore } from './private-access.js';
 import { ProviderProfileStore } from './provider-profiles.js';
 import {
+  AuthSessionStore,
+  SESSION_COOKIE_NAME,
+} from './auth-sessions.js';
+import {
   buildAgentToolDiscovery,
   buildNextActionEnvelope,
 } from './agent-tools.js';
@@ -16,6 +20,7 @@ const PUBLIC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '.
 const registry = new CommandDeckRegistry();
 const privateAccess = new PrivateAccessStore();
 const providerProfiles = new ProviderProfileStore();
+const authSessions = new AuthSessionStore();
 const API_TOKEN = process.env.COMMAND_DECK_API_TOKEN || '';
 const WORKER_TOKEN = process.env.COMMAND_DECK_WORKER_TOKEN || '';
 const MAX_JSON_BODY_BYTES = (() => {
@@ -54,15 +59,47 @@ function getRequestToken(req) {
   return headerToken;
 }
 
+function hasValidApiToken(req) {
+  const token = getRequestToken(req);
+  return Boolean(token && API_TOKEN && token === API_TOKEN);
+}
+
+function sameOriginAllowed(req) {
+  const origin = req.headers.origin || '';
+  if (!origin) return true;
+  return origin === requestOrigin(req);
+}
+
+function currentBrowserSession(req) {
+  return authSessions.sessionFromCookieHeader(req.headers.cookie || '');
+}
+
 function requireMutatingToken(req, res) {
   if (!API_TOKEN) return true;
   if (req.method === 'GET') return true;
-  const token = getRequestToken(req);
-  if (token && token === API_TOKEN) return true;
+  if (hasValidApiToken(req)) return true;
+  const session = currentBrowserSession(req);
+  if (session && sameOriginAllowed(req)) return true;
   sendJson(res, 401, {
-    error: 'Unauthorized. Supply a valid COMMAND_DECK_API_TOKEN via x-commanddeck-token or Authorization: Bearer.',
+    error: 'Unauthorized. Supply a valid COMMAND_DECK_API_TOKEN or pair this browser with a valid Command Deck session.',
   });
   return false;
+}
+
+function buildSessionCookie(req, sessionToken, maxAgeSeconds) {
+  const secure = requestOrigin(req).startsWith('https://');
+  return [
+    `${SESSION_COOKIE_NAME}=${encodeURIComponent(sessionToken)}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Strict',
+    `Max-Age=${Math.max(0, Number.parseInt(maxAgeSeconds, 10) || 0)}`,
+    secure ? 'Secure' : '',
+  ].filter(Boolean).join('; ');
+}
+
+function buildClearSessionCookie(req) {
+  return buildSessionCookie(req, '', 0);
 }
 
 function parseJsonBody(req, options = {}) {
@@ -248,7 +285,13 @@ function buildMobileManifest(req) {
     generatedAt: new Date().toISOString(),
     origin,
     apiTokenRequired: Boolean(API_TOKEN),
+    browserSessionSupported: true,
     workerTokenRequired: Boolean(WORKER_TOKEN),
+    authStatusUrl: `${origin}/api/auth/status`,
+    authPairingCodeUrl: `${origin}/api/auth/pairing-codes`,
+    authPairUrl: `${origin}/api/auth/pair`,
+    authLogoutUrl: `${origin}/api/auth/logout`,
+    authSessionsUrl: `${origin}/api/auth/sessions`,
     healthUrl: `${origin}/api/health`,
     policyUrl: `${origin}/api/policy`,
     auditEventsUrl: `${origin}/api/audit/events`,
@@ -539,9 +582,102 @@ function getRouteParts(pathname) {
   return pathname.split('?')[0].replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
 }
 
+async function handleAuthApi(req, res, method, parts) {
+  if (parts[2] === 'status' && method === 'GET') {
+    const session = currentBrowserSession(req);
+    return sendJson(res, 200, {
+      apiTokenRequired: Boolean(API_TOKEN),
+      apiTokenAuthenticated: hasValidApiToken(req),
+      browserSessionSupported: true,
+      browserSessionAuthenticated: Boolean(session),
+      session,
+      sameOrigin: sameOriginAllowed(req),
+      cookieName: SESSION_COOKIE_NAME,
+      cookieSecure: requestOrigin(req).startsWith('https://'),
+      origin: requestOrigin(req),
+    });
+  }
+
+  if (parts[2] === 'pairing-codes' && method === 'POST') {
+    if (!requireMutatingToken(req, res)) return;
+    const body = await parseJsonBody(req);
+    if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
+    try {
+      const pairing = authSessions.createPairingCode({
+        actor: body.actor || 'dashboard',
+        label: body.label || 'Phone/browser pairing',
+        ttlMs: body.ttlMs,
+      });
+      return sendJson(res, 201, {
+        pairing,
+        warning: 'Pairing codes are one-time secrets. Do not paste them into logs, URLs, screenshots, or docs.',
+      });
+    } catch (error) {
+      return sendJson(res, error.status || 500, {
+        error: error.message || 'Could not create pairing code.',
+      });
+    }
+  }
+
+  if (parts[2] === 'pair' && method === 'POST') {
+    const body = await parseJsonBody(req);
+    if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
+    try {
+      const result = authSessions.consumePairingCode(body.code, {
+        label: body.label || 'Paired browser',
+        userAgent: req.headers['user-agent'] || '',
+        remoteAddress: req.socket?.remoteAddress || '',
+      });
+      res.setHeader('Set-Cookie', buildSessionCookie(req, result.sessionToken, result.maxAgeSeconds));
+      return sendJson(res, 200, {
+        paired: true,
+        session: result.session,
+        maxAgeSeconds: result.maxAgeSeconds,
+      });
+    } catch (error) {
+      return sendJson(res, error.status || 500, {
+        error: error.message || 'Could not pair browser session.',
+      });
+    }
+  }
+
+  if (parts[2] === 'sessions' && method === 'GET') {
+    if (!requireMutatingToken(req, res)) return;
+    return sendJson(res, 200, {
+      sessions: authSessions.listSessions(),
+    });
+  }
+
+  if (parts[2] === 'logout' && method === 'POST') {
+    if (!requireMutatingToken(req, res)) return;
+    const body = await parseJsonBody(req);
+    if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
+    try {
+      const sessionToken = authSessions.sessionTokenFromCookieHeader(req.headers.cookie || '');
+      const result = body.sessionId
+        ? authSessions.revokeSessionId(String(body.sessionId), { actor: body.actor || 'dashboard' })
+        : authSessions.revokeSessionToken(sessionToken, { actor: body.actor || 'dashboard' });
+      res.setHeader('Set-Cookie', buildClearSessionCookie(req));
+      return sendJson(res, 200, result);
+    } catch (error) {
+      return sendJson(res, error.status || 500, {
+        error: error.message || 'Could not revoke browser session.',
+      });
+    }
+  }
+
+  return sendJson(res, 404, { error: 'Auth API route not found.' });
+}
+
 async function handleApi(req, res, pathname, method, parts) {
   if (parts[0] !== 'api') {
     return serveStaticOrIndex(pathname, res);
+  }
+  if (parts[1] === 'auth') {
+    return handleAuthApi(req, res, method, parts);
   }
   if (!requireMutatingToken(req, res)) {
     return;

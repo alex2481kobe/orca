@@ -20,6 +20,7 @@ const shell = {
   privateAccess: null,
   providerCatalog: null,
   providerHealth: {},
+  authStatus: null,
 };
 
 const MCP_TOOL_SCOPE_ALLOWLIST = ['all', 'codex', 'claude', 'mock'];
@@ -388,6 +389,7 @@ async function api(path, options = {}) {
   }
   const resp = await fetch(path, {
     headers,
+    credentials: 'same-origin',
     ...options,
     body: options.body ? JSON.stringify(options.body) : options.body,
   });
@@ -440,6 +442,7 @@ function renderHome() {
   const scheduleRunApiUrl = shell.mobileManifest?.artifactCleanupNowUrl || '/api/artifacts/cleanup/run-now';
   const schedule = shell.cleanupSchedule || {};
   const tokenConfigured = Boolean(shell.apiToken);
+  const browserPaired = Boolean(shell.authStatus?.browserSessionAuthenticated);
   const cleanupNext = schedule.nextRunAt ? new Date(schedule.nextRunAt).toLocaleString() : 'not scheduled';
   const privateAccess = shell.privateAccess || {};
   const privateSettings = privateAccess.settings || {};
@@ -636,14 +639,30 @@ function renderHome() {
     <section class="grid-2 home-panels" data-active-panel="${safeAttr(panel)}">
       <article class="card control-card" id="section-token" data-panel-card="token">
         <h3>API token</h3>
-        <div class="tiny muted">${tokenConfigured ? 'Configured for mutating requests.' : 'No token configured.'}</div>
+        <div class="tiny muted">${tokenConfigured ? 'Token configured for this tab.' : 'No raw token stored in this tab.'}</div>
+        <div class="tiny">Browser session: <span class="tag ${browserPaired ? 'ok' : 'warn'}">${browserPaired ? 'paired' : 'not paired'}</span></div>
+        <p class="muted">Use browser pairing for phone/PWA access when possible. It stores an HttpOnly session cookie instead of exposing the API token to page scripts.</p>
         <label>Token
           <input id="api-token-input" type="password" placeholder="Enter token" autocomplete="off" />
         </label>
         <div class="lane-row">
           <button class="secondary" data-action="setApiToken" type="button">Save token</button>
           <button class="secondary" data-action="clearApiToken" type="button">Clear token</button>
+          <button class="secondary" data-action="createPairingCode" type="button">Create pairing code</button>
+          ${browserPaired ? '<button class="secondary" data-action="logoutBrowserSession" type="button">Log out paired browser</button>' : ''}
         </div>
+        <details class="disclosure">
+          <summary><span>Pair this browser</span><small>one-time code</small></summary>
+          <div class="disclosure-body">
+            <label>Pairing code
+              <input id="pairing-code-input" placeholder="ABCD-1234-EF56" autocomplete="one-time-code" />
+            </label>
+            <label>Device label
+              <input id="pairing-label-input" placeholder="Alex phone" />
+            </label>
+            <button class="secondary" data-action="pairBrowserSession" type="button">Pair browser</button>
+          </div>
+        </details>
       </article>
         <article class="card control-card" id="section-system" data-panel-card="system">
         <details class="disclosure">
@@ -1698,6 +1717,10 @@ function renderMobileManifest() {
 async function refresh() {
   shell.route = parseRoute();
   shell.alerts = [];
+  const authResp = await api('/api/auth/status');
+  if (authResp.ok && authResp.data) {
+    shell.authStatus = authResp.data;
+  }
   const policyResp = await api('/api/policy');
   if (policyResp.ok && policyResp.data) {
     shell.policy = policyResp.data.policies;
@@ -2316,6 +2339,56 @@ async function handleSystemActions(event) {
     setApiToken('');
     renderAlert('Saved API token cleared.');
     await refresh();
+    return;
+  }
+  if (action === 'createPairingCode') {
+    const response = await api('/api/auth/pairing-codes', {
+      method: 'POST',
+      body: {
+        actor: 'dashboard',
+        label: 'Phone/browser pairing',
+      },
+    });
+    if (response.ok) {
+      renderAlert(`Pairing code: ${response.data?.pairing?.code || 'created'}`);
+      await refresh();
+    } else {
+      renderAlert(response.data?.error || 'Could not create pairing code.', 'bad');
+    }
+    return;
+  }
+  if (action === 'pairBrowserSession') {
+    const code = document.getElementById('pairing-code-input')?.value || '';
+    const label = document.getElementById('pairing-label-input')?.value || 'Paired browser';
+    const response = await api('/api/auth/pair', {
+      method: 'POST',
+      body: {
+        actor: 'dashboard',
+        code,
+        label,
+      },
+    });
+    if (response.ok) {
+      renderAlert('Browser paired.');
+      await refresh();
+    } else {
+      renderAlert(response.data?.error || 'Could not pair browser.', 'bad');
+    }
+    return;
+  }
+  if (action === 'logoutBrowserSession') {
+    const response = await api('/api/auth/logout', {
+      method: 'POST',
+      body: {
+        actor: 'dashboard',
+      },
+    });
+    if (response.ok) {
+      renderAlert('Paired browser session logged out.');
+      await refresh();
+    } else {
+      renderAlert(response.data?.error || 'Could not log out paired browser.', 'bad');
+    }
     return;
   }
   if (action === 'cleanupArtifacts') {
