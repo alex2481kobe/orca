@@ -719,17 +719,9 @@ function renderProject(project) {
     `;
   }).join('');
   const quickLinksMarkup = project.quickLinks.map((quick) => `<a href="${safeText(quick.url)}" target="_blank" rel="noopener noreferrer">${safeText(quick.label)}</a>`).join('');
-  const primaryQuickLink = project.quickLinks?.[0]?.url || '';
 
   refs.content.innerHTML = `
     <section class="project-shell">
-      <div class="project-titlebar">
-        <div class="project-actions" aria-label="Project actions">
-          ${primaryQuickLink ? `<a class="button-secondary" href="${safeAttr(primaryQuickLink)}" target="_blank" rel="noopener noreferrer">Open</a>` : ''}
-          <button class="button-secondary" data-action="toggleProjectTools" type="button">Tools</button>
-          <a class="button-secondary" href="/#system">Settings</a>
-        </div>
-      </div>
       <div class="project-workspace">
         <div class="project-main">
           <article class="card control-card">
@@ -764,7 +756,7 @@ function renderProject(project) {
           </article>
         </div>
         <aside class="project-side-panel" id="project-tools" aria-label="Project tools">
-          <details class="disclosure" open>
+          <details class="disclosure">
             <summary>
               <span>Quick links</span>
               <small>Dev routes</small>
@@ -2279,11 +2271,6 @@ document.addEventListener('click', async (event) => {
     } else {
       document.body.classList.toggle('sidebar-collapsed');
     }
-    return;
-  }
-  if (action === 'toggleProjectTools') {
-    event.preventDefault();
-    actionTarget.closest('.project-shell')?.classList.toggle('tools-open');
     return;
   }
   // Auto-close mobile sidebar when navigating.
