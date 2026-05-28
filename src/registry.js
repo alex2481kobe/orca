@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { LANE_STATES } from './worker-contract.js';
 import {
   createExecutorAdapter,
@@ -632,6 +632,7 @@ export class CommandDeckRegistry {
     this.lanes = [];
     this.auditEvents = [];
     this.mcpTools = [];
+    this.toolLeases = [];
     this.artifactRoot = path.join(process.cwd(), 'artifacts');
     this.workspacesRoot = path.join(process.cwd(), '.command-deck', 'workspaces');
     this.storageDir = path.join(process.cwd(), '.command-deck');
@@ -710,6 +711,9 @@ export class CommandDeckRegistry {
       if (Array.isArray(parsed.mcpTools)) {
         this.mcpTools = parsed.mcpTools;
       }
+      if (Array.isArray(parsed.toolLeases)) {
+        this.toolLeases = parsed.toolLeases.filter((lease) => lease && typeof lease.id === 'string').slice(0, 500);
+      }
       if (parsed.cleanupSchedule && typeof parsed.cleanupSchedule === 'object') {
         this.cleanupSchedule = {
           ...this.cleanupSchedule,
@@ -745,6 +749,7 @@ export class CommandDeckRegistry {
             auditEvents: this.auditEvents,
             cleanupSchedule: this.cleanupSchedule,
             mcpTools: this.mcpTools,
+            toolLeases: this.toolLeases,
           };
           await fs.writeFile(this.stateFile, JSON.stringify(snapshot, null, 2));
         } catch (error) {
@@ -2520,6 +2525,142 @@ export class CommandDeckRegistry {
 
   getPolicyMap() {
     return clonePayload(this.policies);
+  }
+
+  createToolLease({
+    role = 'orchestrator',
+    projectId = null,
+    sessionId = null,
+    laneId = null,
+    allowedTools = [],
+    ttlMs = 15 * 60 * 1000,
+    actor = 'dashboard',
+  } = {}) {
+    const normalizedRole = String(role || 'orchestrator').trim().toLowerCase().replace(/[^a-z_-]/g, '') || 'orchestrator';
+    const project = projectId ? this.getProject(projectId) : null;
+    if (projectId && !project) {
+      throw { status: 404, message: 'Project not found for tool lease.' };
+    }
+    const session = sessionId ? this.getSession(sessionId) : null;
+    if (sessionId && !session) {
+      throw { status: 404, message: 'Session not found for tool lease.' };
+    }
+    const lane = laneId ? this.getLane(laneId) : null;
+    if (laneId && !lane) {
+      throw { status: 404, message: 'Lane not found for tool lease.' };
+    }
+    if (session && project && session.projectId !== project.id) {
+      throw { status: 422, message: 'Tool lease session does not belong to the requested project.' };
+    }
+    if (lane && session && lane.sessionId !== session.id) {
+      throw { status: 422, message: 'Tool lease lane does not belong to the requested session.' };
+    }
+    const ttl = Math.max(30 * 1000, Math.min(24 * 60 * 60 * 1000, Number.parseInt(ttlMs, 10) || 15 * 60 * 1000));
+    const leaseToken = `${randomUUID()}-${randomUUID()}`;
+    const tokenHash = createHash('sha256').update(leaseToken).digest('hex');
+    const now = Date.now();
+    const lease = {
+      id: randomUUID(),
+      tokenHash,
+      role: normalizedRole,
+      actor: String(actor || 'dashboard').slice(0, 120),
+      projectId: project?.id || null,
+      sessionId: session?.id || null,
+      laneId: lane?.id || null,
+      allowedTools: safeArray(allowedTools)
+        .map((toolId) => String(toolId || '').trim())
+        .filter(Boolean)
+        .filter((toolId, index, all) => all.indexOf(toolId) === index)
+        .slice(0, 100),
+      createdAt: new Date(now).toISOString(),
+      expiresAt: new Date(now + ttl).toISOString(),
+      revokedAt: null,
+    };
+    this.toolLeases.unshift(lease);
+    this.toolLeases = this.toolLeases.slice(0, 500);
+    this.recordAudit({
+      type: 'agent_tool_lease_created',
+      actor: lease.actor,
+      projectId: lease.projectId,
+      sessionId: lease.sessionId,
+      laneId: lease.laneId,
+      summary: `Created ${lease.role} tool lease`,
+      status: 'passed',
+      evidence: {
+        leaseId: lease.id,
+        role: lease.role,
+        allowedTools: lease.allowedTools,
+        expiresAt: lease.expiresAt,
+        tokenHashPrefix: tokenHash.slice(0, 12),
+      },
+    });
+    this.persistState();
+    return {
+      lease: this.publicToolLease(lease),
+      leaseToken,
+    };
+  }
+
+  publicToolLease(lease) {
+    if (!lease) return null;
+    return {
+      id: lease.id,
+      role: lease.role,
+      actor: lease.actor,
+      projectId: lease.projectId,
+      sessionId: lease.sessionId,
+      laneId: lease.laneId,
+      allowedTools: safeArray(lease.allowedTools),
+      createdAt: lease.createdAt,
+      expiresAt: lease.expiresAt,
+      revokedAt: lease.revokedAt || null,
+      active: !lease.revokedAt && Date.parse(lease.expiresAt) > Date.now(),
+    };
+  }
+
+  listToolLeases({ activeOnly = true } = {}) {
+    const leases = this.toolLeases.map((lease) => this.publicToolLease(lease));
+    return activeOnly ? leases.filter((lease) => lease.active) : leases;
+  }
+
+  validateToolLease(leaseToken, {
+    toolId = null,
+    projectId = null,
+    sessionId = null,
+    laneId = null,
+    role = null,
+  } = {}) {
+    const token = String(leaseToken || '').trim();
+    if (!token) {
+      throw { status: 401, message: 'Tool lease token is required.' };
+    }
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    const lease = this.toolLeases.find((item) => item.tokenHash === tokenHash);
+    if (!lease) {
+      throw { status: 401, message: 'Tool lease not found.' };
+    }
+    if (lease.revokedAt) {
+      throw { status: 401, message: 'Tool lease has been revoked.' };
+    }
+    if (Date.parse(lease.expiresAt) <= Date.now()) {
+      throw { status: 401, message: 'Tool lease has expired.' };
+    }
+    if (role && lease.role !== String(role).trim().toLowerCase()) {
+      throw { status: 403, message: 'Tool lease role mismatch.' };
+    }
+    if (toolId && !safeArray(lease.allowedTools).includes(toolId)) {
+      throw { status: 403, message: 'Tool lease does not grant this tool.' };
+    }
+    if (projectId && lease.projectId && lease.projectId !== projectId) {
+      throw { status: 403, message: 'Tool lease project mismatch.' };
+    }
+    if (sessionId && lease.sessionId && lease.sessionId !== sessionId) {
+      throw { status: 403, message: 'Tool lease session mismatch.' };
+    }
+    if (laneId && lease.laneId && lease.laneId !== laneId) {
+      throw { status: 403, message: 'Tool lease lane mismatch.' };
+    }
+    return this.publicToolLease(lease);
   }
 
   getSupportedExecutorTypes() {

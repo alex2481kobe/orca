@@ -4,6 +4,10 @@ import path from 'node:path';
 import { CommandDeckRegistry } from './registry.js';
 import { PrivateAccessStore } from './private-access.js';
 import { ProviderProfileStore } from './provider-profiles.js';
+import {
+  buildAgentToolDiscovery,
+  buildNextActionEnvelope,
+} from './agent-tools.js';
 import { fileURLToPath } from 'node:url';
 
 const PORT = Number(process.env.PORT || 3000);
@@ -260,6 +264,9 @@ function buildMobileManifest(req) {
     mcpToolsUrl: `${origin}/api/mcp/tools`,
     projectsUrl: `${origin}/api/projects`,
     privateAccessUrl: `${origin}/api/private-access`,
+    agentToolsDiscoveryUrl: `${origin}/api/agent-tools/discovery`,
+    agentToolsNextActionUrl: `${origin}/api/agent-tools/next-action`,
+    agentToolsLeaseUrl: `${origin}/api/agent-tools/leases`,
     pwaManifestUrl: `${origin}/manifest.webmanifest`,
     serviceWorkerUrl: `${origin}/service-worker.js`,
     mobileManifestUrl: `${origin}/api/mobile/manifest`,
@@ -555,6 +562,57 @@ async function handleApi(req, res, pathname, method, parts) {
 
   if (parts[1] === 'policy' && method === 'GET') {
     return sendJson(res, 200, { policies: registry.getPolicyMap() });
+  }
+
+  if (parts[1] === 'agent-tools') {
+    if (parts[2] === 'discovery' && method === 'GET') {
+      return sendJson(res, 200, buildAgentToolDiscovery());
+    }
+    if (parts[2] === 'next-action' && method === 'GET') {
+      const searchParams = getSearchParams(req.url || '/');
+      if (!searchParams) {
+        return sendJson(res, 400, { error: 'Invalid request query string.' });
+      }
+      return sendJson(res, 200, buildNextActionEnvelope(registry, {
+        role: searchParams.get('role'),
+        projectId: searchParams.get('projectId'),
+        sessionId: searchParams.get('sessionId'),
+        laneId: searchParams.get('laneId'),
+      }));
+    }
+    if (parts[2] === 'leases' && method === 'POST') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+      if (rejectSpoofedActor(body, res)) return;
+      try {
+        const nextAction = buildNextActionEnvelope(registry, {
+          role: body.role,
+          projectId: body.projectId,
+          sessionId: body.sessionId,
+          laneId: body.laneId,
+        });
+        const result = registry.createToolLease({
+          role: nextAction.role,
+          projectId: nextAction.projectId,
+          sessionId: nextAction.sessionId,
+          laneId: nextAction.laneId,
+          allowedTools: nextAction.allowedTools,
+          ttlMs: body.ttlMs,
+          actor: body.actor || 'dashboard',
+        });
+        return sendJson(res, 201, {
+          ...result,
+          nextAction,
+        });
+      } catch (error) {
+        return sendJson(res, error.status || 500, {
+          error: error.message || 'Could not create agent tool lease.',
+          requiresApproval: error.requiresApproval || false,
+          risk: error.risk || null,
+        });
+      }
+    }
+    return sendJson(res, 404, { error: 'Agent tool route not found.' });
   }
 
   if (parts[1] === 'system' && parts[2] === 'blockers' && method === 'GET') {

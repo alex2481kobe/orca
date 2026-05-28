@@ -1110,6 +1110,77 @@ test('mobile manifest exposes deep links for projects, sessions, and lane artifa
     assert.equal(typeof manifest.body?.executorProfilesUrl, 'string');
     assert.equal(typeof manifest.body?.executorCliInfoUrl, 'string');
     assert.equal(typeof manifest.body?.executorCliReinstallUrl, 'string');
+    assert.equal(typeof manifest.body?.agentToolsDiscoveryUrl, 'string');
+    assert.equal(typeof manifest.body?.agentToolsNextActionUrl, 'string');
+    assert.equal(typeof manifest.body?.agentToolsLeaseUrl, 'string');
+  } finally {
+    await server.stop();
+  }
+});
+
+test('agent tool routes expose discovery, nextAction, and token-gated leases', async () => {
+  const token = 'route-token-agent-tools';
+  const server = await startServer({ token });
+
+  try {
+    const project = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        name: 'Agent Route Project',
+        approved: true,
+      },
+    });
+    assert.equal(project.status, 201);
+
+    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        name: 'Agent Route Session',
+        approved: true,
+      },
+    });
+    assert.equal(session.status, 201);
+
+    const discovery = await server.requestJson('/api/agent-tools/discovery', { method: 'GET' });
+    assert.equal(discovery.status, 200);
+    assert.equal(discovery.body?.contractVersion, 'command-deck.agent-tools.v1');
+    assert.equal(discovery.body?.publicSafe, true);
+    assert.equal(discovery.body.tools.some((tool) => tool.id === 'session.next_action'), true);
+
+    const next = await server.requestJson(`/api/agent-tools/next-action?role=orchestrator&projectId=${project.body.id}&sessionId=${session.body.id}`, { method: 'GET' });
+    assert.equal(next.status, 200);
+    assert.equal(next.body?.nextRequiredTool, 'lane.create');
+    assert.equal(next.body?.allowedTools.includes('lane.create'), true);
+
+    const deniedLease = await server.requestJson('/api/agent-tools/leases', {
+      method: 'POST',
+      body: {
+        actor: 'dashboard',
+        role: 'orchestrator',
+        projectId: project.body.id,
+        sessionId: session.body.id,
+      },
+    });
+    assert.equal(deniedLease.status, 401);
+
+    const lease = await server.requestJson('/api/agent-tools/leases', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        role: 'orchestrator',
+        projectId: project.body.id,
+        sessionId: session.body.id,
+        ttlMs: 60000,
+      },
+    });
+    assert.equal(lease.status, 201);
+    assert.equal(Boolean(lease.body?.leaseToken), true);
+    assert.equal(lease.body?.lease?.allowedTools.includes('lane.create'), true);
+    assert.equal(JSON.stringify(lease.body?.lease || {}).includes(lease.body.leaseToken), false);
+    assert.equal(lease.body?.nextAction?.nextRequiredTool, 'lane.create');
   } finally {
     await server.stop();
   }
