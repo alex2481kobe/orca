@@ -83,10 +83,24 @@ function tokenMatchesPackage(token, allowedPackage) {
   const normalizedToken = String(token || '').toLowerCase();
   const normalizedAllowed = String(allowedPackage || '').toLowerCase();
   if (!normalizedToken || !normalizedAllowed) return false;
-  if (normalizedToken === normalizedAllowed) return true;
-  if (normalizedToken.startsWith(`${normalizedAllowed}@`)) return true;
-  if (normalizedToken.endsWith(`/${normalizedAllowed}`)) return true;
-  return normalizedToken.includes(`/${normalizedAllowed}`);
+  const isScopedAllowed = normalizedAllowed.includes('/');
+  if (normalizedToken.startsWith('http://')
+    || normalizedToken.startsWith('https://')
+    || normalizedToken.startsWith('git+')
+    || normalizedToken.startsWith('file:')) return false;
+
+  if (!isScopedAllowed) {
+    if (normalizedToken.includes('/')) {
+      // Disallow path-like package references to avoid URL/path spoofing.
+      return false;
+    }
+    return normalizedToken === normalizedAllowed
+      || normalizedToken.startsWith(`${normalizedAllowed}@`);
+  }
+
+  if (normalizedToken.includes('://')) return false;
+  return normalizedToken === normalizedAllowed
+    || normalizedToken.startsWith(`${normalizedAllowed}@`);
 }
 
 function hasAllowedReinstallPackage(parts, expectedType) {

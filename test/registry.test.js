@@ -732,6 +732,38 @@ test('executor CLI reinstall package allowlist can be overridden per executor', 
   }
 });
 
+test('executor CLI reinstall rejects URL-based package spec spoofing', async () => {
+  const restore = restoreEnv({
+    COMMAND_DECK_CODEX_BINARY: process.env.COMMAND_DECK_CODEX_BINARY,
+    COMMAND_DECK_CODEX_REINSTALL_COMMAND: process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND,
+    COMMAND_DECK_CODEX_REINSTALL_PACKAGES: process.env.COMMAND_DECK_CODEX_REINSTALL_PACKAGES,
+  });
+
+  try {
+    process.env.COMMAND_DECK_CODEX_BINARY = '/usr/bin/codex';
+    process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND = 'npm install --yes https://example.com/@openai/codex';
+    process.env.COMMAND_DECK_CODEX_REINSTALL_PACKAGES = '@openai/codex';
+
+    const { registry, cleanup } = await withIsolatedRegistry();
+    try {
+      const info = registry.getExecutorCliInfo('codex');
+      assert.equal(info.reinstall.available, false);
+      await assert.rejects(
+        () => registry.runExecutorCliReinstall('codex', {
+          actor: 'test',
+          approved: true,
+          execute: false,
+        }),
+        (error) => error.status === 422,
+      );
+    } finally {
+      await cleanup();
+    }
+  } finally {
+    restore();
+  }
+});
+
 test('executor CLI reinstall supports safe override command profiles and manager verbs', async () => {
   const restore = restoreEnv({
     COMMAND_DECK_CODEX_BINARY: process.env.COMMAND_DECK_CODEX_BINARY,
