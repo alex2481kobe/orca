@@ -380,6 +380,62 @@ test('executor CLI reinstall rejects source mode with custom override command', 
   }
 });
 
+test('executor CLI reinstall supports claude with source-mode and command validation', async () => {
+  const token = 'route-token-03e';
+  const server = await startServer({
+    token,
+    env: {
+      COMMAND_DECK_CLAUDE_BINARY: '/usr/bin/claude',
+      COMMAND_DECK_CLAUDE_REINSTALL_COMMAND: 'npm install --yes @anthropic/claude-code',
+      COMMAND_DECK_CLAUDE_REINSTALL_SOURCE_REPOS: 'anthropic/claude-code,my-org/claude-fork',
+      COMMAND_DECK_CLAUDE_REINSTALL_PREFER_SOURCE: 'false',
+    },
+  });
+
+  try {
+    const info = await server.requestJson('/api/executors/claude/cli', { method: 'GET' });
+    assert.equal(info.status, 200);
+    assert.equal(info.body.type, 'claude');
+    assert.equal(info.body.reinstall?.available, true);
+    assert.equal(Array.isArray(info.body.reinstall.command), true);
+
+    const sourceMode = await server.requestJson('/api/executors/claude/cli/reinstall', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+        execute: false,
+        useSource: true,
+      },
+    });
+    assert.equal(sourceMode.status, 200);
+    assert.equal(sourceMode.body.executed, false);
+    assert.equal(
+      String(sourceMode.body.command?.join(' ') || '').includes('git+https://github.com/anthropic/claude-code.git'),
+      true,
+    );
+
+    const executeDenied = await server.requestJson('/api/executors/claude/cli/reinstall', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+        execute: true,
+        useSource: true,
+      },
+    });
+    assert.equal(executeDenied.status, 409);
+    assert.equal(
+      String(executeDenied.body?.error || '').includes('requires explicit confirmation'),
+      true,
+    );
+  } finally {
+    await server.stop();
+  }
+});
+
 test('server MCP tooling routes require token and support CRUD workflow', async () => {
   const token = 'route-token-04';
   const server = await startServer({ token });
@@ -443,6 +499,70 @@ test('server MCP tooling routes require token and support CRUD workflow', async 
 
     const afterDelete = await server.requestJson(`/api/mcp/tools/${created.body.id}`, { method: 'GET' });
     assert.equal(afterDelete.status, 404);
+  } finally {
+    await server.stop();
+  }
+});
+
+test('server MCP tooling rejects unsupported scope values and blocked commands', async () => {
+  const token = 'route-token-04b';
+  const server = await startServer({
+    token,
+    env: {
+      COMMAND_DECK_MCP_TOOL_COMMAND_ALLOWLIST: 'node,npx',
+    },
+  });
+
+  try {
+    const invalidScope = await server.requestJson('/api/mcp/tools', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        name: 'bad-scope-tool',
+        command: 'node',
+        scope: ['invalid'],
+        approved: true,
+      },
+    });
+    assert.equal(invalidScope.status, 422);
+    assert.equal(String(invalidScope.body?.error || '').includes('unsupported values'), true);
+
+    const blockedCommand = await server.requestJson('/api/mcp/tools', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        name: 'blocked-command-tool',
+        command: 'python',
+        scope: ['all'],
+        approved: true,
+      },
+    });
+    assert.equal(blockedCommand.status, 422);
+    assert.equal(String(blockedCommand.body?.error || '').includes('not in the allowlist'), true);
+
+    const created = await server.requestJson('/api/mcp/tools', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        name: 'all-tool',
+        command: 'node',
+        scope: ['all'],
+        args: ['--version'],
+        approved: true,
+      },
+    });
+    assert.equal(created.status, 201);
+
+    const codexScope = await server.requestJson('/api/mcp/tools?scope=codex', { method: 'GET' });
+    assert.equal(codexScope.status, 200);
+    assert.equal(Array.isArray(codexScope.body), true);
+    assert.equal(codexScope.body.length, 0);
+
+    const allScope = await server.requestJson('/api/mcp/tools?scope=all', { method: 'GET' });
+    assert.equal(allScope.status, 200);
+    assert.equal(Array.isArray(allScope.body), true);
+    assert.equal(allScope.body.length, 1);
+    assert.equal(allScope.body[0]?.id, 'all-tool');
   } finally {
     await server.stop();
   }
