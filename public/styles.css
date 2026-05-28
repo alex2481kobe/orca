@@ -265,16 +265,99 @@ pre {
   color: var(--muted);
 }
 
+/* Operator-friendly compact tweaks */
+.lane-row button,
+.lane-row a.secondary {
+  min-height: 38px;
+  padding: 0.45rem 0.75rem;
+}
+
+.action-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.6rem;
+}
+
+.alerts:empty {
+  display: none;
+}
+
+.alert {
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(13, 55, 95, 0.7);
+  padding: 0.55rem 0.7rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.92rem;
+}
+
+.alert.bad {
+  border-color: var(--danger);
+  background: rgba(141, 34, 17, 0.4);
+}
+
+.alert.ok {
+  border-color: var(--ok);
+  background: rgba(13, 92, 58, 0.35);
+}
+
+.topbar .status-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+  font-size: 0.78rem;
+}
+
+.topbar .status-strip .tag {
+  margin: 0;
+}
+
 @media (max-width: 720px) {
   .layout {
-    padding: 0.75rem;
+    padding: 0.65rem;
+    max-width: 100%;
   }
 
   .topbar h1 {
-    font-size: 1.45rem;
+    font-size: 1.3rem;
+  }
+
+  .panel {
+    padding: 0.8rem;
+    border-radius: 14px;
+  }
+
+  /* Phone touch targets */
+  button, input, select, textarea {
+    font-size: 1rem;
+    padding: 0.7rem 0.85rem;
   }
 
   .lane-row {
     width: 100%;
+  }
+
+  .lane-row button,
+  .lane-row a.secondary {
+    flex: 1 1 calc(50% - 0.5rem);
+    min-height: 44px;
+    text-align: center;
+  }
+
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+
+  .card-grid img {
+    max-height: 50vh;
+    object-fit: contain;
+  }
+}
+
+@media (max-width: 420px) {
+  .lane-row button,
+  .lane-row a.secondary {
+    flex: 1 1 100%;
   }
 }

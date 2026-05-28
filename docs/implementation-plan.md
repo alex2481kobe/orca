@@ -1,70 +1,76 @@
 # Command Deck Implementation Plan
 
-This public-safe repo document tracks the implementation state of the client package. Private roadmap coordination and tonight's full buildout handoff live in the parent workspace docs.
+Public-safe view of what the client package actually does today and what is
+explicitly deferred. Private coordination lives in the parent workspace.
 
-## Current Status
+## What is implemented and proven
 
-Command Deck has a working local prototype with real server, registry, dashboard, policy, worker, evidence, cleanup, mobile-manifest, MCP, and CLI-management surfaces. The project is not yet considered production-complete until the full start-to-finish flow is verified against current code.
+Backed by `npm test` (63 tests) and `npm run smoke` (full operator path).
 
-Implemented or partially implemented:
+- Token-gated mutating API with reserved-actor enforcement, JSON body
+  limit + 413, optional worker token for heartbeat.
+- Approval-gated project, session, lane, MCP tool, cleanup, CLI reinstall,
+  and audit ack endpoints.
+- Per-session worktreeRoot creation on `createSession` and a workdir
+  validator that allows relative paths only inside the session boundary and
+  absolute paths inside `process.cwd()` or `COMMAND_DECK_REPO_ROOTS`.
+- First-class lane fields: `taskPrompt`, `model`, `permissionsProfile`,
+  `branch`, `repoRoot`, `worktreePath`, `verificationCommand`,
+  `expectedArtifacts`, `targetUrl`, `mcpToolIds`, `sharedWorktree`.
+- Codex/Claude command derivation from `taskPrompt` (+ model, permissions,
+  targetUrl, mcpConfigPath) so dashboard users don't write shell strings.
+- Process metadata recorded per-lane: PID, args, cwd, env policy, start/end
+  timestamps, exit code, signal, stopRequestedBy, stopResult, platform.
+- Stop sends SIGTERM to the process group on POSIX and escalates to
+  SIGKILL after a configurable grace.
+- Recovery flips orphaned `running`/`starting` lanes to `failed` on boot.
+- MCP tool CRUD + scope filter; lane attachment emits a per-lane
+  `mcp-tools.json` with both `tools` and `mcpServers` shapes.
+- Evidence runner with screenshot/trace/video/log paths, capture presets
+  (`/api/lanes/:id/evidence/presets`), latest gallery
+  (`/api/lanes/:id/evidence/latest`), explicit `degraded` state when
+  Playwright is not installed.
+- Cleanup scheduler with dry-run default, confirmed destructive runs,
+  active-lane protection, monotonic `nextRunAt`, audit events.
+- Mobile manifest covers projects, sessions, lanes, detail/stop/retry/
+  heartbeat URLs, artifacts/evidence/presets/clear, audit, cleanup,
+  executor profile + CLI info + reinstall, MCP CRUD, health, policy.
+- Artifact path containment: `..` segments, encoded variants, absolute
+  paths, backslash separators, and symlinked entries are refused at
+  listing and serving time.
+- Dashboard:
+  - Phone-friendly CSS (touch targets, full-width buttons, single-column
+    grids, larger inputs under 720px).
+  - Lane detail surfaces taskPrompt, targetUrl, model, permissions,
+    branch, workdir, process metadata, and live status tag.
+  - MCP picker is a multi-select fed by executor-scoped tools (replaces
+    the comma-separated input on mobile).
+  - Evidence gallery tile with preset capture buttons and inline preview.
 
-- Local Node HTTP server and dashboard shell.
-- Persistent registry for projects, sessions, lanes, MCP tools, cleanup schedule, and audit events.
-- Token support for mutating API requests through `COMMAND_DECK_API_TOKEN`.
-- Policy-gated project/session/lane/MCP/cleanup/CLI-management actions.
-- Mock worker contract and process-backed Codex/Claude executor adapter path.
-- Lane lifecycle, logs, heartbeats, stop/retry, recovery, artifacts, and audit events.
-- Playwright evidence runner with screenshot, trace, video, and degraded no-Playwright behavior.
-- Mobile manifest and lane deep-link routes.
-- Artifact cleanup, cleanup schedule, and cleanup run-now controls.
-- MCP tool CRUD, validation, scoping, and lane attachment.
-- Executor profile and CLI info/reinstall dry-run endpoints.
+## Explicitly deferred
 
-Needs completion or proof before tonight use:
+- Automatic `git worktree add` per implementation lane. Lane fields for
+  branch/worktreePath are persisted, but the operator currently provisions
+  the worktree outside Command Deck.
+- Auto-install of Playwright browsers. Evidence calls run real captures
+  when Playwright is present and otherwise return `captured: false`.
+- Browser-driven UI smoke tests. UI changes are exercised by the API
+  smoke script plus the manual phone walkthrough documented in the
+  Tailscale runbook.
 
-- Full route-by-route security audit and tests for every mutating/high-risk path.
-- Verified Codex CLI freshness from trusted official source policy before real Codex lane reliance.
-- Verified Claude CLI availability and real lane behavior.
-- Stronger real-process stop/recovery tests.
-- Worktree isolation defaults for real implementation lanes.
-- Generated lane-specific MCP config files for attached tools if not already proven.
-- Full dashboard polish for phone control and operations use.
-- Playwright dependency/browser setup or a documented degraded evidence mode that is acceptable for tonight.
-- Browser/mobile smoke verification of dashboard, evidence, artifacts, and maintenance flows.
-- Updated README only after current behavior is proven.
+## Verification commands
 
-## Implementation Checkpoints
+```bash
+npm test
+COMMAND_DECK_API_TOKEN=... COMMAND_DECK_BASE_URL=http://127.0.0.1:3000 npm run smoke
+```
 
-1. Foundation and route model
-2. Orchestration registry and worker contract
-3. Codex/Claude executor support
-4. Playwright evidence
-5. Mobile/private control
-6. Secure action model
-7. MCP tooling
-8. Cleanup scheduler
-9. Dashboard UI completion
-10. End-to-end verification and docs
+## Work rules (still apply)
 
-## Work Rules
-
-- Keep this repo public-safe.
-- Do not commit private roadmap, private task tracking, or personal workflow notes into this repo.
-- Add no speculative dependency.
-- If a dependency is added, commit the manifest and lockfile together.
-- No destructive cleanup. Move obsolete whole files/folders to the parent `throwaway/` archive only when explicitly needed.
-- Commit by logical task and stage explicit paths only.
-
-## Verification Targets
-
-Before calling this project ready for tonight use, prove:
-
-- `npm test` passes.
-- High-risk routes require token and approval.
-- Mock lane lifecycle works.
-- Codex and Claude executor health is visible and real execution is either verified or safely blocked with clear docs.
-- MCP tool CRUD and lane attachment work.
-- Evidence capture or degraded evidence behavior works.
-- Cleanup dry-run and confirmed cleanup work safely.
-- Mobile manifest and phone-sized dashboard route work.
-- README and docs match what was actually verified.
+- Public-safe only in this repo; private roadmap stays in the parent
+  workspace.
+- Add no speculative dependencies; commit manifest + lockfile together
+  when added.
+- No destructive cleanup; obsolete whole files/folders go to the parent
+  `throwaway/` archive when needed.
+- Commit by logical task with explicit staged paths.

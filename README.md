@@ -1,128 +1,120 @@
 # Command Deck
 
-Command Deck is the local control plane for coordinating AI coding workers.
+Command Deck is a local-first control plane for coordinating Codex and Claude
+work across projects from a Mac (or any single host) and a phone over private
+Tailscale Serve. It exposes a dashboard, an API surface, a worker contract,
+governed CLI management, MCP tool CRUD with per-lane config generation, and
+Playwright-backed evidence capture (optional dependency).
 
-This implementation is a checkpointed local prototype with multiple production-shaped surfaces already in place. It is not considered fully ready until the current security, executor, UI, mobile, evidence, MCP, cleanup, and end-to-end verification pass is complete:
-- Shared dashboard routes (`/`, `/projects/:slug`, `/projects/:slug/sessions/:id`)
-- Persistent registry backing for projects, sessions, lanes, and audit events (`.command-deck/state.json`)
-- Policy-gated lane actions and queue-like lifecycle transitions
-- Mobile-first dashboard shell and mobile-friendly URL structure
-- Per-lane artifact folder bookkeeping
-- Executor adapter registry with per-executor instances (`mock`, `codex`, `claude`) and per-lane adapter resolution
-- `codex` and `claude` executors now support command-backed lane launches through the shared contract
-- Lane launch fields support `command`, `commandArgs`, `executorBinary`, and `workdir` for executable adapters
-- Executor profile config is read from:
-  - `COMMAND_DECK_CODEX_BINARY`
-  - `COMMAND_DECK_CODEX_ALLOWED_BINARIES`
-  - `COMMAND_DECK_CODEX_DEFAULT_ARGS`
-  - `COMMAND_DECK_CODEX_WORKDIR_ROOTS`
-  - `COMMAND_DECK_CLAUDE_BINARY`
-  - `COMMAND_DECK_CLAUDE_ALLOWED_BINARIES`
-  - `COMMAND_DECK_CLAUDE_DEFAULT_ARGS`
-  - `COMMAND_DECK_CLAUDE_WORKDIR_ROOTS`
-- Playwright evidence capture scaffolding is now available via `POST /api/lanes/:laneId/evidence` with optional modes (`screenshot`, `trace`, `video`) and artifact files written under the lane artifact directory.
-- Latest evidence lookup is now exposed via `GET /api/lanes/:laneId/evidence/latest` with optional `mode` filter query.
-- Audit queue actions de-duplicate pending entries so repeated requests return existing pending queue IDs.
-- Evidence cleanup is now approval-gated and can be run with `POST /api/artifacts/cleanup` and `dryRun` mode.
-- Artifact cleanup also supports optional targeting (`sessionId`) and retention override (`olderThanDays`) in the request body.
-- MCP tools are configurable via `POST /api/mcp/tools` and can be attached to Codex/Claude lanes.
-- MCP tool hardening options:
-  - `COMMAND_DECK_MCP_TOOL_COMMAND_ALLOWLIST`
+## What is actually implemented and tested
 
-  Optional comma-separated list of allowed MCP executables (for example `node` or `npx`).
-  - `COMMAND_DECK_MCP_TOOL_COMMAND_ALLOWLIST=node,npx,python3`
-- Cleanup scheduling controls are now in UI and policy-gated:
-  - `GET /api/artifacts/cleanup/schedule`
-  - `POST /api/artifacts/cleanup/schedule`
-- Executor profiles are exposed via `GET /api/executors/profiles` for easier hardening verification.
-- If `COMMAND_DECK_API_TOKEN` is set and the browser UI is used remotely, save the token once with the new Home-page token controls (or pass `apiToken`/`token` in the query string) so mutating actions authenticate.
+These items have backing tests and/or a runnable smoke path. Items not in this
+list are aspirational and should be treated as such until proven.
+
+- HTTP API on `http://127.0.0.1:3000` by default. Static dashboard at `/`.
+- Persistent registry in `.command-deck/state.json` with atomic-ish persist
+  scheduling and a drain-on-shutdown for safe teardown.
+- `mock`, `codex`, and `claude` executors share a single worker contract
+  (`src/worker-contract.js`, `src/executor-factory.js`).
+- Real Codex/Claude lanes capture `processMeta` (PID, args, cwd, env policy,
+  start/end, exit code, signal, stopRequestedBy, stopResult, platform).
+- Stop sends SIGTERM to the process group when supported and escalates to
+  SIGKILL after `COMMAND_DECK_STOP_ESCALATE_MS` (default 4000ms).
+- Recovery on startup marks previously-running lanes as failed instead of
+  silently leaving them as "running."
+- Lane fields include `taskPrompt`, `model`, `permissionsProfile`, `branch`,
+  `repoRoot`, `worktreePath`, `verificationCommand`, `expectedArtifacts`,
+  `targetUrl`, `mcpToolIds`, and `sharedWorktree`.
+- `buildExecutorCommandArgs` derives safe argv for Codex/Claude from
+  taskPrompt/model/permissions/targetUrl/mcpConfigPath when no explicit
+  command is provided.
+- MCP tool CRUD (`/api/mcp/tools`) with schema validation, command allowlist,
+  scope filtering, lane attachment, and generated per-lane config
+  (`mcp-tools.json`) including an `mcpServers` map for Codex/Claude.
+- Evidence runner uses Playwright when available; without it, evidence calls
+  are recorded as `degraded` with a visible explanation. Browser binaries are
+  never installed automatically.
+- Evidence gallery + presets via `/api/lanes/:id/evidence/latest` and
+  `/api/lanes/:id/evidence/presets` (lane targetUrl + project quick links).
+- Cleanup scheduler with dry-run default, confirmed destructive runs,
+  active-lane protection, and monotonic `nextRunAt`.
+- Mobile manifest at `/api/mobile/manifest` lists every dashboard action URL
+  per project/session/lane plus cleanup/CLI/MCP/health endpoints.
+- Security:
+  - Token-gated mutating routes via `COMMAND_DECK_API_TOKEN`.
+  - Reserved actor names (`scheduler`, `system`, `cron`, `worker`) refused
+    on all mutating endpoints to stop dashboard spoofing.
+  - JSON body limit (`COMMAND_DECK_MAX_JSON_BYTES`, default 256KB) with 413.
+  - Heartbeat can be gated by `COMMAND_DECK_WORKER_TOKEN`.
+  - Artifact path containment: ".." segments, encoded variants, absolute
+    paths, backslash separators, and symlinked entries are refused.
+  - Per-lane workdir respects session worktree boundary for relative paths
+    and an approved repo-root allowlist (`COMMAND_DECK_REPO_ROOTS`) for
+    absolute paths.
 
 ## Run locally
 
 ```bash
-cd /Users/alexrodriguez/Documents/Projects/web/command-deck/command-deck-client
+cd command-deck-client
 npm run dev
+# In another shell:
+COMMAND_DECK_API_TOKEN=$(openssl rand -hex 32) \
+COMMAND_DECK_BASE_URL=http://127.0.0.1:3000 \
+  npm run smoke
 ```
 
-Then open:
+The dashboard is at <http://127.0.0.1:3000/>. The smoke script walks the
+full operator path (project, session, mock lane, MCP tool + Codex lane,
+evidence capture, audit ack, cleanup dry-run).
 
-- `http://localhost:3000/`
-- `http://localhost:3000/projects/realm-shaper`
+For phone access over Tailscale Serve, see
+[`docs/tailscale-mobile-access.md`](docs/tailscale-mobile-access.md).
 
-### Optional API auth
+## Tests
 
-Set `COMMAND_DECK_API_TOKEN` to require a token for all non-GET API requests.
+```bash
+cd command-deck-client
+npm test
+```
 
-- Header: `x-commanddeck-token: <token>`
-- Or: `Authorization: Bearer <token>`
+63 tests cover approval/auth, executor targeting, MCP CRUD and scope,
+cleanup schedule, CLI reinstall safety, mobile manifest, audit filtering,
+artifact path containment, JSON body limit, actor spoofing, heartbeat
+governance, MCP config generation, and executor command derivation.
 
-For private mobile control guidance, see:
+## Configuration
 
-- `command-deck-client/docs/tailscale-mobile-access.md`
-
-## Current readiness
-
-- The dashboard and API are usable for local development and hardening.
-- Real Codex/Claude lane execution must be verified against the current host CLI state before relying on it for unattended work.
-- Playwright evidence capture requires local Playwright availability; when unavailable, the evidence runner records degraded evidence instead of silently succeeding.
-- Private mobile use should stay behind Tailscale Serve with `COMMAND_DECK_API_TOKEN` set.
-
-## Notes
-
-- Mock execution remains the safest baseline lane path. Codex/Claude execution goes through the same worker adapter contract (`src/worker-contract.js`) and must be configured with narrow executor profiles.
-- Lane restart behavior is recovery-aware: active lanes are failed during startup recovery and recoverable state is persisted.
-- Mobile manifest is available at `GET /api/mobile/manifest`, returning a mobile-friendly route map and lane artifact/evidence endpoints, including latest-evidence URLs and audit queue links.
-- Artifact cleanup operations are exposed via `POST /api/artifacts/cleanup` (requires approval by policy).
-- API token status is surfaced in the mobile manifest as `apiTokenRequired`, and mobile clients can call through the dashboard JS helper by setting a session token.
-- Lane deep links now include `/projects/:slug/sessions/:sessionId/lanes/:laneId` for quick mobile navigation.
+| Variable | Purpose |
+| --- | --- |
+| `COMMAND_DECK_API_TOKEN` | Required token for non-GET API calls when set. |
+| `COMMAND_DECK_WORKER_TOKEN` | Required `x-commanddeck-worker-token` header on `/api/lanes/:id/heartbeat` when set. |
+| `COMMAND_DECK_HOST` | Bind interface (default `127.0.0.1`). Use `127.0.0.1` and front with Tailscale Serve. |
+| `PORT` | Port (default `3000`). |
+| `COMMAND_DECK_MAX_JSON_BYTES` | Body size limit, default 262144. |
+| `COMMAND_DECK_SEED` | Set `1` to recreate the demo Realm Shaper project on first boot. Off by default. |
+| `COMMAND_DECK_REPO_ROOTS` | Comma-separated absolute paths allowed as lane workdir parents (in addition to `process.cwd()`). |
+| `COMMAND_DECK_STOP_ESCALATE_MS` | Grace period before SIGKILL escalation on lane stop. Default 4000. |
+| `COMMAND_DECK_CODEX_BINARY`, `COMMAND_DECK_CODEX_ALLOWED_BINARIES`, `COMMAND_DECK_CODEX_DEFAULT_ARGS`, `COMMAND_DECK_CODEX_WORKDIR_ROOTS`, `COMMAND_DECK_CODEX_REINSTALL_COMMAND`, `COMMAND_DECK_CODEX_REINSTALL_PACKAGES`, `COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS`, `COMMAND_DECK_CODEX_REINSTALL_PREFER_SOURCE` | Codex executor + managed reinstall policy. |
+| `COMMAND_DECK_CLAUDE_BINARY`, …, `COMMAND_DECK_CLAUDE_REINSTALL_PREFER_SOURCE` | Same shape for Claude. |
+| `COMMAND_DECK_MCP_TOOL_COMMAND_ALLOWLIST` | Comma-separated allowed MCP executables (e.g. `node,npx,python3`). |
 
 ## CLI management
 
-- Configure managed reinstall commands with (optional; defaults target official npm packages):
-  - `COMMAND_DECK_CODEX_REINSTALL_COMMAND`
-  - `COMMAND_DECK_CLAUDE_REINSTALL_COMMAND`
+- `GET /api/executors/{executor}/cli` — host CLI binary, version, reinstall
+  command, and source-repo allowlist.
+- `POST /api/executors/{executor}/cli/reinstall` with `{ approved: true,
+  execute: false }` returns a dry-run plan. `execute: true` requires
+  `confirmed: true` and an approved command from the allowlist. The dashboard
+  surfaces this as an explicit two-step flow.
 
-  These values should be JSON arrays of command arguments, for example:
+## Known limitations
 
-  - `"[\"npm\",\"install\",\"--yes\",\"-g\",\"@openai/codex\"]"`
-
-  If unset, Command Deck uses:
-
-  - `npm install --yes -g @openai/codex` for Codex
-  - `npm install --yes -g @anthropic/claude-code` for Claude
-
-  Optionally constrain allowed reinstall packages per executor with:
-  - `COMMAND_DECK_CODEX_REINSTALL_PACKAGES`
-  - `COMMAND_DECK_CLAUDE_REINSTALL_PACKAGES`
-
-  Provide a comma-separated allowlist. Example:
-
-  - `COMMAND_DECK_CODEX_REINSTALL_PACKAGES=@openai/codex,codex-cli`
-
-  Optionally constrain allowed source repos per executor with:
-  - `COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS`
-  - `COMMAND_DECK_CLAUDE_REINSTALL_SOURCE_REPOS`
-
-  These are comma-separated `owner/repo` entries checked only on validated source URLs.
-  Defaults are:
-
-  - `COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS=openai/codex`
-  - `COMMAND_DECK_CLAUDE_REINSTALL_SOURCE_REPOS=anthropic/claude-code`
-
-  Example:
-
-  - `COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS=openai/codex,my-org/codex-fork`
-
-  Control whether source-based reinstall is preferred when no override is provided with:
-  - `COMMAND_DECK_CODEX_REINSTALL_PREFER_SOURCE`
-  - `COMMAND_DECK_CLAUDE_REINSTALL_PREFER_SOURCE`
-
-  Set to `true` to prefer reinstalling from `git+https://github.com/...` and set to `false` to keep package-based defaults.
-
-- Reinstall endpoints:
-  - `GET /api/executors/{executor}/cli`
-  - `POST /api/executors/{executor}/cli/reinstall` with `{ "approved": true, "execute": false }`
-- `POST /api/executors/{executor}/cli/reinstall` also accepts `command` overrides for validated managed source updates.
-  - Example body:
-    - `{ "approved": true, "execute": false, "command": "pnpm add -g @openai/codex" }`
-  - Override commands are validated with the same allowlist and install intent checks as configured defaults before execution.
+- Real git worktree creation is not yet automatic. Lane fields for branch/
+  worktreePath/repoRoot are persisted, but the operator currently provisions
+  worktrees outside Command Deck. The workdir validator accepts paths inside
+  approved repo roots.
+- Playwright is an optional dependency. Without it, evidence captures finish
+  with `captured: false` and a `degraded` marker — the UI shows this state
+  explicitly rather than silently succeeding.
+- No browser smoke tests yet; UI verification relies on the API smoke script
+  plus manual phone walkthrough documented in the Tailscale runbook.

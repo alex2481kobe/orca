@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.COMMAND_DECK_HOST || '127.0.0.1';
-const PUBLIC_DIR = path.join(process.cwd(), 'public');
+const PUBLIC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const registry = new CommandDeckRegistry();
 const API_TOKEN = process.env.COMMAND_DECK_API_TOKEN || '';
 const WORKER_TOKEN = process.env.COMMAND_DECK_WORKER_TOKEN || '';
@@ -963,8 +963,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(thisModule
   });
 }
 
-function stopServer() {
+async function stopServer() {
   registry.stopScheduler();
+  if (typeof registry.drainPendingWrites === 'function') {
+    await registry.drainPendingWrites();
+  }
 }
 
 export {

@@ -156,6 +156,19 @@ function renderLaneExecutorGuidance(form) {
   const commandInput = form.elements.command;
   const binaryInput = form.elements.executorBinary;
   const scopedTools = getExecutorScopedMcpTools(selectedType);
+  // Populate MCP picker select with executor-scoped tools.
+  const mcpSelect = form.querySelector('select[name="mcpToolIds"]');
+  if (mcpSelect) {
+    const previous = new Set(Array.from(mcpSelect.selectedOptions || []).map((opt) => opt.value));
+    mcpSelect.innerHTML = scopedTools.map((tool) => {
+      const value = safeText(tool.id || tool.name);
+      const label = safeText(tool.name || tool.id);
+      return `<option value="${value}" ${previous.has(value) ? 'selected' : ''}>${label}</option>`;
+    }).join('');
+    if (!scopedTools.length) {
+      mcpSelect.innerHTML = '<option disabled>No tools available for this executor</option>';
+    }
+  }
   const defaultBinary = safeText(profile?.defaultBinary || '');
   const defaultArgs = Array.isArray(profile?.defaultArgs) ? profile.defaultArgs.join(' ') : '';
   const allowedBinaries = Array.isArray(profile?.allowedBinaries) ? profile.allowedBinaries : [];
@@ -208,6 +221,18 @@ function laneDetailRoute(project, session, lane) {
 function formatMeta(timeString) {
   if (!timeString) return 'n/a';
   return new Date(timeString).toLocaleTimeString();
+}
+
+function stateTagClass(state) {
+  switch (String(state || '').toLowerCase()) {
+    case 'done': return 'ok';
+    case 'running':
+    case 'starting': return '';
+    case 'failed': return 'bad';
+    case 'stopped':
+    case 'queued': return 'warn';
+    default: return '';
+  }
 }
 
 function getActionPolicy(actionKey) {
@@ -644,9 +669,29 @@ function renderSession(project, session) {
                 <option value="claude">claude</option>
               </select>
             </label>
-          <label>MCP tools
-              <input name="mcpToolIds" placeholder="comma-separated MCP tool IDs" />
+            <label>Task prompt (drives generated codex/claude argv when no explicit command)
+              <textarea name="taskPrompt" rows="3" placeholder="e.g., Plan the cleanup ramp"></textarea>
             </label>
+            <label>Model / profile
+              <input name="model" placeholder="e.g., gpt-5 or claude-opus-4-7" />
+            </label>
+            <label>Permissions profile
+              <input name="permissionsProfile" placeholder="e.g., plan, restricted, full" />
+            </label>
+            <label>Target URL
+              <input name="targetUrl" placeholder="https://localhost:5173" />
+            </label>
+            <label>Branch (for worktree lanes)
+              <input name="branch" placeholder="feature/auth-cleanup" />
+            </label>
+            <label>Verification command
+              <input name="verificationCommand" placeholder="e.g., npm run smoke" />
+            </label>
+            <label>MCP tools
+              <select name="mcpToolIds" multiple size="4" data-mcp-picker="1"></select>
+              <span class="tiny muted">Tap to select; long-press on phone to multi-select. IDs are also accepted comma-separated.</span>
+            </label>
+            <input type="hidden" name="mcpToolIdsRaw" />
             <button type="submit">Queue lane</button>
           </form>
         </article>
@@ -699,9 +744,14 @@ function renderLane(project, session, lane) {
         <p><a href="${session.route}" class="secondary">Back to session</a></p>
         <h3>${safeText(lane.title)} (lane)</h3>
         <p>${safeText(lane.taskDescription || 'No task description')}</p>
+        ${lane.taskPrompt ? `<div class="tiny"><strong>Task prompt:</strong> ${safeText(lane.taskPrompt)}</div>` : ''}
+        ${lane.targetUrl ? `<div class="tiny"><strong>Target URL:</strong> <a class="secondary" href="${safeText(lane.targetUrl)}" target="_blank" rel="noopener noreferrer">${safeText(lane.targetUrl)}</a></div>` : ''}
         <div class="tiny muted">MCP tools: ${(lane.mcpTools || []).map((item) => safeText(item.name)).join(', ') || 'none'}</div>
         <div class="tiny muted">Route: ${safeText(laneDetailRoute(project, session, lane))}</div>
-        <div class="tiny">Owner: ${safeText(lane.owner)} / Executor: ${safeText(lane.executorType)} / State: ${safeText(lane.state)}</div>
+        <div class="tiny">Owner: ${safeText(lane.owner)} / Executor: ${safeText(lane.executorType)} / State: <span class="tag ${stateTagClass(lane.state)}">${safeText(lane.state)}</span></div>
+        ${lane.model || lane.permissionsProfile || lane.branch ? `<div class="tiny">Model: ${safeText(lane.model || '—')} / Permissions: ${safeText(lane.permissionsProfile || '—')} / Branch: ${safeText(lane.branch || '—')}</div>` : ''}
+        ${lane.workdir ? `<div class="tiny">Workdir: ${safeText(lane.workdir)}</div>` : ''}
+        ${lane.processMeta && lane.processMeta.pid !== null ? `<div class="tiny">Process: PID ${safeText(String(lane.processMeta.pid))} / exit ${safeText(String(lane.processMeta.exitCode ?? '—'))} / signal ${safeText(String(lane.processMeta.signal ?? '—'))}${lane.processMeta.stopRequestedBy ? ' / stopped by ' + safeText(lane.processMeta.stopRequestedBy) : ''}</div>` : ''}
         <div class="tiny">Pending audits: ${pendingAudits.length}</div>
         <div class="tiny">Pending events: ${pendingAuditRows}</div>
         <div class="tiny">Created: ${formatMeta(lane.createdAt)} / Started: ${formatMeta(lane.startedAt)} / Completed: ${formatMeta(lane.completedAt)}</div>
@@ -728,6 +778,10 @@ function renderLane(project, session, lane) {
         <h4>Last evidence</h4>
         <div class="tiny muted">Captured: ${safeText(lane.lastEvidenceCaptureAt || 'never')}</div>
         <div class="tiny muted">Result: ${safeText(lane.lastEvidence?.status || 'not captured')}</div>
+      </div>
+      <div class="card">
+        <h4>Evidence gallery</h4>
+        <div id="evidence-gallery-${lane.id}" class="tiny muted">Loading latest evidence...</div>
       </div>
       <div id="lane-artifacts-${lane.id}" class="card tiny"></div>
     </section>
@@ -771,10 +825,39 @@ function render() {
     renderProject(project);
   } else if (shell.route.laneId) {
     renderLane(project, session, lane);
+    if (lane) loadEvidenceGallery(lane.id);
   } else {
     renderSession(project, session);
   }
   renderAuditLog();
+}
+
+async function loadEvidenceGallery(laneId) {
+  const target = document.getElementById(`evidence-gallery-${laneId}`);
+  if (!target) return;
+  try {
+    const [latest, presets] = await Promise.all([
+      api(`/api/lanes/${laneId}/evidence/latest`),
+      api(`/api/lanes/${laneId}/evidence/presets`),
+    ]);
+    const files = latest.data?.files || {};
+    const presetList = presets.data?.presets || [];
+    const tiles = ['screenshot', 'video', 'trace', 'log'].map((mode) => {
+      const item = files[mode];
+      if (!item) return `<div class="card"><strong>${mode}</strong><div class="tiny muted">none yet</div></div>`;
+      const link = `<a class="secondary" href="${safeText(item.url)}" target="_blank" rel="noopener noreferrer">Open</a>`;
+      const preview = mode === 'screenshot'
+        ? `<img src="${safeText(item.url)}" alt="${mode}" style="max-width:100%;border-radius:8px;margin-top:0.4rem" loading="lazy" />`
+        : '';
+      return `<div class="card"><strong>${mode}</strong><div class="tiny">${safeText(item.name)} · ${safeText(item.at)}</div>${preview}<div style="margin-top:0.4rem">${link}</div></div>`;
+    }).join('');
+    const presetsRow = presetList.length
+      ? `<div class="lane-row" style="margin-top:0.4rem">${presetList.map((preset) => `<button class="secondary" data-action="captureEvidencePreset" data-lane-id="${safeText(laneId)}" data-url="${safeText(preset.url)}" type="button">${safeText(preset.label || preset.url)}</button>`).join('')}</div>`
+      : '<div class="tiny muted">No presets — set a lane target URL or project quick links to populate.</div>';
+    target.innerHTML = `${presetsRow}<div class="card-grid" style="margin-top:0.5rem">${tiles}</div>`;
+  } catch {
+    target.textContent = 'Could not load evidence gallery.';
+  }
 }
 
 function renderMobileManifest() {
@@ -1120,9 +1203,21 @@ async function handleCreateLane(event) {
     return;
   }
   const commandParts = parseCommandParts(payload.command);
-  const requestedToolIds = payload.mcpToolIds
-    ? String(payload.mcpToolIds).split(',').map((value) => value.trim()).filter(Boolean)
-    : [];
+  // Accept multi-select values (FormData lists), the hidden text fallback, and legacy comma-separated.
+  let mcpRaw = payload.mcpToolIds;
+  if (!mcpRaw && payload.mcpToolIdsRaw) mcpRaw = payload.mcpToolIdsRaw;
+  let requestedToolIds = [];
+  if (Array.isArray(mcpRaw)) {
+    requestedToolIds = mcpRaw.map((value) => String(value || '').trim()).filter(Boolean);
+  } else if (mcpRaw) {
+    requestedToolIds = String(mcpRaw).split(',').map((value) => value.trim()).filter(Boolean);
+  }
+  // Also collect from FormData directly in case toObj squashed array values.
+  try {
+    const fd = new FormData(event.currentTarget);
+    const all = fd.getAll('mcpToolIds').map((value) => String(value || '').trim()).filter(Boolean);
+    if (all.length) requestedToolIds = all;
+  } catch { /* noop */ }
   const scopedTools = getExecutorScopedMcpTools(executorType);
   const scopedToolIds = new Set(scopedTools.map((tool) => tool.id));
   const unknownTools = [];
@@ -1173,6 +1268,12 @@ async function handleCreateLane(event) {
       owner: 'dashboard',
       approved: approval.approved,
       actor: approval.actor,
+      taskPrompt: payload.taskPrompt || null,
+      model: payload.model || null,
+      permissionsProfile: payload.permissionsProfile || null,
+      targetUrl: payload.targetUrl || null,
+      branch: payload.branch || null,
+      verificationCommand: payload.verificationCommand || null,
     },
   });
   if (response.ok) {
@@ -1190,6 +1291,22 @@ async function handleLaneActions(event) {
   const laneId = event.currentTarget.dataset.laneId;
   if (action === 'showArtifacts') {
     await showArtifacts(laneId);
+    return;
+  }
+  if (action === 'captureEvidencePreset') {
+    const url = event.currentTarget.dataset.url;
+    if (!url) return;
+    const approved = confirmHighRiskAction(`Capture screenshot for ${url}?`, 'captureEvidence');
+    const response = await api(`/api/lanes/${laneId}/evidence`, {
+      method: 'POST',
+      body: { approved, actor: 'dashboard', url, modes: ['screenshot'] },
+    });
+    if (response.ok) {
+      renderAlert(response.data?.captured ? 'Evidence captured.' : `Evidence attempt finished: ${response.data?.reason || 'degraded'}`);
+      await loadEvidenceGallery(laneId);
+    } else {
+      renderAlert(response.data?.error || 'Evidence preset capture failed.', 'bad');
+    }
     return;
   }
   const routeMap = {
@@ -1711,7 +1828,7 @@ document.addEventListener('click', async (event) => {
   const action = event.target?.dataset?.action;
   if (!action) return;
 
-  if (['stopLane', 'retryLane', 'auditLane', 'captureEvidence', 'clearEvidence'].includes(action)) {
+  if (['stopLane', 'retryLane', 'auditLane', 'captureEvidence', 'clearEvidence', 'captureEvidencePreset'].includes(action)) {
     await handleLaneActions({ currentTarget: event.target });
     return;
   }

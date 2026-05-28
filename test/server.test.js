@@ -123,7 +123,7 @@ async function startServer({ token, env = {} }) {
     requestJson,
     stop: async () => {
       if (typeof stopServer === 'function') {
-        stopServer();
+        await stopServer();
       }
       await restore();
     },
