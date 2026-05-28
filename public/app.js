@@ -1029,16 +1029,65 @@ async function handleSystemActions(event) {
     return;
   }
   if (action === 'cleanupArtifactsRunNow') {
-    const confirmRun = window.confirm('Run artifact cleanup now (using current schedule options)? This can delete artifact directories.');
+    const schedule = shell.cleanupSchedule || {};
+    const appliedSession = schedule.sessionId ? `session ${safeText(schedule.sessionId)}` : 'all sessions';
+    const retention = schedule.olderThanDays ? `${safeText(schedule.olderThanDays)} day(s)` : 'session defaults';
+    const defaultDryRun = schedule.dryRun ? 'on' : 'off';
+    const confirmRun = window.confirm(`Run cleanup now using current schedule: ${appliedSession}, retention ${retention}, dry-run default ${defaultDryRun}?`);
     if (!confirmRun) {
       renderAlert('Cleanup run canceled.');
       return;
     }
-    const response = await api(event.currentTarget.dataset.url || '/api/artifacts/cleanup/run-now', {
+
+    const runNowBody = {
+      actor: 'dashboard',
+      approved: true,
+      sessionId: schedule.sessionId || null,
+      olderThanDays: schedule.olderThanDays ?? null,
+      dryRun: Boolean(schedule.dryRun),
+    };
+
+    const runNowApi = event.currentTarget.dataset.url || '/api/artifacts/cleanup/run-now';
+    const runDryFirst = window.confirm('Run cleanup as dry-run first, then optionally run deletion?');
+
+    if (runDryFirst) {
+      const dryRunResponse = await api(runNowApi, {
+        method: 'POST',
+        body: {
+          ...runNowBody,
+          dryRun: true,
+        },
+      });
+      if (!dryRunResponse.ok) {
+        if (dryRunResponse.data?.requiresApproval) {
+          renderAlert('Approval required for cleanup.', 'bad');
+          return;
+        }
+        renderAlert(dryRunResponse.data?.error || 'Cleanup dry-run failed.', 'bad');
+        return;
+      }
+      renderAlert(`Cleanup dry run found ${dryRunResponse.data?.candidates || 0} candidate lanes (no artifacts deleted).`);
+
+      if (!dryRunResponse.data?.candidates) {
+        await refresh();
+        return;
+      }
+
+      const confirmDelete = window.confirm(`Delete ${dryRunResponse.data?.candidates} candidate artifacts now?`);
+      if (!confirmDelete) {
+        renderAlert('Cleanup deletion canceled after dry run.');
+        await refresh();
+        return;
+      }
+      runNowBody.dryRun = false;
+    } else {
+      runNowBody.dryRun = false;
+    }
+
+    const response = await api(runNowApi, {
       method: 'POST',
       body: {
-        actor: 'dashboard',
-        approved: true,
+        ...runNowBody,
       },
     });
     if (response.ok) {

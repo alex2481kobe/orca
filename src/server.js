@@ -313,14 +313,27 @@ async function handleApi(req, res, pathname, method, parts) {
   if (parts[1] === 'artifacts' && parts[2] === 'cleanup' && parts[3] === 'run-now' && method === 'POST') {
     const body = await parseJsonBody(req);
     if (body === null) return sendJson(res, 400, { error: 'Invalid JSON.' });
+    const schedule = registry.getCleanupSchedule?.() || {};
+    const hasSessionOverride = body && Object.prototype.hasOwnProperty.call(body, 'sessionId');
+    const hasRetentionOverride = body && Object.prototype.hasOwnProperty.call(body, 'olderThanDays');
+    const hasDryRunOverride = body && Object.prototype.hasOwnProperty.call(body, 'dryRun');
+    const normalizedSessionId = hasSessionOverride
+      ? (body.sessionId && String(body.sessionId).trim()) || null
+      : schedule.sessionId;
+    const normalizedRetention = hasRetentionOverride
+      ? body.olderThanDays
+      : schedule.olderThanDays;
+    const normalizedDryRun = hasDryRunOverride
+      ? body.dryRun
+      : schedule.dryRun;
     try {
       const result = await registry.cleanupArtifacts({
         actor: body.actor || 'dashboard',
         approved: body.approved !== undefined ? body.approved : true,
         skipApproval: false,
-        sessionId: body.sessionId || null,
-        olderThanDays: body.olderThanDays ?? null,
-        dryRun: body.dryRun === true,
+        sessionId: normalizedSessionId || null,
+        olderThanDays: normalizedRetention ?? null,
+        dryRun: Boolean(normalizedDryRun),
       });
       return sendJson(res, 200, result);
     } catch (error) {
