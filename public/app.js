@@ -16,6 +16,7 @@ const shell = {
   mcpTools: [],
   executorProfiles: null,
   executorCliInfo: {},
+  systemBlockers: [],
 };
 
 const MCP_TOOL_SCOPE_ALLOWLIST = ['all', 'codex', 'claude', 'mock'];
@@ -23,9 +24,14 @@ const MCP_TOOL_SCOPE_ALLOWLIST = ['all', 'codex', 'claude', 'mock'];
 const refs = {
   breadcrumbs: document.getElementById('breadcrumbs'),
   alerts: document.getElementById('alerts'),
-  actions: document.getElementById('mainActions'),
   content: document.getElementById('content'),
+  statusStrip: document.getElementById('status-strip'),
+  blockers: document.getElementById('blockers'),
+  sidebarProjects: document.getElementById('sidebar-projects'),
+  topbarSubtitle: document.getElementById('topbar-subtitle'),
 };
+// Audit queue is rendered inside refs.content for the new operator shell.
+refs.actions = refs.content;
 const API_TOKEN_STORAGE_KEY = 'commandDeckApiToken';
 
 function parseRoute() {
@@ -778,6 +784,7 @@ function renderLane(project, session, lane) {
           <button class="secondary" data-action="clearEvidence" data-lane-id="${lane.id}" type="button">Clear evidence</button>
           <button class="secondary" data-action="auditLane" data-lane-id="${lane.id}" type="button">${auditLabel}</button>
           <button class="secondary" data-action="showArtifacts" data-lane-id="${lane.id}" type="button">Artifacts</button>
+          ${lane.worktreePath && lane.repoRoot ? `<button class="secondary" data-action="removeWorktree" data-lane-id="${lane.id}" type="button">Remove worktree</button>` : ''}
           <a class="secondary" href="${artifactUrl}" target="_blank" rel="noopener noreferrer">Artifacts API</a>
           <a class="secondary" href="${evidenceUrl}" target="_blank" rel="noopener noreferrer">Evidence API</a>
           <a class="secondary" href="${evidenceLatestUrl}" target="_blank" rel="noopener noreferrer">Latest evidence API</a>
@@ -832,6 +839,10 @@ function render() {
   const lane = shell.lanes.find((value) => value.id === shell.route.laneId);
 
   renderBreadcrumbs(project, session);
+  renderStatusStrip();
+  renderBlockers();
+  renderSidebarProjects(project);
+  if (refs.content) refs.content.setAttribute('aria-busy', 'false');
   if (!project) {
     renderHome();
   } else if (!session) {
@@ -843,6 +854,75 @@ function render() {
     renderSession(project, session);
   }
   renderAuditLog();
+}
+
+function renderStatusStrip() {
+  if (!refs.statusStrip) return;
+  const profiles = shell.executorProfiles || {};
+  const cli = shell.executorCliInfo || {};
+  const tokenTag = shell.apiToken
+    ? '<span class="tag ok" data-status="token">token: set</span>'
+    : '<span class="tag warn" data-status="token">token: unset</span>';
+  const executorTags = ['codex', 'claude'].map((type) => {
+    const info = cli[type];
+    if (!info) return '';
+    const tone = info.binaryExists ? 'ok' : 'bad';
+    const label = info.binaryExists ? `${type}: ${info.version || 'ready'}` : `${type}: missing`;
+    return `<span class="tag ${tone}" data-status="executor-${type}">${safeText(label)}</span>`;
+  }).join('');
+  const scheduler = shell.cleanupSchedule || {};
+  const schedTag = scheduler.enabled
+    ? `<span class="tag ok" data-status="scheduler">cleanup: every ${safeText(String(scheduler.intervalHours))}h</span>`
+    : '<span class="tag warn" data-status="scheduler">cleanup: off</span>';
+  const lanes = shell.lanes || [];
+  const running = lanes.filter((lane) => ['running', 'starting'].includes(lane.state)).length;
+  const failed = lanes.filter((lane) => lane.state === 'failed').length;
+  const auditCount = (shell.pendingAuditEvents || []).length;
+  const blockerCount = (shell.systemBlockers || []).filter((b) => b.severity === 'error').length;
+  refs.statusStrip.innerHTML = [
+    tokenTag,
+    executorTags,
+    schedTag,
+    `<span class="tag" data-status="lanes">${running} running · ${failed} failed</span>`,
+    `<span class="tag ${auditCount > 0 ? 'warn' : ''}" data-status="audit">${auditCount} pending audits</span>`,
+    blockerCount ? `<span class="tag bad" data-status="blockers">${blockerCount} blockers</span>` : '',
+  ].filter(Boolean).join('');
+}
+
+function renderBlockers() {
+  if (!refs.blockers) return;
+  const blockers = shell.systemBlockers || [];
+  if (!blockers.length) {
+    refs.blockers.innerHTML = '';
+    return;
+  }
+  refs.blockers.innerHTML = blockers.map((blocker) => `
+    <div class="blocker ${blocker.severity === 'warn' ? 'warn' : ''}" role="alertdialog">
+      <strong>${safeText(blocker.summary)}</strong>
+      <div class="tiny" style="color:inherit">${safeText(blocker.detail)}</div>
+      <div class="tiny" style="color:inherit;margin-top:0.25rem">Remediation: <code>${safeText(blocker.remediation)}</code></div>
+    </div>
+  `).join('');
+}
+
+function renderSidebarProjects(activeProject) {
+  if (!refs.sidebarProjects) return;
+  const projects = shell.projects || [];
+  if (!projects.length) {
+    refs.sidebarProjects.innerHTML = '<div class="tiny muted">No projects yet — create one from the home view.</div>';
+    return;
+  }
+  refs.sidebarProjects.innerHTML = projects.map((project) => {
+    const lanes = (shell.lanes || []).filter((lane) => lane.projectId === project.id);
+    const active = lanes.filter((lane) => ['running', 'starting', 'queued'].includes(lane.state)).length;
+    const isActive = activeProject && activeProject.id === project.id;
+    return `
+      <a class="sidebar-link ${isActive ? 'active' : ''}" href="${safeText(project.route)}" data-route-project="${safeText(project.slug)}">
+        ${safeText(project.name)}
+        <span class="pill" title="${active} active lanes">${active}</span>
+      </a>
+    `;
+  }).join('');
 }
 
 async function loadEvidenceGallery(laneId) {
@@ -888,6 +968,10 @@ async function refresh() {
   const policyResp = await api('/api/policy');
   if (policyResp.ok && policyResp.data) {
     shell.policy = policyResp.data.policies;
+  }
+  const blockersResp = await api('/api/system/blockers');
+  if (blockersResp.ok && Array.isArray(blockersResp.data?.blockers)) {
+    shell.systemBlockers = blockersResp.data.blockers;
   }
   const profilesResp = await api('/api/executors/profiles');
   if (profilesResp.ok && profilesResp.data?.profiles) {
@@ -1319,6 +1403,23 @@ async function handleLaneActions(event) {
       await loadEvidenceGallery(laneId);
     } else {
       renderAlert(response.data?.error || 'Evidence preset capture failed.', 'bad');
+    }
+    return;
+  }
+  if (action === 'removeWorktree') {
+    if (!confirmHighRiskAction(`Remove the git worktree for lane ${laneId}? Branch is kept.`, 'cleanupArtifacts')) {
+      renderAlert('Worktree removal canceled.');
+      return;
+    }
+    const response = await api(`/api/lanes/${laneId}/worktree/remove`, {
+      method: 'POST',
+      body: { approved: true, actor: 'dashboard' },
+    });
+    if (response.ok) {
+      renderAlert(response.data?.removed ? 'Worktree removed.' : 'Worktree was not removed.');
+      await refresh();
+    } else {
+      renderAlert(response.data?.error || 'Could not remove worktree.', 'bad');
     }
     return;
   }
@@ -1839,9 +1940,17 @@ document.addEventListener('change', (event) => {
 
 document.addEventListener('click', async (event) => {
   const action = event.target?.dataset?.action;
+  if (action === 'toggleNav') {
+    document.body.classList.toggle('nav-open');
+    return;
+  }
+  // Auto-close mobile sidebar when navigating.
+  if (event.target?.classList?.contains('sidebar-link')) {
+    document.body.classList.remove('nav-open');
+  }
   if (!action) return;
 
-  if (['stopLane', 'retryLane', 'auditLane', 'captureEvidence', 'clearEvidence', 'captureEvidencePreset'].includes(action)) {
+  if (['stopLane', 'retryLane', 'auditLane', 'captureEvidence', 'clearEvidence', 'captureEvidencePreset', 'removeWorktree'].includes(action)) {
     await handleLaneActions({ currentTarget: event.target });
     return;
   }

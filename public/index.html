@@ -2,27 +2,49 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
     <title>Command Deck</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
-  <body>
-    <div class="layout">
-      <header class="topbar">
-        <h1>Command Deck</h1>
-        <p>Local control plane for projects, sessions, lanes, and audits</p>
-      </header>
-      <main id="shell">
-        <section class="panel">
-          <div id="breadcrumbs" class="breadcrumbs"></div>
-          <div id="alerts" class="alerts"></div>
-          <div id="mainActions" class="action-grid"></div>
-        </section>
-        <section id="content" class="panel panel-elevated">
-          Loading dashboard...
-        </section>
-      </main>
-    </div>
+  <body data-app="command-deck">
+    <header class="topbar" id="topbar">
+      <div class="topbar-row">
+        <div class="brand">
+          <h1>Command Deck</h1>
+          <p id="topbar-subtitle" class="muted">operator console</p>
+        </div>
+        <nav class="topbar-actions" aria-label="primary">
+          <button class="secondary" data-action="refresh" type="button" aria-label="Refresh dashboard">Refresh</button>
+          <button class="secondary" data-action="toggleNav" type="button" aria-label="Toggle navigation" aria-controls="sidebar">Menu</button>
+        </nav>
+      </div>
+      <div id="status-strip" class="status-strip" role="status" aria-live="polite"></div>
+      <div id="blockers" class="blockers" aria-live="polite"></div>
+    </header>
+    <main id="shell" class="ops-shell">
+      <aside id="sidebar" class="ops-sidebar" aria-label="navigation">
+        <div class="sidebar-section">
+          <div class="sidebar-title">Projects</div>
+          <div id="sidebar-projects" class="sidebar-list"></div>
+        </div>
+        <div class="sidebar-section">
+          <div class="sidebar-title">Maintenance</div>
+          <div class="sidebar-list">
+            <a href="#system" data-route="system" class="sidebar-link">System &amp; blockers</a>
+            <a href="#mcp" data-route="mcp" class="sidebar-link">MCP tools</a>
+            <a href="#audit" data-route="audit" class="sidebar-link">Audit queue</a>
+            <a href="#cleanup" data-route="cleanup" class="sidebar-link">Cleanup</a>
+            <a href="#token" data-route="token" class="sidebar-link">API token</a>
+          </div>
+        </div>
+      </aside>
+      <section class="ops-main">
+        <div id="breadcrumbs" class="breadcrumbs" aria-label="breadcrumb"></div>
+        <div id="alerts" class="alerts" role="alert"></div>
+        <div id="content" class="ops-content" aria-busy="true">Loading…</div>
+      </section>
+    </main>
     <script type="module" src="/app.js"></script>
   </body>
 </html>
