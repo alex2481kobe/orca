@@ -101,6 +101,67 @@ test('cleanup schedule and cleanup artifacts use retention + approval', async ()
   }
 });
 
+test('cleanup default retention comes from session policy when olderThanDays is omitted', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+
+  try {
+    const project = registry.createProject({ name: 'Retention Project' });
+    const session = registry.createSession(project.id, {
+      name: 'Retention Session',
+      artifactRetentionDays: 5,
+    });
+
+    const lane = registry.createLane(session.id, {
+      title: 'old lane',
+      executorType: 'mock',
+    }, { approved: true, actor: 'test' });
+
+    const target = registry.getLane(lane.id);
+    target.state = 'done';
+    target.completedAt = new Date(Date.now() - (6 * 24 * 60 * 60 * 1000)).toISOString();
+    target.updatedAt = target.completedAt;
+
+    const artifactDir = path.join(process.cwd(), 'artifacts', session.id, target.id);
+    await fs.mkdir(artifactDir, { recursive: true });
+    await fs.writeFile(path.join(artifactDir, 'old.txt'), 'retention-check');
+
+    const summaryDefaultRetention = await registry.cleanupArtifacts({
+      actor: 'test',
+      approved: true,
+      sessionId: session.id,
+    });
+    assert.equal(summaryDefaultRetention.removed, 1);
+    await assert.rejects(
+      fs.access(path.join(artifactDir, 'old.txt')),
+      (error) => error.code === 'ENOENT',
+    );
+
+    const keptLane = registry.createLane(session.id, {
+      title: 'newer lane',
+      executorType: 'mock',
+    }, { approved: true, actor: 'test' });
+    const keptTarget = registry.getLane(keptLane.id);
+    keptTarget.state = 'done';
+    keptTarget.completedAt = new Date().toISOString();
+    keptTarget.updatedAt = keptTarget.completedAt;
+    const keptDir = path.join(process.cwd(), 'artifacts', session.id, keptTarget.id);
+    await fs.mkdir(keptDir, { recursive: true });
+    await fs.writeFile(path.join(keptDir, 'recent.txt'), 'recent');
+
+    const summaryOverride = await registry.cleanupArtifacts({
+      actor: 'test',
+      approved: true,
+      sessionId: session.id,
+      olderThanDays: 30,
+    });
+    assert.equal(summaryOverride.removed, 0);
+    const keptFileText = await fs.readFile(path.join(keptDir, 'recent.txt'), 'utf8');
+    assert.equal(keptFileText, 'recent');
+  } finally {
+    await cleanup();
+  }
+});
+
 test('MCP tools are scoped by executor type', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
 
