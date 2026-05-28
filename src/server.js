@@ -174,12 +174,22 @@ async function serveStaticOrIndex(pathname, res) {
 
   const hasExtension = pathname.includes('.');
   if (pathname.startsWith('/artifacts/')) {
-    const [_, sessionId, laneId, filename] = pathname.split('/');
+    const parts = pathname.split('/').filter(Boolean);
+    if (parts.length < 4 || parts[0] !== 'artifacts') {
+      return sendText(res, 404, 'Artifact not found');
+    }
+    const [, , laneId, ...rest] = parts;
+    const filename = rest.join('/');
     const lane = registry.getLane(laneId);
     if (!lane || !filename) {
       return sendText(res, 404, 'Artifact not found');
     }
-    const requested = await registry.getArtifactFile(lane.id, pathname.replace(`/artifacts/${sessionId}/${laneId}/`, ''));
+    let requested;
+    try {
+      requested = await registry.getArtifactFile(lane.id, filename);
+    } catch (error) {
+      return sendText(res, error?.status || 404, error?.message || 'Artifact file not found');
+    }
     try {
       const ext = path.extname(requested.filePath).toLowerCase();
       if (['.txt', '.json', '.log', '.js', '.css', '.html'].includes(ext)) {
@@ -341,6 +351,7 @@ async function handleApi(req, res, pathname, method, parts) {
   if (parts[1] === 'executors' && ['codex', 'claude'].includes(parts[2]) && parts[3] === 'cli' && parts[4] === 'reinstall' && method === 'POST') {
     const body = await parseJsonBody(req);
     if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
     try {
       const result = await registry.runExecutorCliReinstall(parts[2], {
         actor: body.actor || 'dashboard',
@@ -363,6 +374,7 @@ async function handleApi(req, res, pathname, method, parts) {
   if (parts[1] === 'artifacts' && parts[2] === 'cleanup' && parts.length === 3 && method === 'POST') {
     const body = await parseJsonBody(req);
     if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
     try {
       const result = await registry.cleanupArtifacts({
         ...body,
@@ -385,6 +397,7 @@ async function handleApi(req, res, pathname, method, parts) {
   if (parts[1] === 'artifacts' && parts[2] === 'cleanup' && parts[3] === 'schedule' && method === 'POST') {
     const body = await parseJsonBody(req);
     if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
     try {
       const result = await registry.updateCleanupSchedule(body, {
         actor: body.actor || 'dashboard',
@@ -403,6 +416,7 @@ async function handleApi(req, res, pathname, method, parts) {
   if (parts[1] === 'artifacts' && parts[2] === 'cleanup' && parts[3] === 'run-now' && method === 'POST') {
     const body = await parseJsonBody(req);
     if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
     const schedule = registry.getCleanupSchedule?.() || {};
     const hasSessionOverride = body && Object.prototype.hasOwnProperty.call(body, 'sessionId');
     const hasRetentionOverride = body && Object.prototype.hasOwnProperty.call(body, 'olderThanDays');
@@ -468,6 +482,7 @@ async function handleApi(req, res, pathname, method, parts) {
   if (parts[1] === 'mcp' && parts[2] === 'tools' && method === 'POST') {
     const body = await parseJsonBody(req);
     if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
     try {
       const result = await registry.createMcpTool(body, {
         actor: body.actor || 'dashboard',
@@ -492,6 +507,7 @@ async function handleApi(req, res, pathname, method, parts) {
   if (parts[1] === 'mcp' && parts[2] === 'tools' && parts.length === 4 && method === 'PATCH') {
     const body = await parseJsonBody(req);
     if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
     const { actor, approved, ...patch } = body;
     try {
       const result = await registry.updateMcpTool(
@@ -515,6 +531,7 @@ async function handleApi(req, res, pathname, method, parts) {
   if (parts[1] === 'mcp' && parts[2] === 'tools' && parts.length === 4 && method === 'DELETE') {
     const body = await parseJsonBody(req);
     if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
     try {
       const result = await registry.deleteMcpTool(parts[3], {
         actor: body.actor || 'dashboard',
@@ -538,6 +555,7 @@ async function handleApi(req, res, pathname, method, parts) {
     if (parts.length === 2 && method === 'POST') {
       const body = await parseJsonBody(req);
       if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
       try {
         const project = registry.createProject(body, {
           actor: body.actor || 'dashboard',
@@ -563,6 +581,7 @@ async function handleApi(req, res, pathname, method, parts) {
       if (method === 'PATCH') {
         const body = await parseJsonBody(req);
         if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
         try {
           const updated = registry.updateProject(project.id, body, {
             actor: body.actor || 'dashboard',
@@ -585,6 +604,7 @@ async function handleApi(req, res, pathname, method, parts) {
       if (method === 'POST') {
         const body = await parseJsonBody(req);
         if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
         try {
           const session = registry.createSession(project.id, body, {
             actor: body.actor || 'dashboard',
@@ -622,6 +642,7 @@ async function handleApi(req, res, pathname, method, parts) {
       if (method === 'POST') {
         const body = await parseJsonBody(req);
         if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
         try {
           const lane = await registry.createLane(session.id, body, body);
           return sendJson(res, 201, lane);
@@ -639,6 +660,7 @@ async function handleApi(req, res, pathname, method, parts) {
     if (parts.length === 4 && parts[3] === 'audit-done-lanes' && method === 'POST') {
       const body = await parseJsonBody(req);
       if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
       try {
         const result = await registry.queueDoneLanesAudit(session.id, { ...body, actor: body.actor || 'dashboard' });
         return sendJson(res, 200, result);
@@ -683,6 +705,7 @@ async function handleApi(req, res, pathname, method, parts) {
     if (parts.length === 4 && parts[3] === 'stop' && method === 'POST') {
       const body = await parseJsonBody(req);
       if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
       try {
         const updated = await registry.stopLane(lane.id, { ...body, actor: body.actor || 'dashboard' });
         return sendJson(res, 200, updated);
@@ -698,6 +721,7 @@ async function handleApi(req, res, pathname, method, parts) {
     if (parts.length === 4 && parts[3] === 'retry' && method === 'POST') {
       const body = await parseJsonBody(req);
       if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
       try {
         const updated = registry.retryLane(lane.id, { ...body, actor: body.actor || 'dashboard' });
         return sendJson(res, 200, updated);
@@ -709,6 +733,7 @@ async function handleApi(req, res, pathname, method, parts) {
     if (parts.length === 4 && parts[3] === 'audit' && method === 'POST') {
       const body = await parseJsonBody(req);
       if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
       try {
         const audit = registry.queueLaneAudit(lane.id, { ...body, actor: body.actor || 'dashboard' });
         return sendJson(res, 201, audit);
@@ -750,6 +775,7 @@ async function handleApi(req, res, pathname, method, parts) {
       }
       const body = await parseJsonBody(req);
       if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
       const actor = String(body.actor || 'worker').trim() || 'worker';
       // Heartbeat is worker-scoped; the dashboard cannot impersonate other actors here.
       try {
@@ -812,6 +838,7 @@ async function handleApi(req, res, pathname, method, parts) {
     if (parts.length === 4 && parts[3] === 'evidence' && method === 'POST') {
       const body = await parseJsonBody(req);
       if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
       try {
         const result = await registry.captureLaneEvidence(lane.id, {
           ...body,
@@ -830,6 +857,7 @@ async function handleApi(req, res, pathname, method, parts) {
     if (parts.length === 5 && parts[3] === 'evidence' && parts[4] === 'clear' && method === 'POST') {
       const body = await parseJsonBody(req);
       if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
       try {
         const result = await registry.clearLaneEvidenceArtifacts(lane.id, {
           ...body,
@@ -850,6 +878,7 @@ async function handleApi(req, res, pathname, method, parts) {
     if (parts.length === 5 && parts[4] === 'ack' && method === 'POST') {
       const body = await parseJsonBody(req);
       if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
       try {
         const event = registry.acknowledgeAuditEvent(parts[3], {
           actor: body.actor || 'dashboard',

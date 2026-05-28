@@ -1964,9 +1964,17 @@ export class CommandDeckRegistry {
       const entries = await fs.readdir(laneDir, { withFileTypes: true });
       const files = [];
       for (const entry of entries) {
-        if (entry.isFile()) {
-          files.push(entry.name);
+        if (!entry.isFile() || entry.isSymbolicLink()) continue;
+        // Defense-in-depth: ensure the entry resolves inside laneDir even if
+        // the filesystem races a symlink swap between readdir and lstat.
+        try {
+          const resolved = await fs.realpath(path.join(laneDir, entry.name));
+          const laneReal = await fs.realpath(laneDir);
+          if (resolved !== path.join(laneReal, entry.name)) continue;
+        } catch {
+          continue;
         }
+        files.push(entry.name);
       }
       return files.sort();
     } catch {
@@ -2194,12 +2202,48 @@ export class CommandDeckRegistry {
       throw { status: 404, message: 'Lane not found.' };
     }
 
-    if (!filename || filename.includes('..')) {
+    if (!filename) {
+      throw { status: 400, message: 'Invalid artifact filename.' };
+    }
+
+    let decoded = filename;
+    try {
+      decoded = decodeURIComponent(String(filename));
+    } catch {
+      throw { status: 400, message: 'Invalid artifact filename encoding.' };
+    }
+
+    if (
+      decoded.includes('\0')
+      || decoded.includes('..')
+      || decoded.startsWith('/')
+      || decoded.startsWith('\\')
+      || path.isAbsolute(decoded)
+      || /[\\]/.test(decoded)
+    ) {
       throw { status: 400, message: 'Invalid artifact filename.' };
     }
 
     const laneDir = path.join(process.cwd(), 'artifacts', lane.sessionId, lane.id);
-    const filePath = path.join(laneDir, filename);
+    const filePath = path.join(laneDir, decoded);
+    if (!isPathWithinBoundary(filePath, laneDir)) {
+      throw { status: 400, message: 'Artifact path escapes lane boundary.' };
+    }
+
+    let stats;
+    try {
+      stats = await fs.lstat(filePath);
+    } catch (error) {
+      const status = error?.code === 'ENOENT' ? 404 : 500;
+      throw { status, message: 'Artifact file not found.' };
+    }
+    if (stats.isSymbolicLink()) {
+      throw { status: 400, message: 'Artifact path resolves to a symlink and was refused.' };
+    }
+    if (!stats.isFile()) {
+      throw { status: 404, message: 'Artifact file not found.' };
+    }
+
     return {
       lane,
       filePath,

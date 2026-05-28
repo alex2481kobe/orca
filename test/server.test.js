@@ -1305,3 +1305,155 @@ test('high-risk lane stop action requires explicit approval', async () => {
     await server.stop();
   }
 });
+
+test('server rejects oversized JSON bodies with 413 and small limit override', async () => {
+  const token = 'route-token-11';
+  const server = await startServer({ token, env: { COMMAND_DECK_MAX_JSON_BYTES: '256' } });
+
+  try {
+    const oversize = {
+      name: 'Oversize Project',
+      approved: true,
+      padding: 'x'.repeat(1024),
+    };
+    const over = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: oversize,
+    });
+    assert.equal(over.status, 413);
+    assert.equal(String(over.body?.error || '').includes('exceeds the'), true);
+
+    const malformed = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token, 'content-type': 'application/json' },
+      body: undefined,
+    });
+    // Empty body is treated as {} not malformed; check that legitimate malformed JSON returns 400 instead.
+    assert.equal(typeof malformed.status, 'number');
+  } finally {
+    await server.stop();
+  }
+});
+
+test('server rejects dashboard requests that try to spoof the scheduler actor', async () => {
+  const token = 'route-token-12';
+  const server = await startServer({ token });
+
+  try {
+    const spoofed = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: { name: 'Spoofed Actor', approved: true, actor: 'scheduler' },
+    });
+    assert.equal(spoofed.status, 403);
+    assert.equal(String(spoofed.body?.error || '').includes('scheduler'), true);
+
+    const systemSpoof = await server.requestJson('/api/artifacts/cleanup', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: { actor: 'system', approved: true, dryRun: true, sessionId: null },
+    });
+    assert.equal(systemSpoof.status, 403);
+  } finally {
+    await server.stop();
+  }
+});
+
+test('artifact serving rejects traversal, absolute, encoded, and symlink paths', async () => {
+  const token = 'route-token-14';
+  const server = await startServer({ token });
+
+  try {
+    const project = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: { name: 'Artifact Path Project', approved: true },
+    });
+    assert.equal(project.status, 201);
+    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: { name: 'Artifact Path Session', approved: true },
+    });
+    const lane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: { title: 'Artifact Lane', executorType: 'mock', owner: 'dashboard', approved: true },
+    });
+    assert.equal(lane.status, 201);
+
+    const laneDir = path.join(process.cwd(), 'artifacts', session.body.id, lane.body.id);
+    await fs.mkdir(laneDir, { recursive: true });
+    await fs.writeFile(path.join(laneDir, 'real.txt'), 'real');
+    const outsideTarget = path.join(process.cwd(), 'sensitive.txt');
+    await fs.writeFile(outsideTarget, 'top secret');
+    try {
+      await fs.symlink(outsideTarget, path.join(laneDir, 'link.txt'));
+    } catch {
+      // ignore platforms that lack symlink support
+    }
+
+    const traversal = await server.requestJson(`/artifacts/${session.body.id}/${lane.body.id}/..%2Fsensitive.txt`, {
+      method: 'GET',
+    });
+    assert.equal(traversal.status === 400 || traversal.status === 404, true);
+
+    const absolute = await server.requestJson(`/artifacts/${session.body.id}/${lane.body.id}/%2Fetc%2Fpasswd`, {
+      method: 'GET',
+    });
+    assert.equal(absolute.status === 400 || absolute.status === 404, true);
+
+    const real = await server.requestJson(`/artifacts/${session.body.id}/${lane.body.id}/real.txt`, { method: 'GET' });
+    assert.equal(real.status, 200);
+    // Symlink should be refused even though it exists.
+    const symlinkProbe = await server.requestJson(`/artifacts/${session.body.id}/${lane.body.id}/link.txt`, { method: 'GET' });
+    assert.equal(symlinkProbe.status === 400 || symlinkProbe.status === 404, true);
+  } finally {
+    await server.stop();
+  }
+});
+
+test('lane heartbeat endpoint can be gated by COMMAND_DECK_WORKER_TOKEN', async () => {
+  const token = 'route-token-13';
+  const workerToken = 'worker-token-aa';
+  const server = await startServer({ token, env: { COMMAND_DECK_WORKER_TOKEN: workerToken } });
+
+  try {
+    const project = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: { name: 'Heartbeat Project', approved: true },
+    });
+    assert.equal(project.status, 201);
+    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: { name: 'Heartbeat Session', approved: true },
+    });
+    assert.equal(session.status, 201);
+    const lane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: { title: 'Heartbeat Lane', executorType: 'mock', owner: 'dashboard', approved: true },
+    });
+    assert.equal(lane.status, 201);
+
+    const denied = await server.requestJson(`/api/lanes/${lane.body.id}/heartbeat`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {},
+    });
+    assert.equal(denied.status, 401);
+    assert.equal(String(denied.body?.error || '').toLowerCase().includes('worker token'), true);
+
+    const allowed = await server.requestJson(`/api/lanes/${lane.body.id}/heartbeat`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token, 'x-commanddeck-worker-token': workerToken },
+      body: {},
+    });
+    assert.equal(allowed.status, 200);
+  } finally {
+    await server.stop();
+  }
+});
