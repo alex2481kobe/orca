@@ -6,6 +6,30 @@ const STATIC_ASSETS = [
   '/manifest.webmanifest',
   '/icon.svg',
 ];
+const STATIC_ASSET_PATHS = new Set(STATIC_ASSETS);
+const SENSITIVE_PREFIXES = [
+  '/api/',
+  '/artifacts/',
+];
+
+function isSensitiveUrl(url) {
+  return SENSITIVE_PREFIXES.some((prefix) => url.pathname.startsWith(prefix));
+}
+
+function cacheKeyForStaticAsset(url) {
+  if (!STATIC_ASSET_PATHS.has(url.pathname)) return null;
+  return url.pathname;
+}
+
+function isAppShellDocument(request) {
+  return request.destination === 'document';
+}
+
+function canCacheStaticResponse(url, cacheKey) {
+  if (!cacheKey) return false;
+  if (cacheKey === '/' && url.search) return false;
+  return true;
+}
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -28,20 +52,20 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
-  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/artifacts/')) return;
+  if (isSensitiveUrl(url)) return;
 
-  const isStatic = STATIC_ASSETS.includes(url.pathname) || request.destination === 'style' || request.destination === 'script' || request.destination === 'image' || request.destination === 'manifest';
-  if (!isStatic && request.destination !== 'document') return;
+  const cacheKey = cacheKeyForStaticAsset(url);
+  if (!cacheKey && !isAppShellDocument(request)) return;
 
   event.respondWith(
     fetch(request)
       .then((response) => {
-        if (response && response.ok && isStatic) {
+        if (response && response.ok && canCacheStaticResponse(url, cacheKey)) {
           const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+          caches.open(CACHE_NAME).then((cache) => cache.put(cacheKey, copy));
         }
         return response;
       })
-      .catch(() => caches.match(request).then((cached) => cached || caches.match('/'))),
+      .catch(() => caches.match(cacheKey || '/').then((cached) => cached || caches.match('/'))),
   );
 });
