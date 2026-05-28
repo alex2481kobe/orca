@@ -2,12 +2,14 @@ import { createServer } from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { CommandDeckRegistry } from './registry.js';
+import { PrivateAccessStore } from './private-access.js';
 import { fileURLToPath } from 'node:url';
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.COMMAND_DECK_HOST || '127.0.0.1';
 const PUBLIC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const registry = new CommandDeckRegistry();
+const privateAccess = new PrivateAccessStore();
 const API_TOKEN = process.env.COMMAND_DECK_API_TOKEN || '';
 const WORKER_TOKEN = process.env.COMMAND_DECK_WORKER_TOKEN || '';
 const MAX_JSON_BODY_BYTES = (() => {
@@ -22,6 +24,7 @@ const contentTypes = {
   '.js': 'application/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.svg': 'image/svg+xml',
@@ -252,6 +255,9 @@ function buildMobileManifest(req) {
     executorCliReinstallUrl: `/api/executors/{executor}/cli/reinstall`,
     mcpToolsUrl: `${origin}/api/mcp/tools`,
     projectsUrl: `${origin}/api/projects`,
+    privateAccessUrl: `${origin}/api/private-access`,
+    pwaManifestUrl: `${origin}/manifest.webmanifest`,
+    serviceWorkerUrl: `${origin}/service-worker.js`,
     mobileManifestUrl: `${origin}/api/mobile/manifest`,
     projects: projects.map((project) => {
       const sessions = registry.listSessions(project.id);
@@ -300,6 +306,102 @@ function buildMobileManifest(req) {
   return payload;
 }
 
+async function handlePrivateAccessApi(req, res, method, parts) {
+  if (parts.length === 2 && method === 'GET') {
+    const searchParams = getSearchParams(req.url || '/');
+    if (!searchParams) return sendJson(res, 400, { error: 'Invalid request query string.' });
+    const fakeState = searchParams.get('fakeTailnetState') || searchParams.get('fake') || null;
+    const data = await privateAccess.describe({
+      origin: requestOrigin(req),
+      fakeTailnetState: fakeState,
+    });
+    return sendJson(res, 200, data);
+  }
+
+  if (parts.length === 3 && parts[2] === 'tailnet' && method === 'GET') {
+    const searchParams = getSearchParams(req.url || '/');
+    if (!searchParams) return sendJson(res, 400, { error: 'Invalid request query string.' });
+    return sendJson(res, 200, privateAccess.tailnetState(searchParams.get('fake') || null));
+  }
+
+  if (parts.length === 3 && parts[2] === 'setup-plan' && method === 'GET') {
+    const searchParams = getSearchParams(req.url || '/');
+    if (!searchParams) return sendJson(res, 400, { error: 'Invalid request query string.' });
+    try {
+      const plan = await privateAccess.setupPlan({
+        localUrl: searchParams.get('localUrl') || requestOrigin(req),
+        httpPort: searchParams.get('httpPort') || 80,
+        httpsPort: searchParams.get('httpsPort') || 443,
+      });
+      return sendJson(res, 200, plan);
+    } catch (error) {
+      return sendJson(res, error.status || 500, { error: error.message || 'Could not build setup plan.' });
+    }
+  }
+
+  if (parts.length === 3 && parts[2] === 'settings' && method === 'PATCH') {
+    const body = await parseJsonBody(req);
+    if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
+    try {
+      const settings = await privateAccess.updateSettings(body, { actor: body.actor || 'dashboard' });
+      return sendJson(res, 200, settings);
+    } catch (error) {
+      return sendJson(res, error.status || 500, { error: error.message || 'Could not update private access settings.' });
+    }
+  }
+
+  if (parts.length === 3 && parts[2] === 'targets' && method === 'POST') {
+    const body = await parseJsonBody(req);
+    if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
+    try {
+      const target = await privateAccess.createTarget(body, { actor: body.actor || 'dashboard' });
+      return sendJson(res, 201, target);
+    } catch (error) {
+      return sendJson(res, error.status || 500, { error: error.message || 'Could not create private access target.' });
+    }
+  }
+
+  if (parts.length === 4 && parts[2] === 'targets' && method === 'PATCH') {
+    const body = await parseJsonBody(req);
+    if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
+    try {
+      const target = await privateAccess.updateTarget(parts[3], body, { actor: body.actor || 'dashboard' });
+      return sendJson(res, 200, target);
+    } catch (error) {
+      return sendJson(res, error.status || 500, { error: error.message || 'Could not update private access target.' });
+    }
+  }
+
+  if (parts.length === 4 && parts[2] === 'targets' && method === 'DELETE') {
+    const body = await parseJsonBody(req);
+    if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
+    try {
+      const result = await privateAccess.deleteTarget(parts[3], { actor: body.actor || 'dashboard' });
+      return sendJson(res, 200, result);
+    } catch (error) {
+      return sendJson(res, error.status || 500, { error: error.message || 'Could not delete private access target.' });
+    }
+  }
+
+  if (parts.length === 5 && parts[2] === 'targets' && parts[4] === 'check' && method === 'POST') {
+    const body = await parseJsonBody(req);
+    if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
+    try {
+      const result = await privateAccess.checkTarget(parts[3], { actor: body.actor || 'dashboard' });
+      return sendJson(res, 200, result);
+    } catch (error) {
+      return sendJson(res, error.status || 500, { error: error.message || 'Could not check private access target.' });
+    }
+  }
+
+  return sendJson(res, 404, { error: 'Private access API route not found.' });
+}
+
 function getRouteParts(pathname) {
   return pathname.split('?')[0].replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
 }
@@ -336,6 +438,10 @@ async function handleApi(req, res, pathname, method, parts) {
     } catch (error) {
       return sendJson(res, 500, { error: error?.message || 'Could not load blockers.' });
     }
+  }
+
+  if (parts[1] === 'private-access') {
+    return handlePrivateAccessApi(req, res, method, parts);
   }
 
   if (parts[1] === 'executors' && parts[2] === 'profiles' && method === 'GET') {

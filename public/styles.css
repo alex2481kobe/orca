@@ -709,7 +709,8 @@ body.sidebar-collapsed .sidebar-project-line {
 .home-panels[data-active-panel="token"] > [data-panel-card]:not([data-panel-card="token"]),
 .home-panels[data-active-panel="system"] > [data-panel-card]:not([data-panel-card="system"]),
 .home-panels[data-active-panel="mcp"] > [data-panel-card]:not([data-panel-card="mcp"]),
-.home-panels[data-active-panel="cleanup"] > [data-panel-card]:not([data-panel-card="cleanup"]) {
+.home-panels[data-active-panel="cleanup"] > [data-panel-card]:not([data-panel-card="cleanup"]),
+.home-panels[data-active-panel="private-access"] > [data-panel-card]:not([data-panel-card="private-access"]) {
   display: none;
 }
 
@@ -1218,6 +1219,34 @@ pre {
 .alert.bad { border-color: var(--bad); background: rgba(141, 34, 17, 0.42); }
 .alert.ok { border-color: var(--ok); background: rgba(13, 92, 58, 0.36); }
 
+.access-summary {
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.access-command,
+.access-target {
+  align-items: center;
+  border: 1px solid rgba(64, 67, 58, 0.62);
+  border-radius: 13px;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+  padding: 0.7rem;
+}
+
+.access-command code {
+  color: var(--accent-strong);
+  display: block;
+  font-size: 0.76rem;
+  margin-top: 0.3rem;
+}
+
+.access-target + .access-target {
+  margin-top: 0.5rem;
+}
+
 /* Responsive: collapse sidebar to drawer on phones */
 @media (max-width: 880px) {
   .ops-shell {
@@ -1312,12 +1341,20 @@ pre {
   .lane-row {
     width: 100%;
   }
-  .lane-row button,
-  .lane-row a.secondary {
-    flex: 1 1 calc(50% - 0.45rem);
-    min-height: 44px;
-    text-align: center;
-  }
+	  .lane-row button,
+	  .lane-row a.secondary,
+	  .access-command button,
+	  .access-target button,
+	  .access-target a.secondary {
+	    flex: 1 1 calc(50% - 0.45rem);
+	    min-height: 44px;
+	    text-align: center;
+	  }
+	  .access-command,
+	  .access-target {
+	    align-items: stretch;
+	    display: grid;
+	  }
   .card-grid img { max-height: 50vh; object-fit: contain; }
 }
 

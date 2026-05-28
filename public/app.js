@@ -17,6 +17,7 @@ const shell = {
   executorProfiles: null,
   executorCliInfo: {},
   systemBlockers: [],
+  privateAccess: null,
 };
 
 const MCP_TOOL_SCOPE_ALLOWLIST = ['all', 'codex', 'claude', 'mock'];
@@ -323,7 +324,7 @@ function isVerificationProject(project) {
 
 function activeHomePanel() {
   const panel = String(window.location.hash || '').replace(/^#/, '').toLowerCase();
-  const allowed = new Set(['projects', 'create', 'system', 'mcp', 'audit', 'cleanup', 'token']);
+  const allowed = new Set(['projects', 'create', 'system', 'mcp', 'audit', 'cleanup', 'token', 'private-access']);
   return allowed.has(panel) ? panel : 'overview';
 }
 
@@ -438,6 +439,44 @@ function renderHome() {
   const schedule = shell.cleanupSchedule || {};
   const tokenConfigured = Boolean(shell.apiToken);
   const cleanupNext = schedule.nextRunAt ? new Date(schedule.nextRunAt).toLocaleString() : 'not scheduled';
+  const privateAccess = shell.privateAccess || {};
+  const privateSettings = privateAccess.settings || {};
+  const privateTargets = Array.isArray(privateAccess.targets) ? privateAccess.targets : [];
+  const tailnet = privateAccess.tailnet || {};
+  const setupCommands = Array.isArray(privateAccess.setupPlan?.commands) ? privateAccess.setupPlan.commands : [];
+  const selected = (actual, expected) => String(actual || '') === String(expected || '') ? 'selected' : '';
+  const checked = (value) => value ? 'checked' : '';
+  const commandRows = setupCommands.map((item) => `
+    <div class="access-command">
+      <div>
+        <strong>${safeText(item.label)}</strong>
+        <div class="tiny muted">${safeText(item.note || '')}</div>
+        <code>${safeText(item.copyText || 'No command needed')}</code>
+      </div>
+      <button class="secondary" data-action="copyPrivateAccessCommand" data-command="${safeAttr(item.copyText || '')}" type="button">Copy</button>
+    </div>
+  `).join('');
+  const targetRows = privateTargets.map((target) => {
+    const targetUrl = target.mode === 'tailnet-https-serve'
+      ? (target.httpsServeUrl || target.localUrl)
+      : target.mode === 'tailnet-http'
+        ? (target.tailnetHttpUrl || target.localUrl)
+        : target.localUrl;
+    return `
+      <div class="access-target">
+        <div>
+          <strong>${safeText(target.label)}</strong>
+          <div class="tiny muted">${safeText(target.mode)} · ${safeText(target.healthStatus || 'configured_unchecked')} · ${safeText(targetUrl)}</div>
+          ${target.lastHealthDetail ? `<div class="tiny muted">${safeText(target.lastHealthDetail)}</div>` : ''}
+        </div>
+        <div class="lane-row">
+          <a class="secondary" href="${safeAttr(targetUrl)}" target="_blank" rel="noopener noreferrer">Open</a>
+          <button class="secondary" data-action="checkPrivateAccessTarget" data-target-id="${safeAttr(target.id)}" type="button">Check</button>
+          <button class="secondary" data-action="deletePrivateAccessTarget" data-target-id="${safeAttr(target.id)}" type="button">Remove</button>
+        </div>
+      </div>
+    `;
+  }).join('');
   const mcpTools = shell.mcpTools || [];
   const mcpOptions = mcpTools.map((tool) => `
     <div class="lane-row" style="align-items:center; justify-content:space-between;">
@@ -554,6 +593,10 @@ function renderHome() {
         <span>New project</span>
       </a>
       ${projectRows || '<div class="muted">No projects yet.</div>'}
+      <a class="simple-row" href="#private-access">
+        <span class="row-icon">◌</span>
+        <span>Private access</span>
+      </a>
     </section>
     <div class="stat-grid compact-stats settings-stats is-hidden">
       <div class="stat">
@@ -652,6 +695,94 @@ function renderHome() {
           </div>
         </details>
       </article>
+      <article class="card control-card" id="section-private-access" data-panel-card="private-access">
+        <details class="disclosure" open>
+          <summary>
+            <span>Private access</span>
+            <small>${safeText(privateSettings.preferredMode || 'tailnet-http')} · ${safeText(tailnet.setupStatus || 'setup_pending')}</small>
+          </summary>
+          <div class="disclosure-body">
+            <div class="access-summary">
+              <div class="stat">
+                <b>${tailnet.binaryAvailable ? 'Yes' : 'No'}</b>
+                <span>Tailscale detected</span>
+              </div>
+              <div class="stat">
+                <b>${tailnet.loggedIn ? 'Yes' : 'No'}</b>
+                <span>Tailnet login</span>
+              </div>
+              <div class="stat">
+                <b>${safeText(tailnet.serveMode || 'Pending')}</b>
+                <span>Serve mode</span>
+              </div>
+            </div>
+            <p>HTTP over Tailscale is private and encrypted by Tailscale but may not enable browser secure-context APIs. HTTPS Serve enables PWA features but can expose .ts.net hostname metadata through certificate transparency. Funnel is forbidden.</p>
+            <form id="private-access-settings-form">
+              <label>Default access mode
+                <select name="preferredMode">
+                  <option value="tailnet-http" ${selected(privateSettings.preferredMode, 'tailnet-http')}>Tailscale HTTP</option>
+                  <option value="tailnet-https-serve" ${selected(privateSettings.preferredMode, 'tailnet-https-serve')}>Tailscale HTTPS Serve</option>
+                  <option value="local" ${selected(privateSettings.preferredMode, 'local')}>Local only</option>
+                </select>
+              </label>
+              <label>Open links
+                <select name="openTarget">
+                  <option value="external" ${selected(privateSettings.openTarget, 'external')}>External browser/tab</option>
+                  <option value="in_app" ${selected(privateSettings.openTarget, 'in_app')}>In-app preview</option>
+                </select>
+              </label>
+              <label>Notifications
+                <select name="notificationMode">
+                  <option value="in_app" ${selected(privateSettings.notificationMode, 'in_app')}>In-app only</option>
+                  <option value="browser" ${selected(privateSettings.notificationMode, 'browser')}>Browser where supported</option>
+                  <option value="off" ${selected(privateSettings.notificationMode, 'off')}>Off</option>
+                </select>
+              </label>
+              <label><input type="checkbox" name="pwaMode" ${checked(privateSettings.pwaMode !== 'disabled')}> Enable PWA static shell</label>
+              <button type="submit">Save private access settings</button>
+            </form>
+            <details class="disclosure compact-disclosure">
+              <summary>
+                <span>Dry-run setup commands</span>
+                <small>No command runs from here</small>
+              </summary>
+              <div class="disclosure-body">${commandRows || '<div class="muted">No setup commands available.</div>'}</div>
+            </details>
+            <details class="disclosure compact-disclosure" open>
+              <summary>
+                <span>Project URLs</span>
+                <small>${safeText(privateTargets.length)} target${privateTargets.length === 1 ? '' : 's'}</small>
+              </summary>
+              <div class="disclosure-body">
+                ${targetRows || '<div class="muted">No private access targets yet.</div>'}
+                <form id="private-access-target-form">
+                  <label>Label
+                    <input name="label" placeholder="Local dev server" required />
+                  </label>
+                  <label>Mode
+                    <select name="mode">
+                      <option value="local">Local</option>
+                      <option value="tailnet-http">Tailscale HTTP</option>
+                      <option value="tailnet-https-serve">Tailscale HTTPS Serve</option>
+                    </select>
+                  </label>
+                  <label>Local URL
+                    <input name="localUrl" placeholder="http://127.0.0.1:3000" required />
+                  </label>
+                  <label>Tailnet HTTP URL
+                    <input name="tailnetHttpUrl" placeholder="http://device.tailnet.ts.net:3000" />
+                  </label>
+                  <label>HTTPS Serve URL
+                    <input name="httpsServeUrl" placeholder="https://device.tailnet.ts.net" />
+                  </label>
+                  <label><input type="checkbox" name="favorite"> Favorite</label>
+                  <button type="submit">Add project URL</button>
+                </form>
+              </div>
+            </details>
+          </div>
+        </details>
+      </article>
       <div class="card control-card" data-panel-card="create">
         <details class="disclosure">
           <summary>
@@ -698,6 +829,99 @@ function renderHome() {
       </article>
     </section>
   `;
+}
+
+async function handlePrivateAccessSettings(event) {
+  event.preventDefault();
+  const form = event.target;
+  const formData = new FormData(form);
+  const response = await api('/api/private-access/settings', {
+    method: 'PATCH',
+    body: {
+      actor: 'dashboard',
+      preferredMode: formData.get('preferredMode'),
+      openTarget: formData.get('openTarget'),
+      notificationMode: formData.get('notificationMode'),
+      pwaMode: formData.has('pwaMode') ? 'enabled' : 'disabled',
+    },
+  });
+  if (response.ok) {
+    renderAlert('Private access settings saved.');
+    await refresh();
+  } else {
+    renderAlert(response.data?.error || 'Could not save private access settings.', 'bad');
+  }
+}
+
+async function handleCreatePrivateAccessTarget(event) {
+  event.preventDefault();
+  const form = event.target;
+  const formData = new FormData(form);
+  const response = await api('/api/private-access/targets', {
+    method: 'POST',
+    body: {
+      actor: 'dashboard',
+      label: formData.get('label'),
+      mode: formData.get('mode'),
+      localUrl: formData.get('localUrl'),
+      tailnetHttpUrl: formData.get('tailnetHttpUrl'),
+      httpsServeUrl: formData.get('httpsServeUrl'),
+      favorite: formData.has('favorite'),
+    },
+  });
+  if (response.ok) {
+    renderAlert('Private access target added.');
+    form.reset();
+    await refresh();
+  } else {
+    renderAlert(response.data?.error || 'Could not add private access target.', 'bad');
+  }
+}
+
+async function handlePrivateAccessAction(event) {
+  const action = event.currentTarget.dataset.action;
+  if (action === 'copyPrivateAccessCommand') {
+    const command = event.currentTarget.dataset.command || '';
+    if (!command) {
+      renderAlert('Nothing to copy.', 'bad');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(command);
+      renderAlert('Copied private access command.');
+    } catch {
+      renderAlert(command);
+    }
+    return;
+  }
+  const targetId = event.currentTarget.dataset.targetId;
+  if (!targetId) return;
+  if (action === 'checkPrivateAccessTarget') {
+    const response = await api(`/api/private-access/targets/${encodeURIComponent(targetId)}/check`, {
+      method: 'POST',
+      body: { actor: 'dashboard' },
+    });
+    if (response.ok) {
+      renderAlert(`Private access target is ${response.data?.result?.status || 'checked'}.`);
+      await refresh();
+    } else {
+      renderAlert(response.data?.error || 'Could not check private access target.', 'bad');
+    }
+    return;
+  }
+  if (action === 'deletePrivateAccessTarget') {
+    if (!window.confirm('Remove this private access target?')) return;
+    const response = await api(`/api/private-access/targets/${encodeURIComponent(targetId)}`, {
+      method: 'DELETE',
+      body: { actor: 'dashboard' },
+    });
+    if (response.ok) {
+      renderAlert('Private access target removed.');
+      await refresh();
+    } else {
+      renderAlert(response.data?.error || 'Could not remove private access target.', 'bad');
+    }
+  }
 }
 
 function renderProject(project) {
@@ -1320,6 +1544,10 @@ async function refresh() {
   const blockersResp = await api('/api/system/blockers');
   if (blockersResp.ok && Array.isArray(blockersResp.data?.blockers)) {
     shell.systemBlockers = blockersResp.data.blockers;
+  }
+  const privateAccessResp = await api('/api/private-access');
+  if (privateAccessResp.ok && privateAccessResp.data) {
+    shell.privateAccess = privateAccessResp.data;
   }
   const profilesResp = await api('/api/executors/profiles');
   if (profilesResp.ok && profilesResp.data?.profiles) {
@@ -2274,6 +2502,14 @@ document.addEventListener('submit', async (event) => {
     await handleCleanupSchedule(event);
     return;
   }
+  if (event.target.id === 'private-access-settings-form') {
+    await handlePrivateAccessSettings(event);
+    return;
+  }
+  if (event.target.id === 'private-access-target-form') {
+    await handleCreatePrivateAccessTarget(event);
+    return;
+  }
 });
 
 document.addEventListener('change', (event) => {
@@ -2333,6 +2569,15 @@ document.addEventListener('click', async (event) => {
     'reinstallExecutorCli',
   ].includes(action)) {
     await handleSystemActions({ currentTarget: actionTarget });
+    return;
+  }
+
+  if ([
+    'checkPrivateAccessTarget',
+    'copyPrivateAccessCommand',
+    'deletePrivateAccessTarget',
+  ].includes(action)) {
+    await handlePrivateAccessAction({ currentTarget: actionTarget });
     return;
   }
 

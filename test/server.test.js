@@ -1457,3 +1457,51 @@ test('lane heartbeat endpoint can be gated by COMMAND_DECK_WORKER_TOKEN', async 
     await server.stop();
   }
 });
+
+test('private access API exposes mocked tailnet state, dry-run setup plans, and rejects Funnel targets', async () => {
+  const token = 'route-token-private-access';
+  const server = await startServer({ token });
+
+  try {
+    const state = await server.requestJson('/api/private-access?fakeTailnetState=serve-https', { method: 'GET' });
+    assert.equal(state.status, 200);
+    assert.equal(state.body?.tailnet?.provider, 'fake');
+    assert.equal(state.body?.tailnet?.serveMode, 'tailnet-https-serve');
+    assert.equal(state.body?.pwa?.staticOnlyCache, true);
+
+    const plan = await server.requestJson('/api/private-access/setup-plan?localUrl=http%3A%2F%2F127.0.0.1%3A3000', { method: 'GET' });
+    assert.equal(plan.status, 200);
+    assert.equal(Array.isArray(plan.body?.commands), true);
+    assert.equal(plan.body.commands.some((command) => String(command.copyText || '').includes('tailscale serve')), true);
+    assert.equal(plan.body.commands.some((command) => String(command.copyText || '').toLowerCase().includes('funnel')), false);
+
+    const target = await server.requestJson('/api/private-access/targets', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        label: 'Local target',
+        mode: 'local',
+        localUrl: 'http://127.0.0.1:3000',
+      },
+    });
+    assert.equal(target.status, 201);
+    assert.equal(target.body?.mode, 'local');
+
+    const badFunnel = await server.requestJson('/api/private-access/targets', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        label: 'Bad Funnel',
+        mode: 'tailnet-https-serve',
+        localUrl: 'http://127.0.0.1:3000',
+        httpsServeUrl: 'https://command-deck.funnel.ts.net',
+      },
+    });
+    assert.equal(badFunnel.status, 422);
+    assert.equal(String(badFunnel.body?.error || '').includes('Funnel'), true);
+  } finally {
+    await server.stop();
+  }
+});

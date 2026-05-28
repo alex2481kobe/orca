@@ -1,0 +1,19 @@
+{
+  "name": "Command Deck",
+  "short_name": "Command Deck",
+  "description": "Local-first multi-agent command center for projects, sessions, evidence, and private access.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#10110f",
+  "theme_color": "#10110f",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

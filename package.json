@@ -13,7 +13,10 @@
     "start": "node src/server.js",
     "test": "node --test ./test/**/*.test.js",
     "smoke": "node scripts/smoke.mjs",
-    "smoke:ui": "node scripts/ui-smoke.mjs"
+    "smoke:api": "node scripts/smoke.mjs",
+    "smoke:security": "node scripts/smoke.mjs",
+    "smoke:ui": "node scripts/ui-smoke.mjs",
+    "smoke:private-access": "node scripts/private-access-smoke.mjs"
   },
   "devDependencies": {
     "playwright": "^1.60.0"
