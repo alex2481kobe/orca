@@ -229,6 +229,48 @@ test('MCP tools are scoped by executor type', async () => {
   }
 });
 
+test('MCP tools can be queried by scope', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+
+  try {
+    await registry.createMcpTool({
+      name: 'all-tool',
+      command: 'node',
+      args: ['--version'],
+      scope: ['all'],
+      enabled: true,
+    }, { actor: 'test', approved: true });
+
+    await registry.createMcpTool({
+      name: 'codex-tool',
+      command: 'node',
+      args: ['--version'],
+      scope: ['codex'],
+      enabled: true,
+    }, { actor: 'test', approved: true });
+
+    await registry.createMcpTool({
+      name: 'claude-tool',
+      command: 'node',
+      args: ['--version'],
+      scope: ['claude'],
+      enabled: true,
+    }, { actor: 'test', approved: true });
+
+    const allTools = registry.getMcpTools();
+    const codexTools = registry.getMcpTools('codex');
+    const claudeTools = registry.getMcpTools('claude');
+
+    assert.equal(allTools.length, 3);
+    assert.equal(codexTools.length, 2);
+    assert.equal(claudeTools.length, 2);
+    assert.ok(codexTools.every((tool) => tool.scope.includes('all') || tool.scope.includes('codex')));
+    assert.ok(claudeTools.every((tool) => tool.scope.includes('all') || tool.scope.includes('claude')));
+  } finally {
+    await cleanup();
+  }
+});
+
 test('MCP tools can be updated when approved and require approval otherwise', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
 
@@ -255,12 +297,82 @@ test('MCP tools can be updated when approved and require approval otherwise', as
     assert.equal(updated.notes, 'updated via test');
     assert.equal(updated.enabled, false);
 
-    await assert.rejects(
-      () => registry.updateMcpTool('editable-tool', {
-        command: 'npm',
-      }, { actor: 'test', approved: false }),
-      (error) => error.status === 409,
-    );
+    assert.throws(() => registry.updateMcpTool('editable-tool', {
+      command: 'npm',
+    }, { actor: 'test', approved: false }), (error) => error.status === 409);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('MCP tool validation rejects invalid names and command payloads', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+
+  try {
+    assert.throws(() => registry.createMcpTool({
+        name: 'invalid name',
+        command: 'node',
+        scope: ['all'],
+        enabled: true,
+      }, {
+        actor: 'test',
+        approved: true,
+      }), (error) => error.status === 422);
+
+    await registry.createMcpTool({
+      name: 'valid-tool',
+      command: 'node',
+      args: ['--version'],
+      scope: ['all'],
+      enabled: true,
+    }, {
+      actor: 'test',
+      approved: true,
+    });
+
+    assert.throws(() => registry.updateMcpTool('valid-tool', {
+        command: 'node || echo boom',
+      }, {
+        actor: 'test',
+        approved: true,
+      }), (error) => error.status === 422);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('Codex and Claude lanes accept executor overrides and command payloads', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+
+  try {
+    const project = registry.createProject({ name: 'Executor Project' });
+    const session = registry.createSession(project.id, {
+      name: 'Executor Session',
+      leader: 'codex',
+    });
+
+    const codexLane = registry.createLane(session.id, {
+      title: 'Codex Lane',
+      executorType: 'codex',
+      command: 'codex --version',
+      executorBinary: '/usr/bin/codex',
+      workdir: process.cwd(),
+      mcpToolIds: [],
+    }, { approved: true, actor: 'test' });
+
+    const claudeLane = registry.createLane(session.id, {
+      title: 'Claude Lane',
+      executorType: 'claude',
+      command: 'claude --version',
+      executorBinary: '/usr/bin/claude',
+      workdir: process.cwd(),
+      mcpToolIds: [],
+    }, { approved: true, actor: 'test' });
+
+    assert.equal(codexLane.executorType, 'codex');
+    assert.equal(claudeLane.executorType, 'claude');
+    assert.equal(codexLane.command, 'codex --version');
+    assert.equal(claudeLane.command, 'claude --version');
   } finally {
     await cleanup();
   }
@@ -342,7 +454,7 @@ test('executor CLI reinstall command validation is executor-specific and safe', 
       });
       assert.equal(planned.executed, false);
       assert.equal(planned.command[0], 'npm');
-      assert.equal(planned.command.includes('codex'), true);
+    assert.equal(planned.command.includes('codex-cli'), true);
 
       process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND = 'npm install lodash';
       const blocked = await withIsolatedRegistry();
@@ -398,7 +510,7 @@ test('executor CLI reinstall supports safe override command profiles and manager
         execute: false,
       });
       assert.equal(defaultPlan.command[0], 'npm');
-      assert.equal(defaultPlan.command.includes('codex'), true);
+    assert.equal(defaultPlan.command.includes('codex-cli'), true);
 
       const overridePlan = await registry.runExecutorCliReinstall('codex', {
         actor: 'test',

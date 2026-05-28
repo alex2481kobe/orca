@@ -710,8 +710,17 @@ export class CommandDeckRegistry {
     return clonePayload(this.cleanupSchedule);
   }
 
-  getMcpTools() {
-    return clonePayload(this.mcpTools);
+  getMcpTools(scope = null) {
+    const normalizedScope = String(scope || '').trim().toLowerCase();
+    if (!normalizedScope) {
+      return clonePayload(this.mcpTools);
+    }
+
+    const matching = this.mcpTools.filter((tool) => {
+      const toolScopes = Array.isArray(tool.scope) ? tool.scope : [];
+      return toolScopes.includes('all') || toolScopes.includes(normalizedScope);
+    });
+    return clonePayload(matching);
   }
 
   getMcpTool(locator) {
@@ -1811,7 +1820,7 @@ export class CommandDeckRegistry {
 
     const evidence = {
       executorType: type,
-      command,
+      command: commandToRun,
       status: result.status,
       stdout: (result.stdout || '').slice(0, 8000),
       stderr: (result.stderr || '').slice(0, 8000),
@@ -1839,7 +1848,7 @@ export class CommandDeckRegistry {
     return {
       executorType: type,
       executed: true,
-      command,
+      command: commandToRun,
       status: result.status,
       signal: result.signal || null,
       errorCode: result.error?.code || null,

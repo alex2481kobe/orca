@@ -352,7 +352,8 @@ async function handleApi(req, res, pathname, method, parts) {
   }
 
   if (parts[1] === 'mcp' && parts[2] === 'tools' && parts.length === 3 && method === 'GET') {
-    return sendJson(res, 200, registry.getMcpTools());
+    const scope = new URL(req.url, 'http://localhost').searchParams.get('scope');
+    return sendJson(res, 200, registry.getMcpTools(scope));
   }
 
   if (parts[1] === 'mcp' && parts[2] === 'tools' && method === 'POST') {
