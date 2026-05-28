@@ -467,10 +467,10 @@ class PendingExecutorAdapter {
   }
 
   async start(lane) {
-    await this.onLog(lane, `${this.label} executor is not implemented in checkpoint 3 yet.`);
+    await this.onLog(lane, `${this.label} executor is not supported by this build.`);
     return {
       accepted: false,
-      reason: `${this.label} executor requires implementation in a future checkpoint.`,
+      reason: `${this.label} executor is not supported.`,
     };
   }
 
@@ -478,7 +478,7 @@ class PendingExecutorAdapter {
     this.runtimes.delete(String(laneId));
     return {
       stopped: false,
-      reason: `Executor ${this.label} does not support active runtime stop in this checkpoint.`,
+      reason: `Executor ${this.label} is not supported.`,
     };
   }
 

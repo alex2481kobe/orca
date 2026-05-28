@@ -627,6 +627,19 @@ test('Creating lanes rejects unsupported executor types', async () => {
   }
 });
 
+test('Unknown executor adapters report unsupported errors', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+
+  try {
+    const adapter = registry.getExecutorForType('orchestrator');
+    const result = await adapter.start({ id: 'lane-unknown', projectId: 'p', sessionId: 's' });
+    assert.equal(result.accepted, false);
+    assert.equal(result.reason, 'orchestrator executor is not supported.');
+  } finally {
+    await cleanup();
+  }
+});
+
 test('executor CLI info and managed reinstall require approval', async () => {
   const restore = restoreEnv({
     COMMAND_DECK_CODEX_BINARY: process.env.COMMAND_DECK_CODEX_BINARY,
