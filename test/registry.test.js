@@ -168,6 +168,43 @@ test('MCP tools are scoped by executor type', async () => {
   }
 });
 
+test('MCP tools can be updated when approved and require approval otherwise', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+
+  try {
+    await registry.createMcpTool({
+      name: 'editable-tool',
+      command: 'node',
+      args: ['--version'],
+      scope: ['all'],
+      enabled: true,
+    }, { actor: 'test', approved: true });
+
+    const updated = await registry.updateMcpTool('editable-tool', {
+      command: 'npx',
+      args: ['foo'],
+      scope: ['codex'],
+      notes: 'updated via test',
+      enabled: false,
+    }, { actor: 'test', approved: true });
+
+    assert.equal(updated.command, 'npx');
+    assert.deepEqual(updated.args, ['foo']);
+    assert.deepEqual(updated.scope, ['codex']);
+    assert.equal(updated.notes, 'updated via test');
+    assert.equal(updated.enabled, false);
+
+    await assert.rejects(
+      () => registry.updateMcpTool('editable-tool', {
+        command: 'npm',
+      }, { actor: 'test', approved: false }),
+      (error) => error.status === 409,
+    );
+  } finally {
+    await cleanup();
+  }
+});
+
 test('executor CLI info and managed reinstall require approval', async () => {
   const restore = restoreEnv({
     COMMAND_DECK_CODEX_BINARY: process.env.COMMAND_DECK_CODEX_BINARY,

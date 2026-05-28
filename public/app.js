@@ -144,8 +144,14 @@ function renderHome() {
   const mcpTools = shell.mcpTools || [];
   const mcpOptions = mcpTools.map((tool) => `
     <div class="lane-row" style="align-items:center; justify-content:space-between;">
-      <span>${safeText(tool.name)} (${safeText(tool.command)})</span>
-      <button class="secondary" data-action="deleteMcpTool" data-tool-id="${safeText(tool.id || tool.name)}" type="button">Delete</button>
+      <div>
+        <span>${safeText(tool.name)} (${safeText(tool.command)})</span>
+        <div class="tiny muted">scope: ${safeText((tool.scope || []).join(', ') || 'all')} · args: ${safeText((tool.args || []).join(' ')) || 'none'} · enabled: ${tool.enabled ? 'yes' : 'no'}</div>
+      </div>
+      <div class="lane-row">
+        <button data-action="editMcpTool" data-tool-id="${safeText(tool.id || tool.name)}" type="button">Edit</button>
+        <button class="secondary" data-action="deleteMcpTool" data-tool-id="${safeText(tool.id || tool.name)}" type="button">Delete</button>
+      </div>
     </div>
   `).join('');
   const profiles = shell.executorProfiles || {};
@@ -691,6 +697,14 @@ function buildMcpToolBody(formData) {
   return payload;
 }
 
+function buildApprovedActionBody(action) {
+  const policy = shell.policy?.manageMcpTools || {};
+  return {
+    actor: 'dashboard',
+    approved: !policy.requiresApproval || window.confirm('This is a higher-risk action. Continue?'),
+  };
+}
+
 function toObj(form) {
   const data = new FormData(form);
   const output = {};
@@ -1051,12 +1065,14 @@ async function handleSystemActions(event) {
       renderAlert('Delete canceled.');
       return;
     }
+    const approval = buildApprovedActionBody('delete');
+    if (!approval.approved) {
+      renderAlert('Deletion canceled.');
+      return;
+    }
     const response = await api(`/api/mcp/tools/${toolId}`, {
       method: 'DELETE',
-      body: {
-        actor: 'dashboard',
-        approved: true,
-      },
+      body: approval,
     });
     if (response.ok) {
       renderAlert(`MCP tool ${toolId} deleted.`);
@@ -1065,6 +1081,55 @@ async function handleSystemActions(event) {
       renderAlert('Approval required to delete MCP tool.', 'bad');
     } else {
       renderAlert(response.data?.error || 'Could not delete MCP tool.', 'bad');
+    }
+  }
+
+  if (action === 'editMcpTool') {
+    const toolId = event.currentTarget.dataset.toolId;
+    if (!toolId) return;
+    const tool = shell.mcpTools.find((item) => item.id === toolId || item.name === toolId);
+    if (!tool) {
+      renderAlert('MCP tool lookup failed. Please refresh.', 'bad');
+      return;
+    }
+
+    const command = window.prompt('Update MCP command', tool.command || '');
+    if (command === null) return;
+    const args = window.prompt('Update MCP args (comma separated)', (tool.args || []).join(', '));
+    if (args === null) return;
+    const scope = window.prompt('Update scope (comma separated)', (tool.scope || ['all']).join(', '));
+    if (scope === null) return;
+    const notes = window.prompt('Update notes', tool.notes || '');
+    if (notes === null) return;
+    const enabled = window.prompt('Enable this MCP tool? (yes/no)', tool.enabled ? 'yes' : 'no');
+    if (enabled === null) return;
+    const normalizedEnabled = ['yes', 'y', 'true', '1', 'on'].includes(enabled.trim().toLowerCase());
+    const approval = buildApprovedActionBody('update');
+    if (!approval.approved) {
+      renderAlert('MCP tool edit canceled.');
+      return;
+    }
+
+    const response = await api(`/api/mcp/tools/${toolId}`, {
+      method: 'PATCH',
+      body: {
+        actor: approval.actor,
+        approved: approval.approved,
+        command,
+        args: args.split(',').map((value) => value.trim()).filter(Boolean),
+        scope: scope.split(',').map((value) => value.trim().toLowerCase()).filter(Boolean),
+        notes,
+        enabled: normalizedEnabled,
+      },
+    });
+
+    if (response.ok) {
+      renderAlert(`MCP tool ${toolId} updated.`);
+      await refresh();
+    } else if (response.data?.requiresApproval) {
+      renderAlert('Approval required to update MCP tool.', 'bad');
+    } else {
+      renderAlert(response.data?.error || 'Could not update MCP tool.', 'bad');
     }
   }
 
@@ -1159,7 +1224,16 @@ document.addEventListener('click', async (event) => {
     return;
   }
 
-  if (['setApiToken', 'clearApiToken', 'cleanupArtifacts', 'cleanupArtifactsRunNow', 'deleteMcpTool', 'refreshExecutorCli', 'reinstallExecutorCli'].includes(action)) {
+  if ([
+    'setApiToken',
+    'clearApiToken',
+    'cleanupArtifacts',
+    'cleanupArtifactsRunNow',
+    'deleteMcpTool',
+    'editMcpTool',
+    'refreshExecutorCli',
+    'reinstallExecutorCli',
+  ].includes(action)) {
     await handleSystemActions({ currentTarget: event.target });
     return;
   }
