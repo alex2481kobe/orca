@@ -402,6 +402,118 @@ test('executor CLI APIs reject unsupported executor types', async () => {
   }
 });
 
+test('API lane creation validates MCP tool IDs and executor constraints', async () => {
+  const token = 'route-token-03g';
+  const server = await startServer({ token });
+
+  try {
+    const project = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        name: 'Lane MCP project',
+      },
+    });
+    assert.equal(project.status, 201);
+
+    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        name: 'Lane MCP session',
+      },
+    });
+    assert.equal(session.status, 201);
+
+    const codexTool = await server.requestJson('/api/mcp/tools', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        name: 'route-codex-tool',
+        command: 'node',
+        scope: ['codex'],
+        approved: true,
+      },
+    });
+    assert.equal(codexTool.status, 201);
+
+    const claudeTool = await server.requestJson('/api/mcp/tools', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        name: 'route-claude-tool',
+        command: 'node',
+        scope: ['claude'],
+        approved: true,
+      },
+    });
+    assert.equal(claudeTool.status, 201);
+
+    const badScopeLane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        title: 'Bad scope lane',
+        executorType: 'codex',
+        command: 'codex --version',
+        mcpToolIds: [codexTool.body.id, claudeTool.body.id],
+        owner: 'dashboard',
+        approved: true,
+      },
+    });
+    assert.equal(badScopeLane.status, 422);
+    assert.equal(String(badScopeLane.body?.error || '').includes('Unauthorized MCP tools'), true);
+
+    const badMissingLane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        title: 'Missing tool lane',
+        executorType: 'codex',
+        command: 'codex --version',
+        mcpToolIds: ['missing-tool'],
+        owner: 'dashboard',
+        approved: true,
+      },
+    });
+    assert.equal(badMissingLane.status, 422);
+    assert.equal(String(badMissingLane.body?.error || '').includes('Unknown MCP tools'), true);
+
+    const badCommand = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        title: 'Bad command lane',
+        executorType: 'codex',
+        command: 'echo hello',
+        mcpToolIds: [codexTool.body.id],
+        owner: 'dashboard',
+        approved: true,
+      },
+    });
+    assert.equal(badCommand.status, 422);
+    assert.equal(String(badCommand.body?.error || '').includes('must target the codex binary'), true);
+
+    const validLane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        title: 'Good codex lane',
+        executorType: 'codex',
+        command: 'codex --version',
+        mcpToolIds: [codexTool.body.id],
+        owner: 'dashboard',
+        approved: true,
+      },
+    });
+    assert.equal(validLane.status, 201);
+    assert.equal(validLane.body.executorType, 'codex');
+    assert.equal(validLane.body.mcpTools[0]?.id, codexTool.body.id);
+  } finally {
+    await server.stop();
+  }
+});
+
 test('executor CLI reinstall supports claude with source-mode and command validation', async () => {
   const token = 'route-token-03e';
   const server = await startServer({
