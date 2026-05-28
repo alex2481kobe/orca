@@ -443,6 +443,44 @@ test('MCP tool validation rejects invalid names and command payloads', async () 
   }
 });
 
+test('MCP tool arguments are validated for command safety and length', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  const longArg = 'x'.repeat(300);
+
+  try {
+    assert.throws(() => registry.createMcpTool({
+      name: 'bad-arg-tool',
+      command: 'node',
+      args: ['--version', 'foo|bar'],
+      scope: ['all'],
+      enabled: true,
+    }, {
+      actor: 'test',
+      approved: true,
+    }), (error) => error.status === 422);
+
+    await registry.createMcpTool({
+      name: 'valid-arg-tool',
+      command: 'node',
+      args: ['--version'],
+      scope: ['all'],
+      enabled: true,
+    }, {
+      actor: 'test',
+      approved: true,
+    });
+
+    assert.throws(() => registry.updateMcpTool('valid-arg-tool', {
+      args: [longArg],
+    }, {
+      actor: 'test',
+      approved: true,
+    }), (error) => error.status === 422);
+  } finally {
+    await cleanup();
+  }
+});
+
 test('MCP tool validation enforces scope allowlist and single-token command', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
 

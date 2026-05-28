@@ -48,6 +48,8 @@ const DEFAULT_REINSTALL_COMMANDS = {
   claude: ['npm', 'install', '--yes', '-g', '@anthropic/claude-code'],
 };
 const MCP_TOOL_SCOPE_ALLOWLIST = new Set(['all', 'codex', 'claude', 'mock']);
+const MAX_MCP_TOOL_ARG_LENGTH = 255;
+const MAX_MCP_TOOL_ARGS = 64;
 
 function getMcpCommandAllowlist() {
   const override = process.env.COMMAND_DECK_MCP_TOOL_COMMAND_ALLOWLIST;
@@ -357,9 +359,27 @@ function normalizeMcpScope(raw) {
 function normalizeCommandArray(raw) {
   if (!Array.isArray(raw)) return [];
   return raw
-    .map((item) => String(item || '').trim())
+    .map((item, index) => sanitizeMcpArgument(item, index))
     .filter(Boolean)
-    .slice(0, 64);
+    .slice(0, MAX_MCP_TOOL_ARGS);
+}
+
+function sanitizeMcpArgument(raw, index) {
+  const text = String(raw || '').trim();
+  if (!text) return '';
+  if (text.length > MAX_MCP_TOOL_ARG_LENGTH) {
+    throw {
+      status: 422,
+      message: `MCP tool argument #${index + 1} is too long.`,
+    };
+  }
+  if (/[|&;<>$`\r\n\t]/.test(text)) {
+    throw {
+      status: 422,
+      message: `MCP tool argument #${index + 1} contains blocked characters.`,
+    };
+  }
+  return text;
 }
 
 function sanitizeMcpCommand(raw) {
