@@ -1,113 +1,100 @@
 # Route-by-route audit
 
-This is the operator-visible inventory of every Command Deck route, the
-guardrails on it, and where the test coverage lives. `GET` routes are
-read-only and listed for completeness; every non-GET route is gated by the
-API token (when `COMMAND_DECK_API_TOKEN` is set) and by the actor-spoofing
-check that refuses `actor` values in {`scheduler`, `system`, `cron`,
-`worker`}.
+The canonical route inventory is now code-backed:
 
-All non-GET handlers reject oversize bodies with `413` and malformed JSON
-with `400` (`COMMAND_DECK_MAX_JSON_BYTES`, default 256KB).
+- Source: `src/route-inventory.js`
+- Read-only API: `GET /api/route-inventory`
+- Smoke gate: `npm run smoke:route-inventory`
 
-## Health, policy, profiles, blockers
+The inventory is public-safe and intentionally does not include local paths,
+usernames, token values, secret values, internal prompts, or private planning
+notes.
 
-| Method | Route | Auth | Approval | Validation | Audit | Tests |
-| --- | --- | --- | --- | --- | --- | --- |
-| GET | `/api/health` | none | n/a | n/a | n/a | server `requires token for mutating`, `smoke` |
-| GET | `/api/policy` | none | n/a | n/a | n/a | smoke |
-| GET | `/api/executors/profiles` | none | n/a | n/a | n/a | smoke |
-| GET | `/api/system/blockers` | none | n/a | n/a | n/a | describeSystemBlockers test + smoke |
+Every route entry must declare:
 
-## Executor CLI
+- `method`
+- `route`
+- `group`
+- `owner`
+- `auth`
+- `mutationRisk`
+- `approval`
+- `validation`
+- `auditEvent`
+- `bodyLimit`
+- `rateLimit`
+- `uiSurface`
+- `smokeCoverage`
+- `mobileBehavior`
+- `serverHints`
 
-| Method | Route | Auth | Approval | Validation | Audit | Tests |
-| --- | --- | --- | --- | --- | --- | --- |
-| GET | `/api/executors/{codex,claude}/cli` | none | n/a | type allowlist | n/a | CLI info tests |
-| POST | `/api/executors/{codex,claude}/cli/reinstall` | token | `manageExecutorCli` | command/source allowlist, install-verb check, `confirmed:true` for execute | audit on plan + execute | reinstall approval + confirmation + URL/package + source tests |
+## Enforcement rules
 
-## Artifact cleanup
+- Every mutating route must declare non-`none` auth.
+- Every mutating route must declare request body limits and validation.
+- High-risk, critical, and high-frequency routes must declare approval or an
+  equivalent policy gate.
+- High-risk and critical routes must declare an audit event. The heartbeat
+  route is the only high-frequency exception and must declare that exception
+  explicitly.
+- Every route must reference at least one test or smoke gate.
+- Every route must include server/source hints that `smoke:route-inventory`
+  can verify against the current source tree.
+- The inventory must not leak local machine paths, API tokens, worker tokens,
+  provider secrets, or credential values.
 
-| Method | Route | Auth | Approval | Validation | Audit | Tests |
-| --- | --- | --- | --- | --- | --- | --- |
-| POST | `/api/artifacts/cleanup` | token | `cleanupArtifacts` | sessionId presence, retention, `confirmed` for destructive | cleanup audit with candidates/removed/bytes/errors/dryRun | cleanup approval + confirmation + retention tests |
-| GET | `/api/artifacts/cleanup/schedule` | none | n/a | n/a | n/a | schedule retention test |
-| POST | `/api/artifacts/cleanup/schedule` | token | `manageCleanupSchedule` | `intervalHours <= 720`, `olderThanDays` positive int or null, sessionId 404 | schedule audit | schedule validation test |
-| POST | `/api/artifacts/cleanup/run-now` | token | `cleanupArtifacts` | overrides validated; dry-run default | cleanup audit | run-now approval + dry-run test |
+## Current route groups
 
-## Audit events
+Run:
 
-| Method | Route | Auth | Approval | Validation | Audit | Tests |
-| --- | --- | --- | --- | --- | --- | --- |
-| GET | `/api/audit/events?status=...` | none | n/a | query decoding | n/a | malformed query test |
-| POST | `/api/audit/events/{id}/ack` | token | n/a | event exists + pending | ack audit | audit ack test |
+```sh
+npm run smoke:route-inventory
+```
 
-## MCP tools
+The smoke prints the current group counts. As of this audit, the inventory
+covers these route groups:
 
-| Method | Route | Auth | Approval | Validation | Audit | Tests |
-| --- | --- | --- | --- | --- | --- | --- |
-| GET | `/api/mcp/tools` | none | n/a | scope query decoded, strict filter | n/a | scope filter test |
-| POST | `/api/mcp/tools` | token | `manageMcpTools` | name, command, allowlist, args, env, workdir, description, owner, notes, scope | created audit | CRUD + validation + allowlist + scope tests |
-| GET | `/api/mcp/tools/{id}` | none | n/a | id exists | n/a | CRUD test |
-| PATCH | `/api/mcp/tools/{id}` | token | `manageMcpTools` | same as POST | updated audit | update approval test |
-| DELETE | `/api/mcp/tools/{id}` | token | `manageMcpTools` | id exists | delete audit + lane detach | delete-detach test |
+- `agent-tools`
+- `audit`
+- `auth`
+- `capacity`
+- `cleanup`
+- `critique`
+- `evidence`
+- `executors`
+- `lanes`
+- `mcp`
+- `mobile`
+- `private-access`
+- `projects`
+- `providers`
+- `pwa`
+- `sessions`
+- `static-app`
+- `static-artifacts`
+- `system`
 
-## Projects and sessions
+## Global route behavior
 
-| Method | Route | Auth | Approval | Validation | Audit | Tests |
-| --- | --- | --- | --- | --- | --- | --- |
-| GET | `/api/projects` | none | n/a | n/a | n/a | smoke |
-| POST | `/api/projects` | token | `createProject` | name, slug uniqueness | project_created audit | project approval test |
-| GET | `/api/projects/{id}` | none | n/a | id exists | n/a | smoke |
-| PATCH | `/api/projects/{id}` | token | `updateProject` | quickLinks array | project_updated audit | quick-link test |
-| GET | `/api/projects/{id}/sessions` | none | n/a | id exists | n/a | smoke |
-| POST | `/api/projects/{id}/sessions` | token | `createSession` | name | session_created audit | session approval test |
-| GET | `/api/sessions/{id}` | none | n/a | id exists | n/a | smoke |
-| GET | `/api/sessions/{id}/lanes` | none | n/a | id exists | n/a | smoke |
-| POST | `/api/sessions/{id}/lanes` | token | `createLane` | title, executorType, workdir boundary, MCP scope, executor binary/command targeting | lane_created (+lane_shared_worktree if shared) | createLane validation tests, MCP scope tests |
-| POST | `/api/sessions/{id}/audit-done-lanes` | token | `auditDoneLanes` | session exists | done-lanes audit | audit filtering test |
-| GET | `/api/sessions/{id}/audit-events?status=...` | none | n/a | id exists, query decoded | n/a | audit filtering test |
+- `COMMAND_DECK_MAX_JSON_BYTES` controls JSON body size. Oversize requests
+  return `413`; malformed JSON returns `400`.
+- Non-GET dashboard/API mutations are protected by the API token or a paired
+  browser session when `COMMAND_DECK_API_TOKEN` is configured.
+- Browser-session mutations require same-origin protection.
+- Dashboard requests may not spoof reserved actors: `scheduler`, `system`,
+  `cron`, or `worker`.
+- Secrets must never be returned from provider, export, route-inventory,
+  mobile-manifest, audit, log, artifact, or smoke endpoints.
+- Static PWA caching is limited to static assets. API, artifact, evidence, log,
+  and token-bearing URLs must not be cached.
 
-## Lanes
+## Adding or changing routes
 
-| Method | Route | Auth | Approval | Validation | Audit | Tests |
-| --- | --- | --- | --- | --- | --- | --- |
-| GET | `/api/lanes/{id}` | none | n/a | id exists | n/a | smoke |
-| POST | `/api/lanes/{id}/stop` | token | `stopLane` | id exists, lane in active state | lane_stopped audit | stop approval test |
-| POST | `/api/lanes/{id}/retry` | token | `retryLane` | id exists, retryable state | lane_retried audit | included in registry tests |
-| POST | `/api/lanes/{id}/audit` | token | `auditLane` | id exists | lane_audit_queued | audit listing tests |
-| GET | `/api/lanes/{id}/audit-events?status=...` | none | n/a | id exists, query decoded | n/a | audit listing test |
-| POST | `/api/lanes/{id}/heartbeat` | token + optional `COMMAND_DECK_WORKER_TOKEN` | n/a | actor forced to body actor or `worker` | none (heartbeat is high-frequency) | heartbeat governance test |
-| GET | `/api/lanes/{id}/artifacts` | none | n/a | id exists | n/a | smoke |
-| GET | `/api/lanes/{id}/evidence` | none | n/a | id exists | n/a | smoke |
-| POST | `/api/lanes/{id}/evidence` | token | `captureEvidence` | url, modes whitelist | lane_evidence_captured / failed audit | evidence smoke |
-| GET | `/api/lanes/{id}/evidence/latest?mode=...` | none | n/a | id exists, mode whitelist | n/a | smoke |
-| GET | `/api/lanes/{id}/evidence/presets` | none | n/a | id exists | n/a | covered by smoke |
-| POST | `/api/lanes/{id}/evidence/clear` | token | `clearEvidenceArtifacts` | id exists | lane_evidence_cleared audit | covered by registry tests |
-| POST | `/api/lanes/{id}/worktree/remove` | token | `cleanupArtifacts` | lane terminal + managed worktree | lane_worktree_removed audit | worktree test + smoke shape check |
+When adding or changing a route:
 
-## Mobile manifest and static
-
-| Method | Route | Auth | Approval | Validation | Audit | Tests |
-| --- | --- | --- | --- | --- | --- | --- |
-| GET | `/api/mobile/manifest` | none | n/a | n/a | n/a | mobile manifest contract test |
-| GET | `/artifacts/{session}/{lane}/{file}` | none | n/a | path containment + symlink refused + encoding rejected | n/a | artifact path containment test |
-| GET | `/` and unknown paths | none | n/a | static dir resolved from server.js | n/a | smoke fetches HTML/JS |
-
-## Reserved-actor handling
-
-All non-GET routes reject body `actor` values in `{scheduler, system, cron,
-worker}` with `403`. Tests:
-`server rejects dashboard requests that try to spoof the scheduler actor`.
-
-## Body limit handling
-
-`COMMAND_DECK_MAX_JSON_BYTES` defaults to 262144. Oversize requests return
-`413`; malformed JSON returns `400`. Tested via:
-`server rejects oversized JSON bodies with 413 and small limit override`.
-
-## Shared-worktree governance
-
-Lanes created with `sharedWorktree: true` get a `lane_shared_worktree` audit
-event and a `warnings` entry; the dashboard surfaces the warning at the top
-of lane detail. Operators must explicitly opt into shared-worktree edits.
+- Update `src/route-inventory.js` in the same commit.
+- Add or update tests/smokes referenced by `smokeCoverage`.
+- Add server/source hints that fail if the route disappears or moves without
+  updating the inventory.
+- Run `npm run smoke:route-inventory`.
+- Run the specific test/smoke covering the route behavior.

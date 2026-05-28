@@ -12,6 +12,7 @@ import {
   buildAgentToolDiscovery,
   buildNextActionEnvelope,
 } from './agent-tools.js';
+import { buildRouteInventory } from './route-inventory.js';
 import { fileURLToPath } from 'node:url';
 
 const PORT = Number(process.env.PORT || 3000);
@@ -310,6 +311,7 @@ function buildMobileManifest(req) {
     agentToolsDiscoveryUrl: `${origin}/api/agent-tools/discovery`,
     agentToolsNextActionUrl: `${origin}/api/agent-tools/next-action`,
     agentToolsLeaseUrl: `${origin}/api/agent-tools/leases`,
+    routeInventoryUrl: `${origin}/api/route-inventory`,
     pwaManifestUrl: `${origin}/manifest.webmanifest`,
     serviceWorkerUrl: `${origin}/service-worker.js`,
     mobileManifestUrl: `${origin}/api/mobile/manifest`,
@@ -708,6 +710,10 @@ async function handleApi(req, res, pathname, method, parts) {
 
   if (parts[1] === 'policy' && method === 'GET') {
     return sendJson(res, 200, { policies: registry.getPolicyMap() });
+  }
+
+  if (parts[1] === 'route-inventory' && method === 'GET') {
+    return sendJson(res, 200, buildRouteInventory());
   }
 
   if (parts[1] === 'agent-tools') {
