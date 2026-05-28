@@ -443,7 +443,6 @@ function renderHome() {
             <input name="notes" />
           </label>
           <label><input type="checkbox" name="enabled" checked> enabled</label>
-          <label><input type="checkbox" name="approved" /> Mark as approved</label>
           <button type="submit">Add MCP tool</button>
         </form>
       </article>
@@ -459,7 +458,6 @@ function renderHome() {
           <label>Local quick link
             <input name="quickLink" placeholder="http://localhost:3000" />
           </label>
-          <label><input type="checkbox" name="approved" /> Mark as approved (high-risk control)</label>
           <button type="submit">Create project</button>
         </form>
       </div>
@@ -548,7 +546,6 @@ function renderProject(project) {
           <label>Quick link URL
             <input name="quickLinkUrl" placeholder="http://localhost:3000" required />
           </label>
-          <label><input type="checkbox" name="approved" /> Mark as approved</label>
           <button type="submit">Add quick link</button>
         </form>
       </article>
@@ -647,10 +644,9 @@ function renderSession(project, session) {
                 <option value="claude">claude</option>
               </select>
             </label>
-            <label>MCP tools
+          <label>MCP tools
               <input name="mcpToolIds" placeholder="comma-separated MCP tool IDs" />
             </label>
-            <label><input type="checkbox" name="approved" /> explicit approval override</label>
             <button type="submit">Queue lane</button>
           </form>
         </article>
@@ -860,16 +856,6 @@ async function refresh() {
   render();
 }
 
-function buildApprovedBody(formData, extras = {}) {
-  const body = { ...extras };
-  for (const [key, value] of Object.entries(formData)) {
-    body[key] = value;
-  }
-  body.approved = body.approved === true || body.approved === 'on';
-  body.actor = 'dashboard';
-  return body;
-}
-
 function buildCleanupScheduleBody(formData) {
   const payload = {};
   for (const [key, value] of Object.entries(formData)) {
@@ -902,7 +888,11 @@ function buildCleanupScheduleBody(formData) {
 }
 
 function buildMcpToolBody(formData) {
-  const payload = buildApprovedBody(formData);
+  const payload = {};
+  for (const [key, value] of Object.entries(formData)) {
+    payload[key] = value;
+  }
+  payload.actor = 'dashboard';
   payload.args = typeof payload.args === 'string'
     ? payload.args.split(',').map((value) => value.trim()).filter(Boolean)
     : [];
@@ -1023,13 +1013,12 @@ async function showArtifacts(laneId) {
 
 async function handleCreateProject(event) {
   event.preventDefault();
-  const payload = buildApprovedBody(toObj(event.currentTarget));
+  const payload = toObj(event.currentTarget);
   const quick = (payload.quickLink || '').trim();
   const body = {
     name: payload.name,
     slug: payload.slug,
     owner: 'dashboard',
-    approved: payload.approved,
     quickLinks: quick ? [{ label: 'Primary', url: quick }] : [],
   };
   const response = await api('/api/projects', { method: 'POST', body });
@@ -1065,7 +1054,7 @@ async function handleCreateSession(event) {
 async function handleAddProjectQuickLink(event) {
   event.preventDefault();
   const projectId = event.currentTarget.dataset.projectId;
-  const payload = buildApprovedBody(toObj(event.currentTarget));
+  const payload = toObj(event.currentTarget);
   const label = String(payload.quickLinkLabel || '').trim();
   const url = String(payload.quickLinkUrl || '').trim();
   if (!label || !url) {
@@ -1084,7 +1073,6 @@ async function handleAddProjectQuickLink(event) {
     method: 'PATCH',
     body: {
       actor: 'dashboard',
-      approved: payload.approved,
       quickLinks: nextLinks,
     },
   });
@@ -1099,8 +1087,16 @@ async function handleAddProjectQuickLink(event) {
 async function handleCreateLane(event) {
   event.preventDefault();
   const sessionId = event.currentTarget.dataset.sessionId;
-  const payload = buildApprovedBody(toObj(event.currentTarget));
+  const payload = toObj(event.currentTarget);
   const executorType = normalizeExecutorType(payload.executorType || 'mock');
+  const approval = buildApprovedActionBody(
+    'createLane',
+    `Queue lane "${String(payload.title || '').trim() || 'new lane'}" as ${executorType || 'mock'}-led lane?`,
+  );
+  if (!approval.approved) {
+    renderAlert('Lane creation canceled.');
+    return;
+  }
   const commandParts = parseCommandParts(payload.command);
   const requestedToolIds = payload.mcpToolIds
     ? String(payload.mcpToolIds).split(',').map((value) => value.trim()).filter(Boolean)
@@ -1153,7 +1149,8 @@ async function handleCreateLane(event) {
       workdir: payload.workdir || null,
       mcpToolIds: requestedToolIds,
       owner: 'dashboard',
-      approved: payload.approved,
+      approved: approval.approved,
+      actor: approval.actor,
     },
   });
   if (response.ok) {
