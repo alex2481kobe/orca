@@ -27,6 +27,9 @@ smoke gates before being listed.
   `npm run smoke:route-inventory`,
   `npm run smoke:route-security-matrix`, and
   `npm run smoke:state-migrations` pass.
+- `npm run smoke:full-buildout-ledger` validates
+  `docs/full-buildout-ledger.md` so full-buildout status cannot drift
+  into undocumented prose.
 - `npm run smoke:auth-sessions`,
   `npm run smoke:credential-redaction`,
   `npm run smoke:evidence-redaction`, and
@@ -134,6 +137,11 @@ smoke gates before being listed.
   tools, cleanup schedule, and notification settings while excluding
   secrets, auth sessions, pairing codes, artifacts, logs, screenshots,
   videos, and traces.
+- `docs/full-buildout-ledger.md` is the active completion ledger. It
+  tracks each major full-buildout area with one of
+  `implemented_and_proven`, `implemented_not_proven`, `missing`, or
+  `externally_blocked`, plus code surfaces, UI surfaces, proof,
+  evidence, and blockers.
 
 ## External blockers (operator-actionable, surfaced in the dashboard)
 
@@ -155,6 +163,7 @@ npm run smoke:security-headers
 npm run smoke:pwa-cache
 npm run smoke:route-inventory
 npm run smoke:route-security-matrix
+npm run smoke:full-buildout-ledger
 npm run smoke:state-migrations
 npm run smoke:auth-sessions
 npm run smoke:credential-redaction
