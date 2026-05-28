@@ -301,13 +301,14 @@ function renderHome() {
           <div class="tiny muted">binary: ${safeText(info?.binary || '')}</div>
           <div class="tiny muted">version: ${safeText(info?.version || 'unknown')}</div>
           <div class="tiny muted">reinstall: ${command}</div>
-          <div class="tiny muted">source-first mode: ${safeText(preferSource)}</div>
-          <div class="tiny muted">source repos: ${safeText(sourceRepos)}</div>
-          <div class="tiny muted">source command: ${safeText(sourceCommand)}</div>
+        <div class="tiny muted">source-first mode: ${safeText(preferSource)}</div>
+        <div class="tiny muted">source repos: ${safeText(sourceRepos)}</div>
+        <div class="tiny muted">source command: ${safeText(sourceCommand)}</div>
         </div>
         <div class="lane-row">
           <button data-action="refreshExecutorCli" data-executor="${safeText(type)}" type="button">Refresh</button>
-          <button class="secondary" data-action="reinstallExecutorCli" data-executor="${safeText(type)}" type="button">Dry-run reinstall</button>
+          <button class="secondary" data-action="reinstallExecutorCli" data-executor="${safeText(type)}" data-use-source="false" type="button">Dry-run reinstall</button>
+          <button class="secondary" data-action="reinstallExecutorCli" data-executor="${safeText(type)}" data-use-source="true" type="button">Dry-run source reinstall</button>
         </div>
       </div>
     `;
@@ -1412,14 +1413,25 @@ async function handleSystemActions(event) {
   if (action === 'reinstallExecutorCli') {
     const executorType = event.currentTarget.dataset.executor;
     if (!executorType) return;
-    const confirmedPlan = window.confirm(`Plan ${executorType.toUpperCase()} CLI ${event.currentTarget.textContent.toLowerCase().includes('dry-run') ? 'dry run reinstall' : ''} now?`);
+    const useSource = event.currentTarget.dataset.useSource === 'true';
+    const sourceMode = Boolean(useSource);
+    const sourceCommand = shell.executorCliInfo?.[executorType]?.reinstall?.sourceCommand;
+    if (sourceMode && !Array.isArray(sourceCommand)) {
+      renderAlert(`${executorType.toUpperCase()} source command is not available.`, 'bad');
+      return;
+    }
+    const planLabel = sourceMode ? 'source reinstall' : 'managed reinstall';
+    const confirmedPlan = window.confirm(`Plan ${executorType.toUpperCase()} CLI ${planLabel} now?`);
     if (!confirmedPlan) {
       renderAlert('Executor CLI action canceled.');
       return;
     }
-    const overrideCommand = window.prompt(
-      `Optional custom reinstall command for ${executorType.toUpperCase()} (space-separated string):\n\nLeave blank to use managed default command.`,
-    );
+    const overridePrompt = `Optional custom reinstall command for ${executorType.toUpperCase()} (space-separated string):\n\nLeave blank to use ${sourceMode ? 'the trusted source-managed command' : 'the managed default command'}.`;
+    const overrideCommand = sourceMode ? null : window.prompt(overridePrompt);
+    if (sourceMode && overrideCommand && overrideCommand.trim()) {
+      renderAlert('Source mode cannot be combined with a custom command override.', 'bad');
+      return;
+    }
     const parsedOverride = overrideCommand && overrideCommand.trim() ? overrideCommand.trim() : null;
     const execute = window.confirm('Run managed reinstall now (not dry-run)?\nChoose Cancel to only show the planned command.');
     const confirmedExecute = execute;
@@ -1430,6 +1442,7 @@ async function handleSystemActions(event) {
         approved: true,
         execute,
         confirmed: confirmedExecute,
+        useSource: sourceMode,
         ...(parsedOverride ? { command: parsedOverride } : {}),
       },
     });

@@ -2159,6 +2159,7 @@ export class CommandDeckRegistry {
     execute = false,
     command,
     confirmed = false,
+    useSource = false,
   } = {}) {
     const type = normalizeExecutorType(executorType);
     if (!['codex', 'claude'].includes(type)) {
@@ -2176,6 +2177,16 @@ export class CommandDeckRegistry {
     }
 
     const willExecute = Boolean(execute);
+    const requestSource = Boolean(useSource);
+    const hasOverride = command !== undefined;
+    if (hasOverride && requestSource) {
+      throw {
+        status: 422,
+        message: `Cannot combine custom command override and source mode for ${type} reinstall.`,
+        risk: defaultPolicy.manageExecutorCli.risk,
+      };
+    }
+
     if (willExecute && !confirmed) {
       throw {
         status: 409,
@@ -2184,9 +2195,9 @@ export class CommandDeckRegistry {
       };
     }
 
-    const hasOverride = command !== undefined;
     const overrideCommand = hasOverride ? normalizeReinstallCommand(command, type) : null;
-    const defaultCommand = getReinstallCommand(type);
+    const preferredCommand = getReinstallCommand(type);
+    const sourceCommand = requestSource ? getReinstallSourceCommand(type) : null;
 
     if (hasOverride && !overrideCommand) {
       throw {
@@ -2196,7 +2207,32 @@ export class CommandDeckRegistry {
       };
     }
 
-    const commandToRun = hasOverride ? overrideCommand : defaultCommand;
+    let commandToRun = null;
+    let commandOrigin = 'policy';
+    if (requestSource) {
+      if (!sourceCommand) {
+        throw {
+          status: 422,
+          message: `No trusted source reinstall command is available for ${type}.`,
+          risk: defaultPolicy.manageExecutorCli.risk,
+        };
+      }
+      const normalizedSourceCommand = normalizeReinstallCommand(sourceCommand, type);
+      if (!normalizedSourceCommand) {
+        throw {
+          status: 422,
+          message: `No trusted source reinstall command is available for ${type}.`,
+          risk: defaultPolicy.manageExecutorCli.risk,
+        };
+      }
+      commandToRun = normalizedSourceCommand;
+      commandOrigin = 'source';
+    } else if (hasOverride) {
+      commandToRun = overrideCommand;
+      commandOrigin = 'request';
+    } else {
+      commandToRun = preferredCommand;
+    }
 
     if (!commandToRun) {
       throw {
@@ -2214,7 +2250,7 @@ export class CommandDeckRegistry {
         sessionId: null,
         laneId: null,
         summary: `${type} CLI reinstall plan requested (dry-run mode)`,
-        evidence: { executorType: type, command: commandToRun, source: overrideCommand ? 'request' : 'policy' },
+        evidence: { executorType: type, command: commandToRun, source: commandOrigin },
         status: 'passed',
       });
       return {

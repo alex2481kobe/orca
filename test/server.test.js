@@ -316,6 +316,70 @@ test('executor CLI reinstall endpoint rejects unsafe override commands', async (
   }
 });
 
+test('executor CLI reinstall supports forcing source-based reinstall commands', async () => {
+  const token = 'route-token-03c';
+  const server = await startServer({
+    token,
+    env: {
+      COMMAND_DECK_CODEX_BINARY: '/usr/bin/codex',
+      COMMAND_DECK_CODEX_REINSTALL_COMMAND: 'npm install --yes @openai/codex',
+      COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS: 'my-org/codex-fork,openai/codex',
+      COMMAND_DECK_CODEX_REINSTALL_PREFER_SOURCE: 'false',
+    },
+  });
+
+  try {
+    const sourceMode = await server.requestJson('/api/executors/codex/cli/reinstall', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+        execute: false,
+        useSource: true,
+      },
+    });
+    assert.equal(sourceMode.status, 200);
+    assert.equal(sourceMode.body.executed, false);
+    assert.equal(
+      String(sourceMode.body.command?.join(' ') || '').includes('git+https://github.com/my-org/codex-fork.git'),
+      true,
+    );
+  } finally {
+    await server.stop();
+  }
+});
+
+test('executor CLI reinstall rejects source mode with custom override command', async () => {
+  const token = 'route-token-03d';
+  const server = await startServer({
+    token,
+    env: {
+      COMMAND_DECK_CODEX_BINARY: '/usr/bin/codex',
+      COMMAND_DECK_CODEX_REINSTALL_COMMAND: 'npm install --yes @openai/codex',
+      COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS: 'my-org/codex-fork,openai/codex',
+    },
+  });
+
+  try {
+    const rejected = await server.requestJson('/api/executors/codex/cli/reinstall', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+        execute: false,
+        useSource: true,
+        command: 'npm install --yes @openai/codex',
+      },
+    });
+    assert.equal(rejected.status, 422);
+    assert.equal(String(rejected.body?.error || '').includes('Cannot combine custom command override'), true);
+  } finally {
+    await server.stop();
+  }
+});
+
 test('server MCP tooling routes require token and support CRUD workflow', async () => {
   const token = 'route-token-04';
   const server = await startServer({ token });
