@@ -597,6 +597,19 @@ test('run-now cleanup endpoint enforces approval and supports dry-run mode', asy
     assert.equal(dryRunResult.status, 200);
     assert.equal(dryRunResult.body?.dryRun, true);
     assert.equal(dryRunResult.body?.removed, 0);
+
+    const invalidRunNowSession = await server.requestJson('/api/artifacts/cleanup/run-now', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+        dryRun: true,
+        sessionId: 'missing-session-id',
+      },
+    });
+    assert.equal(invalidRunNowSession.status, 404);
+    assert.equal(String(invalidRunNowSession.body?.error || '').includes('Session not found'), true);
   } finally {
     await server.stop();
   }
@@ -642,6 +655,52 @@ test('cleanup schedule endpoint enforces approval and persists updated schedule'
     assert.equal(listed.status, 200);
     assert.equal(listed.body?.schedule?.enabled, true);
     assert.equal(listed.body?.schedule?.intervalHours, 12);
+  } finally {
+    await server.stop();
+  }
+});
+
+test('cleanup schedule endpoint validates interval, session id, and retention', async () => {
+  const token = 'route-token-06b';
+  const server = await startServer({ token });
+
+  try {
+    const badInterval = await server.requestJson('/api/artifacts/cleanup/schedule', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+        intervalHours: 900,
+      },
+    });
+    assert.equal(badInterval.status, 422);
+    assert.equal(String(badInterval.body?.error || '').includes('cannot exceed 720'), true);
+
+    const badSession = await server.requestJson('/api/artifacts/cleanup/schedule', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+        enabled: true,
+        sessionId: 'missing-session-id',
+      },
+    });
+    assert.equal(badSession.status, 404);
+    assert.equal(String(badSession.body?.error || '').includes('Session not found'), true);
+
+    const badRetention = await server.requestJson('/api/artifacts/cleanup/schedule', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+        olderThanDays: 'nope',
+      },
+    });
+    assert.equal(badRetention.status, 422);
+    assert.equal(String(badRetention.body?.error || '').includes('olderThanDays must be a positive integer or null'), true);
   } finally {
     await server.stop();
   }
