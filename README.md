@@ -3,8 +3,9 @@
 Command Deck is the local-first control plane for coordinating Codex and
 Claude work across projects from a Mac and a phone over private Tailscale
 Serve. It ships an operator dashboard, an API surface, a worker contract
-with real process metadata, governed CLI management, MCP tool CRUD with
-per-lane config generation, automatic git worktree isolation, and
+with real process metadata, governed CLI management for npm/pnpm/bun/
+Homebrew/pip-style installs, MCP tool CRUD with per-lane config generation,
+automatic git worktree isolation, and
 Playwright-backed evidence capture.
 
 ## What is implemented and proven
@@ -75,6 +76,8 @@ phone viewports with screenshots).
   `artifacts/ui-smoke/{desktop,phone}.png`.
 - **Real Claude lane**: `claude --version` spawns through the executor
   adapter and reports PID, stdout, exit code 0.
+- **Real Codex CLI**: Homebrew cask repaired on this host; `codex-cli
+  0.134.0` is available at `/opt/homebrew/bin/codex`.
 - **Real git worktree**: `npm test` exercises `git worktree add`,
   `changedFilesIn`, and approval-gated removal against a fresh repo.
 
@@ -135,16 +138,22 @@ CLI execution.
   true, execute: false }` returns a dry-run plan. `execute: true`
   requires `confirmed: true` and an approved command from the
   allowlist. The dashboard surfaces this as an explicit two-step flow.
+- Supported reinstall managers are `npm`, `pnpm`, `bun`, `brew`,
+  `pip`, and `pip3`. Defaults use the npm packages
+  `@openai/codex` and `@anthropic/claude-code`, but operators can set
+  a package-manager-specific command without weakening validation.
+- Homebrew examples:
+
+```bash
+COMMAND_DECK_CODEX_REINSTALL_COMMAND='["brew","reinstall","--cask","codex"]'
+COMMAND_DECK_CLAUDE_REINSTALL_COMMAND='["brew","install","anthropic-ai/tap/claude"]'
+```
 
 ## Open blockers (operator-actionable)
 
 Surfaced at `GET /api/system/blockers` and at the top of the dashboard:
 
-1. **Codex CLI not executable** — your `/opt/homebrew/bin/codex`
-   symlink points to a missing cask binary. Approved remediation:
-   `brew reinstall --cask codex` OR `npm install -g @openai/codex`.
-   Real Codex lane execution is blocked until you run this; mock and
-   Claude lanes are unaffected.
-
-Playwright is no longer a blocker on this host (installed locally with
-matching Chromium 1223).
+There are no known external blockers on this host. Playwright is
+installed locally with matching Chromium 1223, Claude is executable,
+and the broken Homebrew Codex symlink was repaired with
+`brew reinstall --cask codex`.

@@ -46,8 +46,8 @@ const MAX_REINSTALL_ARG_LEN = 120;
 const MAX_REINSTALL_ARGS = 24;
 const ALLOWED_REINSTALL_BINARIES = new Set(['npm', 'pnpm', 'bun', 'brew', 'pip', 'pip3']);
 const REINSTALL_PACKAGE_ALLOWLIST = {
-  codex: ['codex-cli', '@openai/codex'],
-  claude: ['claude-cli', 'claude-code', '@anthropic/claude-code'],
+  codex: ['codex', 'codex-cli', '@openai/codex'],
+  claude: ['claude', 'claude-cli', 'claude-code', '@anthropic/claude-code', 'anthropic-ai/tap/claude'],
 };
 const REINSTALL_INSTALL_VERBS = {
   npm: ['install', 'i', 'update', 'upgrade', 'reinstall'],

@@ -1260,6 +1260,24 @@ test('executor CLI reinstall supports safe override command profiles and manager
       assert.equal(overridePlan.command[0], 'pnpm');
       assert.equal(overridePlan.command.includes('codex-cli'), true);
 
+      const brewCodexPlan = await registry.runExecutorCliReinstall('codex', {
+        actor: 'test',
+        approved: true,
+        execute: false,
+        command: 'brew reinstall --cask codex',
+      });
+      assert.equal(brewCodexPlan.command[0], 'brew');
+      assert.equal(brewCodexPlan.command.includes('codex'), true);
+
+      const brewClaudePlan = await registry.runExecutorCliReinstall('claude', {
+        actor: 'test',
+        approved: true,
+        execute: false,
+        command: 'brew install anthropic-ai/tap/claude',
+      });
+      assert.equal(brewClaudePlan.command[0], 'brew');
+      assert.equal(brewClaudePlan.command.includes('anthropic-ai/tap/claude'), true);
+
       await assert.rejects(
         () => registry.runExecutorCliReinstall('codex', {
           actor: 'test',
@@ -1279,7 +1297,17 @@ test('executor CLI reinstall supports safe override command profiles and manager
         }),
         (error) => error.status === 422,
       );
-  } finally {
+
+      await assert.rejects(
+        () => registry.runExecutorCliReinstall('codex', {
+          actor: 'test',
+          approved: true,
+          execute: false,
+          command: 'brew install --cask fake-codex',
+        }),
+        (error) => error.status === 422,
+      );
+    } finally {
       await cleanup();
     }
   } finally {

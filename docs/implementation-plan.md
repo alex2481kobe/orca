@@ -18,6 +18,8 @@ output is recorded in the README.
   `artifacts/ui-smoke/`.
 - Real Claude CLI execution flows through the adapter (`claude
   --version` → PID + exit 0).
+- Real Codex CLI is repaired on this host through Homebrew
+  (`/opt/homebrew/bin/codex` → `codex-cli 0.134.0`).
 - Real `git worktree add` flows through `createLane` when a session
   has a vetted `repoRoot`, and `POST /api/lanes/:id/worktree/remove`
   removes it under approval.
@@ -28,6 +30,11 @@ output is recorded in the README.
   limit + 413, optional worker token for heartbeat.
 - Approval-gated project/session/lane/MCP/cleanup/CLI reinstall/audit
   endpoints.
+- CLI reinstall validation supports npm, pnpm, bun, Homebrew, pip, and
+  pip3 manager flows with per-executor package allowlists, source-repo
+  allowlists, dry-run planning, confirmation before execution, and
+  safe overrides such as `brew reinstall --cask codex` or `brew
+  install anthropic-ai/tap/claude`.
 - Per-session worktreeRoot + per-lane git worktree under
   `<workspacesRoot>/<sessionId>/worktrees/<laneId>`. Branch defaults to
   `command-deck/lane/<shortid>` and is sanitized.
@@ -66,14 +73,10 @@ output is recorded in the README.
 
 ## External blockers (operator-actionable, surfaced in the dashboard)
 
-- **Codex CLI not executable on this host.** Symlink
-  `/opt/homebrew/bin/codex` points to a missing cask binary. Approved
-  remediation: `brew reinstall --cask codex` OR `npm install -g
-  @openai/codex`. Real Codex lane execution is blocked until that
-  command runs.
-
-There are no other external blockers as of this writing. Playwright +
-Chromium are installed locally and exercised end-to-end.
+There are no known external blockers as of this writing. Playwright +
+Chromium are installed locally and exercised end-to-end, Claude is
+executable, and the broken Homebrew Codex symlink was repaired with
+`brew reinstall --cask codex`.
 
 ## Verification commands
 
