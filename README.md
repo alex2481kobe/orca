@@ -92,6 +92,20 @@ For private mobile control guidance, see:
 
   - `COMMAND_DECK_CODEX_REINSTALL_PACKAGES=@openai/codex,codex-cli`
 
+  Optionally constrain allowed source repos per executor with:
+  - `COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS`
+  - `COMMAND_DECK_CLAUDE_REINSTALL_SOURCE_REPOS`
+
+  These are comma-separated `owner/repo` entries checked only on validated source URLs.
+  Defaults are:
+
+  - `COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS=openai/codex`
+  - `COMMAND_DECK_CLAUDE_REINSTALL_SOURCE_REPOS=anthropic/claude-code`
+
+  Example:
+
+  - `COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS=openai/codex,my-org/codex-fork`
+
 - Reinstall endpoints:
   - `GET /api/executors/{executor}/cli`
   - `POST /api/executors/{executor}/cli/reinstall` with `{ "approved": true, "execute": false }`

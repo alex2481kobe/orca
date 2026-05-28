@@ -1096,6 +1096,91 @@ test('executor CLI reinstall supports safe override command profiles and manager
         }),
         (error) => error.status === 422,
       );
+  } finally {
+      await cleanup();
+    }
+  } finally {
+    restore();
+  }
+});
+
+test('executor CLI reinstall supports trusted source-based reinstall commands', async () => {
+  const restore = restoreEnv({
+    COMMAND_DECK_CODEX_BINARY: process.env.COMMAND_DECK_CODEX_BINARY,
+    COMMAND_DECK_CODEX_REINSTALL_COMMAND: process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND,
+    COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS: process.env.COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS,
+  });
+
+  try {
+    process.env.COMMAND_DECK_CODEX_BINARY = '/usr/bin/codex';
+    process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND = 'npm install --yes git+https://github.com/openai/codex.git';
+
+    const { registry, cleanup } = await withIsolatedRegistry();
+    try {
+      const plan = await registry.runExecutorCliReinstall('codex', {
+        actor: 'test',
+        approved: true,
+        execute: false,
+      });
+      assert.equal(plan.executed, false);
+      assert.equal((plan.command || []).join(' ').includes('git+https://github.com/openai/codex.git'), true);
+    } finally {
+      await cleanup();
+    }
+  } finally {
+    restore();
+  }
+});
+
+test('executor CLI reinstall rejects untrusted source-based reinstall commands', async () => {
+  const restore = restoreEnv({
+    COMMAND_DECK_CODEX_BINARY: process.env.COMMAND_DECK_CODEX_BINARY,
+    COMMAND_DECK_CODEX_REINSTALL_COMMAND: process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND,
+    COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS: process.env.COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS,
+  });
+
+  try {
+    process.env.COMMAND_DECK_CODEX_BINARY = '/usr/bin/codex';
+    process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND = 'npm install --yes git+https://github.com/untrusted/source.git';
+    const { registry, cleanup } = await withIsolatedRegistry();
+    try {
+      await assert.rejects(
+        () => registry.runExecutorCliReinstall('codex', {
+          actor: 'test',
+          approved: true,
+          execute: false,
+        }),
+        (error) => error.status === 422,
+      );
+    } finally {
+      await cleanup();
+    }
+  } finally {
+    restore();
+  }
+});
+
+test('executor CLI reinstall can use a configured source repo allowlist override', async () => {
+  const restore = restoreEnv({
+    COMMAND_DECK_CODEX_BINARY: process.env.COMMAND_DECK_CODEX_BINARY,
+    COMMAND_DECK_CODEX_REINSTALL_COMMAND: process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND,
+    COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS: process.env.COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS,
+  });
+
+  try {
+    process.env.COMMAND_DECK_CODEX_BINARY = '/usr/bin/codex';
+    process.env.COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS = 'my-org/codex-fork,openai/codex';
+    process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND = 'npm install --yes git+https://github.com/my-org/codex-fork.git';
+
+    const { registry, cleanup } = await withIsolatedRegistry();
+    try {
+      const plan = await registry.runExecutorCliReinstall('codex', {
+        actor: 'test',
+        approved: true,
+        execute: false,
+      });
+      assert.equal(plan.executed, false);
+      assert.equal((plan.command || []).join(' ').includes('git+https://github.com/my-org/codex-fork.git'), true);
     } finally {
       await cleanup();
     }

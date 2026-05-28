@@ -47,6 +47,10 @@ const DEFAULT_REINSTALL_COMMANDS = {
   codex: ['npm', 'install', '--yes', '-g', '@openai/codex'],
   claude: ['npm', 'install', '--yes', '-g', '@anthropic/claude-code'],
 };
+const DEFAULT_REINSTALL_SOURCE_REPOS = {
+  codex: ['openai/codex'],
+  claude: ['anthropic/claude-code'],
+};
 const MCP_TOOL_SCOPE_ALLOWLIST = new Set(['all', 'codex', 'claude', 'mock']);
 const MAX_MCP_TOOL_ARG_LENGTH = 255;
 const MAX_MCP_TOOL_ARGS = 64;
@@ -81,6 +85,54 @@ function getReinstallPackageAllowlist(type) {
     .filter(Boolean);
 }
 
+function getReinstallSourceRepos(type) {
+  const normalizedType = normalizeExecutorType(type);
+  const envKey = `COMMAND_DECK_${normalizedType.toUpperCase()}_REINSTALL_SOURCE_REPOS`;
+  const override = process.env[envKey];
+  if (!override) {
+    return DEFAULT_REINSTALL_SOURCE_REPOS[normalizedType] || [];
+  }
+  return String(override)
+    .split(',')
+    .map((value) => String(value || '').trim().toLowerCase())
+    .filter(Boolean)
+    .map((value) => value.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, ''));
+}
+
+function normalizeReinstallSourceRepo(raw) {
+  const text = String(raw || '').trim().toLowerCase();
+  if (!text) return null;
+
+  const source = text.startsWith('git+') ? text.slice(4) : text;
+  if (!source.startsWith('https://')) {
+    return null;
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(source);
+  } catch {
+    return null;
+  }
+
+  const host = parsed.hostname.replace(/^www\./, '');
+  if (host !== 'github.com') return null;
+  const parts = String(parsed.pathname || '').split('/').filter(Boolean);
+  if (parts.length < 2) return null;
+
+  const owner = parts[0];
+  const repo = parts[1].replace(/\.git$/, '');
+  if (!owner || !repo) return null;
+  return `${owner}/${repo}`;
+}
+
+function tokenMatchesReinstallSource(token, allowedSource) {
+  const normalizedToken = normalizeReinstallSourceRepo(token);
+  const normalizedAllowed = String(allowedSource || '').trim().toLowerCase();
+  if (!normalizedToken || !normalizedAllowed) return false;
+  return normalizedToken === normalizedAllowed;
+}
+
 function tokenMatchesPackage(token, allowedPackage) {
   const normalizedToken = String(token || '').toLowerCase();
   const normalizedAllowed = String(allowedPackage || '').toLowerCase();
@@ -105,10 +157,14 @@ function tokenMatchesPackage(token, allowedPackage) {
     || normalizedToken.startsWith(`${normalizedAllowed}@`);
 }
 
-function hasAllowedReinstallPackage(parts, expectedType) {
-  const allowlist = getReinstallPackageAllowlist(expectedType);
-  if (!allowlist.length) return true;
-  return parts.some((part) => allowlist.some((allowed) => tokenMatchesPackage(part, allowed)));
+function hasAllowedReinstallTarget(parts, expectedType) {
+  const packageAllowlist = getReinstallPackageAllowlist(expectedType);
+  const sourceAllowlist = getReinstallSourceRepos(expectedType);
+  if (!packageAllowlist.length && !sourceAllowlist.length) return true;
+
+  const hasAllowedPackage = packageAllowlist.some((allowedPackage) => parts.some((part) => tokenMatchesPackage(part, allowedPackage)));
+  const hasAllowedSource = sourceAllowlist.some((allowedSource) => parts.some((part) => tokenMatchesReinstallSource(part, allowedSource)));
+  return hasAllowedPackage || hasAllowedSource;
 }
 
 function commandTargetsExecutor(type, commandParts) {
@@ -175,7 +231,7 @@ function normalizeReinstallCommand(raw, expectedType = null) {
   const hasInstallerVerb = args.some((arg) => installVerbs.includes(normalizeReinstallToken(arg)));
   if (!hasInstallerVerb) return null;
 
-  if (!hasAllowedReinstallPackage(parts, expectedType)) return null;
+  if (!hasAllowedReinstallTarget(parts, expectedType)) return null;
 
   if (!commandTargetsExecutor(expectedType, parts)) return null;
 
