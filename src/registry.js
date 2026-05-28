@@ -20,6 +20,10 @@ import {
   buildEffectiveSettings,
   sanitizeSettingsOverrides,
 } from './effective-settings.js';
+import {
+  validateEvidenceUrl,
+  validateNetworkUrl,
+} from './url-policy.js';
 
 const {
   QUEUED: QUEUED_STATE,
@@ -1562,6 +1566,8 @@ export class CommandDeckRegistry {
     url,
     modes,
     timeoutMs,
+    oneTimeUrlApproved = false,
+    allowSensitiveCapture = false,
     approved,
     actor = 'dashboard',
   } = {}) {
@@ -1580,11 +1586,24 @@ export class CommandDeckRegistry {
       };
     }
 
+    const project = this.projects.find((item) => item.id === lane.projectId) || null;
+    const allowedUrls = [
+      lane.targetUrl,
+      ...(Array.isArray(project?.quickLinks) ? project.quickLinks.map((quickLink) => quickLink?.url) : []),
+    ].filter(Boolean);
+    const requestedUrl = String(url || lane.targetUrl || '').trim();
+    const networkPolicy = validateEvidenceUrl(requestedUrl, {
+      allowedUrls,
+      oneTimeApproved: oneTimeUrlApproved,
+      allowSensitive: allowSensitiveCapture,
+    });
+
     const result = await this.evidenceRunner.capture(lane, {
-      url,
+      url: networkPolicy.url,
       modes,
       timeoutMs,
       actor,
+      networkPolicy,
     });
     lane.lastEvidenceCaptureAt = nowIso();
     lane.lastEvidence = result.evidence || null;
@@ -1600,7 +1619,7 @@ export class CommandDeckRegistry {
         evidence: result.evidence,
         status: 'passed',
       });
-      this.appendLaneLog(lane, `Evidence capture completed for ${url || 'no URL'}.`);
+      this.appendLaneLog(lane, `Evidence capture completed for ${networkPolicy.url}.`);
     } else {
       this.recordAudit({
         type: 'lane_evidence_failed',
@@ -2031,7 +2050,9 @@ export class CommandDeckRegistry {
       ? permissionsProfile.trim().slice(0, 120) : '';
     const sanitizedVerificationCommand = typeof verificationCommand === 'string'
       ? verificationCommand.trim().slice(0, 1000) : '';
-    const sanitizedTargetUrl = typeof targetUrl === 'string' ? targetUrl.trim().slice(0, 2048) : '';
+    const sanitizedTargetUrl = typeof targetUrl === 'string' && targetUrl.trim()
+      ? validateNetworkUrl(targetUrl, { field: 'targetUrl', allowSensitive: false }).url
+      : '';
     const normalizedCritiqueMode = normalizeCritiqueMode(
       critiqueMode,
       sanitizedTargetUrl ? 'visual-required' : normalizeCritiqueMode(session.critiqueMode, 'suggested'),

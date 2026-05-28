@@ -15,7 +15,9 @@ test('private access URL validation rejects unsafe protocols, credentials, and F
   assert.throws(() => validateAccessUrl('file:///tmp/nope', { mode: 'local' }), (error) => /http or https/.test(error.message));
   assert.throws(() => validateAccessUrl('https://user:pass@example.ts.net', { mode: 'tailnet-https-serve' }), (error) => /credentials/.test(error.message));
   assert.throws(() => validateAccessUrl('https://command-deck.funnel.ts.net', { mode: 'tailnet-https-serve' }), (error) => /Funnel/.test(error.message));
-  assert.throws(() => validateAccessUrl('https://example.com', { mode: 'local' }), (error) => /Local access/.test(error.message));
+  assert.throws(() => validateAccessUrl('https://example.com', { mode: 'local' }), (error) => /localhost|loopback/.test(error.message));
+  assert.throws(() => validateAccessUrl('http://169.254.169.254/latest/meta-data', { mode: 'local' }), (error) => /blocked private/.test(error.message));
+  assert.throws(() => validateAccessUrl('http://192.168.1.20:3000', { mode: 'tailnet-http' }), (error) => /blocked private/.test(error.message));
 });
 
 test('private access setup plan is dry-run/read-only and never emits Funnel commands', () => {

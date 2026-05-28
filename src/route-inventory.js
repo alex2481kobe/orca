@@ -255,7 +255,7 @@ const ROUTE_INVENTORY = [
     validation: 'fake state query decoded',
     auditEvent: 'none',
     uiSurface: 'private access settings',
-    smokeCoverage: ['smoke:private-access'],
+    smokeCoverage: ['smoke:private-access', 'smoke:ssrf'],
     serverHints: ["parts[2] === 'tailnet'"],
   }),
   route({
@@ -268,7 +268,7 @@ const ROUTE_INVENTORY = [
     validation: 'local URL/port validation; dry-run commands only; Funnel rejected',
     auditEvent: 'none',
     uiSurface: 'private access settings',
-    smokeCoverage: ['test/server.test.js', 'smoke:private-access'],
+    smokeCoverage: ['test/server.test.js', 'smoke:private-access', 'smoke:ssrf'],
     serverHints: ["parts[2] === 'setup-plan'"],
   }),
   route({
@@ -1055,7 +1055,7 @@ const ROUTE_INVENTORY = [
     validation: 'actor spoofing rejected; URL/mode allowlists; SSRF policy in evidence capture',
     auditEvent: 'lane_evidence_captured_or_failed',
     uiSurface: 'evidence gallery/lane detail',
-    smokeCoverage: ['smoke:api', 'test/server.test.js'],
+    smokeCoverage: ['smoke:api', 'test/server.test.js', 'smoke:ssrf'],
     serverHints: ['captureLaneEvidence'],
   }),
   route({

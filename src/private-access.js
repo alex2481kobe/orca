@@ -3,6 +3,7 @@ import fsSync from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { validateNetworkUrl } from './url-policy.js';
 
 const nowIso = () => new Date().toISOString();
 
@@ -85,10 +86,11 @@ function validateAccessUrl(raw, { mode = 'local', allowBlank = false, field = 'u
     throw { status: 422, message: `${field} has an invalid host.` };
   }
   if (mode === 'local') {
-    const localHosts = new Set(['localhost', '127.0.0.1', '::1']);
-    if (!localHosts.has(parsed.hostname)) {
-      throw { status: 422, message: 'Local access targets must use localhost, 127.0.0.1, or ::1.' };
-    }
+    return validateNetworkUrl(text, {
+      field,
+      allowedHosts: ['loopback'],
+      requireProtocol: parsed.protocol,
+    }).url;
   }
   if (mode === 'tailnet-http' && parsed.protocol !== 'http:') {
     throw { status: 422, message: 'tailnet-http targets must use http.' };
@@ -96,7 +98,14 @@ function validateAccessUrl(raw, { mode = 'local', allowBlank = false, field = 'u
   if (mode === 'tailnet-https-serve' && parsed.protocol !== 'https:') {
     throw { status: 422, message: 'tailnet-https-serve targets must use https.' };
   }
-  return parsed.toString();
+  if (mode === 'tailnet-http' || mode === 'tailnet-https-serve') {
+    return validateNetworkUrl(text, {
+      field,
+      allowedHosts: ['tailnet'],
+      requireProtocol: parsed.protocol,
+    }).url;
+  }
+  return validateNetworkUrl(text, { field }).url;
 }
 
 function normalizeMode(raw) {
@@ -198,10 +207,18 @@ function commandText(command) {
 function buildSetupPlan(input = {}) {
   rejectPrototypeKeys(input, 'setupPlan');
   const localPort = normalizePort(input.localPort || input.port || process.env.PORT || 3000, 3000);
-  const localUrl = validateAccessUrl(input.localUrl || `http://127.0.0.1:${localPort}`, {
-    mode: 'local',
-    field: 'localUrl',
-  });
+  let localUrl;
+  try {
+    localUrl = validateAccessUrl(input.localUrl || `http://127.0.0.1:${localPort}`, {
+      mode: 'local',
+      field: 'localUrl',
+    });
+  } catch {
+    localUrl = validateAccessUrl(`http://127.0.0.1:${localPort}`, {
+      mode: 'local',
+      field: 'localUrl',
+    });
+  }
   const httpsPort = normalizePort(input.httpsPort || 443, 443);
   const httpPort = normalizePort(input.httpPort || 80, 80);
 
