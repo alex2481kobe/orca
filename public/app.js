@@ -81,6 +81,70 @@ function stateBadge(state) {
   return `<span class="tag ${tone}">${label}</span>`;
 }
 
+function normalizeExecutorType(raw) {
+  return String(raw || '').toLowerCase().trim();
+}
+
+function parseCommandParts(raw) {
+  return String(raw || '').trim().split(/\s+/).filter(Boolean);
+}
+
+function executorTargetsCommand(executorType, commandParts) {
+  const normalizedType = normalizeExecutorType(executorType);
+  if (!normalizedType) return true;
+  return commandParts.some((part) => String(part).toLowerCase().includes(normalizedType));
+}
+
+function executorTargetsBinary(executorType, binary) {
+  const normalizedType = normalizeExecutorType(executorType);
+  if (!normalizedType) return true;
+  const normalizedBinary = String(binary || '').trim().toLowerCase();
+  const binaryName = normalizedBinary.split('/').pop();
+  return binaryName.includes(normalizedType);
+}
+
+function getExecutorProfile(type) {
+  const profileType = normalizeExecutorType(type);
+  return shell.executorProfiles && shell.executorProfiles[profileType] ? shell.executorProfiles[profileType] : null;
+}
+
+function renderLaneExecutorGuidance(form) {
+  if (!form || form.id !== 'create-lane-form') return;
+  const profileEl = document.getElementById('lane-command-guidance');
+  if (!profileEl) return;
+  const selectedType = normalizeExecutorType(form.executorType?.value || 'mock');
+  const profile = getExecutorProfile(selectedType);
+  const lowerType = normalizeExecutorType(selectedType);
+  const commandInput = form.elements.command;
+  const binaryInput = form.elements.executorBinary;
+  const defaultBinary = safeText(profile?.defaultBinary || '');
+  const defaultArgs = Array.isArray(profile?.defaultArgs) ? profile.defaultArgs.join(' ') : '';
+  const allowedBinaries = Array.isArray(profile?.allowedBinaries) ? profile.allowedBinaries : [];
+  const allowedList = allowedBinaries.length ? `Allowed binaries: ${safeText(allowedBinaries.join(', '))}` : 'No curated binary allowlist available';
+
+  const defaultArgsText = defaultArgs ? ` ${safeText(defaultArgs)}` : '';
+  const binaryHint = defaultBinary ? `Try ${defaultBinary}${defaultArgsText} for ${lowerType}-led lanes.` : '';
+
+  if (lowerType === 'codex' || lowerType === 'claude') {
+    commandInput.placeholder = defaultBinary
+      ? `${defaultBinary} run --help`
+      : `${lowerType} <args>`;
+    binaryInput.placeholder = defaultBinary || `${lowerType}`;
+    profileEl.innerHTML = `
+      <div class="tiny muted">
+        Executor guidance: command or binary must contain "${lowerType}".
+        ${binaryHint ? `${binaryHint} ` : ''}
+        ${allowedList ? `${allowedList}` : ''}
+      </div>
+    `.trim();
+    return;
+  }
+
+  commandInput.placeholder = 'e.g., node';
+  binaryInput.placeholder = 'e.g., codex, claude, node, ./scripts/run.sh';
+  profileEl.textContent = '';
+}
+
 function laneDetailRoute(project, session, lane) {
   if (!project || !session || !lane) return '';
   return lane.route || `/projects/${project.slug}/sessions/${session.id}/lanes/${lane.id}`;
@@ -424,6 +488,7 @@ function renderSession(project, session) {
             <label>Command (for codex/claude lanes)
               <input name="command" placeholder="e.g., codex run --help" />
             </label>
+            <div id="lane-command-guidance" class="tiny muted"></div>
             <label>Command args
               <input name="commandArgs" placeholder="quoted optional args or tokenized words" />
             </label>
@@ -459,6 +524,7 @@ function renderSession(project, session) {
       </section>
     </section>
   `;
+  renderLaneExecutorGuidance(document.getElementById('create-lane-form'));
 }
 
 function renderLane(project, session, lane) {
@@ -775,12 +841,24 @@ async function handleCreateLane(event) {
   event.preventDefault();
   const sessionId = event.currentTarget.dataset.sessionId;
   const payload = buildApprovedBody(toObj(event.currentTarget));
+  const executorType = normalizeExecutorType(payload.executorType || 'mock');
+  const commandParts = parseCommandParts(payload.command);
+  if (executorType === 'codex' || executorType === 'claude') {
+    if (commandParts.length > 0 && !executorTargetsCommand(executorType, commandParts)) {
+      renderAlert(`Command for ${executorType} must include "${executorType}".`, 'bad');
+      return;
+    }
+    if (!commandParts.length && payload.executorBinary && !executorTargetsBinary(executorType, payload.executorBinary)) {
+      renderAlert(`Executor binary for ${executorType} must include "${executorType}".`, 'bad');
+      return;
+    }
+  }
   const response = await api(`/api/sessions/${sessionId}/lanes`, {
     method: 'POST',
     body: {
       title: payload.title,
       taskDescription: payload.taskDescription,
-      executorType: payload.executorType || 'mock',
+      executorType,
       command: payload.command || null,
       commandArgs: payload.commandArgs || null,
       executorBinary: payload.executorBinary || null,
@@ -1256,6 +1334,12 @@ document.addEventListener('submit', async (event) => {
   if (event.target.id === 'cleanup-schedule-form') {
     await handleCleanupSchedule(event);
     return;
+  }
+});
+
+document.addEventListener('change', (event) => {
+  if (event.target && event.target.name === 'executorType' && event.target.form && event.target.form.id === 'create-lane-form') {
+    renderLaneExecutorGuidance(event.target.form);
   }
 });
 
