@@ -1,40 +1,22 @@
-# Dependencies
+artifacts/
+.command-deck/
 node_modules/
-
-# Build output
-dist/
-build/
-coverage/
-.vite/
-.cache/
-.cache-*/
-
-# Environment and secrets
+*.log
+*.log.*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.DS_Store
 .env
 .env.*
-*.local
-
-# Runtime state
-*.db
-*.sqlite
-*.sqlite3
-*.log
-logs/
-
-# Browser and media artifacts
-playwright-report/
-test-results/
-artifacts/
-screenshots/
-videos/
-traces/
-*.webm
-*.mp4
-*.zip
-
-# OS and editor files
-.DS_Store
-Thumbs.db
-.idea/
-.vscode/
+coverage/
+dist/
+build/
+.tmp/
+tmp/
+*.pid
+*.seed
 *.swp
+*.swo
+*.swn
