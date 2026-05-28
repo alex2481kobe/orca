@@ -733,6 +733,14 @@ export class CommandDeckRegistry {
         message: 'Lane workdir is outside the session workspace boundary.',
       };
     }
+    try {
+      ensureDirectorySync(workdir);
+    } catch {
+      throw {
+        status: 422,
+        message: 'Lane workdir could not be created.',
+      };
+    }
     return workdir;
   }
 

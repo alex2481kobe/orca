@@ -562,7 +562,7 @@ function renderSession(project, session) {
               <input name="executorBinary" placeholder="e.g., codex, claude, node, ./scripts/run.sh" />
             </label>
             <label>Working directory
-              <input name="workdir" placeholder="optional absolute path" />
+              <input name="workdir" placeholder="optional workspace-relative or absolute path" />
             </label>
             <label>Executor
               <select name="executorType">

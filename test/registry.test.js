@@ -883,6 +883,8 @@ test('Lane workdirs default to the session workspace and reject traversal outsid
       mcpToolIds: [],
     }, { approved: true, actor: 'test' });
     assert.equal(defaultLane.workdir, sessionRecord.worktreeRoot);
+    const defaultStat = await fs.stat(defaultLane.workdir);
+    assert.equal(defaultStat.isDirectory(), true);
 
     const relativeLane = registry.createLane(session.id, {
       title: 'Relative workspace lane',
@@ -891,6 +893,8 @@ test('Lane workdirs default to the session workspace and reject traversal outsid
       mcpToolIds: [],
     }, { approved: true, actor: 'test' });
     assert.equal(relativeLane.workdir, path.join(sessionRecord.worktreeRoot, 'feature-run'));
+    const relativeStat = await fs.stat(relativeLane.workdir);
+    assert.equal(relativeStat.isDirectory(), true);
 
     await assert.rejects(
       () => registry.createLane(session.id, {
