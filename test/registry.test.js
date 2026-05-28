@@ -89,6 +89,7 @@ test('cleanup schedule and cleanup artifacts use retention + approval', async ()
       sessionId: session.id,
       olderThanDays: 10,
       dryRun: false,
+      confirmed: true,
     });
     assert.equal(deleteSummary.removed, 1);
 
@@ -224,6 +225,7 @@ test('cleanup default retention comes from session policy when olderThanDays is 
       actor: 'test',
       approved: true,
       sessionId: session.id,
+      confirmed: true,
     });
     assert.equal(summaryDefaultRetention.removed, 1);
     await assert.rejects(
@@ -248,6 +250,7 @@ test('cleanup default retention comes from session policy when olderThanDays is 
       approved: true,
       sessionId: session.id,
       olderThanDays: 30,
+      confirmed: true,
     });
     assert.equal(summaryOverride.removed, 0);
     const keptFileText = await fs.readFile(path.join(keptDir, 'recent.txt'), 'utf8');
@@ -288,22 +291,34 @@ test('MCP tools are scoped by executor type', async () => {
       enabled: true,
     }, { actor: 'test', approved: true });
 
-    const codexLane = await registry.createLane(session.id, {
+    await assert.rejects(() => registry.createLane(session.id, {
       title: 'Codex Lane',
       executorType: 'codex',
       mcpToolIds: ['all-tool', 'codex-tool', 'claude-tool'],
+    }, { actor: 'test', approved: true }), (error) => error.status === 422);
+
+    await assert.rejects(() => registry.createLane(session.id, {
+      title: 'Claude Lane',
+      executorType: 'claude',
+      mcpToolIds: ['all-tool', 'codex-tool', 'claude-tool'],
+    }, { actor: 'test', approved: true }), (error) => error.status === 422);
+
+    const codexLane = await registry.createLane(session.id, {
+      title: 'Codex Lane',
+      executorType: 'codex',
+      mcpToolIds: ['all-tool', 'codex-tool'],
     }, { actor: 'test', approved: true });
 
     const claudeLane = await registry.createLane(session.id, {
       title: 'Claude Lane',
       executorType: 'claude',
-      mcpToolIds: ['all-tool', 'codex-tool', 'claude-tool'],
+      mcpToolIds: ['all-tool', 'claude-tool'],
     }, { actor: 'test', approved: true });
 
     const mockLane = await registry.createLane(session.id, {
       title: 'Mock Lane',
       executorType: 'mock',
-      mcpToolIds: ['all-tool', 'codex-tool', 'claude-tool'],
+      mcpToolIds: ['all-tool'],
     }, { actor: 'test', approved: true });
 
     const codexToolNames = new Set((codexLane.mcpTools || []).map((item) => item.name));
@@ -1199,7 +1214,7 @@ test('executor CLI reinstall preference for source commands is respected and sur
 
   try {
     process.env.COMMAND_DECK_CODEX_BINARY = '/usr/bin/codex';
-    process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND = 'npm install --yes @openai/codex';
+    delete process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND;
     process.env.COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS = 'my-org/codex-fork,openai/codex';
     process.env.COMMAND_DECK_CODEX_REINSTALL_PREFER_SOURCE = 'true';
 
@@ -1227,6 +1242,7 @@ test('executor CLI reinstall preference for source commands is respected and sur
     }
 
     process.env.COMMAND_DECK_CODEX_REINSTALL_PREFER_SOURCE = 'false';
+    process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND = 'npm install --yes @openai/codex';
     const fallback = await withIsolatedRegistry();
     try {
       const fallbackInfo = fallback.registry.getExecutorCliInfo('codex');
@@ -1236,8 +1252,8 @@ test('executor CLI reinstall preference for source commands is respected and sur
         true,
       );
       assert.equal(
-        (fallbackInfo.reinstall.command || []).includes('git+https://github.com/my-org/codex-fork.git'),
-        false,
+        (fallbackInfo.reinstall.command || []).includes('@openai/codex'),
+        true,
       );
       assert.equal(
         (fallbackInfo.reinstall.sourceCommand || []).join(' ').includes('git+https://github.com/my-org/codex-fork.git'),

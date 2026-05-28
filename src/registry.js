@@ -76,7 +76,7 @@ function normalizeReinstallToken(raw) {
   const value = String(raw || '').trim().toLowerCase();
   if (!value) return null;
   if (value.length > MAX_REINSTALL_ARG_LEN) return null;
-  if (/[|&;<>$`\\r\n\t]/.test(value)) return null;
+  if (/[|&;<>$`\r\n\t]/.test(value)) return null;
   return value;
 }
 
@@ -2159,6 +2159,9 @@ export class CommandDeckRegistry {
 
   appendLaneLog(lane, message, { persist = false } = {}) {
     if (!lane || !message) return;
+    if (!Array.isArray(lane.logs)) {
+      lane.logs = [];
+    }
     lane.logs.push({
       at: nowIso(),
       message,
