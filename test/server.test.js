@@ -151,6 +151,19 @@ test('server API requires token for mutating actions while allowing read actions
   }
 });
 
+test('server rejects malformed request URLs without crashing', async () => {
+  const token = 'route-token-01a';
+  const server = await startServer({ token });
+
+  try {
+    const malformed = await server.requestJson('/api/health/%E0%A4', { method: 'GET' });
+    assert.equal(malformed.status, 400);
+    assert.equal(String(malformed.body?.raw || '').includes('Invalid request URL'), true);
+  } finally {
+    await server.stop();
+  }
+});
+
 test('server blocks destructive artifact cleanup without explicit confirmation', async () => {
   const token = 'route-token-02';
   const server = await startServer({ token });
@@ -296,6 +309,40 @@ test('server MCP tooling routes require token and support CRUD workflow', async 
 
     const afterDelete = await server.requestJson(`/api/mcp/tools/${created.body.id}`, { method: 'GET' });
     assert.equal(afterDelete.status, 404);
+  } finally {
+    await server.stop();
+  }
+});
+
+test('run-now cleanup endpoint enforces approval and supports dry-run mode', async () => {
+  const token = 'route-token-05';
+  const server = await startServer({ token });
+
+  try {
+    const denied = await server.requestJson('/api/artifacts/cleanup/run-now', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        dryRun: false,
+        confirmed: true,
+      },
+    });
+    assert.equal(denied.status, 409);
+    assert.equal(Boolean(denied.body?.requiresApproval), true);
+
+    const dryRunResult = await server.requestJson('/api/artifacts/cleanup/run-now', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+        dryRun: true,
+      },
+    });
+    assert.equal(dryRunResult.status, 200);
+    assert.equal(dryRunResult.body?.dryRun, true);
+    assert.equal(dryRunResult.body?.removed, 0);
   } finally {
     await server.stop();
   }

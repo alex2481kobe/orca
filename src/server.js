@@ -82,8 +82,12 @@ function sendText(res, status, text, type = 'text/plain; charset=utf-8') {
 }
 
 function normalizePathname(requestUrl) {
-  const parsed = new URL(requestUrl, 'http://localhost');
-  return decodeURIComponent(parsed.pathname || '/');
+  try {
+    const parsed = new URL(requestUrl, 'http://localhost');
+    return decodeURIComponent(parsed.pathname || '/');
+  } catch {
+    return null;
+  }
 }
 
 async function readArtifactText(filePath) {
@@ -330,10 +334,11 @@ async function handleApi(req, res, pathname, method, parts) {
     const normalizedDryRun = hasDryRunOverride
       ? body.dryRun
       : schedule.dryRun;
+    const approved = body && body.approved !== undefined ? body.approved : false;
     try {
       const result = await registry.cleanupArtifacts({
         actor: body.actor || 'dashboard',
-        approved: body.approved !== undefined ? body.approved : true,
+        approved: approved,
         skipApproval: false,
         sessionId: normalizedSessionId || null,
         olderThanDays: normalizedRetention ?? null,
@@ -702,6 +707,10 @@ async function handleApi(req, res, pathname, method, parts) {
 function routeRequest(req, res) {
   const method = req.method || 'GET';
   const pathname = normalizePathname(req.url || '/');
+  if (!pathname) {
+    sendText(res, 400, 'Invalid request URL.');
+    return Promise.resolve();
+  }
   const parts = getRouteParts(pathname);
   return handleRequest(req, res, pathname, method, parts);
 }
