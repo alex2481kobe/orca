@@ -472,6 +472,7 @@ test('executor CLI reinstall command validation is executor-specific and safe', 
     COMMAND_DECK_CLAUDE_BINARY: process.env.COMMAND_DECK_CLAUDE_BINARY,
     COMMAND_DECK_CODEX_REINSTALL_COMMAND: process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND,
     COMMAND_DECK_CLAUDE_REINSTALL_COMMAND: process.env.COMMAND_DECK_CLAUDE_REINSTALL_COMMAND,
+    COMMAND_DECK_CODEX_REINSTALL_PACKAGES: process.env.COMMAND_DECK_CODEX_REINSTALL_PACKAGES,
   });
 
   try {
@@ -492,9 +493,9 @@ test('executor CLI reinstall command validation is executor-specific and safe', 
       });
       assert.equal(planned.executed, false);
       assert.equal(planned.command[0], 'npm');
-    assert.equal(planned.command.includes('codex-cli'), true);
+      assert.equal(planned.command.includes('codex-cli'), true);
 
-      process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND = 'npm install lodash';
+      process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND = 'npm install codex-fake';
       const blocked = await withIsolatedRegistry();
       try {
         const blockedInfo = blocked.registry.getExecutorCliInfo('codex');
@@ -522,6 +523,63 @@ test('executor CLI reinstall command validation is executor-specific and safe', 
       });
       assert.equal(plannedSecond.executed, false);
       assert.equal(plannedSecond.command[0], 'npm');
+    } finally {
+      await cleanup();
+    }
+  } finally {
+    restore();
+  }
+});
+
+test('executor CLI reinstall package allowlist can be overridden per executor', async () => {
+  const restore = restoreEnv({
+    COMMAND_DECK_CODEX_BINARY: process.env.COMMAND_DECK_CODEX_BINARY,
+    COMMAND_DECK_CODEX_REINSTALL_COMMAND: process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND,
+    COMMAND_DECK_CODEX_REINSTALL_PACKAGES: process.env.COMMAND_DECK_CODEX_REINSTALL_PACKAGES,
+  });
+
+  try {
+    process.env.COMMAND_DECK_CODEX_BINARY = '/usr/bin/codex';
+    process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND = 'npm install --yes codex-cli';
+
+    const { registry, cleanup } = await withIsolatedRegistry();
+    try {
+      const defaultInfo = registry.getExecutorCliInfo('codex');
+      assert.equal(defaultInfo.reinstall.available, true);
+
+      process.env.COMMAND_DECK_CODEX_REINSTALL_PACKAGES = '@openai/codex';
+      const customBlocked = await withIsolatedRegistry();
+      try {
+        const customBlockedInfo = customBlocked.registry.getExecutorCliInfo('codex');
+        assert.equal(customBlockedInfo.reinstall.available, false);
+        await assert.rejects(
+          () => customBlocked.registry.runExecutorCliReinstall('codex', {
+            actor: 'test',
+            approved: true,
+            execute: false,
+          }),
+          (error) => error.status === 422,
+        );
+      } finally {
+        await customBlocked.cleanup();
+      }
+
+      process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND = 'npm install --yes @openai/codex';
+      process.env.COMMAND_DECK_CODEX_REINSTALL_PACKAGES = '@openai/codex';
+      const scopedAllowed = await withIsolatedRegistry();
+      try {
+        const scopedInfo = scopedAllowed.registry.getExecutorCliInfo('codex');
+        assert.equal(scopedInfo.reinstall.available, true);
+        const scopedPlan = await scopedAllowed.registry.runExecutorCliReinstall('codex', {
+          actor: 'test',
+          approved: true,
+          execute: false,
+        });
+        assert.equal(scopedPlan.executed, false);
+        assert.equal(scopedPlan.command.includes('@openai/codex'), true);
+      } finally {
+        await scopedAllowed.cleanup();
+      }
     } finally {
       await cleanup();
     }

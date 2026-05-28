@@ -74,6 +74,14 @@ For private mobile control guidance, see:
 
   - `"[\"npm\",\"install\",\"-g\",\"--yes\",\"codex-cli\"]"`
 
+  Optionally constrain allowed reinstall packages per executor with:
+  - `COMMAND_DECK_CODEX_REINSTALL_PACKAGES`
+  - `COMMAND_DECK_CLAUDE_REINSTALL_PACKAGES`
+
+  Provide a comma-separated allowlist. Example:
+
+  - `COMMAND_DECK_CODEX_REINSTALL_PACKAGES=codex-cli,@openai/codex`
+
 - Reinstall endpoints:
   - `GET /api/executors/{executor}/cli`
   - `POST /api/executors/{executor}/cli/reinstall` with `{ "approved": true, "execute": false }`

@@ -31,6 +31,10 @@ const REINSTALL_COMMAND_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_REINSTALL_ARG_LEN = 120;
 const MAX_REINSTALL_ARGS = 24;
 const ALLOWED_REINSTALL_BINARIES = new Set(['npm', 'pnpm', 'bun', 'brew', 'pip', 'pip3']);
+const REINSTALL_PACKAGE_ALLOWLIST = {
+  codex: ['codex-cli', '@openai/codex'],
+  claude: ['claude-cli', 'claude-code', '@anthropic/claude-code'],
+};
 const REINSTALL_INSTALL_VERBS = {
   npm: ['install', 'i', 'update', 'upgrade', 'reinstall'],
   pnpm: ['install', 'add', 'update', 'upgrade', 'reinstall'],
@@ -46,6 +50,35 @@ function normalizeReinstallToken(raw) {
   if (value.length > MAX_REINSTALL_ARG_LEN) return null;
   if (/[|&;<>$`\\r\n\t]/.test(value)) return null;
   return value;
+}
+
+function getReinstallPackageAllowlist(type) {
+  const normalizedType = normalizeExecutorType(type);
+  const envKey = `COMMAND_DECK_${normalizedType.toUpperCase()}_REINSTALL_PACKAGES`;
+  const override = process.env[envKey];
+  if (!override) {
+    return REINSTALL_PACKAGE_ALLOWLIST[normalizedType] || [];
+  }
+  return String(override)
+    .split(',')
+    .map((value) => String(value || '').trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function tokenMatchesPackage(token, allowedPackage) {
+  const normalizedToken = String(token || '').toLowerCase();
+  const normalizedAllowed = String(allowedPackage || '').toLowerCase();
+  if (!normalizedToken || !normalizedAllowed) return false;
+  if (normalizedToken === normalizedAllowed) return true;
+  if (normalizedToken.startsWith(`${normalizedAllowed}@`)) return true;
+  if (normalizedToken.endsWith(`/${normalizedAllowed}`)) return true;
+  return normalizedToken.includes(`/${normalizedAllowed}`);
+}
+
+function hasAllowedReinstallPackage(parts, expectedType) {
+  const allowlist = getReinstallPackageAllowlist(expectedType);
+  if (!allowlist.length) return true;
+  return parts.some((part) => allowlist.some((allowed) => tokenMatchesPackage(part, allowed)));
 }
 
 function commandTargetsExecutor(type, commandParts) {
@@ -102,6 +135,8 @@ function normalizeReinstallCommand(raw, expectedType = null) {
   const installVerbs = getInstallerVerbsForBinary(normalizedBinary);
   const hasInstallerVerb = args.some((arg) => installVerbs.includes(normalizeReinstallToken(arg)));
   if (!hasInstallerVerb) return null;
+
+  if (!hasAllowedReinstallPackage(parts, expectedType)) return null;
 
   if (!commandTargetsExecutor(expectedType, parts)) return null;
 
