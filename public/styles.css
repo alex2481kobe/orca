@@ -155,7 +155,7 @@ a {
 
 .app-topbar {
   align-items: center;
-  background: rgba(18, 19, 17, 0.94);
+  background: rgba(19, 20, 17, 0.92);
   border-bottom: 1px solid var(--line-soft);
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;

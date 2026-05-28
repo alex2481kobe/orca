@@ -409,6 +409,27 @@ function renderTopbarTitle(project, session, lane) {
   refs.topbarTitle.textContent = lane?.title || session?.name || project?.name || '';
 }
 
+function captureContentUiState() {
+  if (!refs.content) return null;
+  return {
+    detailsOpen: Array.from(refs.content.querySelectorAll('details')).map((detail) => detail.open),
+    projectToolsOpen: Boolean(refs.content.querySelector('.project-shell.tools-open')),
+  };
+}
+
+function restoreContentUiState(state) {
+  if (!state || !refs.content) return;
+  Array.from(refs.content.querySelectorAll('details')).forEach((detail, index) => {
+    if (index < state.detailsOpen.length) {
+      detail.open = state.detailsOpen[index];
+    }
+  });
+  const projectShell = refs.content.querySelector('.project-shell');
+  if (projectShell && state.projectToolsOpen) {
+    projectShell.classList.add('tools-open');
+  }
+}
+
 function renderHome() {
   const panel = activeHomePanel();
   const artifactCleanupUrl = shell.mobileManifest?.artifactCleanupUrl || '/api/artifacts/cleanup';
@@ -1057,7 +1078,7 @@ function renderAuditLog() {
   refs.actions.innerHTML = `<div class="card"><h3>Open audit queue</h3><div class="card-grid">${rows}</div></div>`;
 }
 
-function render() {
+function render(uiState = null) {
   const project = shell.projects.find((value) => value.slug === shell.route.projectSlug || value.id === shell.route.projectSlug);
   const sessions = project ? shell.sessions : [];
   const session = sessions.find((value) => value.id === shell.route.sessionId);
@@ -1080,6 +1101,7 @@ function render() {
     renderSession(project, session);
   }
   renderAuditLog();
+  restoreContentUiState(uiState);
 }
 
 function renderStatusStrip() {
@@ -1343,7 +1365,7 @@ async function refresh() {
         .flatMap((response) => response.data);
     }
   }
-  render();
+  render(captureContentUiState());
 }
 
 function buildCleanupScheduleBody(formData) {
