@@ -2,13 +2,14 @@ const ROUTE_INVENTORY_VERSION = 'command-deck.route-inventory.v1';
 
 const jsonBodyLimit = 'COMMAND_DECK_MAX_JSON_BYTES default 262144';
 const corsDefault = 'same-origin/browser session or x-commanddeck-token; CORS denied by default';
+const centralRateLimit = 'central in-memory policy via src/rate-limiter.js; emits 429 with Retry-After and X-RateLimit-* headers';
 
 function route(entry) {
   return {
     contractVersion: ROUTE_INVENTORY_VERSION,
     owner: 'command-deck-server',
     bodyLimit: entry.method === 'GET' ? 'none' : jsonBodyLimit,
-    rateLimit: entry.rateLimit || 'not-yet-centralized; route has deterministic validation and audit coverage',
+    rateLimit: entry.rateLimit || centralRateLimit,
     mobileBehavior: entry.mobileBehavior || 'available through dashboard/mobile manifest where relevant',
     ...entry,
   };

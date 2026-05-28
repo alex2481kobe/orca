@@ -27,6 +27,8 @@ test('route inventory has complete security metadata for every inventoried route
     const key = `${item.method} ${item.route}`;
     assert.equal(seen.has(key), false, `duplicate ${key}`);
     seen.add(key);
+    assert.equal(item.rateLimit.includes('src/rate-limiter.js'), true, `${key} must reference central rate limiter`);
+    assert.equal(item.rateLimit.includes('not-yet'), false, `${key} has stale rate limit metadata`);
     if (item.method !== 'GET') {
       assert.notEqual(item.auth, 'none', `${key} must not be unauthenticated`);
       assert.notEqual(item.bodyLimit, 'none', `${key} must declare a body limit`);

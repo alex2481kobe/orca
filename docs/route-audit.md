@@ -42,6 +42,8 @@ Every route entry must declare:
   can verify against the current source tree.
 - The inventory must not leak local machine paths, API tokens, worker tokens,
   provider secrets, or credential values.
+- Every route must declare centralized rate-limit coverage through
+  `src/rate-limiter.js`.
 
 ## Current route groups
 
@@ -83,6 +85,10 @@ covers these route groups:
 - Browser-session mutations require same-origin protection.
 - Dashboard requests may not spoof reserved actors: `scheduler`, `system`,
   `cron`, or `worker`.
+- API routes are centrally rate-limited by `src/rate-limiter.js`. Responses
+  include `X-RateLimit-Policy`, `X-RateLimit-Limit`,
+  `X-RateLimit-Remaining`, and `X-RateLimit-Reset`. Rejected requests return
+  `429` with `Retry-After` and a redacted JSON body.
 - Secrets must never be returned from provider, export, route-inventory,
   mobile-manifest, audit, log, artifact, or smoke endpoints.
 - Static PWA caching is limited to static assets. API, artifact, evidence, log,

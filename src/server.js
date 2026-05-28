@@ -13,6 +13,10 @@ import {
   buildNextActionEnvelope,
 } from './agent-tools.js';
 import { buildRouteInventory } from './route-inventory.js';
+import {
+  classifyRequestForRateLimit,
+  createRateLimiter,
+} from './rate-limiter.js';
 import { fileURLToPath } from 'node:url';
 
 const PORT = Number(process.env.PORT || 3000);
@@ -22,6 +26,9 @@ const registry = new CommandDeckRegistry();
 const privateAccess = new PrivateAccessStore();
 const providerProfiles = new ProviderProfileStore();
 const authSessions = new AuthSessionStore();
+const rateLimiter = createRateLimiter({
+  disabled: process.env.COMMAND_DECK_RATE_LIMIT_DISABLED === 'true',
+});
 const API_TOKEN = process.env.COMMAND_DECK_API_TOKEN || '';
 const WORKER_TOKEN = process.env.COMMAND_DECK_WORKER_TOKEN || '';
 const MAX_JSON_BODY_BYTES = (() => {
@@ -161,6 +168,28 @@ function sendJson(res, status, payload) {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache');
   res.end(body);
+}
+
+function applyRateLimit(req, res, method, parts) {
+  const rateTarget = classifyRequestForRateLimit(req, method, parts);
+  const result = rateLimiter.check(rateTarget);
+  res.setHeader('X-RateLimit-Policy', result.policyName);
+  res.setHeader('X-RateLimit-Limit', String(result.limit));
+  res.setHeader('X-RateLimit-Remaining', String(result.remaining));
+  res.setHeader('X-RateLimit-Reset', result.resetAt);
+  if (result.allowed) return true;
+  res.setHeader('Retry-After', String(result.retryAfterSeconds));
+  sendJson(res, 429, {
+    error: 'Rate limit exceeded. Retry after the indicated delay.',
+    rateLimit: {
+      policy: result.policyName,
+      limit: result.limit,
+      remaining: result.remaining,
+      resetAt: result.resetAt,
+      retryAfterSeconds: result.retryAfterSeconds,
+    },
+  });
+  return false;
 }
 
 function sendText(res, status, text, type = 'text/plain; charset=utf-8') {
@@ -688,6 +717,7 @@ async function handleApi(req, res, pathname, method, parts) {
   if (parts[0] !== 'api') {
     return serveStaticOrIndex(pathname, res);
   }
+  if (!applyRateLimit(req, res, method, parts)) return;
   if (parts[1] === 'auth') {
     return handleAuthApi(req, res, method, parts);
   }

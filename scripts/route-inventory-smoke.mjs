@@ -97,6 +97,12 @@ function validateRouteShape(item, index) {
   if (!VALID_METHODS.has(item.method)) fail('unsupported method', `${item.method} ${item.route}`);
   if (!item.route.startsWith('/')) fail('route must start with /', item.route);
   if (!VALID_RISKS.has(item.mutationRisk)) fail('unsupported mutationRisk', `${item.mutationRisk} ${item.route}`);
+  if (String(item.rateLimit || '').includes('not-yet')) {
+    fail('route has non-centralized rate-limit metadata', `${item.method} ${item.route}`);
+  }
+  if (!String(item.rateLimit || '').includes('src/rate-limiter.js')) {
+    fail('route must reference central rate limiter', `${item.method} ${item.route}`);
+  }
   if (item.method !== 'GET') {
     if (item.auth === 'none') fail('mutating route cannot have auth none', `${item.method} ${item.route}`);
     if (item.bodyLimit === 'none') fail('mutating route must declare body limit', `${item.method} ${item.route}`);
