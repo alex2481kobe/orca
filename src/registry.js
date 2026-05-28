@@ -27,6 +27,14 @@ const parsePositiveFloat = (value, fallback = null) => {
   return parsed;
 };
 
+function parseBooleanEnv(value, fallback = false) {
+  if (value === undefined || value === null) return fallback;
+  const normalized = String(value).trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on', 'enabled'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off', 'disabled'].includes(normalized)) return false;
+  return fallback;
+}
+
 const REINSTALL_COMMAND_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_REINSTALL_ARG_LEN = 120;
 const MAX_REINSTALL_ARGS = 24;
@@ -97,6 +105,19 @@ function getReinstallSourceRepos(type) {
     .map((value) => String(value || '').trim().toLowerCase())
     .filter(Boolean)
     .map((value) => value.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, ''));
+}
+
+function shouldPreferSourceReinstall(type) {
+  const normalizedType = normalizeExecutorType(type);
+  const envKey = `COMMAND_DECK_${normalizedType.toUpperCase()}_REINSTALL_PREFER_SOURCE`;
+  return parseBooleanEnv(process.env[envKey], false);
+}
+
+function getReinstallSourceCommand(type) {
+  const repos = getReinstallSourceRepos(type);
+  const preferredRepo = repos[0];
+  if (!preferredRepo) return null;
+  return ['npm', 'install', '--yes', '-g', `git+https://github.com/${preferredRepo}.git`];
 }
 
 function normalizeReinstallSourceRepo(raw) {
@@ -252,6 +273,12 @@ function getReinstallCommand(type) {
   if (!envVar) return null;
   const configured = process.env[envVar];
   if (configured === undefined) {
+    if (shouldPreferSourceReinstall(executorType)) {
+      const sourceCommand = getReinstallSourceCommand(executorType);
+      if (sourceCommand) {
+        return normalizeReinstallCommand(sourceCommand, executorType);
+      }
+    }
     return normalizeReinstallCommand(DEFAULT_REINSTALL_COMMANDS[executorType], executorType);
   }
   return normalizeReinstallCommand(configured, executorType);
@@ -1993,6 +2020,8 @@ export class CommandDeckRegistry {
     const binary = String(profile.defaultBinary || type);
     const versionInfo = getCliVersion(binary);
     const reinstallCommand = getReinstallCommand(type);
+    const reinstallSourceRepos = getReinstallSourceRepos(type);
+    const preferSource = shouldPreferSourceReinstall(type);
     return {
       type,
       profile,
@@ -2003,6 +2032,9 @@ export class CommandDeckRegistry {
       reinstall: {
         available: Boolean(reinstallCommand),
         command: reinstallCommand,
+        preferSource,
+        sourceRepos: reinstallSourceRepos,
+        sourceCommand: getReinstallSourceCommand(type),
       },
     };
   }

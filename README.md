@@ -106,6 +106,12 @@ For private mobile control guidance, see:
 
   - `COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS=openai/codex,my-org/codex-fork`
 
+  Control whether source-based reinstall is preferred when no override is provided with:
+  - `COMMAND_DECK_CODEX_REINSTALL_PREFER_SOURCE`
+  - `COMMAND_DECK_CLAUDE_REINSTALL_PREFER_SOURCE`
+
+  Set to `true` to prefer reinstalling from `git+https://github.com/...` and set to `false` to keep package-based defaults.
+
 - Reinstall endpoints:
   - `GET /api/executors/{executor}/cli`
   - `POST /api/executors/{executor}/cli/reinstall` with `{ "approved": true, "execute": false }`

@@ -1188,3 +1188,65 @@ test('executor CLI reinstall can use a configured source repo allowlist override
     restore();
   }
 });
+
+test('executor CLI reinstall preference for source commands is respected and surfaced', async () => {
+  const restore = restoreEnv({
+    COMMAND_DECK_CODEX_BINARY: process.env.COMMAND_DECK_CODEX_BINARY,
+    COMMAND_DECK_CODEX_REINSTALL_COMMAND: process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND,
+    COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS: process.env.COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS,
+    COMMAND_DECK_CODEX_REINSTALL_PREFER_SOURCE: process.env.COMMAND_DECK_CODEX_REINSTALL_PREFER_SOURCE,
+  });
+
+  try {
+    process.env.COMMAND_DECK_CODEX_BINARY = '/usr/bin/codex';
+    process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND = 'npm install --yes @openai/codex';
+    process.env.COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS = 'my-org/codex-fork,openai/codex';
+    process.env.COMMAND_DECK_CODEX_REINSTALL_PREFER_SOURCE = 'true';
+
+    const preferred = await withIsolatedRegistry();
+    try {
+      const preferredInfo = preferred.registry.getExecutorCliInfo('codex');
+      assert.equal(preferredInfo.reinstall.preferSource, true);
+      assert.equal(preferredInfo.reinstall.sourceRepos[0], 'my-org/codex-fork');
+      assert.equal(
+        (preferredInfo.reinstall.command || []).join(' ').includes('git+https://github.com/my-org/codex-fork.git'),
+        true,
+      );
+      const preferredPlan = await preferred.registry.runExecutorCliReinstall('codex', {
+        actor: 'test',
+        approved: true,
+        execute: false,
+      });
+      assert.equal(preferredPlan.executed, false);
+      assert.equal(
+        (preferredPlan.command || []).join(' ').includes('git+https://github.com/my-org/codex-fork.git'),
+        true,
+      );
+    } finally {
+      await preferred.cleanup();
+    }
+
+    process.env.COMMAND_DECK_CODEX_REINSTALL_PREFER_SOURCE = 'false';
+    const fallback = await withIsolatedRegistry();
+    try {
+      const fallbackInfo = fallback.registry.getExecutorCliInfo('codex');
+      assert.equal(fallbackInfo.reinstall.preferSource, false);
+      assert.equal(
+        (fallbackInfo.reinstall.command || []).includes('npm'),
+        true,
+      );
+      assert.equal(
+        (fallbackInfo.reinstall.command || []).includes('git+https://github.com/my-org/codex-fork.git'),
+        false,
+      );
+      assert.equal(
+        (fallbackInfo.reinstall.sourceCommand || []).join(' ').includes('git+https://github.com/my-org/codex-fork.git'),
+        true,
+      );
+    } finally {
+      await fallback.cleanup();
+    }
+  } finally {
+    restore();
+  }
+});

@@ -287,6 +287,13 @@ function renderHome() {
     const command = Array.isArray(info?.reinstall?.command)
       ? safeText(info.reinstall.command.join(' '))
       : 'not configured';
+    const preferSource = info?.reinstall?.preferSource ? 'enabled' : 'disabled';
+    const sourceRepos = Array.isArray(info?.reinstall?.sourceRepos)
+      ? info.reinstall.sourceRepos.join(', ')
+      : 'not configured';
+    const sourceCommand = Array.isArray(info?.reinstall?.sourceCommand)
+      ? safeText(info.reinstall.sourceCommand.join(' '))
+      : 'not available';
     return `
       <div class="lane-row" style="align-items:center; justify-content:space-between;">
         <div>
@@ -294,6 +301,9 @@ function renderHome() {
           <div class="tiny muted">binary: ${safeText(info?.binary || '')}</div>
           <div class="tiny muted">version: ${safeText(info?.version || 'unknown')}</div>
           <div class="tiny muted">reinstall: ${command}</div>
+          <div class="tiny muted">source-first mode: ${safeText(preferSource)}</div>
+          <div class="tiny muted">source repos: ${safeText(sourceRepos)}</div>
+          <div class="tiny muted">source command: ${safeText(sourceCommand)}</div>
         </div>
         <div class="lane-row">
           <button data-action="refreshExecutorCli" data-executor="${safeText(type)}" type="button">Refresh</button>
