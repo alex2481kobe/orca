@@ -101,6 +101,42 @@ test('cleanup schedule and cleanup artifacts use retention + approval', async ()
   }
 });
 
+test('cleanup artifacts and cleanup schedule require approval for manual invocation', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    await assert.rejects(
+      () => registry.cleanupArtifacts({
+        actor: 'dashboard',
+        approved: false,
+        dryRun: true,
+        sessionId: null,
+      }),
+      (error) => error.status === 409,
+    );
+
+    await assert.rejects(
+      () => registry.updateCleanupSchedule({
+        enabled: true,
+        intervalHours: 24,
+        olderThanDays: 7,
+      }, { actor: 'dashboard', approved: false }),
+      (error) => error.status === 409,
+    );
+
+    const schedulerResult = await registry.cleanupArtifacts({
+      actor: 'scheduler',
+      skipApproval: true,
+      dryRun: true,
+      sessionId: null,
+      olderThanDays: 7,
+    });
+    assert.equal(schedulerResult.dryRun, true);
+    assert.equal(schedulerResult.removed, 0);
+  } finally {
+    await cleanup();
+  }
+});
+
 test('cleanup default retention comes from session policy when olderThanDays is omitted', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
 
