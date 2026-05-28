@@ -423,6 +423,78 @@ test('MCP tool validation enforces scope allowlist and single-token command', as
   }
 });
 
+test('Creating lanes rejects unknown or unauthorized MCP tool IDs', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+
+  try {
+    const project = registry.createProject({ name: 'Lane MCP Policy Project' });
+    const session = registry.createSession(project.id, { name: 'Lane MCP Policy Session' });
+
+    await registry.createMcpTool({
+      name: 'scoped-codex-tool',
+      command: 'node',
+      scope: ['codex'],
+      enabled: true,
+      args: ['-v'],
+    }, { actor: 'test', approved: true });
+
+    await registry.createMcpTool({
+      name: 'scoped-claude-tool',
+      command: 'node',
+      scope: ['claude'],
+      enabled: true,
+      args: ['-v'],
+    }, { actor: 'test', approved: true });
+
+    await registry.createMcpTool({
+      name: 'disabled-claude-tool',
+      command: 'node',
+      scope: ['claude'],
+      enabled: false,
+      args: ['-v'],
+    }, { actor: 'test', approved: true });
+
+    assert.throws(() => registry.createLane(session.id, {
+      title: 'Unknown MCP tool',
+      executorType: 'codex',
+      executorBinary: '/usr/bin/codex',
+      mcpToolIds: ['ghost-tool'],
+    }, { approved: true, actor: 'test' }), (error) => error.status === 422);
+
+    assert.throws(() => registry.createLane(session.id, {
+      title: 'Disallowed MCP tool',
+      executorType: 'codex',
+      executorBinary: '/usr/bin/codex',
+      mcpToolIds: ['scoped-claude-tool'],
+    }, { approved: true, actor: 'test' }), (error) => error.status === 422);
+
+    assert.throws(() => registry.createLane(session.id, {
+      title: 'Disabled MCP tool',
+      executorType: 'codex',
+      executorBinary: '/usr/bin/codex',
+      mcpToolIds: ['disabled-claude-tool'],
+    }, { approved: true, actor: 'test' }), (error) => error.status === 422);
+
+    assert.throws(() => registry.createLane(session.id, {
+      title: 'Scope mismatch MCP tool',
+      executorType: 'codex',
+      executorBinary: '/usr/bin/codex',
+      mcpToolIds: ['scoped-claude-tool'],
+    }, { approved: true, actor: 'test' }), (error) => error.status === 422);
+
+    const codexLane = await registry.createLane(session.id, {
+      title: 'Valid codex with scoped tool',
+      executorType: 'codex',
+      executorBinary: '/usr/bin/codex',
+      mcpToolIds: ['scoped-codex-tool'],
+    }, { approved: true, actor: 'test' });
+    assert.equal(codexLane.mcpTools.length, 1);
+    assert.equal(codexLane.mcpTools[0].id, 'scoped-codex-tool');
+  } finally {
+    await cleanup();
+  }
+});
+
 test('MCP tool command allowlist can be enforced via env override', async () => {
   const restore = restoreEnv({
     COMMAND_DECK_MCP_TOOL_COMMAND_ALLOWLIST: process.env.COMMAND_DECK_MCP_TOOL_COMMAND_ALLOWLIST,

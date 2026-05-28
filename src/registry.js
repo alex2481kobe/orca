@@ -1260,6 +1260,31 @@ export class CommandDeckRegistry {
       .map((item) => String(item || '').trim())
       .filter(Boolean)
       .filter((value, index, all) => all.indexOf(value) === index);
+    const unknownToolIds = [];
+    const disallowedToolIds = [];
+    resolvedToolIds.forEach((toolId) => {
+      const tool = this.getMcpTool(toolId);
+      if (!tool) {
+        unknownToolIds.push(toolId);
+        return;
+      }
+      if (!scopedToolIds.has(tool.id) || !tool.enabled) {
+        disallowedToolIds.push(tool.id);
+      }
+    });
+    if (unknownToolIds.length || disallowedToolIds.length) {
+      const details = [];
+      if (unknownToolIds.length) {
+        details.push(`Unknown MCP tools: ${unknownToolIds.join(', ')}`);
+      }
+      if (disallowedToolIds.length) {
+        details.push(`Unauthorized MCP tools: ${disallowedToolIds.join(', ')}`);
+      }
+      throw {
+        status: 422,
+        message: `Cannot create lane: ${details.join('; ')}`,
+      };
+    }
     const mcpTools = resolvedToolIds
       .map((id) => this.getMcpTool(id))
       .filter((tool) => tool && scopedToolIds.has(tool.id))
