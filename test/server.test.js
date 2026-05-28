@@ -380,6 +380,28 @@ test('executor CLI reinstall rejects source mode with custom override command', 
   }
 });
 
+test('executor CLI APIs reject unsupported executor types', async () => {
+  const token = 'route-token-03f';
+  const server = await startServer({ token });
+
+  try {
+    const missingInfo = await server.requestJson('/api/executors/unknown/cli', { method: 'GET' });
+    assert.equal(missingInfo.status, 404);
+
+    const missingReinstall = await server.requestJson('/api/executors/unknown/cli/reinstall', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+      },
+    });
+    assert.equal(missingReinstall.status, 404);
+  } finally {
+    await server.stop();
+  }
+});
+
 test('executor CLI reinstall supports claude with source-mode and command validation', async () => {
   const token = 'route-token-03e';
   const server = await startServer({
@@ -499,6 +521,29 @@ test('server MCP tooling routes require token and support CRUD workflow', async 
 
     const afterDelete = await server.requestJson(`/api/mcp/tools/${created.body.id}`, { method: 'GET' });
     assert.equal(afterDelete.status, 404);
+  } finally {
+    await server.stop();
+  }
+});
+
+test('server MCP tooling sanitizes blocked argument tokens', async () => {
+  const token = 'route-token-04c';
+  const server = await startServer({ token });
+
+  try {
+    const blockedArg = await server.requestJson('/api/mcp/tools', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        name: 'blocked-arg-tool',
+        command: 'node',
+        args: [';rm -rf /'],
+        scope: ['all'],
+        approved: true,
+      },
+    });
+    assert.equal(blockedArg.status, 422);
+    assert.equal(String(blockedArg.body?.error || '').includes('contains blocked characters'), true);
   } finally {
     await server.stop();
   }
