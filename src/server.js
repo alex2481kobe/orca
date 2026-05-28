@@ -330,7 +330,12 @@ async function handleApi(req, res, pathname, method, parts) {
   }
 
   if (parts[1] === 'system' && parts[2] === 'blockers' && method === 'GET') {
-    return sendJson(res, 200, registry.describeSystemBlockers());
+    try {
+      const data = await registry.describeSystemBlockers();
+      return sendJson(res, 200, data);
+    } catch (error) {
+      return sendJson(res, 500, { error: error?.message || 'Could not load blockers.' });
+    }
   }
 
   if (parts[1] === 'executors' && parts[2] === 'profiles' && method === 'GET') {

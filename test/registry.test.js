@@ -1738,7 +1738,7 @@ test('Session creation refuses repoRoot outside approved roots and non-git paths
 test('describeSystemBlockers reports executor and playwright state', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
-    const result = registry.describeSystemBlockers();
+    const result = await registry.describeSystemBlockers();
     assert.ok(Array.isArray(result.blockers));
     // We should see one of these on a typical dev box. Just assert shape.
     for (const blocker of result.blockers) {

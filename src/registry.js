@@ -2521,7 +2521,7 @@ export class CommandDeckRegistry {
     return clonePayload(this.policies);
   }
 
-  describeSystemBlockers() {
+  async describeSystemBlockers() {
     const blockers = [];
     // Executor blockers
     for (const executorType of ['codex', 'claude']) {
@@ -2562,8 +2562,9 @@ export class CommandDeckRegistry {
         });
       }
     }
-    // Playwright blocker
-    if (!this.evidenceRunner.hasPlaywright()) {
+    // Playwright blocker — await detection so we don't false-positive after install.
+    const playwrightOk = await this.evidenceRunner.ensurePlaywrightDetected();
+    if (!playwrightOk) {
       blockers.push({
         id: 'playwright-missing',
         severity: 'warn',

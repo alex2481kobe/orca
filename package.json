@@ -12,6 +12,10 @@
     "dev": "node src/server.js",
     "start": "node src/server.js",
     "test": "node --test ./test/**/*.test.js",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "smoke:ui": "node scripts/ui-smoke.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.60.0"
   }
 }
