@@ -2,12 +2,29 @@
   "name": "Command Deck",
   "short_name": "Command Deck",
   "description": "Local-first multi-agent command center for projects, sessions, evidence, and private access.",
+  "id": "/",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "browser"],
   "background_color": "#10110f",
   "theme_color": "#10110f",
   "orientation": "any",
+  "categories": ["productivity", "developer", "utilities"],
+  "shortcuts": [
+    {
+      "name": "Phone setup",
+      "short_name": "Setup",
+      "description": "Open the private phone setup and pairing wizard.",
+      "url": "/#setup"
+    },
+    {
+      "name": "Projects",
+      "short_name": "Projects",
+      "description": "Open Command Deck projects.",
+      "url": "/#projects"
+    }
+  ],
   "icons": [
     {
       "src": "/icon.svg",

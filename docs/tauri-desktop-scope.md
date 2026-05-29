@@ -28,6 +28,19 @@ second product.
 - Surface server health, local URL, tailnet HTTP URL, HTTPS Serve URL, and
   active paired sessions.
 
+## Cross-platform infrastructure
+
+- Keep the Tauri command surface platform-neutral from the start.
+- Use a credential backend interface with macOS Keychain, Windows Credential
+  Manager, and Linux Secret Service implementations behind the same calls.
+- Keep server process management behind one abstraction with platform adapters
+  for macOS, Windows, and Linux.
+- Build CI/package scripts so macOS, Windows, and Linux targets can be added
+  without changing the web app.
+- Initial manual packaging validation can happen on Windows first if that is the
+  available test machine, but the source layout must not hardcode Windows-only
+  paths or shell behavior.
+
 ## Phase 2: first-run desktop wizard
 
 - Step 1: confirm local server health.

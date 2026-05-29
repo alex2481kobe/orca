@@ -745,6 +745,7 @@ body.sidebar-collapsed .sidebar-project-line {
 
 .home-panels[data-active-panel="overview"] > [data-panel-card]:not([data-panel-card="projects"]),
 .home-panels[data-active-panel="projects"] > [data-panel-card]:not([data-panel-card="projects"]):not([data-panel-card="create"]),
+.home-panels[data-active-panel="setup"] > [data-panel-card]:not([data-panel-card="setup"]),
 .home-panels[data-active-panel="create"] > [data-panel-card]:not([data-panel-card="create"]),
 .home-panels[data-active-panel="token"] > [data-panel-card]:not([data-panel-card="token"]),
 .home-panels[data-active-panel="system"] > [data-panel-card]:not([data-panel-card="system"]),
@@ -861,6 +862,81 @@ body.sidebar-collapsed .sidebar-project-line {
 .qr-fallback span {
   color: var(--muted);
   font-size: 0.72rem;
+}
+
+.setup-wizard {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.setup-steps {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.setup-step {
+  align-items: center;
+  background: rgba(24, 26, 22, 0.7);
+  border: 1px solid rgba(64, 67, 58, 0.62);
+  border-radius: 14px;
+  display: grid;
+  gap: 0.7rem;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 0.65rem;
+}
+
+.setup-step > span {
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  display: inline-flex;
+  font-weight: 800;
+  height: 2rem;
+  justify-content: center;
+  width: 2rem;
+}
+
+.setup-step.ok > span {
+  background: rgba(49, 96, 61, 0.55);
+  border-color: rgba(139, 213, 157, 0.5);
+}
+
+.setup-step.warn > span {
+  background: rgba(101, 76, 28, 0.62);
+  border-color: rgba(230, 188, 106, 0.52);
+}
+
+.setup-step small {
+  color: var(--muted);
+  display: block;
+  margin-top: 0.18rem;
+}
+
+.pairing-code-box {
+  background: rgba(216, 191, 143, 0.13);
+  border: 1px solid rgba(216, 191, 143, 0.38);
+  border-radius: 12px;
+  display: grid;
+  gap: 0.25rem;
+  margin-top: 0.65rem;
+  padding: 0.65rem;
+}
+
+.pairing-code-box strong {
+  font-size: 1.55rem;
+  letter-spacing: 0.08em;
+}
+
+.pairing-code-box span {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.setup-list {
+  color: var(--muted);
+  line-height: 1.45;
+  margin: 0;
+  padding-left: 1.2rem;
 }
 
 .simple-section h3 {

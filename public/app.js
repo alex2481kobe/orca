@@ -24,6 +24,7 @@ const shell = {
   authStatus: null,
   notifications: null,
   authSessions: null,
+  lastPairing: null,
 };
 
 let refreshRequestId = 0;
@@ -578,7 +579,7 @@ function isVerificationProject(project) {
 
 function activeHomePanel() {
   const panel = String(window.location.hash || '').replace(/^#/, '').toLowerCase();
-  const allowed = new Set(['projects', 'create', 'system', 'mcp', 'audit', 'cleanup', 'token', 'private-access', 'providers', 'effective-settings', 'notifications', 'backup']);
+  const allowed = new Set(['projects', 'setup', 'create', 'system', 'mcp', 'audit', 'cleanup', 'token', 'private-access', 'providers', 'effective-settings', 'notifications', 'backup']);
   return allowed.has(panel) ? panel : 'overview';
 }
 
@@ -972,6 +973,7 @@ function renderHome() {
           <div class="lane-row">
             <button class="secondary" data-action="copyPhoneUrl" data-url="${safeAttr(phoneUrl)}" type="button">Copy link</button>
             <button class="secondary" data-action="createPairingCode" type="button">Create pairing code</button>
+            <a class="secondary" href="#setup">Setup wizard</a>
             <a class="secondary" href="#private-access">Tailscale setup</a>
           </div>
           <details class="disclosure compact-disclosure">
@@ -982,6 +984,10 @@ function renderHome() {
         <div class="qr-wrap">${phoneQr}<span>Scan from phone</span></div>
       </article>
       <h3>Projects</h3>
+      <a class="simple-row" href="#setup">
+        <span class="row-icon">◎</span>
+        <span>Phone setup wizard</span>
+      </a>
       <a class="simple-row" href="#create">
         <span class="row-icon">＋</span>
         <span>New project</span>
@@ -1016,6 +1022,97 @@ function renderHome() {
       </div>
     </div>
     <section class="grid-2 home-panels" data-active-panel="${safeAttr(panel)}">
+      <article class="card control-card setup-wizard" id="section-setup" data-panel-card="setup">
+        <div class="card-kicker">First-run wizard</div>
+        <h3>Connect phone or PWA</h3>
+        <p class="muted">The secure flow is tailnet access first, then Command Deck pairing. Tailnet membership alone is not enough to control the dashboard.</p>
+        <div class="setup-steps">
+          <div class="setup-step ${tailnet.binaryAvailable ? 'ok' : 'warn'}">
+            <span>1</span>
+            <div><strong>Tailscale installed</strong><small>${tailnet.binaryAvailable ? 'Detected on this workstation.' : 'Install and sign in to Tailscale on this workstation.'}</small></div>
+          </div>
+          <div class="setup-step ${tailnet.loggedIn ? 'ok' : 'warn'}">
+            <span>2</span>
+            <div><strong>Tailnet session</strong><small>${tailnet.loggedIn ? 'This workstation is signed in.' : 'Sign in, then refresh Command Deck.'}</small></div>
+          </div>
+          <div class="setup-step ${phoneUrl.startsWith('http') ? 'ok' : 'warn'}">
+            <span>3</span>
+            <div><strong>Private URL</strong><small>${safeText(phoneUrl)}</small></div>
+          </div>
+          <div class="setup-step ${browserPaired || tokenConfigured ? 'ok' : 'warn'}">
+            <span>4</span>
+            <div><strong>Browser access</strong><small>${browserPaired ? 'This browser is paired.' : tokenConfigured ? 'API token is set in this tab.' : 'Pair the browser or use the API token fallback.'}</small></div>
+          </div>
+        </div>
+        <div class="onboarding-card mini">
+          <div>
+            <strong>Scan or open this from your phone</strong>
+            <code class="copy-url">${safeText(phoneUrl)}</code>
+            <div class="lane-row">
+              <button class="secondary" data-action="copyPhoneUrl" data-url="${safeAttr(phoneUrl)}" type="button">Copy link</button>
+              <button class="secondary" data-action="createPairingCode" type="button">Create one-time code</button>
+            </div>
+            ${shell.lastPairing ? `
+              <div class="pairing-code-box">
+                <div class="tiny muted">One-time pairing code. Do not screenshot or paste into URLs.</div>
+                <strong>${safeText(shell.lastPairing.code)}</strong>
+                <span>Expires ${safeText(formatRelative(shell.lastPairing.expiresAt))}</span>
+              </div>
+            ` : '<div class="tiny muted">Create a pairing code from the trusted workstation browser, then enter it on the phone access screen.</div>'}
+          </div>
+          <div class="qr-wrap">${phoneQr}<span>Scan from phone</span></div>
+        </div>
+        <details class="disclosure compact-disclosure" open>
+          <summary><span>HTTP vs HTTPS Serve</span><small>${safeText(privateSettings.preferredMode || 'tailnet-http')}</small></summary>
+          <div class="disclosure-body">
+            <p>HTTP over Tailscale is private inside the encrypted tailnet and avoids certificate transparency metadata. HTTPS Serve improves Safari/PWA behavior and secure-cookie semantics, but can publish the machine/tailnet DNS name in public certificate logs. Funnel remains off-limits for v1.</p>
+            <form id="setup-private-access-settings-form">
+              <label>Default access mode
+                <select name="preferredMode">
+                  <option value="tailnet-http" ${selected(privateSettings.preferredMode, 'tailnet-http')}>Tailscale HTTP</option>
+                  <option value="tailnet-https-serve" ${selected(privateSettings.preferredMode, 'tailnet-https-serve')}>Tailscale HTTPS Serve</option>
+                  <option value="local" ${selected(privateSettings.preferredMode, 'local')}>Local only</option>
+                </select>
+              </label>
+              <label>Open links
+                <select name="openTarget">
+                  <option value="external" ${selected(privateSettings.openTarget, 'external')}>External browser/tab</option>
+                  <option value="in_app" ${selected(privateSettings.openTarget, 'in_app')}>In-app preview</option>
+                </select>
+              </label>
+              <label>Notifications
+                <select name="notificationMode">
+                  <option value="in_app" ${selected(privateSettings.notificationMode, 'in_app')}>In-app only</option>
+                  <option value="browser" ${selected(privateSettings.notificationMode, 'browser')}>Browser where supported</option>
+                  <option value="off" ${selected(privateSettings.notificationMode, 'off')}>Off</option>
+                </select>
+              </label>
+              <label><input type="checkbox" name="pwaMode" ${checked(privateSettings.pwaMode !== 'disabled')}> Enable PWA static shell</label>
+              <button type="submit">Save access settings</button>
+            </form>
+            <div class="lane-row">
+              <button class="secondary" data-action="copyPrivateAccessCommand" data-command="tailscale serve --bg http://127.0.0.1:3000" type="button">Copy HTTP Serve</button>
+              <button class="secondary" data-action="copyPrivateAccessCommand" data-command="tailscale serve --bg --https=443 http://127.0.0.1:3000" type="button">Copy HTTPS Serve</button>
+              <button class="secondary" data-action="copyPrivateAccessCommand" data-command="tailscale serve reset" type="button">Copy disable Serve</button>
+            </div>
+          </div>
+        </details>
+        <details class="disclosure compact-disclosure" open>
+          <summary><span>Paired devices</span><small>${safeText((shell.authSessions || []).length)} session${(shell.authSessions || []).length === 1 ? '' : 's'}</small></summary>
+          <div class="disclosure-body">${authSessionRows || '<div class="muted">No paired browser sessions yet.</div>'}</div>
+        </details>
+        <details class="disclosure compact-disclosure" open>
+          <summary><span>Add to Home Screen</span><small>PWA</small></summary>
+          <div class="disclosure-body">
+            <ol class="setup-list">
+              <li>Open the private URL in Safari on iPhone or Chrome on Android.</li>
+              <li>Pair the browser once with a one-time code from this workstation.</li>
+              <li>iPhone: tap Share, then Add to Home Screen. Android: tap browser menu, then Install app or Add to Home screen.</li>
+              <li>Later opens reuse the paired browser session until it expires or is revoked.</li>
+            </ol>
+          </div>
+        </details>
+      </article>
       <article class="card control-card" id="section-token" data-panel-card="token">
         <h3>API token</h3>
         <div class="tiny muted">${tokenConfigured ? 'Token configured for this tab.' : 'No raw token stored in this tab.'}</div>
@@ -3117,6 +3214,7 @@ async function handleSystemActions(event) {
       },
     });
     if (response.ok) {
+      shell.lastPairing = response.data?.pairing || null;
       renderAlert(`Pairing code: ${response.data?.pairing?.code || 'created'}`);
       await refresh();
     } else {
@@ -3560,7 +3658,7 @@ document.addEventListener('submit', async (event) => {
     await handleCleanupSchedule(event);
     return;
   }
-  if (event.target.id === 'private-access-settings-form') {
+  if (event.target.id === 'private-access-settings-form' || event.target.id === 'setup-private-access-settings-form') {
     await handlePrivateAccessSettings(event);
     return;
   }
