@@ -103,6 +103,9 @@ async function startServer({ token, env = {} }) {
     req.method = options.method || 'GET';
     req.url = requestPath;
     req.headers = headers;
+    // Real connections always have a remote address; default to loopback so the
+    // no-token local bootstrap path is exercisable, overridable per request.
+    req.socket = { remoteAddress: options.remoteAddress || '127.0.0.1' };
 
     const handler = routeRequest(req, res);
     if (body === undefined) {
@@ -297,6 +300,177 @@ test('auth pairing codes create revocable browser sessions for mutating routes',
       },
     });
     assert.equal(deniedAfterLogout.status, 401);
+  } finally {
+    await server.stop();
+  }
+});
+
+test('an unpaired client with only the URL receives no workspace or host data', async () => {
+  const token = 'route-token-no-data';
+  const server = await startServer({ token });
+
+  try {
+    // Seed real data as the workstation (token), so the routes have something
+    // to leak if auth were broken.
+    const project = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: { name: 'Secret Project', approved: true },
+    });
+    assert.equal(project.status, 201);
+
+    // Every data/host route must refuse an unauthenticated caller.
+    const protectedReads = [
+      '/api/projects',
+      `/api/projects/${project.body.id}`,
+      `/api/projects/${project.body.id}/sessions`,
+      '/api/mobile/manifest',
+      '/api/private-access',
+      '/api/private-access/tailnet',
+      '/api/agent-tools/discovery',
+      '/api/agent-tools/next-action',
+      '/api/system/blockers',
+      '/api/route-inventory',
+      '/api/audit/events',
+      '/api/providers',
+      '/api/mcp/tools',
+      '/api/settings/effective',
+      '/api/notifications',
+      '/api/executors/profiles',
+    ];
+    for (const route of protectedReads) {
+      const res = await server.requestJson(route, { method: 'GET' });
+      assert.equal(res.status, 401, `${route} must require auth`);
+      assert.equal(JSON.stringify(res.body || {}).includes('Secret Project'), false, `${route} leaked project data`);
+    }
+
+    // Liveness is the only public surface, and it must not expose counts.
+    const health = await server.requestJson('/api/health', { method: 'GET' });
+    assert.equal(health.status, 200);
+    assert.equal(health.body?.status, 'ok');
+    assert.equal(health.body?.counts, undefined);
+
+    // Auth status is public so the client knows it must pair.
+    const authStatus = await server.requestJson('/api/auth/status', { method: 'GET' });
+    assert.equal(authStatus.status, 200);
+    assert.equal(authStatus.body?.apiTokenRequired, true);
+    assert.equal(authStatus.body?.browserSessionAuthenticated, false);
+  } finally {
+    await server.stop();
+  }
+});
+
+test('with no API token, the local host bootstraps but proxied tailnet requests are denied', async () => {
+  const server = await startServer({ token: null });
+
+  try {
+    // Direct, non-proxied loopback request = the workstation itself = admin.
+    const local = await server.requestJson('/api/projects', { method: 'GET' });
+    assert.equal(local.status, 200);
+
+    const created = await server.requestJson('/api/projects', {
+      method: 'POST',
+      body: { name: 'Bootstrap Project', approved: true },
+    });
+    assert.equal(created.status, 201);
+
+    // A Tailscale Serve / reverse-proxied request carries forwarding headers and
+    // must NOT be treated as the local bootstrap — no data without pairing.
+    const proxied = await server.requestJson('/api/projects', {
+      method: 'GET',
+      headers: { 'x-forwarded-for': '100.64.0.9' },
+    });
+    assert.equal(proxied.status, 401);
+
+    const tsIdentity = await server.requestJson('/api/projects', {
+      method: 'GET',
+      headers: { 'tailscale-user-login': 'someone@example.com' },
+    });
+    assert.equal(tsIdentity.status, 401);
+
+    // A non-loopback source address is also untrusted.
+    const remote = await server.requestJson('/api/projects', {
+      method: 'GET',
+      remoteAddress: '100.64.0.9',
+    });
+    assert.equal(remote.status, 401);
+
+    // Liveness still answers everyone.
+    const health = await server.requestJson('/api/health', {
+      method: 'GET',
+      headers: { 'x-forwarded-for': '100.64.0.9' },
+    });
+    assert.equal(health.status, 200);
+  } finally {
+    await server.stop();
+  }
+});
+
+test('paired devices get operator access but are denied host administration', async () => {
+  const token = 'route-token-least-privilege';
+  const server = await startServer({
+    token,
+    env: {
+      COMMAND_DECK_CODEX_BINARY: '/usr/bin/codex',
+      COMMAND_DECK_CODEX_REINSTALL_COMMAND: 'npm install --yes @openai/codex',
+      COMMAND_DECK_CREDENTIAL_BACKEND: 'memory',
+    },
+  });
+
+  try {
+    const pairing = await server.requestJson('/api/auth/pairing-codes', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: { actor: 'dashboard', label: 'phone' },
+    });
+    assert.equal(pairing.status, 201);
+    const paired = await server.requestJson('/api/auth/pair', {
+      method: 'POST',
+      body: { actor: 'dashboard', code: pairing.body.pairing.code },
+    });
+    assert.equal(paired.status, 200);
+    const cookie = paired.response.headers['set-cookie'];
+
+    // Operator workflow works with the paired cookie.
+    const project = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { cookie },
+      body: { name: 'Operator Project', approved: true },
+    });
+    assert.equal(project.status, 201);
+
+    const tools = await server.requestJson('/api/mcp/tools', { method: 'GET', headers: { cookie } });
+    assert.equal(tools.status, 200);
+
+    // Host administration is refused (403) for a paired operator device.
+    const adminAttempts = [
+      ['POST', '/api/executors/codex/cli/reinstall', { actor: 'dashboard', approved: true, execute: false }],
+      ['POST', '/api/providers/openai-compatible/secret', { actor: 'dashboard', approved: true, secret: 'sk-test' }],
+      ['PATCH', '/api/private-access/settings', { actor: 'dashboard', preferredMode: 'local' }],
+      ['POST', '/api/auth/pairing-codes', { actor: 'dashboard', label: 'rogue' }],
+      ['GET', '/api/providers/export', undefined],
+      ['GET', '/api/app/export', undefined],
+    ];
+    for (const [method, route, body] of adminAttempts) {
+      const res = await server.requestJson(route, { method, headers: { cookie }, body });
+      assert.equal(res.status, 403, `${method} ${route} must be admin-only for paired devices (got ${res.status})`);
+    }
+
+    // The same routes are reachable for the workstation (API token = admin):
+    // they pass the auth gate and fail later on policy/validation, never 401/403.
+    const tokenReinstall = await server.requestJson('/api/executors/codex/cli/reinstall', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: { actor: 'dashboard', approved: true, execute: false },
+    });
+    assert.notEqual(tokenReinstall.status, 401);
+    assert.notEqual(tokenReinstall.status, 403);
+
+    const tokenExport = await server.requestJson('/api/providers/export', {
+      method: 'GET',
+      headers: { 'x-commanddeck-token': token },
+    });
+    assert.equal(tokenExport.status, 200);
   } finally {
     await server.stop();
   }
