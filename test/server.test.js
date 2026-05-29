@@ -155,13 +155,14 @@ async function startDummyApiProvider(secret) {
   };
 }
 
-async function waitForServerLane(server, laneId) {
+async function waitForServerLane(server, laneId, token) {
+  const headers = token ? { 'x-commanddeck-token': token } : {};
   for (let i = 0; i < 80; i += 1) {
-    const lane = await server.requestJson(`/api/lanes/${laneId}`, { method: 'GET' });
+    const lane = await server.requestJson(`/api/lanes/${laneId}`, { method: 'GET', headers });
     if (['done', 'failed'].includes(lane.body?.state)) return lane;
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  return server.requestJson(`/api/lanes/${laneId}`, { method: 'GET' });
+  return server.requestJson(`/api/lanes/${laneId}`, { method: 'GET', headers });
 }
 
 test('server API requires token for mutating actions while allowing read actions', async () => {
@@ -389,6 +390,7 @@ test('notifications expose secret-free state with token-gated settings and read 
 
     const notifications = await server.requestJson('/api/notifications?limit=20', {
       method: 'GET',
+      headers: { 'x-commanddeck-token': token },
     });
     assert.equal(notifications.status, 200);
     assert.equal(JSON.stringify(notifications.body).includes('sk-route-notification-secret'), false);
@@ -544,6 +546,66 @@ test('project updates and lane creations require explicit approval', async () =>
   }
 });
 
+test('session updates require explicit approval', async () => {
+  const token = 'route-token-session-patch';
+  const server = await startServer({ token });
+
+  try {
+    const project = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        name: 'Session Patch Baseline Project',
+        approved: true,
+      },
+    });
+    assert.equal(project.status, 201);
+
+    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        name: 'Session Patch Baseline',
+        approved: true,
+      },
+    });
+    assert.equal(session.status, 201);
+
+    const deniedArchive = await server.requestJson(`/api/sessions/${session.body.id}`, {
+      method: 'PATCH',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        state: 'archived',
+      },
+    });
+    assert.equal(deniedArchive.status, 409);
+    assert.equal(Boolean(deniedArchive.body?.requiresApproval), true);
+
+    const allowedArchive = await server.requestJson(`/api/sessions/${session.body.id}`, {
+      method: 'PATCH',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        state: 'archived',
+        approved: true,
+      },
+    });
+    assert.equal(allowedArchive.status, 200);
+    assert.equal(allowedArchive.body?.state, 'archived');
+
+    const badState = await server.requestJson(`/api/sessions/${session.body.id}`, {
+      method: 'PATCH',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        state: 'bad-state',
+        approved: true,
+      },
+    });
+    assert.equal(badState.status, 422);
+  } finally {
+    await server.stop();
+  }
+});
+
 test('server rejects malformed request URLs without crashing', async () => {
   const token = 'route-token-01a';
   const server = await startServer({ token });
@@ -562,11 +624,11 @@ test('server rejects malformed query strings on query-based endpoints', async ()
   const server = await startServer({ token });
 
   try {
-    const malformedAuditQuery = await server.requestJson('/api/audit/events?status=%E0%A4', { method: 'GET' });
+    const malformedAuditQuery = await server.requestJson('/api/audit/events?status=%E0%A4', { method: 'GET', headers: { 'x-commanddeck-token': token } });
     assert.equal(malformedAuditQuery.status, 400);
     assert.equal(String(malformedAuditQuery.body?.error || '').includes('Invalid request query string.'), true);
 
-    const malformedMcpQuery = await server.requestJson('/api/mcp/tools?scope=%E0%A4', { method: 'GET' });
+    const malformedMcpQuery = await server.requestJson('/api/mcp/tools?scope=%E0%A4', { method: 'GET', headers: { 'x-commanddeck-token': token } });
     assert.equal(malformedMcpQuery.status, 400);
     assert.equal(String(malformedMcpQuery.body?.error || '').includes('Invalid request query string.'), true);
 
@@ -597,7 +659,7 @@ test('server rejects malformed query strings on query-based endpoints', async ()
     });
     assert.equal(lane.status, 201);
 
-    const malformedEvidenceQuery = await server.requestJson(`/api/lanes/${lane.body.id}/evidence/latest?mode=%E0%A4`, { method: 'GET' });
+    const malformedEvidenceQuery = await server.requestJson(`/api/lanes/${lane.body.id}/evidence/latest?mode=%E0%A4`, { method: 'GET', headers: { 'x-commanddeck-token': token } });
     assert.equal(malformedEvidenceQuery.status, 400);
     assert.equal(String(malformedEvidenceQuery.body?.error || '').includes('Invalid request query string.'), true);
   } finally {
@@ -650,7 +712,7 @@ test('executor CLI reinstall endpoints require explicit confirmation before exec
   });
 
   try {
-    const info = await server.requestJson('/api/executors/codex/cli', { method: 'GET' });
+    const info = await server.requestJson('/api/executors/codex/cli', { method: 'GET', headers: { 'x-commanddeck-token': token } });
     assert.equal(info.status, 200);
     assert.equal(info.body.type, 'codex');
     assert.equal(info.body.reinstall?.available, true);
@@ -811,7 +873,7 @@ test('executor CLI APIs reject unsupported executor types', async () => {
   const server = await startServer({ token });
 
   try {
-    const missingInfo = await server.requestJson('/api/executors/unknown/cli', { method: 'GET' });
+    const missingInfo = await server.requestJson('/api/executors/unknown/cli', { method: 'GET', headers: { 'x-commanddeck-token': token } });
     assert.equal(missingInfo.status, 404);
 
     const missingReinstall = await server.requestJson('/api/executors/unknown/cli/reinstall', {
@@ -955,7 +1017,7 @@ test('executor CLI reinstall supports claude with source-mode and command valida
   });
 
   try {
-    const info = await server.requestJson('/api/executors/claude/cli', { method: 'GET' });
+    const info = await server.requestJson('/api/executors/claude/cli', { method: 'GET', headers: { 'x-commanddeck-token': token } });
     assert.equal(info.status, 200);
     assert.equal(info.body.type, 'claude');
     assert.equal(info.body.reinstall?.available, true);
@@ -1030,12 +1092,12 @@ test('server MCP tooling routes require token and support CRUD workflow', async 
     assert.equal(created.status, 201);
     assert.equal(created.body.name, 'route-tool');
 
-    const listed = await server.requestJson('/api/mcp/tools', { method: 'GET' });
+    const listed = await server.requestJson('/api/mcp/tools', { method: 'GET', headers: { 'x-commanddeck-token': token } });
     assert.equal(listed.status, 200);
     assert.equal(Array.isArray(listed.body), true);
     assert.equal(listed.body.length, 1);
 
-    const fetched = await server.requestJson(`/api/mcp/tools/${created.body.id}`, { method: 'GET' });
+    const fetched = await server.requestJson(`/api/mcp/tools/${created.body.id}`, { method: 'GET', headers: { 'x-commanddeck-token': token } });
     assert.equal(fetched.status, 200);
     assert.equal(fetched.body.id, created.body.id);
 
@@ -1059,7 +1121,7 @@ test('server MCP tooling routes require token and support CRUD workflow', async 
     });
     assert.equal(deleted.status, 200);
 
-    const afterDelete = await server.requestJson(`/api/mcp/tools/${created.body.id}`, { method: 'GET' });
+    const afterDelete = await server.requestJson(`/api/mcp/tools/${created.body.id}`, { method: 'GET', headers: { 'x-commanddeck-token': token } });
     assert.equal(afterDelete.status, 404);
   } finally {
     await server.stop();
@@ -1138,12 +1200,12 @@ test('server MCP tooling rejects unsupported scope values and blocked commands',
     });
     assert.equal(created.status, 201);
 
-    const codexScope = await server.requestJson('/api/mcp/tools?scope=codex', { method: 'GET' });
+    const codexScope = await server.requestJson('/api/mcp/tools?scope=codex', { method: 'GET', headers: { 'x-commanddeck-token': token } });
     assert.equal(codexScope.status, 200);
     assert.equal(Array.isArray(codexScope.body), true);
     assert.equal(codexScope.body.length, 0);
 
-    const allScope = await server.requestJson('/api/mcp/tools?scope=all', { method: 'GET' });
+    const allScope = await server.requestJson('/api/mcp/tools?scope=all', { method: 'GET', headers: { 'x-commanddeck-token': token } });
     assert.equal(allScope.status, 200);
     assert.equal(Array.isArray(allScope.body), true);
     assert.equal(allScope.body.length, 1);
@@ -1252,6 +1314,7 @@ test('cleanup schedule endpoint enforces approval and persists updated schedule'
 
     const listed = await server.requestJson('/api/artifacts/cleanup/schedule', {
       method: 'GET',
+      headers: { 'x-commanddeck-token': token },
     });
     assert.equal(listed.status, 200);
     assert.equal(listed.body?.schedule?.enabled, true);
@@ -1344,7 +1407,7 @@ test('mobile manifest exposes deep links for projects, sessions, and lane artifa
     });
     assert.equal(lane.status, 201);
 
-    const manifest = await server.requestJson('/api/mobile/manifest', { method: 'GET' });
+    const manifest = await server.requestJson('/api/mobile/manifest', { method: 'GET', headers: { 'x-commanddeck-token': token } });
     assert.equal(manifest.status, 200);
     assert.equal(Boolean(manifest.body?.apiTokenRequired), true);
     assert.equal(Array.isArray(manifest.body?.projects), true);
@@ -1416,13 +1479,13 @@ test('agent tool routes expose discovery, nextAction, and token-gated leases', a
     });
     assert.equal(session.status, 201);
 
-    const discovery = await server.requestJson('/api/agent-tools/discovery', { method: 'GET' });
+    const discovery = await server.requestJson('/api/agent-tools/discovery', { method: 'GET', headers: { 'x-commanddeck-token': token } });
     assert.equal(discovery.status, 200);
     assert.equal(discovery.body?.contractVersion, 'command-deck.agent-tools.v1');
     assert.equal(discovery.body?.publicSafe, true);
     assert.equal(discovery.body.tools.some((tool) => tool.id === 'session.next_action'), true);
 
-    const next = await server.requestJson(`/api/agent-tools/next-action?role=orchestrator&projectId=${project.body.id}&sessionId=${session.body.id}`, { method: 'GET' });
+    const next = await server.requestJson(`/api/agent-tools/next-action?role=orchestrator&projectId=${project.body.id}&sessionId=${session.body.id}`, { method: 'GET', headers: { 'x-commanddeck-token': token } });
     assert.equal(next.status, 200);
     assert.equal(next.body?.nextRequiredTool, 'lane.create');
     assert.equal(next.body?.allowedTools.includes('lane.create'), true);
@@ -1484,7 +1547,7 @@ test('session capacity API supports request, approval, rejection, and policy upd
     });
     assert.equal(session.status, 201);
 
-    const capacity = await server.requestJson(`/api/sessions/${session.body.id}/capacity`, { method: 'GET' });
+    const capacity = await server.requestJson(`/api/sessions/${session.body.id}/capacity`, { method: 'GET', headers: { 'x-commanddeck-token': token } });
     assert.equal(capacity.status, 200);
     assert.equal(capacity.body?.approvedCapacity, 2);
     assert.equal(capacity.body?.spawnPolicy, 'within_capacity');
@@ -1676,12 +1739,12 @@ test('lane-level and session-level audit-event listing supports filtering by sco
     const queuedAuditEventId = auditQueued.body?.event?.id || auditQueued.body?.id;
     assert.equal(typeof queuedAuditEventId, 'string');
 
-    const lanePending = await server.requestJson(`/api/lanes/${lane.body.id}/audit-events?status=pending`, { method: 'GET' });
+    const lanePending = await server.requestJson(`/api/lanes/${lane.body.id}/audit-events?status=pending`, { method: 'GET', headers: { 'x-commanddeck-token': token } });
     assert.equal(lanePending.status, 200);
     assert.equal(Array.isArray(lanePending.body), true);
     assert.equal(lanePending.body.some((event) => event.id === queuedAuditEventId), true);
 
-    const sessionPending = await server.requestJson(`/api/sessions/${session.body.id}/audit-events?status=pending`, { method: 'GET' });
+    const sessionPending = await server.requestJson(`/api/sessions/${session.body.id}/audit-events?status=pending`, { method: 'GET', headers: { 'x-commanddeck-token': token } });
     assert.equal(sessionPending.status, 200);
     assert.equal(Array.isArray(sessionPending.body), true);
     assert.equal(sessionPending.body.some((event) => event.id === queuedAuditEventId), true);
@@ -1693,12 +1756,12 @@ test('lane-level and session-level audit-event listing supports filtering by sco
     });
     assert.equal(laneAck.status, 200);
 
-    const lanePendingAfterAck = await server.requestJson(`/api/lanes/${lane.body.id}/audit-events?status=pending`, { method: 'GET' });
+    const lanePendingAfterAck = await server.requestJson(`/api/lanes/${lane.body.id}/audit-events?status=pending`, { method: 'GET', headers: { 'x-commanddeck-token': token } });
     assert.equal(lanePendingAfterAck.status, 200);
     assert.equal(Array.isArray(lanePendingAfterAck.body), true);
     assert.equal(lanePendingAfterAck.body.some((event) => event.id === queuedAuditEventId), false);
 
-    const lanePassed = await server.requestJson(`/api/lanes/${lane.body.id}/audit-events?status=passed`, { method: 'GET' });
+    const lanePassed = await server.requestJson(`/api/lanes/${lane.body.id}/audit-events?status=passed`, { method: 'GET', headers: { 'x-commanddeck-token': token } });
     assert.equal(lanePassed.status, 200);
     assert.equal(Array.isArray(lanePassed.body), true);
     assert.equal(lanePassed.body.some((event) => event.id === queuedAuditEventId), true);
@@ -1927,13 +1990,13 @@ test('private access API exposes mocked tailnet state, dry-run setup plans, and 
   const server = await startServer({ token });
 
   try {
-    const state = await server.requestJson('/api/private-access?fakeTailnetState=serve-https', { method: 'GET' });
+    const state = await server.requestJson('/api/private-access?fakeTailnetState=serve-https', { method: 'GET', headers: { 'x-commanddeck-token': token } });
     assert.equal(state.status, 200);
     assert.equal(state.body?.tailnet?.provider, 'fake');
     assert.equal(state.body?.tailnet?.serveMode, 'tailnet-https-serve');
     assert.equal(state.body?.pwa?.staticOnlyCache, true);
 
-    const plan = await server.requestJson('/api/private-access/setup-plan?localUrl=http%3A%2F%2F127.0.0.1%3A3000', { method: 'GET' });
+    const plan = await server.requestJson('/api/private-access/setup-plan?localUrl=http%3A%2F%2F127.0.0.1%3A3000', { method: 'GET', headers: { 'x-commanddeck-token': token } });
     assert.equal(plan.status, 200);
     assert.equal(Array.isArray(plan.body?.commands), true);
     assert.equal(plan.body.commands.some((command) => String(command.copyText || '').includes('tailscale serve')), true);
@@ -1975,7 +2038,7 @@ test('provider profile API exposes first-class providers and memory-backed secre
   const server = await startServer({ token, env: { COMMAND_DECK_CREDENTIAL_BACKEND: 'memory' } });
 
   try {
-    const list = await server.requestJson('/api/providers', { method: 'GET' });
+    const list = await server.requestJson('/api/providers', { method: 'GET', headers: { 'x-commanddeck-token': token } });
     assert.equal(list.status, 200);
     assert.equal(list.body?.credentialBackend, 'memory');
     const ids = new Set((list.body?.profiles || []).map((profile) => profile.id));
@@ -2006,12 +2069,12 @@ test('provider profile API exposes first-class providers and memory-backed secre
     assert.equal(setSecret.status, 200);
     assert.equal(JSON.stringify(setSecret.body).includes('sk-test-secret'), false);
 
-    const health = await server.requestJson('/api/providers/openai-compatible/health', { method: 'GET' });
+    const health = await server.requestJson('/api/providers/openai-compatible/health', { method: 'GET', headers: { 'x-commanddeck-token': token } });
     assert.equal(health.status, 200);
     assert.equal(health.body?.status, 'configured');
     assert.equal(JSON.stringify(health.body).includes('sk-test-secret'), false);
 
-    const exported = await server.requestJson('/api/providers/export', { method: 'GET' });
+    const exported = await server.requestJson('/api/providers/export', { method: 'GET', headers: { 'x-commanddeck-token': token } });
     assert.equal(exported.status, 200);
     assert.equal(exported.body?.excludesSecrets, true);
     assert.equal(JSON.stringify(exported.body).includes('sk-test-secret'), false);
@@ -2071,7 +2134,7 @@ test('server API provider lanes use dashboard-stored credential references witho
     });
     assert.equal(lane.status, 201);
 
-    const completed = await waitForServerLane(server, lane.body.id);
+    const completed = await waitForServerLane(server, lane.body.id, token);
     assert.equal(completed.status, 200);
     assert.equal(completed.body?.state, 'done', completed.body?.exitReason || 'lane should complete');
     assert.equal(dummy.requests.length, 1);

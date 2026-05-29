@@ -127,7 +127,7 @@ test('effective settings API exposes defaults, scoped overrides, and mobile link
   const server = await startServer({ token });
 
   try {
-    const defaults = await server.requestJson('/api/settings/effective', { method: 'GET' });
+    const defaults = await server.requestJson('/api/settings/effective', { method: 'GET', headers: { 'x-commanddeck-token': token } });
     assert.equal(defaults.status, 200);
     assert.equal(defaults.body?.settings?.spawn?.spawnPolicy, 'within_capacity');
     assert.equal(defaults.body?.settings?.privateAccess?.funnelAllowed, false);
@@ -208,7 +208,7 @@ test('effective settings API exposes defaults, scoped overrides, and mobile link
     assert.equal(invalid.status, 422);
     assert.equal(String(invalid.body?.error || '').includes('not supported'), true);
 
-    const manifest = await server.requestJson('/api/mobile/manifest', { method: 'GET' });
+    const manifest = await server.requestJson('/api/mobile/manifest', { method: 'GET', headers: { 'x-commanddeck-token': token } });
     assert.equal(manifest.status, 200);
     assert.equal(typeof manifest.body?.effectiveSettingsUrl, 'string');
     assert.equal(typeof manifest.body?.projects?.[0]?.effectiveSettingsUrl, 'string');

@@ -144,38 +144,104 @@ function currentBrowserSession(req) {
   return authSessions.sessionFromCookieHeader(req.headers.cookie || '');
 }
 
-function hasStreamAuth(req) {
-  if (!API_TOKEN) return true;
-  if (hasValidApiToken(req)) return true;
+// Tailscale Serve and every reverse proxy inject these. A genuine, direct
+// connection to the loopback listener (the workstation's own browser) carries
+// none of them, which is how we tell "on the host" apart from "remote over the
+// tailnet" even though Serve makes every proxied request appear to originate
+// from 127.0.0.1.
+const FORWARDED_HEADER_KEYS = [
+  'x-forwarded-for',
+  'x-forwarded-host',
+  'x-forwarded-proto',
+  'x-forwarded-port',
+  'x-real-ip',
+  'forwarded',
+  'tailscale-user-login',
+  'tailscale-user-name',
+  'tailscale-user-profile-pic',
+];
+
+function requestIsProxied(req) {
+  return FORWARDED_HEADER_KEYS.some((key) => Boolean(req.headers[key]));
+}
+
+function remoteAddressIsLoopback(req) {
+  const addr = String(req.socket?.remoteAddress || '');
+  return ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(addr);
+}
+
+// Honored as an admin bootstrap ONLY when no API token is configured, so a
+// fresh install is usable on the host itself while remote (proxied) requests
+// still receive nothing until they pair. When a token is set there is no
+// implicit local trust — the token or a paired session is always required.
+function isLocalBootstrapAdmin(req) {
+  if (API_TOKEN) return false;
+  if (requestIsProxied(req)) return false;
+  return remoteAddressIsLoopback(req);
+}
+
+function hasBrowserSessionAuth(req) {
   const session = currentBrowserSession(req);
   return Boolean(session && sameOriginAllowed(req));
+}
+
+// Admin = full control: host mutation, credentials, network config, devices.
+function hasAdminAuth(req) {
+  return hasValidApiToken(req) || isLocalBootstrapAdmin(req);
+}
+
+// Operator = workflow control plus reads. Paired browser sessions are operators
+// but never admins, so a phone can run the workflow without host-level power.
+function hasOperatorAuth(req) {
+  return hasAdminAuth(req) || hasBrowserSessionAuth(req);
+}
+
+function hasStreamAuth(req) {
+  return hasOperatorAuth(req);
 }
 
 function hasDashboardAuth(req) {
-  if (!API_TOKEN) return true;
-  if (hasValidApiToken(req)) return true;
-  const session = currentBrowserSession(req);
-  return Boolean(session && sameOriginAllowed(req));
+  return hasOperatorAuth(req);
+}
+
+const UNAUTHORIZED_MESSAGE = 'Unauthorized. Pair this device from the Command Deck workstation, or supply a valid COMMAND_DECK_API_TOKEN.';
+const ADMIN_ONLY_MESSAGE = 'This action is restricted to the Command Deck workstation (API token or local host). Paired devices have workflow access only.';
+
+function requireOperatorAuth(req, res) {
+  if (hasOperatorAuth(req)) return true;
+  sendJson(res, 401, { error: UNAUTHORIZED_MESSAGE });
+  return false;
 }
 
 function requireDashboardAuth(req, res) {
-  if (hasDashboardAuth(req)) return true;
-  sendJson(res, 401, {
-    error: 'Unauthorized. Supply a valid COMMAND_DECK_API_TOKEN or pair this browser with a valid Command Deck session.',
+  return requireOperatorAuth(req, res);
+}
+
+// Retained name for the auth/logout paths; semantics are operator-level.
+function requireMutatingToken(req, res) {
+  return requireOperatorAuth(req, res);
+}
+
+function requireAdminAuth(req, res) {
+  if (hasAdminAuth(req)) return true;
+  const status = hasOperatorAuth(req) ? 403 : 401;
+  sendJson(res, status, {
+    error: status === 403 ? ADMIN_ONLY_MESSAGE : UNAUTHORIZED_MESSAGE,
   });
   return false;
 }
 
-function requireMutatingToken(req, res) {
-  if (!API_TOKEN) return true;
-  if (req.method === 'GET') return true;
-  if (hasValidApiToken(req)) return true;
-  const session = currentBrowserSession(req);
-  if (session && sameOriginAllowed(req)) return true;
-  sendJson(res, 401, {
-    error: 'Unauthorized. Supply a valid COMMAND_DECK_API_TOKEN or pair this browser with a valid Command Deck session.',
-  });
-  return false;
+function isPublicReadApiRoute(parts) {
+  if (parts[0] !== 'api' || parts.length < 2) return false;
+  // Only liveness is public. /api/auth/* (including status) is dispatched
+  // before this gate and self-authorizes. Every data/host route requires
+  // operator auth so the tailnet URL alone yields nothing before pairing.
+  return parts[1] === 'health';
+}
+
+function requireApiAuth(req, res, parts) {
+  if (req.method === 'GET' && isPublicReadApiRoute(parts)) return true;
+  return requireOperatorAuth(req, res);
 }
 
 function buildSessionCookie(req, sessionToken, maxAgeSeconds) {
@@ -380,13 +446,17 @@ function artifactContentType(filePath) {
   return contentTypes[ext] || 'application/octet-stream';
 }
 
-async function serveStaticOrIndex(pathname, res) {
+async function serveStaticOrIndex(pathname, res, req = null) {
   if (!pathname || pathname === '/') {
     return serveFile('/index.html', res);
   }
 
   const hasExtension = pathname.includes('.');
   if (pathname.startsWith('/artifacts/')) {
+    if (req && !requireDashboardAuth(req, res)) {
+      return;
+    }
+
     const parts = pathname.split('/').filter(Boolean);
     if (parts.length < 4 || parts[0] !== 'artifacts') {
       return sendText(res, 404, 'Artifact not found');
@@ -585,6 +655,7 @@ async function handlePrivateAccessApi(req, res, method, parts) {
   }
 
   if (parts.length === 3 && parts[2] === 'settings' && method === 'PATCH') {
+    if (!requireAdminAuth(req, res)) return;
     const body = await parseJsonBody(req);
     if (body === null) return sendBodyError(req, res);
     if (rejectSpoofedActor(body, res)) return;
@@ -597,6 +668,7 @@ async function handlePrivateAccessApi(req, res, method, parts) {
   }
 
   if (parts.length === 3 && parts[2] === 'targets' && method === 'POST') {
+    if (!requireAdminAuth(req, res)) return;
     const body = await parseJsonBody(req);
     if (body === null) return sendBodyError(req, res);
     if (rejectSpoofedActor(body, res)) return;
@@ -609,6 +681,7 @@ async function handlePrivateAccessApi(req, res, method, parts) {
   }
 
   if (parts.length === 4 && parts[2] === 'targets' && method === 'PATCH') {
+    if (!requireAdminAuth(req, res)) return;
     const body = await parseJsonBody(req);
     if (body === null) return sendBodyError(req, res);
     if (rejectSpoofedActor(body, res)) return;
@@ -621,6 +694,7 @@ async function handlePrivateAccessApi(req, res, method, parts) {
   }
 
   if (parts.length === 4 && parts[2] === 'targets' && method === 'DELETE') {
+    if (!requireAdminAuth(req, res)) return;
     const body = await parseJsonBody(req);
     if (body === null) return sendBodyError(req, res);
     if (rejectSpoofedActor(body, res)) return;
@@ -633,6 +707,7 @@ async function handlePrivateAccessApi(req, res, method, parts) {
   }
 
   if (parts.length === 5 && parts[2] === 'targets' && parts[4] === 'check' && method === 'POST') {
+    if (!requireAdminAuth(req, res)) return;
     const body = await parseJsonBody(req);
     if (body === null) return sendBodyError(req, res);
     if (rejectSpoofedActor(body, res)) return;
@@ -657,6 +732,7 @@ async function handleProvidersApi(req, res, method, parts) {
   }
 
   if (parts.length === 3 && parts[2] === 'export' && method === 'GET') {
+    if (!requireAdminAuth(req, res)) return;
     try {
       return sendJson(res, 200, await providerProfiles.exportProfiles());
     } catch (error) {
@@ -665,6 +741,7 @@ async function handleProvidersApi(req, res, method, parts) {
   }
 
   if (parts.length === 4 && parts[2] === 'import' && parts[3] === 'dry-run' && method === 'POST') {
+    if (!requireAdminAuth(req, res)) return;
     const body = await parseJsonBody(req);
     if (body === null) return sendBodyError(req, res);
     if (rejectSpoofedActor(body, res)) return;
@@ -679,6 +756,7 @@ async function handleProvidersApi(req, res, method, parts) {
   }
 
   if (parts.length === 4 && parts[2] === 'import' && parts[3] === 'apply' && method === 'POST') {
+    if (!requireAdminAuth(req, res)) return;
     const body = await parseJsonBody(req);
     if (body === null) return sendBodyError(req, res);
     if (rejectSpoofedActor(body, res)) return;
@@ -707,6 +785,7 @@ async function handleProvidersApi(req, res, method, parts) {
       }
     }
     if (parts.length === 3 && method === 'PATCH') {
+      if (!requireAdminAuth(req, res)) return;
       const body = await parseJsonBody(req);
       if (body === null) return sendBodyError(req, res);
       if (rejectSpoofedActor(body, res)) return;
@@ -731,6 +810,7 @@ async function handleProvidersApi(req, res, method, parts) {
       }
     }
     if (parts.length === 4 && parts[3] === 'secret' && method === 'POST') {
+      if (!requireAdminAuth(req, res)) return;
       const body = await parseJsonBody(req);
       if (body === null) return sendBodyError(req, res);
       if (rejectSpoofedActor(body, res)) return;
@@ -748,6 +828,7 @@ async function handleProvidersApi(req, res, method, parts) {
       }
     }
     if (parts.length === 4 && parts[3] === 'secret' && method === 'DELETE') {
+      if (!requireAdminAuth(req, res)) return;
       const body = await parseJsonBody(req);
       if (body === null) return sendBodyError(req, res);
       if (rejectSpoofedActor(body, res)) return;
@@ -790,7 +871,7 @@ async function handleAuthApi(req, res, method, parts) {
   }
 
   if (parts[2] === 'pairing-codes' && method === 'POST') {
-    if (!requireMutatingToken(req, res)) return;
+    if (!requireAdminAuth(req, res)) return;
     const body = await parseJsonBody(req);
     if (body === null) return sendBodyError(req, res);
     if (rejectSpoofedActor(body, res)) return;
@@ -835,7 +916,9 @@ async function handleAuthApi(req, res, method, parts) {
   }
 
   if (parts[2] === 'sessions' && method === 'GET') {
-    if (!requireMutatingToken(req, res)) return;
+    // Read-only view of paired devices; any operator may see its own device
+    // set. Minting codes and revoking other devices remain admin-only.
+    if (!requireOperatorAuth(req, res)) return;
     return sendJson(res, 200, {
       sessions: authSessions.listSessions(),
     });
@@ -846,6 +929,9 @@ async function handleAuthApi(req, res, method, parts) {
     const body = await parseJsonBody(req);
     if (body === null) return sendBodyError(req, res);
     if (rejectSpoofedActor(body, res)) return;
+    // Revoking a session OTHER than your own (by id) is device management and
+    // requires admin; revoking your own cookie is always allowed for an operator.
+    if (body.sessionId && !requireAdminAuth(req, res)) return;
     try {
       const sessionToken = authSessions.sessionTokenFromCookieHeader(req.headers.cookie || '');
       const result = body.sessionId
@@ -865,27 +951,36 @@ async function handleAuthApi(req, res, method, parts) {
 
 async function handleApi(req, res, pathname, method, parts) {
   if (parts[0] !== 'api') {
-    return serveStaticOrIndex(pathname, res);
+    return serveStaticOrIndex(pathname, res, req);
   }
   if (!applyRateLimit(req, res, method, parts)) return;
   if (parts[1] === 'auth') {
     return handleAuthApi(req, res, method, parts);
   }
-  if (!requireMutatingToken(req, res)) {
+  // The event stream self-authorizes (operator-level) with an SSE-appropriate
+  // 401 and revocation semantics, so it bypasses the generic JSON gate.
+  if (parts[1] === 'streams' && parts[2] === 'events' && method === 'GET') {
+    return handleEventStream(req, res);
+  }
+  if (!requireApiAuth(req, res, parts)) {
     return;
   }
 
   if (parts[1] === 'health' && method === 'GET') {
-    return sendJson(res, 200, {
+    const payload = {
       status: 'ok',
       now: new Date().toISOString(),
-      counts: {
+    };
+    // Counts are workspace data; only expose them to an authorized caller.
+    if (hasOperatorAuth(req)) {
+      payload.counts = {
         projects: registry.projects.length,
         sessions: registry.sessions.length,
         lanes: registry.lanes.length,
         auditEvents: registry.auditEvents.length,
-      },
-    });
+      };
+    }
+    return sendJson(res, 200, payload);
   }
 
   if (parts[1] === 'policy' && method === 'GET') {
@@ -994,7 +1089,7 @@ async function handleApi(req, res, pathname, method, parts) {
 
   if (parts[1] === 'app') {
     if (parts.length === 3 && parts[2] === 'export' && method === 'GET') {
-      if (!requireDashboardAuth(req, res)) return;
+      if (!requireAdminAuth(req, res)) return;
       try {
         return sendJson(res, 200, await buildAppExport({
           registry,
@@ -1010,6 +1105,7 @@ async function handleApi(req, res, pathname, method, parts) {
     }
 
     if (parts.length === 4 && parts[2] === 'import' && parts[3] === 'dry-run' && method === 'POST') {
+      if (!requireAdminAuth(req, res)) return;
       const body = await parseJsonBody(req);
       if (body === null) return sendBodyError(req, res);
       if (rejectSpoofedActor(body, res)) return;
@@ -1024,6 +1120,7 @@ async function handleApi(req, res, pathname, method, parts) {
     }
 
     if (parts.length === 4 && parts[2] === 'import' && parts[3] === 'apply' && method === 'POST') {
+      if (!requireAdminAuth(req, res)) return;
       const body = await parseJsonBody(req);
       if (body === null) return sendBodyError(req, res);
       if (rejectSpoofedActor(body, res)) return;
@@ -1056,7 +1153,7 @@ async function handleApi(req, res, pathname, method, parts) {
     }
 
     if (parts.length === 3 && parts[2] === 'support-bundle' && method === 'GET') {
-      if (!requireDashboardAuth(req, res)) return;
+      if (!requireAdminAuth(req, res)) return;
       try {
         return sendJson(res, 200, await buildSupportBundle({
           registry,
@@ -1075,10 +1172,6 @@ async function handleApi(req, res, pathname, method, parts) {
 
   if (parts[1] === 'route-inventory' && method === 'GET') {
     return sendJson(res, 200, buildRouteInventory());
-  }
-
-  if (parts[1] === 'streams' && parts[2] === 'events' && method === 'GET') {
-    return handleEventStream(req, res);
   }
 
   if (parts[1] === 'agent-tools') {
@@ -1170,6 +1263,7 @@ async function handleApi(req, res, pathname, method, parts) {
   }
 
   if (parts[1] === 'executors' && ['codex', 'claude'].includes(parts[2]) && parts[3] === 'cli' && parts[4] === 'reinstall' && method === 'POST') {
+    if (!requireAdminAuth(req, res)) return;
     const body = await parseJsonBody(req);
     if (body === null) return sendBodyError(req, res);
     if (rejectSpoofedActor(body, res)) return;
@@ -1456,6 +1550,25 @@ async function handleApi(req, res, pathname, method, parts) {
 
     if (parts.length === 3 && method === 'GET') {
       return sendJson(res, 200, session);
+    }
+
+    if (parts.length === 3 && method === 'PATCH') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+      if (rejectSpoofedActor(body, res)) return;
+      try {
+        const updated = await registry.updateSession(session.id, body, {
+          actor: body.actor || 'dashboard',
+          approved: body.approved,
+        });
+        return sendJson(res, 200, updated);
+      } catch (error) {
+        return sendJson(res, error.status || 500, {
+          error: error.message || 'Could not update session.',
+          requiresApproval: error.requiresApproval || false,
+          risk: error.risk || null,
+        });
+      }
     }
 
     if (parts.length === 4 && parts[3] === 'capacity' && method === 'GET') {
