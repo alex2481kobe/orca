@@ -23,6 +23,7 @@ const shell = {
   effectiveSettings: null,
   authStatus: null,
   notifications: null,
+  authSessions: null,
 };
 
 let refreshRequestId = 0;
@@ -185,12 +186,175 @@ function authRequiredMessage() {
   return 'This browser is not authenticated. Pair it from Settings, or save the API token for this browser session.';
 }
 
+function isLocalHostName(hostname) {
+  return ['localhost', '127.0.0.1', '::1'].includes(String(hostname || '').toLowerCase());
+}
+
 function browserAccessBlocked() {
   return Boolean(
     shell.authStatus?.apiTokenRequired &&
     !shell.authStatus?.apiTokenAuthenticated &&
     !shell.authStatus?.browserSessionAuthenticated,
   );
+}
+
+function preferredPhoneUrl(privateTargets = []) {
+  if (!isLocalHostName(window.location.hostname)) return window.location.origin;
+  const target = privateTargets.find((item) => item.favorite && (item.httpsServeUrl || item.tailnetHttpUrl)) ||
+    privateTargets.find((item) => item.mode === 'tailnet-https-serve' && item.httpsServeUrl) ||
+    privateTargets.find((item) => item.mode === 'tailnet-http' && item.tailnetHttpUrl) ||
+    privateTargets.find((item) => item.httpsServeUrl || item.tailnetHttpUrl);
+  return target ? clientUrl(target.httpsServeUrl || target.tailnetHttpUrl || target.localUrl) : window.location.origin;
+}
+
+function qrSvgForText(text) {
+  const bytes = Array.from(new TextEncoder().encode(String(text || '')));
+  const size = 33;
+  const dataCodewords = 80;
+  const ecCodewords = 20;
+  if (!bytes.length || bytes.length > 74) {
+    return '<div class="qr-fallback">QR unavailable<br><span>Use copy link</span></div>';
+  }
+
+  const bitBuffer = [];
+  const appendBits = (value, length) => {
+    for (let i = length - 1; i >= 0; i -= 1) bitBuffer.push((value >>> i) & 1);
+  };
+  appendBits(0x4, 4);
+  appendBits(bytes.length, 8);
+  bytes.forEach((byte) => appendBits(byte, 8));
+  for (let i = 0; i < 4 && bitBuffer.length < dataCodewords * 8; i += 1) bitBuffer.push(0);
+  while (bitBuffer.length % 8) bitBuffer.push(0);
+  const data = [];
+  for (let i = 0; i < bitBuffer.length; i += 8) {
+    data.push(bitBuffer.slice(i, i + 8).reduce((acc, bit) => (acc << 1) | bit, 0));
+  }
+  for (let pad = 0; data.length < dataCodewords; pad += 1) {
+    data.push(pad % 2 === 0 ? 0xec : 0x11);
+  }
+
+  const exp = new Array(512);
+  const log = new Array(256);
+  let x = 1;
+  for (let i = 0; i < 255; i += 1) {
+    exp[i] = x;
+    log[x] = i;
+    x <<= 1;
+    if (x & 0x100) x ^= 0x11d;
+  }
+  for (let i = 255; i < exp.length; i += 1) exp[i] = exp[i - 255];
+  const gfMul = (a, b) => (!a || !b ? 0 : exp[log[a] + log[b]]);
+  let gen = [1];
+  for (let i = 0; i < ecCodewords; i += 1) {
+    const next = new Array(gen.length + 1).fill(0);
+    gen.forEach((coef, index) => {
+      next[index] ^= coef;
+      next[index + 1] ^= gfMul(coef, exp[i]);
+    });
+    gen = next;
+  }
+  const work = data.concat(new Array(ecCodewords).fill(0));
+  for (let i = 0; i < data.length; i += 1) {
+    const coef = work[i];
+    if (!coef) continue;
+    gen.forEach((value, index) => {
+      work[i + index] ^= gfMul(value, coef);
+    });
+  }
+  const codewords = data.concat(work.slice(data.length));
+  const dataBits = [];
+  codewords.forEach((byte) => {
+    for (let i = 7; i >= 0; i -= 1) dataBits.push((byte >>> i) & 1);
+  });
+
+  const modules = Array.from({ length: size }, () => new Array(size).fill(false));
+  const reserved = Array.from({ length: size }, () => new Array(size).fill(false));
+  const setModule = (mx, my, dark, reserve = true) => {
+    if (mx < 0 || my < 0 || mx >= size || my >= size) return;
+    modules[my][mx] = Boolean(dark);
+    if (reserve) reserved[my][mx] = true;
+  };
+  const drawFinder = (fx, fy) => {
+    for (let dy = -1; dy <= 7; dy += 1) {
+      for (let dx = -1; dx <= 7; dx += 1) {
+        const xx = fx + dx;
+        const yy = fy + dy;
+        if (xx < 0 || yy < 0 || xx >= size || yy >= size) continue;
+        const inPattern = dx >= 0 && dx <= 6 && dy >= 0 && dy <= 6;
+        const dark = inPattern && (dx === 0 || dx === 6 || dy === 0 || dy === 6 || (dx >= 2 && dx <= 4 && dy >= 2 && dy <= 4));
+        setModule(xx, yy, dark);
+      }
+    }
+  };
+  const drawAlignment = (cx, cy) => {
+    for (let dy = -2; dy <= 2; dy += 1) {
+      for (let dx = -2; dx <= 2; dx += 1) {
+        const max = Math.max(Math.abs(dx), Math.abs(dy));
+        setModule(cx + dx, cy + dy, max === 2 || max === 0);
+      }
+    }
+  };
+  drawFinder(0, 0);
+  drawFinder(size - 7, 0);
+  drawFinder(0, size - 7);
+  drawAlignment(26, 26);
+  for (let i = 8; i < size - 8; i += 1) {
+    setModule(i, 6, i % 2 === 0);
+    setModule(6, i, i % 2 === 0);
+  }
+  setModule(8, 25, true);
+  for (let i = 0; i <= 8; i += 1) {
+    if (i !== 6) {
+      setModule(8, i, false);
+      setModule(i, 8, false);
+    }
+  }
+  for (let i = 0; i < 8; i += 1) {
+    setModule(size - 1 - i, 8, false);
+    setModule(8, size - 1 - i, false);
+  }
+
+  let bitIndex = 0;
+  let upward = true;
+  for (let right = size - 1; right >= 1; right -= 2) {
+    if (right === 6) right -= 1;
+    for (let vert = 0; vert < size; vert += 1) {
+      const yPos = upward ? size - 1 - vert : vert;
+      for (let col = 0; col < 2; col += 1) {
+        const xPos = right - col;
+        if (reserved[yPos][xPos]) continue;
+        let dark = bitIndex < dataBits.length ? Boolean(dataBits[bitIndex]) : false;
+        bitIndex += 1;
+        if ((xPos + yPos) % 2 === 0) dark = !dark;
+        modules[yPos][xPos] = dark;
+      }
+    }
+    upward = !upward;
+  }
+
+  let formatData = (1 << 3); // Error correction L, mask 0.
+  let rem = formatData;
+  for (let i = 0; i < 10; i += 1) {
+    rem = (rem << 1) ^ (((rem >>> 9) & 1) ? 0x537 : 0);
+  }
+  const formatBits = ((formatData << 10) | (rem & 0x3ff)) ^ 0x5412;
+  const formatBit = (i) => ((formatBits >>> i) & 1) !== 0;
+  for (let i = 0; i <= 5; i += 1) setModule(8, i, formatBit(i));
+  setModule(8, 7, formatBit(6));
+  setModule(8, 8, formatBit(7));
+  setModule(7, 8, formatBit(8));
+  for (let i = 9; i < 15; i += 1) setModule(14 - i, 8, formatBit(i));
+  for (let i = 0; i < 8; i += 1) setModule(size - 1 - i, 8, formatBit(i));
+  for (let i = 8; i < 15; i += 1) setModule(8, size - 15 + i, formatBit(i));
+  setModule(8, size - 8, true);
+
+  const cells = [];
+  modules.forEach((row, yPos) => {
+    row.forEach((dark, xPos) => {
+      if (dark) cells.push(`<rect x="${xPos + 4}" y="${yPos + 4}" width="1" height="1"/>`);
+    });
+  });
+  return `<svg class="qr-code" viewBox="0 0 ${size + 8} ${size + 8}" role="img" aria-label="QR code for phone URL"><rect width="${size + 8}" height="${size + 8}" fill="#f5f1e8"/>${cells.join('')}</svg>`;
 }
 
 function stateBadge(state) {
@@ -594,6 +758,8 @@ function renderHome() {
   const privateAccess = shell.privateAccess || {};
   const privateSettings = privateAccess.settings || {};
   const privateTargets = Array.isArray(privateAccess.targets) ? privateAccess.targets : [];
+  const phoneUrl = preferredPhoneUrl(privateTargets);
+  const phoneQr = qrSvgForText(phoneUrl);
   const tailnet = privateAccess.tailnet || {};
   const notificationState = shell.notifications || {};
   const notificationSettings = notificationState.settings || {};
@@ -776,6 +942,16 @@ function renderHome() {
   const primaryProjectCards = shell.projects.filter((project) => !isVerificationProject(project)).map(renderProjectCard).join('');
   const verificationProjects = shell.projects.filter(isVerificationProject);
   const verificationProjectCards = verificationProjects.map(renderProjectCard).join('');
+  const authSessionRows = (Array.isArray(shell.authSessions) ? shell.authSessions : []).map((session) => `
+    <div class="provider-row">
+      <div>
+        <strong>${safeText(session.label || 'Paired browser')}</strong>
+        <div class="tiny muted">${session.active ? 'active' : 'inactive'} · created ${safeText(formatRelative(session.createdAt))} · expires ${safeText(formatRelative(session.expiresAt))}</div>
+        ${session.userAgent ? `<div class="tiny muted">${safeText(session.userAgent)}</div>` : ''}
+      </div>
+      <button class="secondary" data-action="revokeBrowserSession" data-session-id="${safeAttr(session.id)}" type="button" ${session.active ? '' : 'disabled'}>Revoke</button>
+    </div>
+  `).join('');
   const primaryProjects = shell.projects.filter((project) => !isVerificationProject(project));
   const projectRows = primaryProjects.map((project) => `
     <a class="simple-row" href="${safeAttr(project.route)}">
@@ -787,6 +963,24 @@ function renderHome() {
 
   refs.content.innerHTML = `
     <section class="simple-section ${showMainHome ? '' : 'is-hidden'}">
+      <article class="card onboarding-card">
+        <div>
+          <div class="card-kicker">Phone setup</div>
+          <h3>Open Command Deck on your phone</h3>
+          <p class="muted">Use a device on the same tailnet, open this private URL, then pair the browser or enter the API token.</p>
+          <code class="copy-url">${safeText(phoneUrl)}</code>
+          <div class="lane-row">
+            <button class="secondary" data-action="copyPhoneUrl" data-url="${safeAttr(phoneUrl)}" type="button">Copy link</button>
+            <button class="secondary" data-action="createPairingCode" type="button">Create pairing code</button>
+            <a class="secondary" href="#private-access">Tailscale setup</a>
+          </div>
+          <details class="disclosure compact-disclosure">
+            <summary><span>Add to Home Screen</span><small>iPhone/iPad</small></summary>
+            <div class="disclosure-body tiny muted">Open the private URL in Safari, tap Share, then tap Add to Home Screen. HTTPS Serve gives the best PWA behavior; HTTP over Tailscale is private but may show browser warnings.</div>
+          </details>
+        </div>
+        <div class="qr-wrap">${phoneQr}<span>Scan from phone</span></div>
+      </article>
       <h3>Projects</h3>
       <a class="simple-row" href="#create">
         <span class="row-icon">＋</span>
@@ -836,6 +1030,14 @@ function renderHome() {
           <button class="secondary" data-action="createPairingCode" type="button">Create pairing code</button>
           ${browserPaired ? '<button class="secondary" data-action="logoutBrowserSession" type="button">Log out paired browser</button>' : ''}
         </div>
+        <details class="disclosure compact-disclosure" open>
+          <summary><span>Paired devices</span><small>${safeText((shell.authSessions || []).length)} session${(shell.authSessions || []).length === 1 ? '' : 's'}</small></summary>
+          <div class="disclosure-body">${authSessionRows || '<div class="muted">No paired browser sessions yet.</div>'}</div>
+        </details>
+        <details class="disclosure compact-disclosure">
+          <summary><span>Packaged app credential storage</span><small>Tauri scope</small></summary>
+          <div class="disclosure-body tiny muted">In the future desktop app, the server API token should be generated on first run and stored in the OS credential store by the app shell. Browser/PWA users should use pairing; API tokens are for automation and emergency manual setup.</div>
+        </details>
         <details class="disclosure">
           <summary><span>Pair this browser</span><small>one-time code</small></summary>
           <div class="disclosure-body">
@@ -974,6 +1176,35 @@ function renderHome() {
               <label><input type="checkbox" name="pwaMode" ${checked(privateSettings.pwaMode !== 'disabled')}> Enable PWA static shell</label>
               <button type="submit">Save private access settings</button>
             </form>
+            <details class="disclosure compact-disclosure" open>
+              <summary>
+                <span>Phone URL and HTTPS wizard</span>
+                <small>Serve, not Funnel</small>
+              </summary>
+              <div class="disclosure-body">
+                <div class="access-command">
+                  <div>
+                    <strong>Current phone URL</strong>
+                    <div class="tiny muted">Use this from a device on the same tailnet.</div>
+                    <code>${safeText(phoneUrl)}</code>
+                  </div>
+                  <button class="secondary" data-action="copyPhoneUrl" data-url="${safeAttr(phoneUrl)}" type="button">Copy</button>
+                </div>
+                <div class="card">
+                  <h3>HTTPS Serve decision</h3>
+                  <p>HTTPS Serve improves Safari/PWA behavior and secure-cookie semantics. It can publish the machine/tailnet DNS name in certificate transparency logs. Rotate or rename the host first if hostname privacy matters.</p>
+                  <div class="lane-row">
+                    <button class="secondary" data-action="copyPrivateAccessCommand" data-command="tailscale serve --bg --https=443 http://127.0.0.1:3000" type="button">Copy HTTPS Serve command</button>
+                    <button class="secondary" data-action="copyPrivateAccessCommand" data-command="tailscale serve reset" type="button">Copy disable command</button>
+                  </div>
+                </div>
+                <div class="card">
+                  <h3>Rotate or rename hostname</h3>
+                  <p>Rename the device in Tailscale admin before enabling HTTPS certs if you do not want the current Mac name in certificate metadata. Tailnet DNS suffix rotation is an admin-level Tailscale setting and may break existing links.</p>
+                  <div class="tiny muted">Command Deck does not run these changes automatically. Make the change in Tailscale, then update the private access target URL here.</div>
+                </div>
+              </div>
+            </details>
             <details class="disclosure compact-disclosure">
               <summary>
                 <span>Dry-run setup commands</span>
@@ -1522,12 +1753,26 @@ async function handleAppBackupAction(event) {
 }
 
 function renderAccessGate() {
+  const privateTargets = Array.isArray(shell.privateAccess?.targets) ? shell.privateAccess.targets : [];
+  const phoneUrl = preferredPhoneUrl(privateTargets);
+  const phoneQr = qrSvgForText(phoneUrl);
   refs.content.innerHTML = `
     <section class="project-shell">
       <article class="card control-card auth-gate">
         <div class="card-kicker">Private dashboard</div>
         <h3>Connect this browser</h3>
         <p>This browser is not paired with Command Deck yet. Chrome and Safari keep separate sessions, so each browser needs its own pairing or API token.</p>
+        <div class="onboarding-card mini">
+          <div>
+            <strong>Open this URL from your phone</strong>
+            <code class="copy-url">${safeText(phoneUrl)}</code>
+            <div class="lane-row">
+              <button class="secondary" data-action="copyPhoneUrl" data-url="${safeAttr(phoneUrl)}" type="button">Copy link</button>
+            </div>
+            <div class="tiny muted">After connecting, Safari: Share -> Add to Home Screen. HTTPS Serve gives the cleanest PWA behavior.</div>
+          </div>
+          <div class="qr-wrap">${phoneQr}<span>Scan from phone</span></div>
+        </div>
         <div class="grid-2">
           <div class="card">
             <h3>Use API token</h3>
@@ -2240,6 +2485,10 @@ async function refresh() {
   if (providerCatalogResp.ok && providerCatalogResp.data) {
     shell.providerCatalog = providerCatalogResp.data;
   }
+  const authSessionsResp = await api('/api/auth/sessions');
+  if (authSessionsResp.ok && Array.isArray(authSessionsResp.data?.sessions)) {
+    shell.authSessions = authSessionsResp.data.sessions;
+  }
 
   if (shell.executorProfiles && typeof shell.executorProfiles === 'object') {
     const cliInfo = {};
@@ -2835,6 +3084,16 @@ async function handleSessionActions(event) {
 
 async function handleSystemActions(event) {
   const action = event.currentTarget.dataset.action;
+  if (action === 'copyPhoneUrl') {
+    const url = event.currentTarget.dataset.url || window.location.origin;
+    try {
+      await navigator.clipboard.writeText(url);
+      renderAlert('Phone link copied.');
+    } catch {
+      renderAlert(url);
+    }
+    return;
+  }
   if (action === 'setApiToken') {
     const tokenInput = document.getElementById('api-token-input');
     const token = tokenInput?.value || '';
@@ -2896,6 +3155,29 @@ async function handleSystemActions(event) {
       await refresh();
     } else {
       renderAlert(response.data?.error || 'Could not log out paired browser.', 'bad');
+    }
+    return;
+  }
+  if (action === 'revokeBrowserSession') {
+    const sessionId = event.currentTarget.dataset.sessionId;
+    if (!sessionId) return;
+    const confirmed = window.confirm('Revoke this paired browser session?');
+    if (!confirmed) {
+      renderAlert('Session revoke canceled.');
+      return;
+    }
+    const response = await api('/api/auth/logout', {
+      method: 'POST',
+      body: {
+        actor: 'dashboard',
+        sessionId,
+      },
+    });
+    if (response.ok) {
+      renderAlert('Paired browser session revoked.');
+      await refresh();
+    } else {
+      renderAlert(response.status === 401 ? authRequiredMessage() : (response.data?.error || 'Could not revoke paired browser session.'), 'bad');
     }
     return;
   }
@@ -3379,9 +3661,11 @@ document.addEventListener('click', async (event) => {
   if ([
     'setApiToken',
     'clearApiToken',
+    'copyPhoneUrl',
     'createPairingCode',
     'pairBrowserSession',
     'logoutBrowserSession',
+    'revokeBrowserSession',
     'cleanupArtifacts',
     'cleanupArtifactsRunNow',
     'deleteMcpTool',

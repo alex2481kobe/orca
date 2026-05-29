@@ -798,6 +798,71 @@ body.sidebar-collapsed .sidebar-project-line {
   margin-top: 1.55rem;
 }
 
+.onboarding-card {
+  align-items: center;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.onboarding-card.mini {
+  background: rgba(24, 26, 22, 0.7);
+  border: 1px solid rgba(64, 67, 58, 0.62);
+  border-radius: 15px;
+  margin: 0.8rem 0;
+  padding: 0.75rem;
+}
+
+.copy-url {
+  background: rgba(0, 0, 0, 0.28);
+  border-radius: 9px;
+  color: var(--accent-strong);
+  display: block;
+  font-size: 0.82rem;
+  margin-top: 0.45rem;
+  padding: 0.45rem 0.55rem;
+}
+
+.qr-wrap {
+  align-items: center;
+  color: var(--muted);
+  display: grid;
+  font-size: 0.72rem;
+  gap: 0.35rem;
+  justify-items: center;
+}
+
+.qr-code {
+  background: #f5f1e8;
+  border-radius: 13px;
+  height: 136px;
+  padding: 0.35rem;
+  width: 136px;
+}
+
+.qr-code rect:not(:first-child) {
+  fill: #080907;
+}
+
+.qr-fallback {
+  align-items: center;
+  background: rgba(245, 241, 232, 0.08);
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  color: var(--text);
+  display: grid;
+  height: 136px;
+  justify-items: center;
+  padding: 0.75rem;
+  text-align: center;
+  width: 136px;
+}
+
+.qr-fallback span {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
 .simple-section h3 {
   font-size: 1.12rem;
   margin: 0 0 0.35rem;
@@ -1374,6 +1439,10 @@ pre {
 
   .project-side-panel {
     position: static;
+  }
+
+  .onboarding-card {
+    grid-template-columns: 1fr;
   }
 
   .sidebar-archive {
