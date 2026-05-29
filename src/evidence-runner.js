@@ -33,8 +33,24 @@ function normalizeModes(rawModes) {
   return dedup.size ? [...dedup] : DEFAULT_CAPTURE;
 }
 
+// lane.sessionId / lane.id are server-generated, but treat them as untrusted
+// path segments anyway so a crafted/corrupt lane can never escape artifacts/.
+function safePathSegment(value, fallback) {
+  const text = String(value || '').trim();
+  return /^[A-Za-z0-9._-]{1,128}$/.test(text) && text !== '.' && text !== '..'
+    ? text
+    : fallback;
+}
+
 function resolveArtifactDir(lane) {
-  return path.join(process.cwd(), 'artifacts', lane.sessionId || 'orphan', lane.id);
+  const sessionSeg = safePathSegment(lane.sessionId, 'orphan');
+  const laneSeg = safePathSegment(lane.id, 'unknown-lane');
+  const root = path.join(process.cwd(), 'artifacts');
+  const dir = path.join(root, sessionSeg, laneSeg);
+  if (dir !== root && !dir.startsWith(root + path.sep)) {
+    throw { status: 400, message: 'Invalid artifact path.' };
+  }
+  return dir;
 }
 
 function nowIso() {
@@ -142,8 +158,9 @@ export class PlaywrightEvidenceRunner {
   const tracePath = path.join(artifactDir, `evidence-${captureTimestamp}-trace.zip`);
   const logPath = path.join(artifactDir, `evidence-${captureTimestamp}-log.txt`);
 
+    let browser = null;
     try {
-      const browser = await playwright.chromium.launch({
+      browser = await playwright.chromium.launch({
         headless: true,
       });
       const contextOptions = {};
@@ -159,46 +176,46 @@ export class PlaywrightEvidenceRunner {
       const wantsScreenshot = requestedModes.includes('screenshot');
 
       const context = await browser.newContext(contextOptions);
-      if (wantsTrace) {
-        await context.tracing.start({
-          name: `lane-${lane.id}-${captureTimestamp}`,
-          screenshots: true,
-          snapshots: true,
-        });
-      }
-
-      const page = await context.newPage();
-      await page.goto(url, {
-        waitUntil: 'networkidle',
-        timeout: timeoutMs,
-      });
-      await page.setViewportSize({ width: 1366, height: 768 });
-
-      if (wantsScreenshot) {
-        const screenshot = await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => null);
-        if (screenshot) {
-          captureFiles.push(`evidence-${captureTimestamp}-shot.png`);
+      let videoRelPath = null;
+      try {
+        if (wantsTrace) {
+          await context.tracing.start({
+            name: `lane-${lane.id}-${captureTimestamp}`,
+            screenshots: true,
+            snapshots: true,
+          });
         }
-      }
 
-      if (wantsVideo) {
-        const video = page.video();
-        if (video) {
-          const videoPath = await video.path();
-          if (videoPath) {
-            captureFiles.push(path.relative(artifactDir, videoPath));
+        const page = await context.newPage();
+        await page.setViewportSize({ width: 1366, height: 768 });
+        await page.goto(url, {
+          waitUntil: 'networkidle',
+          timeout: timeoutMs,
+        });
+
+        if (wantsScreenshot) {
+          const screenshot = await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => null);
+          if (screenshot) {
+            captureFiles.push(`evidence-${captureTimestamp}-shot.png`);
           }
         }
-      }
 
-      if (wantsTrace) {
-        await context.tracing.stop({ path: tracePath });
-        captureFiles.push(`evidence-${captureTimestamp}-trace.zip`);
-      }
+        if (wantsTrace) {
+          await context.tracing.stop({ path: tracePath });
+          captureFiles.push(`evidence-${captureTimestamp}-trace.zip`);
+        }
 
-      await page.close();
-      await context.close();
-      await browser.close();
+        // Video is finalized when the page closes; read its path afterwards.
+        const video = wantsVideo ? page.video() : null;
+        await page.close();
+        if (video) {
+          const videoPath = await video.path().catch(() => null);
+          if (videoPath) videoRelPath = path.relative(artifactDir, videoPath);
+        }
+      } finally {
+        await context.close().catch(() => {});
+      }
+      if (videoRelPath) captureFiles.push(videoRelPath);
 
       if (!captureFiles.includes(`evidence-${captureTimestamp}-log.txt`)) {
         captureFiles.push(`evidence-${captureTimestamp}-log.txt`);
@@ -234,6 +251,9 @@ export class PlaywrightEvidenceRunner {
         reason: failure.error,
         evidence: failure,
       };
+    } finally {
+      // Always release the browser process, even if goto/screenshot/trace threw.
+      if (browser) await browser.close().catch(() => {});
     }
   }
 

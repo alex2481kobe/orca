@@ -88,6 +88,17 @@ export function createLaneWorktree({
   if (!laneId) {
     return { ok: false, reason: 'laneId is required.' };
   }
+  // baseRef is handed to `git worktree add ... <baseRef>`. Even with shell:false,
+  // git treats leading "-" as flags and ".." as a range. Restrict to a plain ref.
+  const safeBaseRef = String(baseRef || 'HEAD').trim();
+  if (
+    !safeBaseRef
+    || safeBaseRef.startsWith('-')
+    || safeBaseRef.includes('..')
+    || !/^[A-Za-z0-9._\/-]{1,200}$/.test(safeBaseRef)
+  ) {
+    return { ok: false, reason: 'Invalid baseRef.' };
+  }
   const descriptor = describeRepoRoot(repoRoot);
   if (!descriptor.ok) {
     return { ok: false, reason: descriptor.reason };
@@ -133,7 +144,7 @@ export function createLaneWorktree({
     branch = `${BRANCH_PREFIX}${safeLaneId.slice(0, 8)}`;
   }
 
-  const addArgs = ['worktree', 'add', '-b', branch, worktreePath, baseRef];
+  const addArgs = ['worktree', 'add', '-b', branch, worktreePath, safeBaseRef];
   const result = runGit(addArgs, { cwd: descriptor.repoRoot });
   if (result.status !== 0) {
     return {
@@ -164,7 +175,21 @@ export function removeLaneWorktree({ repoRoot, worktreePath, removeBranch = fals
   if (!descriptor.ok) {
     return { removed: false, reason: descriptor.reason };
   }
-  const removeResult = runGit(['worktree', 'remove', '--force', worktreePath], { cwd: descriptor.repoRoot });
+  // Only remove a path git actually tracks as a worktree, and never the repo
+  // root itself — prevents a bad/forged worktreePath from force-removing
+  // arbitrary directories.
+  const resolvedTarget = path.resolve(worktreePath);
+  if (resolvedTarget === path.resolve(descriptor.repoRoot)) {
+    return { removed: false, reason: 'Refusing to remove the repository root as a worktree.' };
+  }
+  const list = runGit(['worktree', 'list', '--porcelain'], { cwd: descriptor.repoRoot });
+  if (list.status === 0) {
+    const registered = parseWorktreeList(list.stdout).map((entry) => path.resolve(entry.path));
+    if (!registered.includes(resolvedTarget)) {
+      return { removed: false, reason: 'Path is not a registered git worktree of this repo.' };
+    }
+  }
+  const removeResult = runGit(['worktree', 'remove', '--force', resolvedTarget], { cwd: descriptor.repoRoot });
   if (removeResult.status !== 0) {
     return {
       removed: false,

@@ -163,13 +163,33 @@ function normalizeAllowedBinaries(value) {
   return out;
 }
 
+// Cap total forwarded child output (stdout+stderr) to bound memory use.
+const MAX_EXECUTOR_OUTPUT_BYTES = 10 * 1024 * 1024;
+
+// Server-managed env keys a lane may never set or override.
+const RESERVED_EXECUTOR_ENV_KEYS = new Set([
+  'COMMAND_DECK_LANE_ID',
+  'COMMAND_DECK_SESSION_ID',
+  'COMMAND_DECK_PROJECT_ID',
+  'COMMAND_DECK_ARTIFACT_DIR',
+  'COMMAND_DECK_MCP_CONFIG',
+]);
+
 function buildExecutorCommandArgs(label, lane) {
   const taskPrompt = String(lane.taskPrompt || '').trim();
   if (!taskPrompt) return [];
   const safePrompt = taskPrompt.replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 4096);
-  const model = String(lane.model || '').trim().slice(0, 120);
-  const permissions = String(lane.permissionsProfile || '').trim().slice(0, 120);
-  const targetUrl = String(lane.targetUrl || '').trim().slice(0, 1024);
+  // Values that become discrete argv tokens must not begin with "-" or the
+  // executor's own option parser would treat them as flags (flag injection),
+  // and must not carry control characters. shell:false already blocks shell
+  // injection; this blocks argument/flag injection.
+  const flagSafe = (value, max) => {
+    const v = String(value || '').replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, max);
+    return v && !v.startsWith('-') ? v : '';
+  };
+  const model = flagSafe(lane.model, 120);
+  const permissions = flagSafe(lane.permissionsProfile, 120);
+  const targetUrl = flagSafe(lane.targetUrl, 1024);
   const out = [];
   switch (String(label).toLowerCase()) {
     case 'codex': {
@@ -421,19 +441,24 @@ class CliExecutorAdapter {
       }
     }
 
+    // Apply lane-supplied env FIRST, excluding the reserved server-managed keys,
+    // so a lane can never override the lane/session/project identity, artifact
+    // dir, or MCP config path the server controls below.
+    const laneEnv = parseEnv(lane.env);
+    for (const [key, value] of Object.entries(laneEnv)) {
+      if (RESERVED_EXECUTOR_ENV_KEYS.has(key)) continue;
+      if (this.envAllowlist.has(key) || String(key).startsWith('COMMAND_DECK_')) {
+        baseEnv[key] = value;
+      }
+    }
+
+    // Server-controlled values always win.
     baseEnv.COMMAND_DECK_LANE_ID = String(lane.id);
     baseEnv.COMMAND_DECK_SESSION_ID = String(lane.sessionId || '');
     baseEnv.COMMAND_DECK_PROJECT_ID = String(lane.projectId || '');
     baseEnv.COMMAND_DECK_ARTIFACT_DIR = lane.artifactPath || '';
     if (lane.mcpConfigPath) {
       baseEnv.COMMAND_DECK_MCP_CONFIG = lane.mcpConfigPath;
-    }
-
-    const laneEnv = parseEnv(lane.env);
-    for (const [key, value] of Object.entries(laneEnv)) {
-      if (this.envAllowlist.has(key) || String(key).startsWith('COMMAND_DECK_')) {
-        baseEnv[key] = value;
-      }
     }
     return baseEnv;
   }
@@ -566,18 +591,35 @@ class CliExecutorAdapter {
 
       child.stdout?.setEncoding('utf8');
       child.stderr?.setEncoding('utf8');
-      child.stdout?.on('data', (chunk) => {
-        safeFire(this.onLog, lane, `[${this.label}] ${String(chunk).trim()}`);
-      });
-      child.stderr?.on('data', (chunk) => {
-        safeFire(this.onLog, lane, `[${this.label} err] ${String(chunk).trim()}`);
-      });
+      // Bound total forwarded output so a runaway executor cannot exhaust memory
+      // through queued data events feeding an async onLog callback.
+      runtime.outputBytes = 0;
+      runtime.outputCapped = false;
+      const forward = (prefix, chunk) => {
+        if (runtime.outputCapped) return;
+        const text = String(chunk);
+        runtime.outputBytes += Buffer.byteLength(text, 'utf8');
+        if (runtime.outputBytes > MAX_EXECUTOR_OUTPUT_BYTES) {
+          runtime.outputCapped = true;
+          child.stdout?.destroy();
+          child.stderr?.destroy();
+          safeFire(this.onLog, lane, `[${this.label}] output truncated after ${MAX_EXECUTOR_OUTPUT_BYTES} bytes.`);
+          return;
+        }
+        safeFire(this.onLog, lane, `${prefix} ${text.trim()}`);
+      };
+      child.stdout?.on('data', (chunk) => forward(`[${this.label}]`, chunk));
+      child.stderr?.on('data', (chunk) => forward(`[${this.label} err]`, chunk));
 
       child.on('error', (error) => {
         if (runtime.status !== 'active') return;
         runtime.status = 'failed';
+        // Detach output listeners so a late buffered chunk can't fire onLog on a
+        // lane whose runtime was already reaped.
+        child.stdout?.destroy();
+        child.stderr?.destroy();
         this.runtimes.delete(String(lane.id));
-        safeFire(this.onFail, lane, `Executor process failed to launch: ${error.message}`, 'scheduler');
+        safeFire(this.onFail, lane, `Executor process failed to launch: ${error.message} (${error.code || 'ERR'})`, 'scheduler');
       });
 
       child.on('exit', (code, signal) => {
