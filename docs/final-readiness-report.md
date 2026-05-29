@@ -272,6 +272,16 @@ Current private URL:
 http://alexs-mac-mini.tailf87358.ts.net/
 ```
 
+Live operator status check:
+
+```bash
+npm run operator:status
+```
+
+This command is read-only. It checks local health, private Tailscale health,
+tailnet-only Serve status, and public Funnel status without changing Serve,
+Funnel, auth sessions, provider credentials, or project state.
+
 Use one-time browser pairing from the dashboard. Do not put tokens in URLs.
 Pairing codes are one-time secrets and should not be stored in docs, logs,
 screenshots, or issue comments.

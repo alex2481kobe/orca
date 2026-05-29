@@ -121,6 +121,15 @@ local servers where needed and does not require public network access, real OS
 credential writes, global installs, live Tailscale mutation, or destructive
 cleanup.
 
+For the live operator setup, run:
+
+```bash
+npm run operator:status
+```
+
+This read-only check verifies local health, the private Tailscale health URL,
+tailnet-only Serve config, and absence of public Funnel exposure.
+
 ## Configuration
 
 | Variable | Purpose |
