@@ -70,12 +70,11 @@ prose claims alone; use the ledger and smoke gates as the authority.
   commands, fake provider states, Funnel rejection, setup checklist UI,
   copy/open/check actions, mocked tests, and runbook.
 
-## External blockers
+## External/manual checks
 
 These are not missing local app code:
 
-- Live Tailscale Serve activation and real phone reachability require the
-  user's tailnet/device approval. See
+- Real phone reachability requires the user's phone on the same tailnet. See
   [`docs/tailscale-mobile-access.md`](docs/tailscale-mobile-access.md).
 - Native Tauri/iOS/Android packaging is a later product phase. The v1 app path
   is PWA phone-first.

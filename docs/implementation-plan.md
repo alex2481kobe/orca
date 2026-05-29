@@ -62,8 +62,12 @@ smoke gates before being listed.
   security, UI, route matrix, provider, credential, evidence, private
   access, PWA, notification, backup, stream, migration, and lifecycle
   smokes. It writes `artifacts/acceptance/acceptance-summary.json` and
-  lists live Tailscale phone reachability plus native packaging as
-  external/manual checks.
+  lists real phone reachability plus native packaging as external/manual
+  checks.
+- Live HTTP-over-Tailscale Serve was activated on this host, remained
+  tailnet-only with no Funnel exposure, returned `/api/health` through
+  MagicDNS, and passed `npm run smoke:ui` through the private Serve URL
+  at desktop and 390px phone viewports.
 - Real Claude CLI execution flows through the adapter (`claude
   --version` → PID + exit 0).
 - Real Codex CLI is repaired on this host through Homebrew
@@ -168,10 +172,11 @@ smoke gates before being listed.
 The app-side implementation is locally proven. Remaining blockers are external
 operator/device setup, not missing local code:
 
-- Live Tailscale Serve activation requires the user-owned tailnet and device
-  approval. Use `docs/tailscale-mobile-access.md` for exact HTTP and HTTPS
-  Serve commands, status checks, Funnel-off verification, shutdown commands,
-  and phone reachability checks.
+- Real phone reachability requires the user's phone on the same tailnet.
+  HTTP-over-Tailscale Serve has been activated on this host and verified
+  locally through MagicDNS. Use `docs/tailscale-mobile-access.md` for exact
+  HTTP and HTTPS Serve commands, status checks, Funnel-off verification,
+  shutdown commands, and phone reachability checks.
 - Native Tauri/iOS/Android packaging is a later product phase. PWA phone-first
   support is the v1 app path.
 
