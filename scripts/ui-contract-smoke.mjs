@@ -33,6 +33,7 @@ let stopServer = null;
 const WIRED_ACTIONS = new Set([
   'ackAuditEvent',
   'applyAppImport',
+  'archiveProject',
   'auditDone',
   'auditLane',
   'captureEvidence',
@@ -42,6 +43,7 @@ const WIRED_ACTIONS = new Set([
   'cleanupArtifactsRunNow',
   'clearApiToken',
   'clearEvidence',
+  'copyPhoneUrl',
   'copyPrivateAccessCommand',
   'createPairingCode',
   'deleteMcpTool',
@@ -62,6 +64,7 @@ const WIRED_ACTIONS = new Set([
   'refreshExecutorCli',
   'refreshProviderHealth',
   'requestBrowserNotifications',
+  'revokeBrowserSession',
   'reinstallExecutorCli',
   'removeWorktree',
   'retryLane',

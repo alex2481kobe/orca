@@ -45,6 +45,7 @@ const fail = (label, info = '') => {
 const WIRED_ACTIONS = new Set([
   'ackAuditEvent',
   'applyAppImport',
+  'archiveProject',
   'auditDone',
   'auditLane',
   'captureEvidence',
@@ -55,6 +56,7 @@ const WIRED_ACTIONS = new Set([
   'clearApiToken',
   'clearEvidence',
   'copyPrivateAccessCommand',
+  'copyPhoneUrl',
   'createPairingCode',
   'deleteMcpTool',
   'deletePrivateAccessTarget',
@@ -72,6 +74,7 @@ const WIRED_ACTIONS = new Set([
   'refreshExecutorCli',
   'refreshProviderHealth',
   'requestBrowserNotifications',
+  'revokeBrowserSession',
   'reinstallExecutorCli',
   'removeWorktree',
   'retryLane',
