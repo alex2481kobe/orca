@@ -1243,7 +1243,7 @@ export class CommandDeckRegistry {
   }
 
   listProjects() {
-    return clonePayload(this.projects);
+    return clonePayload(this.projects.filter((project) => project.state !== 'archived'));
   }
 
   getProject(locator) {
@@ -1293,6 +1293,14 @@ export class CommandDeckRegistry {
 
     if (patch.policyProfile) {
       project.policyProfile = patch.policyProfile;
+    }
+
+    if (patch.state !== undefined) {
+      const nextState = String(patch.state || '').trim();
+      if (!['active', 'archived'].includes(nextState)) {
+        throw { status: 422, message: 'Project state must be active or archived.' };
+      }
+      project.state = nextState;
     }
 
     if (patch.settingsOverrides !== undefined) {

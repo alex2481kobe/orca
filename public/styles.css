@@ -386,7 +386,7 @@ body.sidebar-collapsed .ops-sidebar {
   display: inline-flex;
   height: 1.6rem;
   justify-content: center;
-  opacity: 0;
+  opacity: 1;
   text-decoration: none;
   transition: opacity 0.12s ease, color 0.12s ease, stroke 0.12s ease;
   width: 1.6rem;
@@ -404,6 +404,42 @@ body.sidebar-collapsed .ops-sidebar {
 }
 
 .sidebar-compose svg {
+  fill: none;
+  height: 14px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+  width: 14px;
+}
+
+.sidebar-project-archive {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  display: inline-flex;
+  height: 1.6rem;
+  justify-content: center;
+  opacity: 0;
+  padding: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, stroke 0.12s ease;
+  width: 1.6rem;
+}
+
+.sidebar-project-line:hover .sidebar-project-archive,
+.sidebar-project-group.actions-open .sidebar-project-archive,
+.sidebar-project-archive:focus-visible {
+  opacity: 1;
+}
+
+.sidebar-project-archive:hover,
+.sidebar-project-archive:focus-visible {
+  color: var(--text);
+  outline: none;
+}
+
+.sidebar-project-archive svg {
   fill: none;
   height: 14px;
   stroke: currentColor;
@@ -472,6 +508,10 @@ body.sidebar-collapsed .ops-sidebar {
   transform: translateY(-50%);
   transition: opacity 0.12s ease, color 0.12s ease, stroke 0.12s ease;
   width: 2rem;
+}
+
+.sidebar-archive:disabled {
+  display: none;
 }
 
 .sidebar-session-line:hover .sidebar-archive,
@@ -1159,10 +1199,24 @@ form label {
   font-size: 0.82rem;
 }
 
+form label input[type="checkbox"] {
+  width: auto;
+}
+
 input,
 select,
 textarea {
   width: 100%;
+}
+
+input[type="checkbox"] {
+  min-height: 1.2rem;
+  min-width: 1.2rem;
+  width: auto;
+}
+
+.auth-gate {
+  max-width: 760px;
 }
 
 select[multiple] {
@@ -1267,6 +1321,13 @@ pre {
 
 /* Responsive: collapse sidebar to drawer on phones */
 @media (max-width: 880px) {
+  .app-topbar {
+    grid-template-columns: 3.5rem minmax(0, 1fr) 1rem;
+  }
+  .app-topbar-title {
+    justify-content: flex-start;
+    padding-left: 0.25rem;
+  }
   .ops-shell {
     grid-template-columns: 1fr;
     padding: 0;
@@ -1313,6 +1374,17 @@ pre {
 
   .project-side-panel {
     position: static;
+  }
+
+  .sidebar-archive {
+    display: none;
+  }
+  .sidebar-project-archive {
+    display: none;
+  }
+  .sidebar-project-group.actions-open .sidebar-project-archive {
+    display: inline-flex;
+    opacity: 1;
   }
 }
 

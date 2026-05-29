@@ -25,6 +25,8 @@ const shell = {
   notifications: null,
 };
 
+let refreshRequestId = 0;
+
 const API_PROVIDER_EXECUTOR_TYPES = ['api', 'openai-compatible', 'gemini', 'kimi', 'deepseek', 'openrouter', 'composer'];
 const MCP_TOOL_SCOPE_ALLOWLIST = [
   'all',
@@ -162,6 +164,33 @@ function safeAttr(value) {
   return safeText(value)
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
+}
+
+function clientUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    const parsed = new URL(raw, window.location.origin);
+    if (['localhost', '127.0.0.1', '::1'].includes(parsed.hostname)) {
+      parsed.protocol = window.location.protocol;
+      parsed.hostname = window.location.hostname;
+    }
+    return parsed.toString();
+  } catch {
+    return raw;
+  }
+}
+
+function authRequiredMessage() {
+  return 'This browser is not authenticated. Pair it from Settings, or save the API token for this browser session.';
+}
+
+function browserAccessBlocked() {
+  return Boolean(
+    shell.authStatus?.apiTokenRequired &&
+    !shell.authStatus?.apiTokenAuthenticated &&
+    !shell.authStatus?.browserSessionAuthenticated,
+  );
 }
 
 function stateBadge(state) {
@@ -721,7 +750,7 @@ function renderHome() {
     const projectLanes = shell.lanes.filter((lane) => lane.projectId === project.id);
     const latestActivity = latestTimestamp([...projectSessions, ...projectLanes, project]);
     const quickLinks = project.quickLinks.map((quick) => `
-      <div><a href="${safeText(quick.url)}" target="_blank" rel="noopener noreferrer">${safeText(quick.label)}</a></div>
+      <div><a href="${safeAttr(clientUrl(quick.url))}" target="_blank" rel="noopener noreferrer">${safeText(quick.label)}</a></div>
     `).join('');
     return `
       <article class="card click-card project-card" data-href="${safeAttr(project.route)}" tabindex="0" role="link" aria-label="Open ${safeAttr(project.name)} project">
@@ -1235,7 +1264,7 @@ async function handleNotificationAction(event) {
       renderAlert('Notification marked read.');
       await refresh();
     } else {
-      renderAlert(response.data?.error || 'Could not mark notification read.', 'bad');
+      renderAlert(response.status === 401 ? authRequiredMessage() : (response.data?.error || 'Could not mark notification read.'), 'bad');
     }
     return;
   }
@@ -1248,7 +1277,7 @@ async function handleNotificationAction(event) {
       renderAlert(`Marked ${response.data?.updated || 0} notification(s) read.`);
       await refresh();
     } else {
-      renderAlert(response.data?.error || 'Could not mark notifications read.', 'bad');
+      renderAlert(response.status === 401 ? authRequiredMessage() : (response.data?.error || 'Could not mark notifications read.'), 'bad');
     }
   }
 }
@@ -1492,6 +1521,44 @@ async function handleAppBackupAction(event) {
   }
 }
 
+function renderAccessGate() {
+  refs.content.innerHTML = `
+    <section class="project-shell">
+      <article class="card control-card auth-gate">
+        <div class="card-kicker">Private dashboard</div>
+        <h3>Connect this browser</h3>
+        <p>This browser is not paired with Command Deck yet. Chrome and Safari keep separate sessions, so each browser needs its own pairing or API token.</p>
+        <div class="grid-2">
+          <div class="card">
+            <h3>Use API token</h3>
+            <p>Use this for tonight's manual test session. The token stays in this browser session only.</p>
+            <label>API token
+              <input id="api-token-input" type="password" autocomplete="off" placeholder="Paste token" />
+            </label>
+            <div class="lane-row">
+              <button data-action="setApiToken" type="button">Connect</button>
+              <button class="secondary" data-action="clearApiToken" type="button">Clear</button>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Use pairing code</h3>
+            <p>Enter a one-time pairing code generated from the Mac. This creates a browser session cookie.</p>
+            <label>Pairing code
+              <input id="pairing-code-input" autocomplete="one-time-code" placeholder="XXXX-XXXX-XXXX" />
+            </label>
+            <label>Browser label
+              <input id="pairing-label-input" value="phone browser" />
+            </label>
+            <div class="lane-row">
+              <button data-action="pairBrowserSession" type="button">Pair browser</button>
+            </div>
+          </div>
+        </div>
+      </article>
+    </section>
+  `;
+}
+
 function renderProject(project) {
   const sessionsMarkup = shell.sessions.filter((session) => session.projectId === project.id).map((session) => {
     const route = session.route;
@@ -1510,14 +1577,15 @@ function renderProject(project) {
       </article>
     `;
   }).join('');
-  const quickLinksMarkup = project.quickLinks.map((quick) => `<a href="${safeText(quick.url)}" target="_blank" rel="noopener noreferrer">${safeText(quick.label)}</a>`).join('');
+  const createSessionOpen = window.location.hash === '#create-session' || !sessionsMarkup;
+  const quickLinksMarkup = project.quickLinks.map((quick) => `<a href="${safeAttr(clientUrl(quick.url))}" target="_blank" rel="noopener noreferrer">${safeText(quick.label)}</a>`).join('');
 
   refs.content.innerHTML = `
     <section class="project-shell">
       <div class="project-workspace">
         <div class="project-main">
           <article class="card control-card">
-            <details class="disclosure">
+            <details class="disclosure" ${createSessionOpen ? 'open' : ''}>
               <summary>
                 <span>Create session</span>
                 <small>Start a new work board</small>
@@ -1561,7 +1629,7 @@ function renderProject(project) {
                     <div class="lane-row">
                       <div>
                         <div>${safeText(quick.label || 'Primary')}</div>
-                        <a href="${safeText(quick.url)}" target="_blank" rel="noopener noreferrer">${safeText(quick.url)}</a>
+                        <a href="${safeAttr(clientUrl(quick.url))}" target="_blank" rel="noopener noreferrer">${safeText(clientUrl(quick.url))}</a>
                       </div>
                       <button class="secondary" data-action="deleteProjectQuickLink" data-project-id="${project.id}" data-link-index="${index}" type="button">Remove</button>
                     </div>
@@ -1584,6 +1652,8 @@ function renderProject(project) {
               <small>Global tools</small>
             </summary>
             <div class="disclosure-body action-list">
+              <button class="danger" data-action="archiveProject" data-project-id="${safeAttr(project.id)}" data-project-name="${safeAttr(project.name)}" type="button">Archive project</button>
+              <a href="/#notifications">Notifications</a>
               <a href="/#audit">Audit queue</a>
               <a href="/#mcp">MCP tools</a>
               <a href="/#cleanup">Cleanup</a>
@@ -1896,6 +1966,11 @@ function render(uiState = null) {
   renderBlockers();
   renderSidebarProjects(project);
   if (refs.content) refs.content.setAttribute('aria-busy', 'false');
+  if (browserAccessBlocked()) {
+    if (refs.topbarTitle) refs.topbarTitle.textContent = 'Command Deck';
+    renderAccessGate();
+    return;
+  }
   if (!project) {
     renderHome();
   } else if (!session) {
@@ -1963,7 +2038,13 @@ function renderSidebarProjects(activeProject) {
   if (!refs.sidebarProjects) return;
   const projects = shell.projects || [];
   if (!projects.length) {
-    refs.sidebarProjects.innerHTML = '<div class="tiny muted">No projects yet — create one from the home view.</div>';
+    refs.sidebarProjects.innerHTML = `
+      <a class="sidebar-link sidebar-create-project" href="/#create">
+        <span class="row-icon" aria-hidden="true">+</span>
+        <span>New project</span>
+      </a>
+      <div class="tiny muted">No projects yet.</div>
+    `;
     return;
   }
   const storedOrder = readSidebarOrder();
@@ -2001,13 +2082,27 @@ function renderSidebarProjects(activeProject) {
             ${active ? `<span class="pill" title="${active} active lanes">${active}</span>` : ''}
           </a>
           <a class="sidebar-compose" href="${safeAttr(project.route)}#create-session" aria-label="Create session in ${safeAttr(project.name)}">${COMPOSE_ICON}</a>
+          <button class="sidebar-project-archive" data-action="archiveProject" data-project-id="${safeAttr(project.id)}" data-project-name="${safeAttr(project.name)}" type="button" aria-label="Archive ${safeAttr(project.name)} project">
+            <svg viewBox="0 0 20 20" focusable="false" aria-hidden="true">
+              <path d="M3.2 6.5h13.6"></path>
+              <path d="M5 6.5v9.2c0 .8.6 1.4 1.4 1.4h7.2c.8 0 1.4-.6 1.4-1.4V6.5"></path>
+              <path d="M7.2 3.3h5.6l.8 3.2H6.4l.8-3.2Z"></path>
+              <path d="M8 10h4"></path>
+            </svg>
+          </button>
         </div>
         ${sessionRows || '<div class="tiny muted sidebar-empty">No sessions yet.</div>'}
       </div>
     `;
   };
   const primaryProjects = orderItems(projects.filter((project) => !isVerificationProject(project)), storedOrder.projects);
-  refs.sidebarProjects.innerHTML = primaryProjects.map(renderSidebarProject).join('');
+  refs.sidebarProjects.innerHTML = `
+    <a class="sidebar-link sidebar-create-project" href="/#create">
+      <span class="row-icon" aria-hidden="true">+</span>
+      <span>New project</span>
+    </a>
+    ${primaryProjects.map(renderSidebarProject).join('')}
+  `;
 }
 
 function setupSidebarReorder() {
@@ -2105,11 +2200,16 @@ function renderMobileManifest() {
 }
 
 async function refresh() {
+  const requestId = ++refreshRequestId;
   shell.route = parseRoute();
   shell.alerts = [];
   const authResp = await api('/api/auth/status');
   if (authResp.ok && authResp.data) {
     shell.authStatus = authResp.data;
+  }
+  if (browserAccessBlocked()) {
+    render(captureContentUiState());
+    return;
   }
   const policyResp = await api('/api/policy');
   if (policyResp.ok && policyResp.data) {
@@ -2162,36 +2262,45 @@ async function refresh() {
   }
 
   const pendingAuditResp = await api('/api/audit/events?status=pending');
-  shell.pendingAuditEvents = pendingAuditResp.ok && Array.isArray(pendingAuditResp.data)
-    ? pendingAuditResp.data
-    : [];
+  if (requestId !== refreshRequestId) return;
+  if (pendingAuditResp.ok && Array.isArray(pendingAuditResp.data)) {
+    shell.pendingAuditEvents = pendingAuditResp.data;
+  }
 
   const projectsResp = await api('/api/projects');
-  shell.projects = projectsResp.ok && Array.isArray(projectsResp.data) ? projectsResp.data : [];
-  const allSessions = [];
-  for (const project of shell.projects) {
-    const sessionsResp = await api(`/api/projects/${project.id}/sessions`);
-    if (sessionsResp.ok && Array.isArray(sessionsResp.data)) {
-      allSessions.push(...sessionsResp.data);
+  if (requestId !== refreshRequestId) return;
+  if (projectsResp.ok && Array.isArray(projectsResp.data)) {
+    const nextProjects = projectsResp.data;
+    const allSessions = [];
+    let sessionsComplete = true;
+    for (const project of nextProjects) {
+      const sessionsResp = await api(`/api/projects/${project.id}/sessions`);
+      if (requestId !== refreshRequestId) return;
+      if (sessionsResp.ok && Array.isArray(sessionsResp.data)) {
+        allSessions.push(...sessionsResp.data);
+      } else {
+        sessionsComplete = false;
+      }
     }
-  }
-  shell.sessions = allSessions;
-  const allLaneResponses = await Promise.all(allSessions.map((session) => api(`/api/sessions/${session.id}/lanes`)));
-  shell.lanes = allLaneResponses
-    .filter((response) => response.ok && Array.isArray(response.data))
-    .flatMap((response) => response.data);
 
-  const project = shell.projects.find((value) => value.slug === shell.route.projectSlug || value.id === shell.route.projectSlug);
-  if (project) {
-    const sessions = await api(`/api/projects/${project.id}/sessions`);
-    if (sessions.ok && Array.isArray(sessions.data)) {
-      shell.sessions = sessions.data;
-      const laneResponses = await Promise.all(sessions.data.map((session) => api(`/api/sessions/${session.id}/lanes`)));
-      shell.lanes = laneResponses
-        .filter((response) => response.ok && Array.isArray(response.data))
-        .flatMap((response) => response.data);
+    let allLanes = shell.lanes;
+    let lanesComplete = false;
+    if (sessionsComplete) {
+      const allLaneResponses = await Promise.all(allSessions.map((session) => api(`/api/sessions/${session.id}/lanes`)));
+      if (requestId !== refreshRequestId) return;
+      lanesComplete = allLaneResponses.every((response) => response.ok && Array.isArray(response.data));
+      if (lanesComplete) {
+        allLanes = allLaneResponses.flatMap((response) => response.data);
+      }
+    }
+
+    shell.projects = nextProjects;
+    if (sessionsComplete && lanesComplete) {
+      shell.sessions = allSessions;
+      shell.lanes = allLanes;
     }
   }
+  if (requestId !== refreshRequestId) return;
   render(captureContentUiState());
 }
 
@@ -2984,6 +3093,36 @@ async function handleSystemActions(event) {
     }
   }
 
+  if (action === 'archiveProject') {
+    const projectId = event.currentTarget.dataset.projectId;
+    const projectName = event.currentTarget.dataset.projectName || 'this project';
+    if (!projectId) return;
+    const confirmed = window.confirm(`Archive ${projectName}? It will disappear from the default project list, but its saved state is retained.`);
+    if (!confirmed) {
+      renderAlert('Project archive canceled.');
+      return;
+    }
+    const approval = buildApprovedActionBody('updateProject', `Archive ${projectName}?`);
+    if (!approval.approved) {
+      renderAlert('Project archive canceled.');
+      return;
+    }
+    const response = await api(`/api/projects/${projectId}`, {
+      method: 'PATCH',
+      body: {
+        actor: approval.actor,
+        approved: approval.approved,
+        state: 'archived',
+      },
+    });
+    if (response.ok) {
+      renderAlert('Project archived.');
+      window.location.href = '/#projects';
+      return;
+    }
+    renderAlert(response.status === 401 ? authRequiredMessage() : (response.data?.error || 'Could not archive project.'), 'bad');
+  }
+
   if (action === 'editMcpTool') {
     const toolId = event.currentTarget.dataset.toolId;
     if (!toolId) return;
@@ -3159,7 +3298,46 @@ document.addEventListener('change', (event) => {
   }
 });
 
+document.addEventListener('click', (event) => {
+  const label = event.target?.closest?.('label');
+  const checkbox = label?.querySelector?.('input[type="checkbox"]');
+  if (checkbox && event.target !== checkbox) {
+    event.preventDefault();
+  }
+}, true);
+
+let sidebarLongPressTimer = null;
+let sidebarLongPressOpened = false;
+
+document.addEventListener('pointerdown', (event) => {
+  if (!window.matchMedia('(max-width: 880px)').matches) return;
+  const group = event.target?.closest?.('.sidebar-project-group');
+  if (!group || event.target?.closest?.('button, a.sidebar-compose')) return;
+  sidebarLongPressOpened = false;
+  clearTimeout(sidebarLongPressTimer);
+  sidebarLongPressTimer = setTimeout(() => {
+    document.querySelectorAll('.sidebar-project-group.actions-open').forEach((item) => {
+      if (item !== group) item.classList.remove('actions-open');
+    });
+    group.classList.add('actions-open');
+    sidebarLongPressOpened = true;
+  }, 450);
+}, { passive: true });
+
+document.addEventListener('pointerup', () => {
+  clearTimeout(sidebarLongPressTimer);
+}, { passive: true });
+
 document.addEventListener('click', async (event) => {
+  if (sidebarLongPressOpened) {
+    sidebarLongPressOpened = false;
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
+  if (!event.target?.closest?.('.sidebar-project-group')) {
+    document.querySelectorAll('.sidebar-project-group.actions-open').forEach((item) => item.classList.remove('actions-open'));
+  }
   const actionTarget = event.target?.closest?.('[data-action]');
   const action = actionTarget?.dataset?.action;
   if (action === 'toggleNav') {
@@ -3211,6 +3389,7 @@ document.addEventListener('click', async (event) => {
     'deleteProjectQuickLink',
     'refreshExecutorCli',
     'reinstallExecutorCli',
+    'archiveProject',
   ].includes(action)) {
     await handleSystemActions({ currentTarget: actionTarget });
     return;

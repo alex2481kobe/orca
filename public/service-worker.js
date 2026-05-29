@@ -1,4 +1,4 @@
-const CACHE_NAME = 'command-deck-static-v1';
+const CACHE_NAME = 'command-deck-static-v4';
 const STATIC_ASSETS = [
   '/',
   '/styles.css',
