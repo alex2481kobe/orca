@@ -328,6 +328,17 @@ phone checklist status. The summary never stores API tokens, cookies, or
 pairing codes. It also redacts private hostnames from recorded URLs and
 Tailscale status output.
 
+Local completion audit:
+
+```bash
+npm run operator:completion-audit
+```
+
+This writes `artifacts/completion-audit/completion-audit-summary.json` from the
+acceptance summary, full-buildout ledger, phone preflight summary, and git
+status. It is the fastest way to see whether the app is locally ready or still
+blocked by external/manual proof.
+
 Use one-time browser pairing from the dashboard. Do not put tokens in URLs.
 Pairing codes are one-time secrets and should not be stored in docs, logs,
 screenshots, or issue comments.

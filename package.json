@@ -40,7 +40,8 @@
     "smoke:process-lifecycle": "node scripts/process-lifecycle-smoke.mjs",
     "operator:status": "node scripts/operator-status.mjs",
     "operator:pair": "node scripts/operator-pairing-code.mjs",
-    "operator:phone-check": "node scripts/operator-phone-check.mjs"
+    "operator:phone-check": "node scripts/operator-phone-check.mjs",
+    "operator:completion-audit": "node scripts/operator-completion-audit.mjs"
   },
   "devDependencies": {
     "playwright": "^1.60.0"

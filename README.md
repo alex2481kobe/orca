@@ -164,6 +164,16 @@ COMMAND_DECK_API_TOKEN=... \
 The generated `artifacts/operator-phone-check/phone-check-summary.json` never
 stores API tokens, cookies, pairing codes, or private hostnames.
 
+To generate the local completion audit artifact:
+
+```bash
+npm run operator:completion-audit
+```
+
+This reads the acceptance summary, full-buildout ledger, phone preflight
+summary, and git status, then writes
+`artifacts/completion-audit/completion-audit-summary.json`.
+
 ## Configuration
 
 | Variable | Purpose |
