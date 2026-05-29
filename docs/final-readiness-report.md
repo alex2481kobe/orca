@@ -24,6 +24,8 @@ manual check as external.
 - Tailscale Funnel: no public Funnel config.
 - Direct Tailscale IP behavior: hostname routing is expected; use MagicDNS URL,
   not bare Tailscale IP, for Serve.
+- Durable Mac service setup: documented in `docs/macos-launchd-runbook.md`.
+  It is optional and not auto-installed.
 
 ## Latest implementation commits
 
@@ -295,6 +297,11 @@ prints the API token.
 Use one-time browser pairing from the dashboard. Do not put tokens in URLs.
 Pairing codes are one-time secrets and should not be stored in docs, logs,
 screenshots, or issue comments.
+
+If Command Deck needs to stay available after this terminal session exits, use
+`docs/macos-launchd-runbook.md` to install a user LaunchAgent. The runbook keeps
+the API token in `~/.command-deck.env` with mode `600` and keeps the plist
+secret-free.
 
 Phone check:
 

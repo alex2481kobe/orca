@@ -95,6 +95,11 @@ The dashboard starts at <http://127.0.0.1:3000/>.
 For private phone access, keep the server bound locally and front it with
 Tailscale Serve. Funnel is forbidden for v1.
 
+For durable Mac operation after the current terminal exits, use
+[`docs/macos-launchd-runbook.md`](docs/macos-launchd-runbook.md). It keeps the
+API token in a local `chmod 600` env file instead of committing it or storing it
+in the launchd plist.
+
 ## Verification commands
 
 ```bash

@@ -32,6 +32,10 @@ PORT=3000 COMMAND_DECK_HOST=127.0.0.1 \
 
 The server binds to `127.0.0.1`. The dashboard is at <http://127.0.0.1:3000/>.
 
+For durable Mac operation after the current terminal exits, use
+[`macos-launchd-runbook.md`](macos-launchd-runbook.md). It keeps the API token
+in a local `chmod 600` env file and keeps the launchd plist secret-free.
+
 If you want stricter per-binary, per-workdir, or per-env settings, set
 `COMMAND_DECK_CODEX_BINARY`, `COMMAND_DECK_CODEX_WORKDIR_ROOTS`,
 `COMMAND_DECK_REPO_ROOTS` (comma-separated absolute paths used to validate
