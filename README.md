@@ -146,6 +146,24 @@ The helper prints only the one-time code and expiry. It never prints the API
 token. Pairing codes are one-time secrets and should not be stored in docs,
 logs, screenshots, or issue comments.
 
+To run the full live phone-readiness preflight and write a redacted local
+summary artifact:
+
+```bash
+COMMAND_DECK_PRIVATE_URL=<tailnet-url> npm run operator:phone-check
+```
+
+To also create a fresh one-time pairing code during that preflight:
+
+```bash
+COMMAND_DECK_PRIVATE_URL=<tailnet-url> \
+COMMAND_DECK_API_TOKEN=... \
+  npm run operator:phone-check -- --create-pairing-code
+```
+
+The generated `artifacts/operator-phone-check/phone-check-summary.json` never
+stores API tokens, cookies, or pairing codes.
+
 ## Configuration
 
 | Variable | Purpose |
