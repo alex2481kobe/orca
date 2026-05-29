@@ -24,6 +24,9 @@ The current completion ledger is
 [`docs/full-buildout-ledger.md`](docs/full-buildout-ledger.md). Do not rely on
 prose claims alone; use the ledger and smoke gates as the authority.
 
+The consolidated full-buildout evidence report is
+[`docs/final-readiness-report.md`](docs/final-readiness-report.md).
+
 ## Implemented and proven
 
 - Local HTTP API and static dashboard at `/`, binding to `127.0.0.1` by
