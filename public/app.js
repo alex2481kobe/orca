@@ -28,6 +28,7 @@ const shell = {
 };
 
 let refreshRequestId = 0;
+const MOBILE_NAV_BREAKPOINT = 880;
 
 const API_PROVIDER_EXECUTOR_TYPES = ['api', 'openai-compatible', 'gemini', 'kimi', 'deepseek', 'openrouter', 'composer'];
 const MCP_TOOL_SCOPE_ALLOWLIST = [
@@ -197,6 +198,34 @@ function browserAccessBlocked() {
     !shell.authStatus?.apiTokenAuthenticated &&
     !shell.authStatus?.browserSessionAuthenticated,
   );
+}
+
+function clearProtectedWorkspaceState() {
+  shell.projects = [];
+  shell.sessions = [];
+  shell.lanes = [];
+  shell.policy = {};
+  shell.alerts = [];
+  shell.pendingAuditEvents = [];
+  shell.mcpTools = [];
+  shell.providerCatalog = null;
+  shell.notifications = null;
+  shell.authSessions = null;
+  shell.executorProfiles = null;
+  shell.executorCliInfo = {};
+}
+
+function isMobileLayout() {
+  return window.matchMedia(`(max-width: ${MOBILE_NAV_BREAKPOINT}px)`).matches;
+}
+
+function closeMobileNavPanel() {
+  document.body.classList.remove('nav-open');
+}
+
+function openMobileNavPanel() {
+  if (!isMobileLayout()) return;
+  document.body.classList.add('nav-open');
 }
 
 function accessModeLabel(mode) {
@@ -2437,13 +2466,14 @@ function render(uiState = null) {
   renderTopbarTitle(project, session, lane);
   renderStatusStrip();
   renderBlockers();
-  renderSidebarProjects(project);
   if (refs.content) refs.content.setAttribute('aria-busy', 'false');
   if (browserAccessBlocked()) {
+    renderSidebarProjects();
     if (refs.topbarTitle) refs.topbarTitle.textContent = 'Command Deck';
     renderAccessGate();
     return;
   }
+  renderSidebarProjects(project);
   if (!project) {
     renderHome();
   } else if (!session) {
@@ -2509,6 +2539,16 @@ function renderBlockers() {
 
 function renderSidebarProjects(activeProject) {
   if (!refs.sidebarProjects) return;
+  if (browserAccessBlocked()) {
+    refs.sidebarProjects.innerHTML = `
+      <a class="sidebar-link sidebar-create-project" href="/#private-access">
+        <span class="row-icon" aria-hidden="true">🔒</span>
+        <span>Device not paired</span>
+      </a>
+      <div class="tiny muted">Open pairing setup to unlock projects and sessions.</div>
+    `;
+    return;
+  }
   const projects = shell.projects || [];
   if (!projects.length) {
     refs.sidebarProjects.innerHTML = `
@@ -2681,6 +2721,7 @@ async function refresh() {
     shell.authStatus = authResp.data;
   }
   if (browserAccessBlocked()) {
+    clearProtectedWorkspaceState();
     render(captureContentUiState());
     return;
   }
@@ -3823,54 +3864,142 @@ document.addEventListener('click', (event) => {
 
 let sidebarLongPressTimer = null;
 let sidebarLongPressOpened = false;
+let sidebarLongPressIgnoreUntil = 0;
+let sidebarSwipeState = null;
+
+function clearSidebarSwipeState() {
+  if (sidebarLongPressTimer) {
+    clearTimeout(sidebarLongPressTimer);
+    sidebarLongPressTimer = null;
+  }
+  sidebarSwipeState = null;
+}
+
+function closeSidebarActionMenus() {
+  document.querySelectorAll('.sidebar-project-group.actions-open').forEach((item) => item.classList.remove('actions-open'));
+}
 
 document.addEventListener('pointerdown', (event) => {
-  if (!window.matchMedia('(max-width: 880px)').matches) return;
+  if (!isMobileLayout()) return;
+  if (event.button !== undefined && event.button !== 0) return;
+  sidebarSwipeState = {
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    navOpen: document.body.classList.contains('nav-open'),
+    shouldOpen: false,
+    shouldClose: false,
+    moved: false,
+    targetGroup: null,
+  };
   const group = event.target?.closest?.('.sidebar-project-group');
   if (!group || event.target?.closest?.('button, a.sidebar-compose')) return;
+  sidebarSwipeState.targetGroup = group;
   sidebarLongPressOpened = false;
-  clearTimeout(sidebarLongPressTimer);
   sidebarLongPressTimer = setTimeout(() => {
-    document.querySelectorAll('.sidebar-project-group.actions-open').forEach((item) => {
-      if (item !== group) item.classList.remove('actions-open');
-    });
+    closeSidebarActionMenus();
     group.classList.add('actions-open');
     sidebarLongPressOpened = true;
+    sidebarLongPressIgnoreUntil = performance.now() + 900;
   }, 450);
-}, { passive: true });
+});
 
-document.addEventListener('pointerup', () => {
-  clearTimeout(sidebarLongPressTimer);
-}, { passive: true });
+document.addEventListener('pointermove', (event) => {
+  if (!sidebarSwipeState || sidebarSwipeState.pointerId !== event.pointerId) return;
+  const deltaX = event.clientX - sidebarSwipeState.startX;
+  const deltaY = event.clientY - sidebarSwipeState.startY;
+  const absX = Math.abs(deltaX);
+  const absY = Math.abs(deltaY);
+  if (!sidebarSwipeState.moved && (absX > 14 || absY > 14)) {
+    sidebarSwipeState.moved = true;
+    clearTimeout(sidebarLongPressTimer);
+    sidebarLongPressTimer = null;
+  }
+  if (!sidebarSwipeState.moved || absX <= absY) return;
+  if (sidebarSwipeState.navOpen && deltaX < -55) {
+    sidebarSwipeState.shouldClose = true;
+  }
+  if (!sidebarSwipeState.navOpen && sidebarSwipeState.startX < 24 && deltaX > 55) {
+    sidebarSwipeState.shouldOpen = true;
+  }
+});
 
-document.addEventListener('click', async (event) => {
-  if (sidebarLongPressOpened) {
-    sidebarLongPressOpened = false;
-    event.preventDefault();
-    event.stopPropagation();
+document.addEventListener('pointerup', (event) => {
+  if (!sidebarSwipeState || sidebarSwipeState.pointerId !== event.pointerId) {
     return;
   }
-  if (!event.target?.closest?.('.sidebar-project-group')) {
-    document.querySelectorAll('.sidebar-project-group.actions-open').forEach((item) => item.classList.remove('actions-open'));
+  if (sidebarSwipeState.shouldClose) {
+    closeMobileNavPanel();
   }
+  if (sidebarSwipeState.shouldOpen) {
+    openMobileNavPanel();
+  }
+  clearSidebarSwipeState();
+}, { passive: true });
+
+document.addEventListener('pointercancel', () => {
+  clearSidebarSwipeState();
+});
+
+document.addEventListener('click', async (event) => {
+  if (event.target?.id === 'sidebar-backdrop') {
+    closeMobileNavPanel();
+    return;
+  }
+
+  const navLink = event.target?.closest?.('.sidebar-link, .sidebar-thread');
   const actionTarget = event.target?.closest?.('[data-action]');
   const action = actionTarget?.dataset?.action;
+
+  if (sidebarLongPressOpened) {
+    sidebarLongPressOpened = false;
+    sidebarLongPressIgnoreUntil = 0;
+    if (navLink) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+  }
+
+  if (performance.now() < sidebarLongPressIgnoreUntil) {
+    if (navLink) {
+      event.preventDefault();
+      event.stopPropagation();
+      sidebarLongPressIgnoreUntil = 0;
+      return;
+    }
+  }
+
+  if (isMobileLayout() && document.body.classList.contains('nav-open') && !event.target?.closest?.('.ops-sidebar') && !event.target?.closest?.('#mobile-nav-toggle')) {
+    closeMobileNavPanel();
+  }
+
+  if (!event.target?.closest?.('.sidebar-project-group')) {
+    closeSidebarActionMenus();
+  }
+
   if (action === 'toggleNav') {
-    if (window.matchMedia('(max-width: 880px)').matches) {
-      document.body.classList.toggle('nav-open');
+    if (isMobileLayout()) {
+      if (document.body.classList.contains('nav-open')) {
+        closeMobileNavPanel();
+      } else {
+        openMobileNavPanel();
+      }
     } else {
       document.body.classList.toggle('sidebar-collapsed');
     }
     return;
   }
-  // Auto-close mobile sidebar when navigating.
-  if (event.target?.closest?.('.sidebar-link, .sidebar-thread')) {
-    document.body.classList.remove('nav-open');
+
+  if (navLink) {
+    closeMobileNavPanel();
   }
+
   if (!action) {
     const navCard = event.target?.closest?.('[data-href]');
     const interactive = event.target?.closest?.('a, button, input, select, textarea, label, summary');
     if (navCard && !interactive && navCard.dataset.href) {
+      event.preventDefault();
       window.location.href = navCard.dataset.href;
     }
     return;

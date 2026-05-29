@@ -15,6 +15,9 @@
   --bad: #ef8377;
   --shell-gap: 1rem;
   --sidebar-width: 240px;
+  --topbar-height: 45px;
+  --safe-area-top: env(safe-area-inset-top);
+  --safe-area-bottom: env(safe-area-inset-bottom);
 }
 
 * {
@@ -29,7 +32,9 @@ body {
     radial-gradient(circle at 82% 0%, rgba(107, 133, 112, 0.16), transparent 28%),
     linear-gradient(145deg, #151611 0%, var(--bg) 44%, #080907 100%);
   color: var(--text);
+  min-height: 100dvh;
   min-height: 100vh;
+  overflow-x: hidden;
   font-size: 15px;
   -webkit-text-size-adjust: 100%;
 }
@@ -159,9 +164,10 @@ a {
   border-bottom: 0;
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr) auto;
-  height: 45px;
+  height: var(--topbar-height);
   inset: 0 0 auto 0;
-  padding: 0;
+  padding: env(safe-area-inset-top) 0 0 0;
+  box-sizing: border-box;
   position: fixed;
   z-index: 60;
 }
@@ -227,9 +233,17 @@ body.sidebar-collapsed .shell-toggle {
   font-size: 0.88rem;
   font-weight: 650;
   overflow: hidden;
-  padding-left: 1rem;
+  padding-left: 0.55rem;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.sidebar-backdrop {
+  background: rgba(0, 0, 0, 0.24);
+  display: none;
+  inset: 0;
+  position: fixed;
+  z-index: 45;
 }
 
 .app-topbar-actions {
@@ -253,7 +267,8 @@ body.sidebar-collapsed .shell-toggle {
 .ops-shell {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
-  min-height: 100vh;
+  min-height: calc(100dvh - var(--topbar-height) - var(--safe-area-top));
+  min-height: calc(100vh - var(--topbar-height) - var(--safe-area-top));
   max-width: none;
   margin: 0;
   padding: 0;
@@ -271,9 +286,10 @@ body.sidebar-collapsed .ops-shell {
   border-radius: 0;
   display: flex;
   flex-direction: column;
-  max-height: 100vh;
+  height: calc(100dvh - var(--topbar-height));
+  height: calc(100vh - var(--topbar-height));
   overflow-y: auto;
-  padding: calc(45px + 0.8rem) 0.8rem 0.8rem;
+  padding: calc(var(--topbar-height) + 0.8rem) 0.8rem 0.8rem;
   position: sticky;
   top: 0;
 }
@@ -417,6 +433,7 @@ body.sidebar-collapsed .ops-sidebar {
   align-items: center;
   background: transparent;
   border: 0;
+  border-radius: 50%;
   color: var(--muted);
   display: inline-flex;
   height: 2rem;
@@ -496,6 +513,7 @@ body.sidebar-collapsed .ops-sidebar {
   align-items: center;
   background: transparent;
   border: 0;
+  border-radius: 50%;
   color: var(--muted);
   display: inline-flex;
   height: 2rem;
@@ -613,7 +631,9 @@ body.sidebar-collapsed .sidebar-project-line {
 
 .ops-main {
   min-width: 0;
-  padding: calc(45px + 2rem) min(4vw, 3rem) 2rem;
+  min-height: calc(100dvh - var(--topbar-height) - var(--safe-area-top) - var(--safe-area-bottom));
+  min-height: calc(100vh - var(--topbar-height) - var(--safe-area-top) - var(--safe-area-bottom));
+  padding: calc(var(--topbar-height) + 2rem) min(4vw, 3rem) 2rem;
 }
 
 .ops-content {
@@ -1268,6 +1288,7 @@ textarea {
   color: var(--text);
   padding: 0.5rem 0.65rem;
   font: inherit;
+  -webkit-tap-highlight-color: transparent;
 }
 
 button {
@@ -1276,6 +1297,43 @@ button {
   cursor: pointer;
   font-weight: 600;
   color: #080907;
+}
+
+button:focus-visible {
+  outline: none;
+}
+
+.shell-toggle:hover,
+.shell-toggle:active,
+.shell-toggle:focus-visible {
+  background: transparent;
+}
+
+.sidebar-compose,
+.sidebar-project-archive,
+.sidebar-archive,
+.simple-row,
+.click-card,
+.nav-tile {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.sidebar-compose:active,
+.sidebar-project-archive:active,
+.sidebar-archive:active,
+.simple-row:active,
+.click-card:active,
+.nav-tile:active,
+.sidebar-link:active {
+  filter: brightness(1);
+}
+
+.simple-row:focus-visible,
+.click-card:focus-visible,
+.sidebar-compose:focus-visible,
+.sidebar-project-archive:focus-visible,
+.sidebar-archive:focus-visible {
+  outline: none;
 }
 
 button.secondary,
@@ -1465,6 +1523,12 @@ pre {
   .app-topbar {
     grid-template-columns: 3.5rem minmax(0, 1fr) 1rem;
   }
+  body.nav-open .sidebar-backdrop {
+    display: block;
+  }
+  .sidebar-backdrop {
+    touch-action: none;
+  }
   .app-topbar-title {
     justify-content: flex-start;
     padding-left: 0.25rem;
@@ -1476,7 +1540,8 @@ pre {
   .ops-sidebar {
     position: fixed;
     inset: 0 auto 0 0;
-    max-height: 100vh;
+    height: 100dvh;
+    height: 100vh;
     width: min(82vw, 300px);
     z-index: 50;
     transform: translateX(-105%);
