@@ -11,7 +11,7 @@ private phone access.
 
 The latest recorded full local acceptance run passed:
 
-- `npm test`: 135/135 tests passing.
+- `npm test`: 140/140 tests passing.
 - `npm run smoke:acceptance`: 23 deterministic smoke steps passing.
 - `npm run smoke:full-flow`: isolated end-to-end operator flow passing.
 - `npm run smoke:ui-inventory`: 30 desktop/phone route screenshots with
@@ -33,9 +33,20 @@ The consolidated full-buildout evidence report is
   default.
 - Persistent, atomic state stores with backup recovery for registry,
   provider profiles, private access, and auth sessions.
-- Paired browser sessions and API-token auth for mutating routes, with
-  same-origin protection for browser-session mutations.
-- Route inventory and security matrix covering 97 routes with auth,
+- Tiered authentication enforced on every route. The tailnet URL alone yields
+  no workspace or host data: only `/api/health` (liveness, no counts) and
+  `/api/auth/status` are public; everything else requires auth. There are three
+  tiers — **public** (liveness/auth-status/static shell), **operator** (API
+  token or paired browser session: workflow control + reads), and **admin**
+  (API token or non-proxied loopback bootstrap: host mutation, credentials,
+  network config, device pairing). Paired phones are operators, never admins,
+  so a compromised device cannot reinstall CLIs, read/write provider secrets,
+  change private-access settings, mint pairing codes, or export app data.
+- With no API token configured, only a direct loopback connection from the
+  workstation bootstraps as admin; Tailscale Serve / reverse-proxied requests
+  (identified by forwarding/identity headers) get nothing until they pair.
+  Browser-session mutations are same-origin protected.
+- Route inventory and security matrix covering 98 routes with auth,
   validation, body limits, rate limits, audit metadata, UI coverage, mobile
   behavior, and smoke coverage.
 - Provider profiles for Codex, Claude, Custom CLI, OpenAI-compatible API,

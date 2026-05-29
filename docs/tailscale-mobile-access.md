@@ -102,16 +102,23 @@ tailscale funnel off
 
 Open the following in mobile Safari/Chrome:
 
-1. `http://<your-mac>/` or `https://<your-mac>.<tailnet>.ts.net/` — dashboard
-   loads. Pair the browser with a one-time pairing code or enter the API token
-   in the dashboard token field. Do not put tokens in URLs.
-2. `<base-url>/api/health` — JSON `{ "status": "ok" }`.
-3. `<base-url>/api/mobile/manifest` — JSON containing
-   `apiTokenRequired: true`, all your projects, lanes, and the full set of
-   action URLs the dashboard uses.
+1. `http://<your-mac>/` or `https://<your-mac>.<tailnet>.ts.net/` — the
+   dashboard loads but shows only the **pairing gate**: no projects, sessions,
+   lanes, or settings until you pair. Generate a one-time pairing code on the
+   workstation (Settings → pairing, or `npm run operator:pair`) and enter it on
+   the phone. Do not put tokens or codes in URLs.
+2. `<base-url>/api/health` — JSON `{ "status": "ok" }` (no counts; this is the
+   only data-free public route besides `/api/auth/status`).
+3. Before pairing, confirm the URL leaks nothing: `<base-url>/api/projects` and
+   `<base-url>/api/mobile/manifest` must both return `401` with no project,
+   session, or lane data. After pairing (browser session cookie), the same
+   routes return your workspace.
 
-If any of these fail, walk the steps above before mutating anything from the
-phone.
+The connected phone is an **operator**: it can run and customize the workflow
+(projects, sessions, lanes, MCP tools, evidence, cleanup) but cannot perform
+host administration (CLI reinstalls, provider secrets, private-access settings,
+minting pairing codes, or app export). Those stay on the workstation. If any
+step above fails, walk the steps before mutating anything from the phone.
 
 ## 6. Operating from the phone
 
