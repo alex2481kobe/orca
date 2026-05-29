@@ -152,7 +152,7 @@ async function main() {
       ['service worker', await request(routeRequest, '/service-worker.js')],
       ['health API', await request(routeRequest, '/api/health')],
       ['auth status API', await request(routeRequest, '/api/auth/status')],
-      ['mobile manifest API', await request(routeRequest, '/api/mobile/manifest')],
+      ['mobile manifest API', await request(routeRequest, '/api/mobile/manifest', { headers: { 'x-commanddeck-token': token } })],
     ];
 
     for (const [label, response] of checks) {
