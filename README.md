@@ -130,6 +130,17 @@ npm run operator:status
 This read-only check verifies local health, the private Tailscale health URL,
 tailnet-only Serve config, and absence of public Funnel exposure.
 
+To create a fresh one-time phone/browser pairing code without putting a token
+in a URL:
+
+```bash
+COMMAND_DECK_API_TOKEN=... npm run operator:pair
+```
+
+The helper prints only the one-time code and expiry. It never prints the API
+token. Pairing codes are one-time secrets and should not be stored in docs,
+logs, screenshots, or issue comments.
+
 ## Configuration
 
 | Variable | Purpose |

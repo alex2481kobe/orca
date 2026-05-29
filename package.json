@@ -38,7 +38,8 @@
     "smoke:credential-redaction": "node scripts/credential-redaction-smoke.mjs",
     "smoke:evidence-redaction": "node scripts/evidence-redaction-smoke.mjs",
     "smoke:process-lifecycle": "node scripts/process-lifecycle-smoke.mjs",
-    "operator:status": "node scripts/operator-status.mjs"
+    "operator:status": "node scripts/operator-status.mjs",
+    "operator:pair": "node scripts/operator-pairing-code.mjs"
   },
   "devDependencies": {
     "playwright": "^1.60.0"

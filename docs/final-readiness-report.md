@@ -282,6 +282,16 @@ This command is read-only. It checks local health, private Tailscale health,
 tailnet-only Serve status, and public Funnel status without changing Serve,
 Funnel, auth sessions, provider credentials, or project state.
 
+Fresh one-time pairing code helper:
+
+```bash
+COMMAND_DECK_API_TOKEN=... npm run operator:pair
+```
+
+The helper creates a phone/browser pairing code through the local authenticated
+API and prints only the one-time code, expiry, and safety warning. It never
+prints the API token.
+
 Use one-time browser pairing from the dashboard. Do not put tokens in URLs.
 Pairing codes are one-time secrets and should not be stored in docs, logs,
 screenshots, or issue comments.
