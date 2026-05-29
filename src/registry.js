@@ -596,7 +596,19 @@ function normalizeSlug(value) {
     .slice(0, 64);
 }
 
+const MAX_LANE_LOG_ENTRIES = 2000;
+
+// Prefer the native structured clone (faster, less GC pressure than
+// JSON.parse(JSON.stringify(...))); fall back for older runtimes.
 function clonePayload(value) {
+  if (value === undefined || value === null) return value;
+  if (typeof structuredClone === 'function') {
+    try {
+      return structuredClone(value);
+    } catch {
+      /* fall through to JSON clone for non-cloneable shapes */
+    }
+  }
   return JSON.parse(JSON.stringify(value));
 }
 
@@ -654,6 +666,28 @@ function sanitizeMcpArgument(raw, index) {
   return text;
 }
 
+// Env keys that can hijack process loading, PATH resolution, or the runtime;
+// never accept these from a user-defined MCP tool.
+const DANGEROUS_ENV_KEYS = new Set([
+  'PATH',
+  'LD_PRELOAD',
+  'LD_LIBRARY_PATH',
+  'LD_AUDIT',
+  'DYLD_INSERT_LIBRARIES',
+  'DYLD_LIBRARY_PATH',
+  'DYLD_FRAMEWORK_PATH',
+  'NODE_OPTIONS',
+  'NODE_PATH',
+  'PYTHONPATH',
+  'PYTHONSTARTUP',
+  'BASH_ENV',
+  'ENV',
+  'IFS',
+  'SHELLOPTS',
+  'GIT_SSH_COMMAND',
+  'GIT_EXTERNAL_DIFF',
+]);
+
 function sanitizeMcpEnv(raw) {
   if (raw === undefined || raw === null) return {};
   if (typeof raw !== 'object' || Array.isArray(raw)) {
@@ -669,6 +703,9 @@ function sanitizeMcpEnv(raw) {
     const safeKey = String(key || '').trim();
     if (!/^[A-Z_][A-Z0-9_]{0,127}$/i.test(safeKey)) {
       throw { status: 422, message: `MCP tool env key "${safeKey}" is invalid (use letters, digits, underscore).` };
+    }
+    if (DANGEROUS_ENV_KEYS.has(safeKey.toUpperCase())) {
+      throw { status: 422, message: `MCP tool env key "${safeKey}" is not allowed (it can hijack process loading/PATH).` };
     }
     if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') {
       throw { status: 422, message: `MCP tool env value for ${safeKey} must be a primitive.` };
@@ -869,8 +906,29 @@ export class CommandDeckRegistry {
       this.sessions = safeArray(parsed.sessions);
       this.lanes = safeArray(parsed.lanes);
       this.auditEvents = safeArray(parsed.auditEvents, []).slice(0, 200);
+      // Never let persisted (potentially tampered) state weaken an approval
+      // gate. Start from the hardcoded defaults; for known actions the default
+      // `requiresApproval` and `risk` always win. Disk may only carry custom
+      // messages or add entries for actions not present in defaults.
       if (parsed.policies && typeof parsed.policies === 'object') {
-        this.policies = { ...defaultPolicy, ...parsed.policies };
+        const mergedPolicies = { ...defaultPolicy };
+        for (const [action, value] of Object.entries(parsed.policies)) {
+          if (!value || typeof value !== 'object') continue;
+          const base = defaultPolicy[action];
+          if (base) {
+            mergedPolicies[action] = {
+              ...base,
+              message: typeof value.message === 'string' ? value.message : base.message,
+            };
+          } else {
+            mergedPolicies[action] = {
+              requiresApproval: value.requiresApproval !== false,
+              risk: ['low', 'medium', 'high'].includes(value.risk) ? value.risk : 'high',
+              message: typeof value.message === 'string' ? value.message : `${action} requires approval.`,
+            };
+          }
+        }
+        this.policies = mergedPolicies;
       }
       if (Array.isArray(parsed.mcpTools)) {
         this.mcpTools = parsed.mcpTools;
@@ -2195,6 +2253,7 @@ export class CommandDeckRegistry {
     // repoRoot and the lane is not explicitly shared. This is the default
     // isolation model for implementation lanes.
     let workdirOverride = workdir;
+    let reservedLaneId = null;
     let derivedWorktree = null;
     let derivedBranch = String(branch || '').trim();
     let derivedRepoRoot = String(repoRoot || '').trim();
@@ -2216,9 +2275,9 @@ export class CommandDeckRegistry {
       derivedWorktree = result.worktreePath;
       derivedBranch = result.branch || derivedBranch;
       derivedRepoRoot = result.repoRoot;
-      // Stash the reserved laneId so the lane object reuses it instead of
-      // generating a different one further down.
-      this._reservedLaneId = laneId;
+      // Reuse this laneId for the lane object below (local, so a later throw in
+      // this method can never leak it into a subsequent createLane call).
+      reservedLaneId = laneId;
     }
     const resolvedWorkdir = this.resolveLaneWorkdir(session, workdirOverride);
 
@@ -2252,8 +2311,7 @@ export class CommandDeckRegistry {
 
     const project = this.projects.find((item) => item.id === session.projectId);
     const now = nowIso();
-    const laneId = this._reservedLaneId || randomUUID();
-    this._reservedLaneId = null;
+    const laneId = reservedLaneId || randomUUID();
     const scopedToolIds = new Set(this.listToolsForExecutor(normalizedExecutorType).map((tool) => tool.id));
     const resolvedToolIds = safeArray(mcpToolIds)
       .map((item) => String(item || '').trim())
@@ -3908,6 +3966,11 @@ export class CommandDeckRegistry {
       at: nowIso(),
       message,
     });
+    // Cap per-lane log growth so a chatty/long-running lane can't grow state.json
+    // (and every transcript write) without bound.
+    if (lane.logs.length > MAX_LANE_LOG_ENTRIES) {
+      lane.logs = lane.logs.slice(-MAX_LANE_LOG_ENTRIES);
+    }
     lane.updatedAt = nowIso();
     if (!this._starting && persist) {
       this.persistState();

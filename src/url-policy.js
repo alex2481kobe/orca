@@ -65,10 +65,25 @@ function isTailnetHost(hostname) {
   return Boolean(ipv4 && ipv4InRange(ipv4, [100, 64, 0, 0], 10));
 }
 
+// OS resolvers accept obfuscated IPv4 forms that a dotted-quad regex misses:
+// hex (0x7f000001), pure decimal (2130706433), octal (0177.0.0.1), and short
+// forms (127.1). Any all-numeric/hex host that is NOT a clean dotted-quad is an
+// obfuscated address and must be treated as untrusted.
+function isObfuscatedNumericHost(host) {
+  if (!host) return false;
+  if (parseIpv4(host)) return false; // clean dotted-quad handled elsewhere
+  if (/^0x[0-9a-f]+$/i.test(host)) return true;
+  if (/^[0-9]+$/.test(host)) return true;
+  if (/^[0-9.]+$/.test(host)) return true;
+  if (/^(?:0x[0-9a-f]+)(?:\.0x[0-9a-f]+)*$/i.test(host)) return true;
+  return false;
+}
+
 function isForbiddenHost(hostname) {
   const host = normalizedHostname(hostname);
   if (!host) return true;
   if (FORBIDDEN_HOSTNAMES.has(host)) return true;
+  if (isObfuscatedNumericHost(host)) return true;
   const ipv4 = parseIpv4(host);
   if (!ipv4) return false;
   return (
@@ -87,6 +102,7 @@ function classifyHost(hostname) {
   if (isLoopbackHost(host)) return 'loopback';
   if (isTailnetHost(host)) return 'tailnet';
   if (net.isIP(host) === 6) return 'blocked';
+  if (isObfuscatedNumericHost(host)) return 'blocked';
   if (isForbiddenHost(host)) return 'blocked';
   return 'public';
 }

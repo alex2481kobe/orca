@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { CommandDeckRegistry } from './registry.js';
@@ -93,8 +94,13 @@ const SENSITIVE_CACHE_CONTROL = 'no-store, no-cache, must-revalidate, private';
 const STATIC_CACHE_CONTROL = 'public, max-age=300, must-revalidate';
 const requestOrigin = (req) => {
   const host = req.headers.host || `localhost:${PORT}`;
-  const proto = req.headers['x-forwarded-proto'] || 'http';
-  return `${proto}://${host}`;
+  // Only trust x-forwarded-proto from an actual proxy (Tailscale Serve). A
+  // direct loopback client must not be able to spoof https and trick us into
+  // setting Secure cookies over plain http or widening the same-origin check.
+  const proto = (requestIsProxied(req) && req.headers['x-forwarded-proto'])
+    ? String(req.headers['x-forwarded-proto']).split(',')[0].trim()
+    : 'http';
+  return `${proto === 'https' ? 'https' : 'http'}://${host}`;
 };
 
 function applySecurityHeaders(res) {
@@ -129,9 +135,23 @@ function getRequestToken(req) {
   return headerToken;
 }
 
+// Constant-time string comparison that does not leak length via early exit.
+function constantTimeEqual(a, b) {
+  const bufA = Buffer.from(String(a || ''), 'utf8');
+  const bufB = Buffer.from(String(b || ''), 'utf8');
+  if (bufA.length !== bufB.length) {
+    // Still run a comparison against a same-length buffer to avoid an obvious
+    // length-based early return; result is forced false.
+    timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return timingSafeEqual(bufA, bufB);
+}
+
 function hasValidApiToken(req) {
   const token = getRequestToken(req);
-  return Boolean(token && API_TOKEN && token === API_TOKEN);
+  if (!token || !API_TOKEN) return false;
+  return constantTimeEqual(token, API_TOKEN);
 }
 
 function sameOriginAllowed(req) {
@@ -272,6 +292,9 @@ function parseJsonBody(req, options = {}) {
       bytes += buf.length;
       if (bytes > limit) {
         exceeded = true;
+        chunks.length = 0;
+        // Drain and discard the rest so a large/slow body cannot hold the socket.
+        req.resume();
         return;
       }
       chunks.push(buf);
@@ -398,7 +421,11 @@ function handleEventStream(req, res) {
     });
   }, streamHeartbeatMs());
   if (typeof interval.unref === 'function') interval.unref();
-  res.on?.('close', () => clearInterval(interval));
+  const stopHeartbeat = () => clearInterval(interval);
+  if (typeof res.on === 'function') res.on('close', stopHeartbeat);
+  // Guard against the response 'close' not firing (client disconnect): also
+  // clear on the request socket closing so the heartbeat interval can't leak.
+  if (typeof req.on === 'function') req.on('close', stopHeartbeat);
   return undefined;
 }
 
@@ -498,7 +525,7 @@ async function serveStaticOrIndex(pathname, res, req = null) {
 
 async function serveFile(filePath, res) {
   const fullPath = path.join(PUBLIC_DIR, filePath);
-  if (!fullPath.startsWith(PUBLIC_DIR)) {
+  if (fullPath !== PUBLIC_DIR && !fullPath.startsWith(PUBLIC_DIR + path.sep)) {
     return sendText(res, 403, 'Forbidden');
   }
   try {
@@ -1294,6 +1321,8 @@ async function handleApi(req, res, pathname, method, parts) {
       const result = await registry.cleanupArtifacts({
         ...body,
         actor: body.actor || 'dashboard',
+        // skipApproval is an internal scheduler-only flag; never honor it from a request body.
+        skipApproval: false,
       });
       return sendJson(res, 200, result);
     } catch (error) {
@@ -1650,7 +1679,10 @@ async function handleApi(req, res, pathname, method, parts) {
         if (body === null) return sendBodyError(req, res);
     if (rejectSpoofedActor(body, res)) return;
         try {
-          const lane = await registry.createLane(session.id, body, body);
+          const lane = await registry.createLane(session.id, body, {
+            actor: body.actor || 'dashboard',
+            approved: body.approved,
+          });
           return sendJson(res, 201, lane);
         } catch (error) {
           return sendJson(res, error.status || 500, {
@@ -1861,7 +1893,7 @@ async function handleApi(req, res, pathname, method, parts) {
     if (parts.length === 4 && parts[3] === 'heartbeat' && method === 'POST') {
       if (WORKER_TOKEN) {
         const workerToken = req.headers['x-commanddeck-worker-token'];
-        if (!workerToken || workerToken !== WORKER_TOKEN) {
+        if (!workerToken || !constantTimeEqual(workerToken, WORKER_TOKEN)) {
           return sendJson(res, 401, {
             error: 'Heartbeat requires the worker token (set COMMAND_DECK_WORKER_TOKEN and pass x-commanddeck-worker-token).',
           });
@@ -2039,7 +2071,20 @@ function routeRequest(req, res) {
     return Promise.resolve();
   }
   const parts = getRouteParts(pathname);
-  return handleRequest(req, res, pathname, method, parts);
+  return handleRequest(req, res, pathname, method, parts).catch((error) => {
+    // Last-resort guard: never let a handler rejection hang the socket or crash
+    // the process. Respond 500 if nothing has been sent yet.
+    try {
+      if (!res.headersSent && !res.writableEnded) {
+        sendJson(res, 500, { error: 'Internal server error.' });
+      } else if (!res.writableEnded) {
+        res.end();
+      }
+    } catch {
+      /* socket already gone */
+    }
+    console.error('Unhandled request error:', error);
+  });
 }
 
 async function handleRequest(req, res, pathname, method, parts) {
