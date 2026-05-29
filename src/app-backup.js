@@ -37,7 +37,12 @@ function asArray(value) {
 function redactText(value) {
   return String(value ?? '')
     .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer [REDACTED]')
+    // Provider key prefixes: OpenAI (sk-, sk-ant-), HuggingFace (hf_),
+    // Google (AIza...), GitHub (gh[pousr]_), Anthropic admin, xAI (xai-), etc.
     .replace(/\bsk-[A-Za-z0-9_-]{6,}\b/g, '[REDACTED_SECRET]')
+    .replace(/\b(?:hf|gh[pousr]|xai|or)[_-][A-Za-z0-9_-]{10,}\b/g, '[REDACTED_SECRET]')
+    .replace(/\bAIza[A-Za-z0-9_-]{20,}\b/g, '[REDACTED_SECRET]')
+    .replace(/\bsk-ant-[A-Za-z0-9_-]{6,}\b/g, '[REDACTED_SECRET]')
     .replace(/\b([A-Z0-9_]*(?:TOKEN|SECRET|API[_-]?KEY|PASSWORD|COOKIE)[A-Z0-9_]*)\s*[:=]\s*['"]?[^'"\s,;}]+/gi, '$1=[REDACTED]')
     .replace(/\/Users\/[^/\s"'`]+(?:\/[^\s"'`]*)?/g, '[LOCAL_PATH]')
     .replace(/\/private\/var\/folders\/[^\s"'`]*/g, '[LOCAL_PATH]');

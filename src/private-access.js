@@ -404,7 +404,18 @@ class PrivateAccessStore {
 
   async ensureLoaded() {
     if (this.loaded) return;
-    this.loaded = true;
+    // Share a single in-flight load so concurrent callers all await the same
+    // completion instead of returning before state is populated (or double-init).
+    if (!this._loadPromise) this._loadPromise = this._loadState();
+    try {
+      await this._loadPromise;
+    } finally {
+      this.loaded = true;
+      this._loadPromise = null;
+    }
+  }
+
+  async _loadState() {
     const fallback = {
       version: 1,
       settings: { ...DEFAULT_SETTINGS },

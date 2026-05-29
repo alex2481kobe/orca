@@ -71,7 +71,10 @@ function buildStreamSnapshot(registry) {
 }
 
 function sseFrame(event, data) {
-  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  // Strip CR/LF from the event name so a dynamic value can never inject extra
+  // SSE fields/events into the stream.
+  const safeEvent = String(event || 'message').replace(/[\r\n]/g, '');
+  return `event: ${safeEvent}\ndata: ${JSON.stringify(data)}\n\n`;
 }
 
 function writeSse(res, event, data) {

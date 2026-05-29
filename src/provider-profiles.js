@@ -6,6 +6,7 @@ import {
   readJsonFileWithRecovery,
   writeJsonFileAtomic,
 } from './state-store.js';
+import { validateNetworkUrl } from './url-policy.js';
 
 const nowIso = () => new Date().toISOString();
 const SECRET_SERVICE = 'Command Deck';
@@ -40,11 +41,21 @@ function ensurePlainObject(value, label = 'payload') {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw { status: 422, message: `${label} must be an object.` };
   }
-  for (const key of Object.keys(value)) {
-    if (['__proto__', 'prototype', 'constructor'].includes(key)) {
-      throw { status: 422, message: `${label} contains unsafe key "${key}".` };
+  // Recurse so prototype-pollution keys can't hide in nested objects/arrays.
+  const visit = (node, nodeLabel) => {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+      node.forEach((item, index) => visit(item, `${nodeLabel}[${index}]`));
+      return;
     }
-  }
+    for (const key of Object.keys(node)) {
+      if (['__proto__', 'prototype', 'constructor'].includes(key)) {
+        throw { status: 422, message: `${nodeLabel} contains unsafe key "${key}".` };
+      }
+      visit(node[key], `${nodeLabel}.${key}`);
+    }
+  };
+  visit(value, label);
 }
 
 function safeSlug(value) {
@@ -108,6 +119,14 @@ function validateBaseUrl(raw, { allowBlank = false } = {}) {
   if (parsed.username || parsed.password) {
     throw { status: 422, message: 'Base URL must not include credentials.' };
   }
+  // SSRF guard: allow public provider endpoints plus loopback/tailnet, but
+  // block private, metadata, link-local, multicast, and obfuscated hosts.
+  validateNetworkUrl(text, {
+    field: 'Base URL',
+    allowedHosts: ['loopback', 'tailnet'],
+    allowPublic: true,
+    allowSensitive: true,
+  });
   return parsed.toString().replace(/\/$/, '');
 }
 
@@ -119,6 +138,9 @@ function validateBinary(raw, { allowBlank = false } = {}) {
   }
   if (text.length > 255 || /[\x00-\x1f\x7f|&;<>$`()]/.test(text)) {
     throw { status: 422, message: 'Binary contains unsafe characters.' };
+  }
+  if (text.includes('..')) {
+    throw { status: 422, message: 'Binary path must not contain "..".' };
   }
   return text;
 }

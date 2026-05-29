@@ -52,7 +52,13 @@ function requestActorKey(req) {
   if (authHeader.startsWith('Bearer ')) return `bearer:${hashToken(authHeader.slice(7))}`;
   if (commandToken) return `token:${hashToken(commandToken)}`;
   if (workerToken) return `worker:${hashToken(workerToken)}`;
-  if (cookie) return `cookie:${hashToken(cookie)}`;
+  if (cookie) {
+    // Key on the session cookie value only — not the whole header — so unrelated
+    // cookies (or attacker-rotated throwaway cookies) can't reset/evade the bucket.
+    const match = /(?:^|;\s*)command_deck_session=([^;]*)/.exec(cookie);
+    const sessionValue = match ? match[1] : '';
+    if (sessionValue) return `cookie:${hashToken(sessionValue)}`;
+  }
   return `ip:${hashToken(forwardedFor || remote)}`;
 }
 
@@ -98,6 +104,7 @@ class MemoryRateLimiter {
     this.now = now;
     this.disabled = disabled;
     this.buckets = new Map();
+    this._checksSincePrune = 0;
   }
 
   policy(policyName) {
@@ -117,6 +124,12 @@ class MemoryRateLimiter {
       };
     }
     const now = this.now();
+    // Opportunistically evict expired buckets so the map can't grow without
+    // bound across many distinct actors/IPs (no external scheduler required).
+    if ((this._checksSincePrune += 1) >= 500) {
+      this._checksSincePrune = 0;
+      this.prune();
+    }
     const bucketKey = `${policyName}:${key}`;
     let bucket = this.buckets.get(bucketKey);
     if (!bucket || now >= bucket.resetAtMs) {

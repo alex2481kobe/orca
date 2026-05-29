@@ -1,6 +1,6 @@
 import fsSync from 'node:fs';
 import path from 'node:path';
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import {
   readJsonFileWithRecoverySync,
   writeJsonFileAtomicSync,
@@ -13,6 +13,14 @@ const DEFAULT_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 
 function hashSecret(value) {
   return createHash('sha256').update(String(value || '')).digest('hex');
+}
+
+// Constant-time equality for two same-format hex hashes.
+function hashesEqual(a, b) {
+  const bufA = Buffer.from(String(a || ''), 'utf8');
+  const bufB = Buffer.from(String(b || ''), 'utf8');
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
 }
 
 function parsePositiveMs(raw, fallback) {
@@ -40,7 +48,14 @@ function parseCookies(cookieHeader) {
     const [rawKey, ...rawValue] = part.split('=');
     const key = rawKey?.trim();
     if (!key) return;
-    out[key] = decodeURIComponent(rawValue.join('=').trim());
+    const raw = rawValue.join('=').trim();
+    // A malformed percent-encoding (e.g. "%ZZ") must not throw on an
+    // attacker-controlled cookie header.
+    try {
+      out[key] = decodeURIComponent(raw);
+    } catch {
+      out[key] = raw;
+    }
   });
   return out;
 }
@@ -186,7 +201,7 @@ class AuthSessionStore {
       throw { status: 422, message: 'Pairing code format is invalid.' };
     }
     const codeHash = hashSecret(normalizedCode);
-    const record = this.state.pairingCodes.find((item) => item.codeHash === codeHash);
+    const record = this.state.pairingCodes.find((item) => hashesEqual(item.codeHash, codeHash));
     if (!record) {
       throw { status: 401, message: 'Pairing code is invalid or expired.' };
     }
@@ -247,7 +262,7 @@ class AuthSessionStore {
     if (!normalized) return null;
     this.pruneExpired();
     const tokenHash = hashSecret(normalized);
-    const session = this.state.sessions.find((item) => item.tokenHash === tokenHash);
+    const session = this.state.sessions.find((item) => hashesEqual(item.tokenHash, tokenHash));
     if (!session || session.revokedAt || Date.parse(session.expiresAt) <= Date.now()) return null;
     return this.publicSession(session);
   }
@@ -263,7 +278,7 @@ class AuthSessionStore {
 
   revokeSessionToken(token, { actor = 'dashboard' } = {}) {
     const tokenHash = hashSecret(String(token || '').trim());
-    const session = this.state.sessions.find((item) => item.tokenHash === tokenHash);
+    const session = this.state.sessions.find((item) => hashesEqual(item.tokenHash, tokenHash));
     if (!session) return { revoked: false };
     session.revokedAt = nowIso();
     this.audit({
