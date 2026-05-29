@@ -84,6 +84,32 @@ The consolidated full-buildout evidence report is
   commands, fake provider states, Funnel rejection, setup checklist UI,
   copy/open/check actions, mocked tests, and runbook.
 
+## Security & resource hardening
+
+A full file-by-file audit/fix pass hardened the server, stores, executor, and
+front-end:
+
+- Constant-time comparison (`crypto.timingSafeEqual`) for the API token, worker
+  token, and pairing-code/session-token hashes (no timing oracles).
+- SSRF defense reviewed end-to-end: obfuscated numeric hosts (hex/decimal/octal/
+  short-form) are blocked, and provider base URLs run through the same policy
+  (public allowed; private/metadata/link-local blocked).
+- Approval gates cannot be bypassed: persisted policy state can never weaken a
+  default gate, and `skipApproval` is rejected from request bodies.
+- MCP tool env rejects loader-hijack keys (PATH/LD_PRELOAD/NODE_OPTIONS-class);
+  lanes cannot override server-managed `COMMAND_DECK_*` env; executor argv is
+  flag-injection-safe; git `baseRef`/worktree removal are path/ref validated.
+- Recursive prototype-pollution rejection on imports; CR/LF stripped from SSE
+  event names; crash-safe cookie parsing; broader secret redaction patterns.
+- Leak/edge fixes: SSE heartbeat cleared on client disconnect, top-level request
+  catch, oversize bodies drained, Playwright browser always closed, bounded
+  child output, capped lane logs, auto-pruned rate-limit buckets, single-flight
+  store loads, and a non-cross-call lane-id reservation.
+- Front-end: every server-derived URL is rendered with an escape+scheme-checked
+  helper (no `javascript:`/quote-breakout XSS); the 3s poll skips unchanged DOM
+  writes; the QR and layout-media checks are memoized; the sidebar collapse no
+  longer animates a layout property.
+
 ## External/manual checks
 
 These are not missing local app code:
