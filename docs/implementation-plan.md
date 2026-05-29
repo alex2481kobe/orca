@@ -68,6 +68,12 @@ smoke gates before being listed.
   tailnet-only with no Funnel exposure, returned `/api/health` through
   MagicDNS, and passed `npm run smoke:ui` through the private Serve URL
   at desktop and 390px phone viewports.
+- `npm run operator:status` and `npm run operator:phone-check` provide
+  repeatable live preflight checks for local health, private Tailscale health,
+  tailnet-only Serve status, public Funnel absence, and private mobile
+  manifest availability. `operator:phone-check` writes a redacted
+  `artifacts/operator-phone-check/phone-check-summary.json` that omits API
+  tokens, cookies, pairing codes, and private hostnames.
 - Real Claude CLI execution flows through the adapter (`claude
   --version` → PID + exit 0).
 - Real Codex CLI is repaired on this host through Homebrew
@@ -209,6 +215,8 @@ npm run smoke:process-lifecycle
 npm run smoke:api-provider
 npm run smoke:notifications
 npm run smoke:app-backup
+npm run operator:status
+COMMAND_DECK_PRIVATE_URL=<tailnet-url> npm run operator:phone-check
 ```
 
 ## Work rules (still apply)

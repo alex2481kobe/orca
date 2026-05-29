@@ -61,6 +61,14 @@ Latest recorded acceptance result:
 - Elapsed: `83581ms`
 - Steps passed: `23`
 
+Additional live operator preflight:
+
+- `COMMAND_DECK_PRIVATE_URL=<tailnet-url> npm run operator:phone-check`
+- Status: `passed`
+- Artifact: `artifacts/operator-phone-check/phone-check-summary.json`
+- Artifact redaction: API tokens, cookies, pairing codes, and private hostnames
+  are not stored.
+
 Covered commands:
 
 ```text
