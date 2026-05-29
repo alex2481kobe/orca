@@ -1,10 +1,13 @@
-const CACHE_NAME = 'command-deck-static-v6';
+const CACHE_NAME = 'command-deck-static-v7';
 const STATIC_ASSETS = [
   '/',
   '/styles.css',
   '/app.js',
   '/manifest.webmanifest',
   '/icon.svg',
+  '/icon-192.png',
+  '/icon-512.png',
+  '/apple-touch-icon.png',
 ];
 const STATIC_ASSET_PATHS = new Set(STATIC_ASSETS);
 const SENSITIVE_PREFIXES = [

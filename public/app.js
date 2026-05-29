@@ -71,6 +71,12 @@ const COMPOSE_ICON = `
     <path d="m11.1 14.7 4.9-4.9 2.1 2.1-4.9 4.9-2.7.6.6-2.7Z"></path>
   </svg>
 `;
+const PENCIL_ICON = `
+  <svg viewBox="0 0 20 20" focusable="false" aria-hidden="true">
+    <path d="m12.4 4.6 3 3"></path>
+    <path d="M13.6 3.4a1.7 1.7 0 0 1 2.4 2.4l-8.5 8.5-3.2.8.8-3.2 8.5-8.5Z"></path>
+  </svg>
+`;
 
 function parseRoute() {
   const parts = window.location.pathname.split('/').filter(Boolean);
@@ -90,12 +96,78 @@ function parseRoute() {
 function initializeApiToken() {
   const saved = window.sessionStorage.getItem(API_TOKEN_STORAGE_KEY);
   shell.apiToken = saved || '';
+  if (!window.location.search) return;
   const params = new URLSearchParams(window.location.search);
-  const queryToken = (params.get('apiToken') || params.get('token') || '').trim();
-  if (queryToken) {
-    shell.apiToken = queryToken;
-    window.sessionStorage.setItem(API_TOKEN_STORAGE_KEY, queryToken);
+  if (!params.has('apiToken') && !params.has('token')) return;
+  const cleaned = new URLSearchParams(window.location.search);
+  cleaned.delete('apiToken');
+  cleaned.delete('token');
+  const next = cleaned.toString();
+  const query = next ? `?${next}` : '';
+  const url = `${window.location.pathname}${query}${window.location.hash || ''}`;
+  window.history.replaceState({}, '', url);
+}
+
+function isTrustedAdminClientHost() {
+  const hostname = String(window.location.hostname || '').toLowerCase();
+  return isLocalHostName(hostname) || hostname.endsWith('.local');
+}
+
+function browserAccessBlocked() {
+  return Boolean(
+    (shell.authStatus?.apiTokenRequired
+      && !shell.authStatus?.apiTokenAuthenticated
+      && !shell.authStatus?.browserSessionAuthenticated)
+    || (!shell.authStatus?.apiTokenRequired
+      && !isTrustedAdminClientHost()
+      && !shell.authStatus?.browserSessionAuthenticated),
+  );
+}
+
+// After any tap/click, drop focus from the activated control so it never stays
+// visually "stuck" highlighted on touch (the dominant cause of lingering
+// highlight). Covers every interactive surface except text-entry fields, which
+// must keep focus for the keyboard.
+const STICKY_INTERACTIVE_SELECTOR = [
+  'button',
+  'a',
+  'summary',
+  '[data-action]',
+  '[data-href]',
+  '[data-route]',
+  '.click-card',
+  '.simple-row',
+  '.nav-tile',
+  '.sidebar-link',
+  '.sidebar-thread',
+  '.sidebar-compose',
+  '.sidebar-archive',
+  '.sidebar-project-archive',
+  '.sidebar-project-rename',
+  '.sidebar-rename',
+  '.sidebar-project-group',
+  '.sidebar-project-line',
+  '.sidebar-session-line',
+  '.sidebar-create-project',
+  '.settings-row',
+  '.shell-toggle',
+].join(', ');
+
+function clearStickyInteractiveState(eventTarget) {
+  const interactive = eventTarget?.closest?.(STICKY_INTERACTIVE_SELECTOR);
+  if (interactive && typeof interactive.blur === 'function') {
+    window.setTimeout(() => {
+      interactive.blur();
+    }, 0);
   }
+}
+
+function hideMobileSidebar() {
+  if (!isMobileLayout()) return;
+  document.body.classList.remove('nav-open');
+  sidebarLongPressIgnoreUntil = 0;
+  sidebarLongPressOpened = false;
+  closeSidebarActionMenus();
 }
 
 function registerServiceWorker() {
@@ -192,14 +264,6 @@ function isLocalHostName(hostname) {
   return ['localhost', '127.0.0.1', '::1'].includes(String(hostname || '').toLowerCase());
 }
 
-function browserAccessBlocked() {
-  return Boolean(
-    shell.authStatus?.apiTokenRequired &&
-    !shell.authStatus?.apiTokenAuthenticated &&
-    !shell.authStatus?.browserSessionAuthenticated,
-  );
-}
-
 function clearProtectedWorkspaceState() {
   shell.projects = [];
   shell.sessions = [];
@@ -213,6 +277,33 @@ function clearProtectedWorkspaceState() {
   shell.authSessions = null;
   shell.executorProfiles = null;
   shell.executorCliInfo = {};
+}
+
+function lockClientAuthState() {
+  shell.authStatus = {
+    ...(shell.authStatus || {}),
+    apiTokenRequired: shell.authStatus?.apiTokenRequired || true,
+    apiTokenAuthenticated: false,
+    browserSessionAuthenticated: false,
+  };
+  clearProtectedWorkspaceState();
+}
+
+function maybeLockFromResponse(response) {
+  if (!response || response.status !== 401) return false;
+  if (!browserAccessBlocked()) {
+    lockClientAuthState();
+  }
+  return true;
+}
+
+function abortRefreshFromUnauthorized(response, requestId, uiState) {
+  if (!response || response.status !== 401) return false;
+  if (requestId !== refreshRequestId) return true;
+  if (maybeLockFromResponse(response)) {
+    render(uiState || null);
+  }
+  return true;
 }
 
 function isMobileLayout() {
@@ -780,7 +871,11 @@ async function api(path, options = {}) {
       bodyJson = { raw: bodyText };
     }
   }
-  return { ok: resp.ok, status: resp.status, data: bodyJson };
+  const normalizedResponse = { ok: resp.ok, status: resp.status, data: bodyJson };
+  if (normalizedResponse.status === 401 && !browserAccessBlocked()) {
+    maybeLockFromResponse(normalizedResponse);
+  }
+  return normalizedResponse;
 }
 
 function renderBreadcrumbs(project, session) {
@@ -789,7 +884,7 @@ function renderBreadcrumbs(project, session) {
 
 function renderTopbarTitle(project, session, lane) {
   if (!refs.topbarTitle) return;
-  refs.topbarTitle.textContent = lane?.title || session?.name || project?.name || '';
+  refs.topbarTitle.textContent = 'Command Deck';
 }
 
 function captureContentUiState() {
@@ -2575,7 +2670,10 @@ function renderSidebarProjects(activeProject) {
           <a class="sidebar-thread ${isCurrentSession ? 'active' : ''}" href="${safeAttr(session.route)}">
             <span>${safeText(session.name)}</span>
           </a>
-          <button class="sidebar-archive" type="button" aria-label="Archive ${safeAttr(session.name)} session" title="Archive session is not wired yet" aria-disabled="true" disabled>
+          <button class="sidebar-rename" type="button" data-action="renameSession" data-session-id="${safeAttr(session.id)}" data-session-name="${safeAttr(session.name)}" aria-label="Rename ${safeAttr(session.name)} session" title="Rename session">
+            ${PENCIL_ICON}
+          </button>
+          <button class="sidebar-archive" type="button" data-action="archiveSession" data-session-id="${safeAttr(session.id)}" data-session-name="${safeAttr(session.name)}" aria-label="Archive ${safeAttr(session.name)} session" title="Archive session">
             <svg viewBox="0 0 20 20" focusable="false" aria-hidden="true">
               <path d="M3.2 6.5h13.6"></path>
               <path d="M5 6.5v9.2c0 .8.6 1.4 1.4 1.4h7.2c.8 0 1.4-.6 1.4-1.4V6.5"></path>
@@ -2595,6 +2693,9 @@ function renderSidebarProjects(activeProject) {
             ${active ? `<span class="pill" title="${active} active lanes">${active}</span>` : ''}
           </a>
           <a class="sidebar-compose" href="${safeAttr(project.route)}#create-session" aria-label="Create session in ${safeAttr(project.name)}">${COMPOSE_ICON}</a>
+          <button class="sidebar-project-rename" data-action="renameProject" data-project-id="${safeAttr(project.id)}" data-project-name="${safeAttr(project.name)}" type="button" aria-label="Rename ${safeAttr(project.name)} project" title="Rename project">
+            ${PENCIL_ICON}
+          </button>
           <button class="sidebar-project-archive" data-action="archiveProject" data-project-id="${safeAttr(project.id)}" data-project-name="${safeAttr(project.name)}" type="button" aria-label="Archive ${safeAttr(project.name)} project">
             <svg viewBox="0 0 20 20" focusable="false" aria-hidden="true">
               <path d="M3.2 6.5h13.6"></path>
@@ -2714,9 +2815,12 @@ function renderMobileManifest() {
 
 async function refresh() {
   const requestId = ++refreshRequestId;
+  const uiState = captureContentUiState();
   shell.route = parseRoute();
   shell.alerts = [];
+  const abortFromAuth = (response) => abortRefreshFromUnauthorized(response, requestId, uiState);
   const authResp = await api('/api/auth/status');
+  if (abortFromAuth(authResp)) return;
   if (authResp.ok && authResp.data) {
     shell.authStatus = authResp.data;
   }
@@ -2726,66 +2830,79 @@ async function refresh() {
     return;
   }
   const policyResp = await api('/api/policy');
+  if (abortFromAuth(policyResp)) return;
   if (policyResp.ok && policyResp.data) {
     shell.policy = policyResp.data.policies;
   }
   const effectiveSettingsResp = await api('/api/settings/effective');
+  if (abortFromAuth(effectiveSettingsResp)) return;
   if (effectiveSettingsResp.ok && effectiveSettingsResp.data) {
     shell.effectiveSettings = effectiveSettingsResp.data;
   }
   const notificationsResp = await api('/api/notifications');
+  if (abortFromAuth(notificationsResp)) return;
   if (notificationsResp.ok && notificationsResp.data) {
     shell.notifications = notificationsResp.data;
     maybeShowBrowserNotifications();
   }
   const blockersResp = await api('/api/system/blockers');
+  if (abortFromAuth(blockersResp)) return;
   if (blockersResp.ok && Array.isArray(blockersResp.data?.blockers)) {
     shell.systemBlockers = blockersResp.data.blockers;
   }
   const privateAccessResp = await api('/api/private-access');
+  if (abortFromAuth(privateAccessResp)) return;
   if (privateAccessResp.ok && privateAccessResp.data) {
     shell.privateAccess = privateAccessResp.data;
   }
   const profilesResp = await api('/api/executors/profiles');
+  if (abortFromAuth(profilesResp)) return;
   if (profilesResp.ok && profilesResp.data?.profiles) {
     shell.executorProfiles = profilesResp.data.profiles;
   }
   const providerCatalogResp = await api('/api/providers');
+  if (abortFromAuth(providerCatalogResp)) return;
   if (providerCatalogResp.ok && providerCatalogResp.data) {
     shell.providerCatalog = providerCatalogResp.data;
   }
   const authSessionsResp = await api('/api/auth/sessions');
+  if (abortFromAuth(authSessionsResp)) return;
   if (authSessionsResp.ok && Array.isArray(authSessionsResp.data?.sessions)) {
     shell.authSessions = authSessionsResp.data.sessions;
   }
 
   if (shell.executorProfiles && typeof shell.executorProfiles === 'object') {
     const cliInfo = {};
-    await Promise.all(Object.keys(shell.executorProfiles).map(async (executorType) => {
+    for (const executorType of Object.keys(shell.executorProfiles)) {
       const response = await api(`/api/executors/${encodeURIComponent(executorType)}/cli`);
+      if (abortFromAuth(response)) return;
       if (response.ok && response.data) {
         cliInfo[executorType] = response.data;
       }
-    }));
+    }
     shell.executorCliInfo = cliInfo;
   }
 
   const cleanupScheduleResp = await api('/api/artifacts/cleanup/schedule');
+  if (abortFromAuth(cleanupScheduleResp)) return;
   if (cleanupScheduleResp.ok && cleanupScheduleResp.data?.schedule) {
     shell.cleanupSchedule = cleanupScheduleResp.data.schedule;
   }
   const mcpToolsResp = await api('/api/mcp/tools');
+  if (abortFromAuth(mcpToolsResp)) return;
   if (mcpToolsResp.ok && Array.isArray(mcpToolsResp.data)) {
     shell.mcpTools = mcpToolsResp.data;
   }
 
   const pendingAuditResp = await api('/api/audit/events?status=pending');
+  if (abortFromAuth(pendingAuditResp)) return;
   if (requestId !== refreshRequestId) return;
   if (pendingAuditResp.ok && Array.isArray(pendingAuditResp.data)) {
     shell.pendingAuditEvents = pendingAuditResp.data;
   }
 
   const projectsResp = await api('/api/projects');
+  if (abortFromAuth(projectsResp)) return;
   if (requestId !== refreshRequestId) return;
   if (projectsResp.ok && Array.isArray(projectsResp.data)) {
     const nextProjects = projectsResp.data;
@@ -2794,6 +2911,7 @@ async function refresh() {
     for (const project of nextProjects) {
       const sessionsResp = await api(`/api/projects/${project.id}/sessions`);
       if (requestId !== refreshRequestId) return;
+      if (abortFromAuth(sessionsResp)) return;
       if (sessionsResp.ok && Array.isArray(sessionsResp.data)) {
         allSessions.push(...sessionsResp.data);
       } else {
@@ -2806,6 +2924,8 @@ async function refresh() {
     if (sessionsComplete) {
       const allLaneResponses = await Promise.all(allSessions.map((session) => api(`/api/sessions/${session.id}/lanes`)));
       if (requestId !== refreshRequestId) return;
+      const unauthorizedLanes = allLaneResponses.find((response) => response.status === 401);
+      if (abortFromAuth(unauthorizedLanes)) return;
       lanesComplete = allLaneResponses.every((response) => response.ok && Array.isArray(response.data));
       if (lanesComplete) {
         allLanes = allLaneResponses.flatMap((response) => response.data);
@@ -2819,7 +2939,7 @@ async function refresh() {
     }
   }
   if (requestId !== refreshRequestId) return;
-  render(captureContentUiState());
+  render(uiState);
 }
 
 function buildCleanupScheduleBody(formData) {
@@ -3675,6 +3795,120 @@ async function handleSystemActions(event) {
     renderAlert(response.status === 401 ? authRequiredMessage() : (response.data?.error || 'Could not archive project.'), 'bad');
   }
 
+  if (action === 'renameProject') {
+    const projectId = event.currentTarget.dataset.projectId;
+    const projectName = event.currentTarget.dataset.projectName || 'project';
+    const project = shell.projects.find((value) => value.id === projectId);
+    if (!project) {
+      renderAlert('Project not found.');
+      return;
+    }
+    const nextName = window.prompt(`Rename ${projectName}`, project.name || '');
+    if (nextName === null) {
+      renderAlert('Project rename canceled.');
+      return;
+    }
+    const name = String(nextName || '').trim();
+    if (!name || name === project.name) {
+      renderAlert('Project rename canceled.');
+      return;
+    }
+    const approval = buildApprovedActionBody('updateProject', `Rename project ${project.name} to ${name}?`);
+    if (!approval.approved) {
+      renderAlert('Project rename canceled.');
+      return;
+    }
+    const response = await api(`/api/projects/${projectId}`, {
+      method: 'PATCH',
+      body: {
+        actor: approval.actor,
+        approved: approval.approved,
+        name,
+      },
+    });
+    if (response.ok) {
+      renderAlert('Project renamed.');
+      await refresh();
+      return;
+    }
+    renderAlert(response.status === 401 ? authRequiredMessage() : (response.data?.error || 'Could not rename project.'), 'bad');
+  }
+
+  if (action === 'archiveSession') {
+    const sessionId = event.currentTarget.dataset.sessionId;
+    const sessionName = event.currentTarget.dataset.sessionName || 'this session';
+    if (!sessionId) return;
+    const confirmed = window.confirm(`Archive ${sessionName}? It will disappear from the default session list, but its saved state is retained.`);
+    if (!confirmed) {
+      renderAlert('Session archive canceled.');
+      return;
+    }
+    const approval = buildApprovedActionBody('updateSession', `Archive ${sessionName}?`);
+    if (!approval.approved) {
+      renderAlert('Session archive canceled.');
+      return;
+    }
+    const response = await api(`/api/sessions/${sessionId}`, {
+      method: 'PATCH',
+      body: {
+        actor: approval.actor,
+        approved: approval.approved,
+        state: 'archived',
+      },
+    });
+    if (response.ok) {
+      renderAlert('Session archived.');
+      const currentSession = shell.sessions.find((value) => value.id === sessionId);
+      const project = currentSession ? shell.projects.find((value) => value.id === currentSession.projectId) : null;
+      if (project?.route) {
+        window.location.href = project.route;
+      } else {
+        window.location.href = '/#projects';
+      }
+      return;
+    }
+    renderAlert(response.status === 401 ? authRequiredMessage() : (response.data?.error || 'Could not archive session.'), 'bad');
+  }
+
+  if (action === 'renameSession') {
+    const sessionId = event.currentTarget.dataset.sessionId;
+    const sessionName = event.currentTarget.dataset.sessionName || 'this session';
+    const session = shell.sessions.find((value) => value.id === sessionId);
+    if (!session) {
+      renderAlert('Session not found.');
+      return;
+    }
+    const nextName = window.prompt(`Rename ${sessionName}`, session.name || '');
+    if (nextName === null) {
+      renderAlert('Session rename canceled.');
+      return;
+    }
+    const name = String(nextName || '').trim();
+    if (!name || name === session.name) {
+      renderAlert('Session rename canceled.');
+      return;
+    }
+    const approval = buildApprovedActionBody('updateSession', `Rename session ${session.name} to ${name}?`);
+    if (!approval.approved) {
+      renderAlert('Session rename canceled.');
+      return;
+    }
+    const response = await api(`/api/sessions/${sessionId}`, {
+      method: 'PATCH',
+      body: {
+        actor: approval.actor,
+        approved: approval.approved,
+        name,
+      },
+    });
+    if (response.ok) {
+      renderAlert('Session renamed.');
+      await refresh();
+      return;
+    }
+    renderAlert(response.status === 401 ? authRequiredMessage() : (response.data?.error || 'Could not rename session.'), 'bad');
+  }
+
   if (action === 'editMcpTool') {
     const toolId = event.currentTarget.dataset.toolId;
     if (!toolId) return;
@@ -3876,10 +4110,22 @@ function clearSidebarSwipeState() {
 }
 
 function closeSidebarActionMenus() {
-  document.querySelectorAll('.sidebar-project-group.actions-open').forEach((item) => item.classList.remove('actions-open'));
+  document.querySelectorAll('.sidebar-project-group.actions-open, .sidebar-session-line.actions-open').forEach((item) => {
+    item.classList.remove('actions-open');
+  });
 }
 
 document.addEventListener('pointerdown', (event) => {
+  if (
+    isMobileLayout()
+    && document.body.classList.contains('nav-open')
+    && !event.target?.closest?.('.ops-sidebar')
+    && !event.target?.closest?.('#mobile-nav-toggle')
+    && !event.target?.closest?.('#sidebar-backdrop')
+  ) {
+    hideMobileSidebar();
+  }
+
   if (!isMobileLayout()) return;
   if (event.button !== undefined && event.button !== 0) return;
   sidebarSwipeState = {
@@ -3892,7 +4138,7 @@ document.addEventListener('pointerdown', (event) => {
     moved: false,
     targetGroup: null,
   };
-  const group = event.target?.closest?.('.sidebar-project-group');
+  const group = event.target?.closest?.('.sidebar-project-group, .sidebar-session-line');
   if (!group || event.target?.closest?.('button, a.sidebar-compose')) return;
   sidebarSwipeState.targetGroup = group;
   sidebarLongPressOpened = false;
@@ -3900,7 +4146,7 @@ document.addEventListener('pointerdown', (event) => {
     closeSidebarActionMenus();
     group.classList.add('actions-open');
     sidebarLongPressOpened = true;
-    sidebarLongPressIgnoreUntil = performance.now() + 900;
+    sidebarLongPressIgnoreUntil = performance.now() + 1400;
   }, 450);
 });
 
@@ -3950,6 +4196,9 @@ document.addEventListener('click', async (event) => {
   const navLink = event.target?.closest?.('.sidebar-link, .sidebar-thread');
   const actionTarget = event.target?.closest?.('[data-action]');
   const action = actionTarget?.dataset?.action;
+  const inSidebar = event.target?.closest?.('.ops-sidebar');
+  const inMainContent = event.target?.closest?.('.ops-main');
+  const inTopbar = event.target?.closest?.('.app-topbar');
 
   if (sidebarLongPressOpened) {
     sidebarLongPressOpened = false;
@@ -3962,7 +4211,7 @@ document.addEventListener('click', async (event) => {
   }
 
   if (performance.now() < sidebarLongPressIgnoreUntil) {
-    if (navLink) {
+    if (navLink || actionTarget?.closest?.('.sidebar-project-group, .sidebar-session-line')) {
       event.preventDefault();
       event.stopPropagation();
       sidebarLongPressIgnoreUntil = 0;
@@ -3970,15 +4219,15 @@ document.addEventListener('click', async (event) => {
     }
   }
 
-  if (isMobileLayout() && document.body.classList.contains('nav-open') && !event.target?.closest?.('.ops-sidebar') && !event.target?.closest?.('#mobile-nav-toggle')) {
+  if (isMobileLayout() && document.body.classList.contains('nav-open') && !inSidebar && !inTopbar) {
     closeMobileNavPanel();
   }
-
-  if (!event.target?.closest?.('.sidebar-project-group')) {
+  if (!inSidebar) {
     closeSidebarActionMenus();
   }
 
   if (action === 'toggleNav') {
+    const target = event.currentTarget || event.target;
     if (isMobileLayout()) {
       if (document.body.classList.contains('nav-open')) {
         closeMobileNavPanel();
@@ -3988,12 +4237,17 @@ document.addEventListener('click', async (event) => {
     } else {
       document.body.classList.toggle('sidebar-collapsed');
     }
+    if (target && target.blur) {
+      target.blur();
+    }
     return;
   }
 
   if (navLink) {
     closeMobileNavPanel();
   }
+  // Always drop focus from any tapped control so nothing stays highlighted.
+  clearStickyInteractiveState(event.target);
 
   if (!action) {
     const navCard = event.target?.closest?.('[data-href]');
@@ -4036,6 +4290,9 @@ document.addEventListener('click', async (event) => {
     'refreshExecutorCli',
     'reinstallExecutorCli',
     'archiveProject',
+    'archiveSession',
+    'renameProject',
+    'renameSession',
   ].includes(action)) {
     await handleSystemActions({ currentTarget: actionTarget });
     return;

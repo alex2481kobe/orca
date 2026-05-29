@@ -289,6 +289,8 @@ body.sidebar-collapsed .ops-shell {
   height: calc(100dvh - var(--topbar-height));
   height: calc(100vh - var(--topbar-height));
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   padding: calc(var(--topbar-height) + 0.8rem) 0.8rem 0.8rem;
   position: sticky;
   top: 0;
@@ -486,7 +488,7 @@ body.sidebar-collapsed .ops-sidebar {
   gap: 0.4rem;
   justify-content: flex-start;
   min-height: 1.9rem;
-  padding: 0.18rem 2rem 0.18rem 2.1rem;
+  padding: 0.18rem 3.9rem 0.18rem 2.1rem;
   text-decoration: none;
   width: 100%;
 }
@@ -501,6 +503,12 @@ body.sidebar-collapsed .ops-sidebar {
 .sidebar-thread:hover {
   background: transparent;
   color: var(--text);
+}
+
+.sidebar-session-line:hover,
+.sidebar-session-line:focus-within,
+.sidebar-session-line.actions-open {
+  background: rgba(255, 255, 255, 0.045);
 }
 
 .sidebar-thread small {
@@ -533,6 +541,7 @@ body.sidebar-collapsed .ops-sidebar {
 }
 
 .sidebar-session-line:hover .sidebar-archive,
+.sidebar-session-line.actions-open .sidebar-archive,
 .sidebar-archive:focus-visible {
   opacity: 1;
 }
@@ -541,6 +550,63 @@ body.sidebar-collapsed .ops-sidebar {
 .sidebar-archive:focus-visible {
   color: var(--text);
   outline: none;
+}
+
+.sidebar-compose,
+.sidebar-project-archive,
+.sidebar-archive {
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
+/* Rename buttons mirror the archive button treatment (revealed via hover on a
+   pointer device, or long-press "actions-open" on touch). */
+.sidebar-project-rename,
+.sidebar-rename {
+  align-items: center;
+  background: transparent !important;
+  border: 0;
+  border-color: transparent !important;
+  border-radius: 50%;
+  color: var(--muted);
+  display: inline-flex;
+  height: 2rem;
+  justify-content: center;
+  opacity: 0;
+  padding: 0;
+  transition: opacity 0.12s ease, color 0.12s ease;
+  width: 2rem;
+}
+.sidebar-rename {
+  position: absolute;
+  right: 2rem;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.sidebar-project-line:hover .sidebar-project-rename,
+.sidebar-project-group.actions-open .sidebar-project-rename,
+.sidebar-project-rename:focus-visible,
+.sidebar-session-line:hover .sidebar-rename,
+.sidebar-session-line.actions-open .sidebar-rename,
+.sidebar-rename:focus-visible {
+  opacity: 1;
+}
+.sidebar-project-rename:hover,
+.sidebar-project-rename:focus-visible,
+.sidebar-rename:hover,
+.sidebar-rename:focus-visible {
+  color: var(--text);
+  outline: none;
+}
+.sidebar-project-rename svg,
+.sidebar-rename svg {
+  fill: none;
+  height: 14px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+  width: 14px;
 }
 
 .sidebar-archive svg {
@@ -633,7 +699,9 @@ body.sidebar-collapsed .sidebar-project-line {
   min-width: 0;
   min-height: calc(100dvh - var(--topbar-height) - var(--safe-area-top) - var(--safe-area-bottom));
   min-height: calc(100vh - var(--topbar-height) - var(--safe-area-top) - var(--safe-area-bottom));
-  padding: calc(var(--topbar-height) + 2rem) min(4vw, 3rem) 2rem;
+  /* Bottom padding clears the iOS/Android home indicator so the last card is
+     fully reachable when installed as a standalone PWA. */
+  padding: calc(var(--topbar-height) + 2rem) min(4vw, 3rem) calc(2rem + var(--safe-area-bottom));
 }
 
 .ops-content {
@@ -758,9 +826,11 @@ body.sidebar-collapsed .sidebar-project-line {
 }
 
 .nav-tile.active,
-.nav-tile:hover {
-  background: rgba(51, 54, 45, 0.95);
-  border-color: var(--accent);
+@media (hover: hover) {
+  .nav-tile:hover {
+    background: rgba(51, 54, 45, 0.95);
+    border-color: var(--accent);
+  }
 }
 
 .home-panels[data-active-panel="overview"] > [data-panel-card]:not([data-panel-card="projects"]),
@@ -975,10 +1045,15 @@ body.sidebar-collapsed .sidebar-project-line {
   text-decoration: none;
 }
 
-.simple-row:hover,
 .simple-row:focus-visible {
   background: rgba(255, 255, 255, 0.055);
   outline: none;
+}
+
+@media (hover: hover) {
+  .simple-row:hover {
+    background: rgba(255, 255, 255, 0.055);
+  }
 }
 
 .simple-row small {
@@ -1141,12 +1216,19 @@ body.sidebar-collapsed .sidebar-project-line {
   transition: border-color 0.16s ease, transform 0.16s ease, background 0.16s ease;
 }
 
-.click-card:hover,
 .click-card:focus-visible {
   border-color: rgba(96, 99, 87, 0.82);
   transform: translateY(-1px);
   background: rgba(26, 28, 24, 0.82);
   outline: none;
+}
+
+@media (hover: hover) {
+  .click-card:hover {
+    border-color: rgba(96, 99, 87, 0.82);
+    transform: translateY(-1px);
+    background: rgba(26, 28, 24, 0.82);
+  }
 }
 
 .click-card::after {
@@ -1165,10 +1247,16 @@ body.sidebar-collapsed .sidebar-project-line {
   transition: opacity 0.16s ease, transform 0.16s ease;
 }
 
-.click-card:hover::after,
 .click-card:focus-visible::after {
   opacity: 1;
   transform: translateY(0);
+}
+
+@media (hover: hover) {
+  .click-card:hover::after {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .card-kicker {
@@ -1303,10 +1391,20 @@ button:focus-visible {
   outline: none;
 }
 
+button:active,
+.app-topbar button:active {
+  background: transparent;
+}
+
 .shell-toggle:hover,
 .shell-toggle:active,
 .shell-toggle:focus-visible {
   background: transparent;
+}
+
+/* No grey tap-flash on any element, anywhere. */
+* {
+  -webkit-tap-highlight-color: transparent;
 }
 
 .sidebar-compose,
@@ -1316,6 +1414,11 @@ button:focus-visible {
 .click-card,
 .nav-tile {
   -webkit-tap-highlight-color: transparent;
+}
+
+/* Keyboard focus stays visible; pointer/touch focus never lingers as paint. */
+:focus:not(:focus-visible) {
+  outline: none;
 }
 
 .sidebar-compose:active,
@@ -1550,6 +1653,14 @@ pre {
   body.nav-open .ops-sidebar {
     transform: translateX(0);
   }
+  /* While the drawer is open, lock the page so swipes/scrolls move the sidebar's
+     own scroll container, never the main panel underneath it. */
+  body.nav-open {
+    overflow: hidden;
+  }
+  body.nav-open .ops-main {
+    overflow: hidden;
+  }
   body.sidebar-collapsed .ops-shell {
     grid-template-columns: 1fr;
   }
@@ -1586,13 +1697,21 @@ pre {
     grid-template-columns: 1fr;
   }
 
-  .sidebar-archive {
+  .sidebar-archive,
+  .sidebar-rename {
     display: none;
   }
-  .sidebar-project-archive {
+  .sidebar-project-archive,
+  .sidebar-project-rename {
     display: none;
   }
-  .sidebar-project-group.actions-open .sidebar-project-archive {
+  .sidebar-session-line.actions-open .sidebar-archive,
+  .sidebar-session-line.actions-open .sidebar-rename {
+    display: inline-flex;
+    opacity: 1;
+  }
+  .sidebar-project-group.actions-open .sidebar-project-archive,
+  .sidebar-project-group.actions-open .sidebar-project-rename {
     display: inline-flex;
     opacity: 1;
   }

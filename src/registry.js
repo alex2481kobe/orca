@@ -500,6 +500,11 @@ const defaultPolicy = {
     risk: 'medium',
     message: 'Creates project coordination sessions and increases execution capacity.',
   },
+  updateSession: {
+    requiresApproval: true,
+    risk: 'medium',
+    message: 'Session updates can change execution limits and operational state.',
+  },
   updateProject: {
     requiresApproval: true,
     risk: 'medium',
@@ -1319,6 +1324,111 @@ export class CommandDeckRegistry {
     this.persistState();
 
     return clonePayload(project);
+  }
+
+  updateSession(locator, patch = {}, context = {}) {
+    const session = this.getSession(locator);
+    if (!session) {
+      throw { status: 404, message: 'Session not found.' };
+    }
+    const actor = context.actor || 'dashboard';
+    const policyCheck = this.evaluateActionPolicy('updateSession', {
+      actor,
+      approved: context.approved,
+    });
+    if (!policyCheck.allowed) {
+      throw {
+        status: 409,
+        message: policyCheck.message,
+        requiresApproval: true,
+        risk: policyCheck.policy.risk,
+      };
+    }
+
+    if (patch.name && !String(patch.name).trim()) {
+      throw { status: 422, message: 'Session name cannot be empty.' };
+    }
+
+    if (patch.state !== undefined) {
+      const nextState = String(patch.state || '').trim();
+      if (!['active', 'archived'].includes(nextState)) {
+        throw { status: 422, message: 'Session state must be active or archived.' };
+      }
+      session.state = nextState;
+    }
+
+    if (patch.name) {
+      session.name = String(patch.name).trim();
+    }
+
+    if (patch.laneConcurrencyLimit !== undefined) {
+      const parsed = parsePositiveInteger(patch.laneConcurrencyLimit, null);
+      if (parsed === null) {
+        throw { status: 422, message: 'laneConcurrencyLimit must be a positive integer.' };
+      }
+      session.laneConcurrencyLimit = parsed;
+      if (!session.approvedCapacity || session.approvedCapacity < parsed) {
+        session.approvedCapacity = parsed;
+      }
+    }
+
+    if (patch.approvedCapacity !== undefined) {
+      const parsed = parsePositiveInteger(patch.approvedCapacity, null);
+      if (parsed === null) {
+        throw { status: 422, message: 'approvedCapacity must be a positive integer.' };
+      }
+      session.approvedCapacity = parsed;
+    }
+
+    if (patch.spawnPolicy !== undefined) {
+      session.spawnPolicy = normalizeSpawnPolicy(patch.spawnPolicy);
+    }
+
+    if (patch.soloMode !== undefined) {
+      session.soloMode = Boolean(patch.soloMode);
+    }
+
+    if (patch.idleShutdownMode !== undefined) {
+      session.idleShutdownMode = normalizeIdleShutdownMode(patch.idleShutdownMode);
+    }
+
+    if (patch.critiqueMode !== undefined) {
+      session.critiqueMode = normalizeCritiqueMode(patch.critiqueMode);
+    }
+
+    if (patch.artifactRetentionDays !== undefined) {
+      const parsed = parsePositiveInteger(patch.artifactRetentionDays, null);
+      if (parsed === null && patch.artifactRetentionDays !== null) {
+        throw { status: 422, message: 'artifactRetentionDays must be a positive integer when provided.' };
+      }
+      session.artifactRetentionDays = parsed || 14;
+    }
+
+    if (patch.settingsOverrides !== undefined) {
+      session.settingsOverrides = sanitizeSettingsOverrides(patch.settingsOverrides);
+    }
+
+    if (patch.leader !== undefined) {
+      const nextLeader = String(patch.leader || '').trim();
+      if (!nextLeader) {
+        throw { status: 422, message: 'Session leader cannot be empty.' };
+      }
+      session.leader = nextLeader;
+    }
+
+    session.updatedAt = nowIso();
+    this.recordAudit({
+      type: 'session_updated',
+      actor,
+      projectId: session.projectId,
+      sessionId: session.id,
+      summary: `Session "${session.name}" updated`,
+      evidence: { session },
+      status: 'passed',
+    });
+    this.persistState();
+
+    return clonePayload(session);
   }
 
   getCleanupSchedule() {
