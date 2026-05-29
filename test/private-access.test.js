@@ -38,6 +38,29 @@ test('fake tailnet provider covers setup states without real Tailscale', () => {
   assert.equal(fakeTailnetState('funnel').blockers.some((item) => item.includes('Funnel')), true);
 });
 
+test('private access settings default to auto while targets require explicit modes', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-private-access-settings-'));
+  const store = new PrivateAccessStore({ stateFile: path.join(dir, 'private-access.json') });
+  try {
+    const state = await store.describe({ fakeTailnetState: 'serve-https' });
+    assert.equal(state.settings.preferredMode, 'auto');
+
+    const settings = await store.updateSettings({ preferredMode: 'tailnet-https-serve' });
+    assert.equal(settings.preferredMode, 'tailnet-https-serve');
+
+    await assert.rejects(
+      () => store.createTarget({
+        label: 'Ambiguous target',
+        mode: 'auto',
+        localUrl: 'http://127.0.0.1:3000',
+      }),
+      (error) => /Unsupported private access mode/.test(error.message),
+    );
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('private access store persists targets and rejects Funnel targets', async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-private-access-'));
   const store = new PrivateAccessStore({ stateFile: path.join(dir, 'private-access.json') });

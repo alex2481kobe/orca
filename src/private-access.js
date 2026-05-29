@@ -11,7 +11,8 @@ import {
 
 const nowIso = () => new Date().toISOString();
 
-const ACCESS_MODES = new Set(['local', 'tailnet-http', 'tailnet-https-serve']);
+const ACCESS_MODES = new Set(['auto', 'local', 'tailnet-http', 'tailnet-https-serve']);
+const TARGET_ACCESS_MODES = new Set(['local', 'tailnet-http', 'tailnet-https-serve']);
 const SETUP_STATES = new Set([
   'not_configured',
   'setup_pending',
@@ -22,7 +23,7 @@ const SETUP_STATES = new Set([
 ]);
 
 const DEFAULT_SETTINGS = {
-  preferredMode: 'tailnet-http',
+  preferredMode: 'auto',
   openTarget: 'external',
   pwaMode: 'enabled',
   notificationMode: 'in_app',
@@ -112,9 +113,10 @@ function validateAccessUrl(raw, { mode = 'local', allowBlank = false, field = 'u
   return validateNetworkUrl(text, { field }).url;
 }
 
-function normalizeMode(raw) {
-  const mode = normalizeText(raw || 'local').toLowerCase();
-  if (containsFunnel(mode) || !ACCESS_MODES.has(mode)) {
+function normalizeMode(raw, { allowAuto = false } = {}) {
+  const mode = normalizeText(raw || (allowAuto ? 'auto' : 'local')).toLowerCase();
+  const allowedModes = allowAuto ? ACCESS_MODES : TARGET_ACCESS_MODES;
+  if (containsFunnel(mode) || !allowedModes.has(mode)) {
     throw { status: 422, message: 'Unsupported private access mode.' };
   }
   return mode;
@@ -128,7 +130,7 @@ function normalizeSetupStatus(raw, fallback = 'not_configured') {
 function normalizeSettings(raw = {}) {
   rejectPrototypeKeys(raw, 'settings');
   const settings = { ...DEFAULT_SETTINGS };
-  if (raw.preferredMode !== undefined) settings.preferredMode = normalizeMode(raw.preferredMode);
+  if (raw.preferredMode !== undefined) settings.preferredMode = normalizeMode(raw.preferredMode, { allowAuto: true });
   if (raw.openTarget !== undefined) {
     const value = normalizeText(raw.openTarget).toLowerCase();
     settings.openTarget = ['external', 'in_app'].includes(value) ? value : DEFAULT_SETTINGS.openTarget;

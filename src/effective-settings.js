@@ -47,7 +47,7 @@ const DEFAULT_EFFECTIVE_SETTINGS = {
     sensitiveContent: false,
   },
   privateAccess: {
-    preferredMode: 'tailnet-http',
+    preferredMode: 'auto',
     httpsServeAllowed: true,
     funnelAllowed: false,
   },
@@ -102,7 +102,7 @@ const SCHEMA = {
     sensitiveContent: { type: 'boolean' },
   },
   privateAccess: {
-    preferredMode: { type: 'enum', allowed: ['tailnet-http', 'tailnet-https-serve', 'local'] },
+    preferredMode: { type: 'enum', allowed: ['auto', 'tailnet-http', 'tailnet-https-serve', 'local'] },
     httpsServeAllowed: { type: 'boolean' },
     funnelAllowed: { type: 'boolean' },
   },

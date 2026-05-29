@@ -37,7 +37,7 @@ test('effective settings expose locked product defaults without secrets', () => 
   assert.equal(effective.settings.critique.mode, 'suggested');
   assert.equal(effective.settings.critique.visualBrowserMode, 'visual-required');
   assert.equal(effective.settings.provider.secretPriority[0], 'os-credential');
-  assert.equal(effective.settings.privateAccess.preferredMode, 'tailnet-http');
+  assert.equal(effective.settings.privateAccess.preferredMode, 'auto');
   assert.equal(effective.settings.privateAccess.funnelAllowed, false);
   assert.equal(effective.settings.urlOpening.defaultMode, 'external');
   assert.equal(effective.settings.mobile.pwaStaticCacheOnly, true);
@@ -112,6 +112,7 @@ test('effective settings precedence applies project, session, lane, and action o
 });
 
 test('settings override sanitizer rejects unknown and prototype-polluting fields', () => {
+  assert.equal(sanitizeSettingsOverrides({ privateAccess: { preferredMode: 'auto' } }).privateAccess.preferredMode, 'auto');
   assert.throws(
     () => sanitizeSettingsOverrides({ provider: { apiKey: 'secret-value' } }),
     (error) => error.status === 422 && /not supported/.test(error.message),

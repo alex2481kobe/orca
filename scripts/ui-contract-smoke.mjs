@@ -353,6 +353,40 @@ async function inspectPage(page, viewport, screenName) {
   return result;
 }
 
+async function inspectAccessGate(page, viewport, expectedRole) {
+  const gate = await page.evaluate(() => {
+    const text = document.body.textContent || '';
+    const actions = Array.from(document.querySelectorAll('[data-action]')).map((element) => element.getAttribute('data-action') || '');
+    return {
+      text,
+      hasQr: Boolean(document.querySelector('.qr-wrap')),
+      hasPairInput: Boolean(document.getElementById('pairing-code-input')),
+      hasTokenInput: Boolean(document.getElementById('api-token-input')),
+      hasCreatePairing: actions.includes('createPairingCode'),
+      hasProjectData: /UI Contract|Contract session|Exercise UI contract|Realm Shaper/.test(text),
+      hasWorkstationInstructions: /workstation/i.test(text),
+      hasOneTimeCodeInstructions: /one-time/i.test(text),
+    };
+  });
+
+  if (!gate.hasPairInput) fail(`${viewport.name}/access-gate missing pairing input`, JSON.stringify(gate));
+  if (gate.hasQr) fail(`${viewport.name}/access-gate exposes QR before auth`, JSON.stringify(gate));
+  if (gate.hasCreatePairing) fail(`${viewport.name}/access-gate can create pairing code before auth`, JSON.stringify(gate));
+  if (gate.hasProjectData) fail(`${viewport.name}/access-gate leaks app data before auth`, JSON.stringify(gate));
+  if (!gate.hasWorkstationInstructions || !gate.hasOneTimeCodeInstructions) {
+    fail(`${viewport.name}/access-gate missing setup instructions`, JSON.stringify(gate));
+  }
+  if (expectedRole === 'client' && gate.hasTokenInput) {
+    fail(`${viewport.name}/access-gate exposes token input to unpaired client`, JSON.stringify(gate));
+  }
+  if (expectedRole === 'workstation' && !gate.hasTokenInput) {
+    fail(`${viewport.name}/access-gate missing trusted workstation token input`, JSON.stringify(gate));
+  }
+
+  const result = await inspectPage(page, viewport, `access-gate-${expectedRole}`);
+  return { ...result, gate };
+}
+
 async function checkRuntimeContract(pw) {
   await fs.mkdir(artifactDir, { recursive: true });
   const seeded = await seedContractState();
@@ -376,6 +410,23 @@ async function checkRuntimeContract(pw) {
   const sessionCookie = await createBrowserSessionCookie();
   try {
     for (const viewport of viewports) {
+      const accessContext = await browser.newContext({
+        viewport: { width: viewport.width, height: viewport.height },
+        isMobile: Boolean(viewport.isMobile),
+        hasTouch: Boolean(viewport.hasTouch),
+      });
+      const accessPage = await accessContext.newPage();
+      await accessPage.goto(base, { waitUntil: 'networkidle', timeout: 20000 });
+      await waitForApp(accessPage);
+      const expectedRole = viewport.width <= 880 ? 'client' : 'workstation';
+      const accessResult = await inspectAccessGate(accessPage, viewport, expectedRole);
+      const accessScreenshotPath = path.join(artifactDir, `${viewport.name}-access-gate.png`);
+      await accessPage.screenshot({ path: accessScreenshotPath, fullPage: true });
+      summary.push({ viewport: viewport.name, route: `access-gate-${expectedRole}`, screenshotPath: accessScreenshotPath, result: accessResult });
+      log(`${viewport.name}/access-gate-${expectedRole}`, `buttons=${accessResult.visibleButtonCount} overflow=${accessResult.overflowPx}px shot=${accessScreenshotPath}`);
+      await accessPage.close();
+      await accessContext.close();
+
       const context = await browser.newContext({
         viewport: { width: viewport.width, height: viewport.height },
         isMobile: Boolean(viewport.isMobile),

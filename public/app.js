@@ -184,7 +184,7 @@ function clientUrl(value) {
 }
 
 function authRequiredMessage() {
-  return 'This browser is not authenticated. Pair it from Settings, or save the API token for this browser session.';
+  return 'This browser is not authenticated. Pair it from the trusted workstation or unlock the workstation with the API token.';
 }
 
 function isLocalHostName(hostname) {
@@ -199,13 +199,50 @@ function browserAccessBlocked() {
   );
 }
 
-function preferredPhoneUrl(privateTargets = []) {
+function accessModeLabel(mode) {
+  if (mode === 'tailnet-https-serve') return 'Tailscale HTTPS Serve';
+  if (mode === 'tailnet-http') return 'Tailscale HTTP';
+  if (mode === 'local') return 'Local only';
+  return 'Auto-detect';
+}
+
+function effectiveAccessMode(privateSettings = {}, tailnet = {}) {
+  const preferredMode = String(privateSettings.preferredMode || 'auto').toLowerCase();
+  if (preferredMode === 'local' || preferredMode === 'tailnet-http' || preferredMode === 'tailnet-https-serve') {
+    return preferredMode;
+  }
+  if (tailnet.serveMode === 'tailnet-https-serve') return 'tailnet-https-serve';
+  if (tailnet.serveMode === 'tailnet-http') return 'tailnet-http';
+  return 'tailnet-http';
+}
+
+function exactUrlForAccessMode(target, mode) {
+  if (!target) return '';
+  if (mode === 'local') return target.localUrl || '';
+  if (mode === 'tailnet-https-serve') return target.httpsServeUrl || '';
+  if (mode === 'tailnet-http') return target.tailnetHttpUrl || '';
+  return target.tailnetHttpUrl || target.httpsServeUrl || target.localUrl || '';
+}
+
+function fallbackUrlForAccessMode(target, mode) {
+  if (!target) return '';
+  if (mode === 'local') return target.localUrl || '';
+  if (mode === 'tailnet-https-serve') return target.httpsServeUrl || target.tailnetHttpUrl || target.localUrl || '';
+  if (mode === 'tailnet-http') return target.tailnetHttpUrl || target.httpsServeUrl || target.localUrl || '';
+  return target.tailnetHttpUrl || target.httpsServeUrl || target.localUrl || '';
+}
+
+function preferredPhoneUrl(privateTargets = [], privateSettings = {}, tailnet = {}) {
   if (!isLocalHostName(window.location.hostname)) return window.location.origin;
-  const target = privateTargets.find((item) => item.favorite && (item.httpsServeUrl || item.tailnetHttpUrl)) ||
-    privateTargets.find((item) => item.mode === 'tailnet-https-serve' && item.httpsServeUrl) ||
-    privateTargets.find((item) => item.mode === 'tailnet-http' && item.tailnetHttpUrl) ||
-    privateTargets.find((item) => item.httpsServeUrl || item.tailnetHttpUrl);
-  return target ? clientUrl(target.httpsServeUrl || target.tailnetHttpUrl || target.localUrl) : window.location.origin;
+  const targets = privateTargets.filter((item) => !item.hidden);
+  const mode = effectiveAccessMode(privateSettings, tailnet);
+  const target = targets.find((item) => item.favorite && exactUrlForAccessMode(item, mode)) ||
+    targets.find((item) => item.mode === mode && exactUrlForAccessMode(item, mode)) ||
+    targets.find((item) => exactUrlForAccessMode(item, mode)) ||
+    targets.find((item) => item.favorite && fallbackUrlForAccessMode(item, mode)) ||
+    targets.find((item) => fallbackUrlForAccessMode(item, mode));
+  const url = exactUrlForAccessMode(target, mode) || fallbackUrlForAccessMode(target, mode);
+  return url ? clientUrl(url) : window.location.origin;
 }
 
 function qrSvgForText(text) {
@@ -759,17 +796,28 @@ function renderHome() {
   const privateAccess = shell.privateAccess || {};
   const privateSettings = privateAccess.settings || {};
   const privateTargets = Array.isArray(privateAccess.targets) ? privateAccess.targets : [];
-  const phoneUrl = preferredPhoneUrl(privateTargets);
-  const phoneQr = qrSvgForText(phoneUrl);
   const tailnet = privateAccess.tailnet || {};
+  const selected = (actual, expected) => String(actual || '') === String(expected || '') ? 'selected' : '';
+  const checked = (value) => value ? 'checked' : '';
+  const accessMode = effectiveAccessMode(privateSettings, tailnet);
+  const preferredAccessMode = privateSettings.preferredMode || 'auto';
+  const accessModeSummary = preferredAccessMode === 'auto'
+    ? `auto -> ${accessModeLabel(accessMode)}`
+    : accessModeLabel(accessMode);
+  const accessModeOptions = `
+    <option value="auto" ${selected(preferredAccessMode, 'auto')}>Auto-detect</option>
+    <option value="tailnet-http" ${selected(preferredAccessMode, 'tailnet-http')}>Tailscale HTTP</option>
+    <option value="tailnet-https-serve" ${selected(preferredAccessMode, 'tailnet-https-serve')}>Tailscale HTTPS Serve</option>
+    <option value="local" ${selected(preferredAccessMode, 'local')}>Local only</option>
+  `;
+  const phoneUrl = preferredPhoneUrl(privateTargets, privateSettings, tailnet);
+  const phoneQr = qrSvgForText(phoneUrl);
   const notificationState = shell.notifications || {};
   const notificationSettings = notificationState.settings || {};
   const notificationItems = Array.isArray(notificationState.notifications) ? notificationState.notifications : [];
   const unreadNotifications = Number.parseInt(notificationState.unreadCount, 10) || 0;
   const browserPermission = browserNotificationPermission();
   const setupCommands = Array.isArray(privateAccess.setupPlan?.commands) ? privateAccess.setupPlan.commands : [];
-  const selected = (actual, expected) => String(actual || '') === String(expected || '') ? 'selected' : '';
-  const checked = (value) => value ? 'checked' : '';
   const commandRows = setupCommands.map((item) => `
     <div class="access-command">
       <div>
@@ -781,11 +829,7 @@ function renderHome() {
     </div>
   `).join('');
   const targetRows = privateTargets.map((target) => {
-    const targetUrl = target.mode === 'tailnet-https-serve'
-      ? (target.httpsServeUrl || target.localUrl)
-      : target.mode === 'tailnet-http'
-        ? (target.tailnetHttpUrl || target.localUrl)
-        : target.localUrl;
+    const targetUrl = fallbackUrlForAccessMode(target, target.mode);
     return `
       <div class="access-target">
         <div>
@@ -966,9 +1010,9 @@ function renderHome() {
     <section class="simple-section ${showMainHome ? '' : 'is-hidden'}">
       <article class="card onboarding-card">
         <div>
-          <div class="card-kicker">Phone setup</div>
-          <h3>Open Command Deck on your phone</h3>
-          <p class="muted">Use a device on the same tailnet, open this private URL, then pair the browser or enter the API token.</p>
+          <div class="card-kicker">Phone and laptop setup</div>
+          <h3>Open Command Deck from another device</h3>
+          <p class="muted">Use a device on the same tailnet, open this private URL, then enter a one-time pairing code from this workstation. API tokens stay on trusted admin browsers.</p>
           <code class="copy-url">${safeText(phoneUrl)}</code>
           <div class="lane-row">
             <button class="secondary" data-action="copyPhoneUrl" data-url="${safeAttr(phoneUrl)}" type="button">Copy link</button>
@@ -976,6 +1020,7 @@ function renderHome() {
             <a class="secondary" href="#setup">Setup wizard</a>
             <a class="secondary" href="#private-access">Tailscale setup</a>
           </div>
+          <div class="tiny muted">Access preference: ${safeText(accessModeSummary)}</div>
           <details class="disclosure compact-disclosure">
             <summary><span>Add to Home Screen</span><small>iPhone/iPad</small></summary>
             <div class="disclosure-body tiny muted">Open the private URL in Safari, tap Share, then tap Add to Home Screen. HTTPS Serve gives the best PWA behavior; HTTP over Tailscale is private but may show browser warnings.</div>
@@ -1041,12 +1086,12 @@ function renderHome() {
           </div>
           <div class="setup-step ${browserPaired || tokenConfigured ? 'ok' : 'warn'}">
             <span>4</span>
-            <div><strong>Browser access</strong><small>${browserPaired ? 'This browser is paired.' : tokenConfigured ? 'API token is set in this tab.' : 'Pair the browser or use the API token fallback.'}</small></div>
+            <div><strong>Browser access</strong><small>${browserPaired ? 'This browser is paired.' : tokenConfigured ? 'API token is set in this tab.' : 'Pair remote devices with one-time codes; keep API token fallback on trusted browsers.'}</small></div>
           </div>
         </div>
         <div class="onboarding-card mini">
           <div>
-            <strong>Scan or open this from your phone</strong>
+            <strong>Scan or open this from your phone or laptop</strong>
             <code class="copy-url">${safeText(phoneUrl)}</code>
             <div class="lane-row">
               <button class="secondary" data-action="copyPhoneUrl" data-url="${safeAttr(phoneUrl)}" type="button">Copy link</button>
@@ -1060,18 +1105,16 @@ function renderHome() {
               </div>
             ` : '<div class="tiny muted">Create a pairing code from the trusted workstation browser, then enter it on the phone access screen.</div>'}
           </div>
-          <div class="qr-wrap">${phoneQr}<span>Scan from phone</span></div>
+          <div class="qr-wrap">${phoneQr}<span>Scan from trusted device</span></div>
         </div>
         <details class="disclosure compact-disclosure" open>
-          <summary><span>HTTP vs HTTPS Serve</span><small>${safeText(privateSettings.preferredMode || 'tailnet-http')}</small></summary>
+          <summary><span>HTTP vs HTTPS Serve</span><small>${safeText(accessModeSummary)}</small></summary>
           <div class="disclosure-body">
             <p>HTTP over Tailscale is private inside the encrypted tailnet and avoids certificate transparency metadata. HTTPS Serve improves Safari/PWA behavior and secure-cookie semantics, but can publish the machine/tailnet DNS name in public certificate logs. Funnel remains off-limits for v1.</p>
             <form id="setup-private-access-settings-form">
               <label>Default access mode
                 <select name="preferredMode">
-                  <option value="tailnet-http" ${selected(privateSettings.preferredMode, 'tailnet-http')}>Tailscale HTTP</option>
-                  <option value="tailnet-https-serve" ${selected(privateSettings.preferredMode, 'tailnet-https-serve')}>Tailscale HTTPS Serve</option>
-                  <option value="local" ${selected(privateSettings.preferredMode, 'local')}>Local only</option>
+                  ${accessModeOptions}
                 </select>
               </label>
               <label>Open links
@@ -1148,7 +1191,65 @@ function renderHome() {
           </div>
         </details>
       </article>
-        <article class="card control-card" id="section-system" data-panel-card="system">
+      <article class="card control-card" id="section-settings-access" data-panel-card="system">
+        <details class="disclosure" open>
+          <summary>
+            <span>Access and paired devices</span>
+            <small>${safeText(accessModeSummary)}</small>
+          </summary>
+          <div class="disclosure-body">
+            <p class="muted">Settings is the trusted workstation surface for HTTP/HTTPS preference, one-time pairing, browser session revocation, and token rotation. Unpaired phone and laptop browsers only see the pairing screen.</p>
+            <form id="settings-private-access-settings-form">
+              <label>Default access mode
+                <select name="preferredMode">
+                  ${accessModeOptions}
+                </select>
+              </label>
+              <label>Open links
+                <select name="openTarget">
+                  <option value="external" ${selected(privateSettings.openTarget, 'external')}>External browser/tab</option>
+                  <option value="in_app" ${selected(privateSettings.openTarget, 'in_app')}>In-app preview</option>
+                </select>
+              </label>
+              <label>Notifications
+                <select name="notificationMode">
+                  <option value="in_app" ${selected(privateSettings.notificationMode, 'in_app')}>In-app only</option>
+                  <option value="browser" ${selected(privateSettings.notificationMode, 'browser')}>Browser where supported</option>
+                  <option value="off" ${selected(privateSettings.notificationMode, 'off')}>Off</option>
+                </select>
+              </label>
+              <label><input type="checkbox" name="pwaMode" ${checked(privateSettings.pwaMode !== 'disabled')}> Enable PWA static shell</label>
+              <button type="submit">Save access settings</button>
+            </form>
+            <div class="onboarding-card mini">
+              <div>
+                <strong>Pair a phone or laptop</strong>
+                <div class="tiny muted">Create a fresh code only from this authenticated workstation, then enter it on the unpaired device. Codes are one-time use and expire quickly.</div>
+                <div class="lane-row">
+                  <button class="secondary" data-action="createPairingCode" type="button">Create one-time code</button>
+                  <button class="secondary" data-action="copyPhoneUrl" data-url="${safeAttr(phoneUrl)}" type="button">Copy private URL</button>
+                </div>
+                ${shell.lastPairing ? `
+                  <div class="pairing-code-box">
+                    <div class="tiny muted">One-time pairing code. Do not screenshot or paste into URLs.</div>
+                    <strong>${safeText(shell.lastPairing.code)}</strong>
+                    <span>Expires ${safeText(formatRelative(shell.lastPairing.expiresAt))}</span>
+                  </div>
+                ` : ''}
+              </div>
+              <div class="qr-wrap">${phoneQr}<span>Trusted setup QR</span></div>
+            </div>
+            <details class="disclosure compact-disclosure" open>
+              <summary><span>Paired devices</span><small>${safeText((shell.authSessions || []).length)} active</small></summary>
+              <div class="disclosure-body">
+                <p class="tiny muted">Rotate session state by revoking old devices, clearing this browser token if needed, then creating a new one-time pairing code.</p>
+                ${authSessionRows || '<div class="muted">No paired browser sessions yet.</div>'}
+              </div>
+            </details>
+          </div>
+        </details>
+      </article>
+      <article class="card control-card" id="section-system" data-panel-card="system">
         <details class="disclosure">
           <summary>
             <span>Executor profiles</span>
@@ -1231,7 +1332,7 @@ function renderHome() {
         <details class="disclosure" open>
           <summary>
             <span>Private access</span>
-            <small>${safeText(privateSettings.preferredMode || 'tailnet-http')} · ${safeText(tailnet.setupStatus || 'setup_pending')}</small>
+            <small>${safeText(accessModeSummary)} · ${safeText(tailnet.setupStatus || 'setup_pending')}</small>
           </summary>
           <div class="disclosure-body">
             <div class="access-summary">
@@ -1252,9 +1353,7 @@ function renderHome() {
             <form id="private-access-settings-form">
               <label>Default access mode
                 <select name="preferredMode">
-                  <option value="tailnet-http" ${selected(privateSettings.preferredMode, 'tailnet-http')}>Tailscale HTTP</option>
-                  <option value="tailnet-https-serve" ${selected(privateSettings.preferredMode, 'tailnet-https-serve')}>Tailscale HTTPS Serve</option>
-                  <option value="local" ${selected(privateSettings.preferredMode, 'local')}>Local only</option>
+                  ${accessModeOptions}
                 </select>
               </label>
               <label>Open links
@@ -1388,7 +1487,7 @@ function renderHome() {
                 <span>Critique</span>
               </div>
               <div class="stat">
-                <b>${safeText(effectiveSummary.privateAccess?.preferredMode || 'tailnet-http')}</b>
+                <b>${safeText(effectiveSummary.privateAccess?.preferredMode || 'auto')}</b>
                 <span>Private access</span>
               </div>
             </div>
@@ -1850,30 +1949,62 @@ async function handleAppBackupAction(event) {
 }
 
 function renderAccessGate() {
-  const privateTargets = Array.isArray(shell.privateAccess?.targets) ? shell.privateAccess.targets : [];
-  const phoneUrl = preferredPhoneUrl(privateTargets);
-  const phoneQr = qrSvgForText(phoneUrl);
+  const narrowClient = window.matchMedia('(max-width: 880px)').matches;
+  const workstationAdmin = isLocalHostName(window.location.hostname) && !narrowClient;
+  const browserLabel = narrowClient ? 'phone browser' : 'laptop browser';
+  if (!workstationAdmin) {
+    refs.content.innerHTML = `
+      <section class="project-shell">
+        <article class="card control-card auth-gate">
+          <div class="card-kicker">Pair this device</div>
+          <h3>Enter the code from your workstation</h3>
+          <p>No dashboard data is shown until this browser is paired. Open Command Deck on the trusted workstation, go to Settings -> Access and paired devices, create a one-time code, then enter it here.</p>
+          <div class="setup-steps">
+            <div class="setup-step ok">
+              <span>1</span>
+              <div><strong>Stay on the same tailnet</strong><small>This URL is private to devices allowed by your Tailscale ACLs.</small></div>
+            </div>
+            <div class="setup-step warn">
+              <span>2</span>
+              <div><strong>Get a one-time code</strong><small>The code is generated only from an already-authenticated workstation/admin browser.</small></div>
+            </div>
+            <div class="setup-step warn">
+              <span>3</span>
+              <div><strong>Pair this browser</strong><small>Chrome, Safari, and installed PWAs each keep their own session.</small></div>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Use pairing code</h3>
+            <p>Pairing creates a browser session cookie for this device. API tokens are not shown on unpaired phone or laptop screens.</p>
+            <label>Pairing code
+              <input id="pairing-code-input" autocomplete="one-time-code" placeholder="XXXX-XXXX-XXXX" />
+            </label>
+            <label>Device label
+              <input id="pairing-label-input" value="${safeAttr(browserLabel)}" />
+            </label>
+            <div class="lane-row">
+              <button data-action="pairBrowserSession" type="button">Pair device</button>
+            </div>
+          </div>
+          <details class="disclosure compact-disclosure">
+            <summary><span>Add to Home Screen after pairing</span><small>PWA</small></summary>
+            <div class="disclosure-body tiny muted">After this device is paired, open the private URL in Safari, tap Share, then Add to Home Screen. HTTPS Serve gives the cleanest installed-app behavior; HTTP over Tailscale remains private but may show browser warnings.</div>
+          </details>
+        </article>
+      </section>
+    `;
+    return;
+  }
   refs.content.innerHTML = `
     <section class="project-shell">
       <article class="card control-card auth-gate">
-        <div class="card-kicker">Private dashboard</div>
-        <h3>Connect this browser</h3>
-        <p>This browser is not paired with Command Deck yet. Chrome and Safari keep separate sessions, so each browser needs its own pairing or API token.</p>
-        <div class="onboarding-card mini">
-          <div>
-            <strong>Open this URL from your phone</strong>
-            <code class="copy-url">${safeText(phoneUrl)}</code>
-            <div class="lane-row">
-              <button class="secondary" data-action="copyPhoneUrl" data-url="${safeAttr(phoneUrl)}" type="button">Copy link</button>
-            </div>
-            <div class="tiny muted">After connecting, Safari: Share -> Add to Home Screen. HTTPS Serve gives the cleanest PWA behavior.</div>
-          </div>
-          <div class="qr-wrap">${phoneQr}<span>Scan from phone</span></div>
-        </div>
+        <div class="card-kicker">Workstation admin</div>
+        <h3>Unlock setup and pairing</h3>
+        <p>Enter the server API token only on a trusted workstation/admin browser. After unlock, Settings shows QR setup, HTTP/HTTPS preference, paired devices, revocation, and one-time pairing codes for phone or laptop browsers.</p>
         <div class="grid-2">
           <div class="card">
             <h3>Use API token</h3>
-            <p>Use this for tonight's manual test session. The token stays in this browser session only.</p>
+            <p>The token stays in this browser session only. Remote clients should use one-time pairing codes instead.</p>
             <label>API token
               <input id="api-token-input" type="password" autocomplete="off" placeholder="Paste token" />
             </label>
@@ -1883,13 +2014,13 @@ function renderAccessGate() {
             </div>
           </div>
           <div class="card">
-            <h3>Use pairing code</h3>
-            <p>Enter a one-time pairing code generated from the Mac. This creates a browser session cookie.</p>
+            <h3>Use pairing code instead</h3>
+            <p>If another trusted browser already generated a one-time code, enter it here to create a browser session cookie.</p>
             <label>Pairing code
               <input id="pairing-code-input" autocomplete="one-time-code" placeholder="XXXX-XXXX-XXXX" />
             </label>
             <label>Browser label
-              <input id="pairing-label-input" value="phone browser" />
+              <input id="pairing-label-input" value="workstation browser" />
             </label>
             <div class="lane-row">
               <button data-action="pairBrowserSession" type="button">Pair browser</button>
@@ -3658,7 +3789,11 @@ document.addEventListener('submit', async (event) => {
     await handleCleanupSchedule(event);
     return;
   }
-  if (event.target.id === 'private-access-settings-form' || event.target.id === 'setup-private-access-settings-form') {
+  if (
+    event.target.id === 'private-access-settings-form' ||
+    event.target.id === 'setup-private-access-settings-form' ||
+    event.target.id === 'settings-private-access-settings-form'
+  ) {
     await handlePrivateAccessSettings(event);
     return;
   }
