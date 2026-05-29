@@ -16,14 +16,24 @@ that local port. Do not use public Funnel for v1.
 - Keep Tailscale Serve tailnet-only.
 - Use `npm run operator:status` after setup.
 
+## Assumptions
+
+Set the repo path for your machine:
+
+```bash
+export COMMAND_DECK_REPO="$HOME/Documents/Projects/web/command-deck/command-deck-client"
+```
+
+If your checkout lives elsewhere, use that absolute path instead.
+
 ## 1. Create a local env file
 
 ```bash
-cat > ~/.command-deck.env <<'EOF'
+cat > ~/.command-deck.env <<'EOF_ENV'
 export COMMAND_DECK_API_TOKEN="replace-with-a-long-random-token"
 export COMMAND_DECK_HOST="127.0.0.1"
 export PORT="3000"
-EOF
+EOF_ENV
 
 chmod 600 ~/.command-deck.env
 ```
@@ -39,27 +49,27 @@ openssl rand -hex 32
 ```bash
 mkdir -p ~/.local/bin
 
-cat > ~/.local/bin/command-deck-start <<'EOF'
+cat > ~/.local/bin/command-deck-start <<'EOF_WRAPPER'
 #!/bin/zsh
 set -euo pipefail
 
 source "$HOME/.command-deck.env"
-cd "$HOME/Documents/Projects/web/command-deck/command-deck-client"
+cd "${COMMAND_DECK_REPO:?set COMMAND_DECK_REPO in the LaunchAgent environment}"
 exec npm run start
-EOF
+EOF_WRAPPER
 
 chmod 700 ~/.local/bin/command-deck-start
 ```
 
-The wrapper is intentionally outside the repo so local paths and tokens do not
-enter git.
+The wrapper is intentionally outside the repo so local secrets do not enter
+git.
 
 ## 3. Create the launchd plist
 
 ```bash
 mkdir -p ~/Library/LaunchAgents ~/Library/Logs/command-deck
 
-cat > ~/Library/LaunchAgents/com.command-deck.local.plist <<'EOF'
+cat > ~/Library/LaunchAgents/com.command-deck.local.plist <<EOF_PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -70,8 +80,14 @@ cat > ~/Library/LaunchAgents/com.command-deck.local.plist <<'EOF'
 
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/alexrodriguez/.local/bin/command-deck-start</string>
+    <string>$HOME/.local/bin/command-deck-start</string>
   </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>COMMAND_DECK_REPO</key>
+    <string>$COMMAND_DECK_REPO</string>
+  </dict>
 
   <key>RunAtLoad</key>
   <true/>
@@ -80,20 +96,21 @@ cat > ~/Library/LaunchAgents/com.command-deck.local.plist <<'EOF'
   <true/>
 
   <key>StandardOutPath</key>
-  <string>/Users/alexrodriguez/Library/Logs/command-deck/stdout.log</string>
+  <string>$HOME/Library/Logs/command-deck/stdout.log</string>
 
   <key>StandardErrorPath</key>
-  <string>/Users/alexrodriguez/Library/Logs/command-deck/stderr.log</string>
+  <string>$HOME/Library/Logs/command-deck/stderr.log</string>
 
   <key>WorkingDirectory</key>
-  <string>/Users/alexrodriguez/Documents/Projects/web/command-deck/command-deck-client</string>
+  <string>$COMMAND_DECK_REPO</string>
 </dict>
 </plist>
-EOF
+EOF_PLIST
 ```
 
-If your home directory is different, update all `/Users/alexrodriguez/...`
-paths before loading the plist.
+The generated plist contains local absolute paths because launchd requires
+them. The plist remains secret-free because the API token stays in
+`~/.command-deck.env`.
 
 ## 4. Load and start
 
@@ -105,6 +122,7 @@ launchctl kickstart -k "gui/$(id -u)/com.command-deck.local"
 Verify:
 
 ```bash
+cd "$COMMAND_DECK_REPO"
 npm run operator:status
 ```
 
@@ -112,14 +130,14 @@ npm run operator:status
 
 ```bash
 source ~/.command-deck.env
-cd ~/Documents/Projects/web/command-deck/command-deck-client
+cd "$COMMAND_DECK_REPO"
 npm run operator:pair
 ```
 
-Open the private URL from the phone:
+Open the private Tailscale Serve URL from the phone. Use the URL reported by:
 
-```text
-http://alexs-mac-mini.tailf87358.ts.net/
+```bash
+tailscale serve status
 ```
 
 Pair with the one-time code. Do not put pairing codes in URLs, screenshots,

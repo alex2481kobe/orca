@@ -2,10 +2,9 @@
 import { execFileSync } from 'node:child_process';
 
 const DEFAULT_LOCAL = 'http://127.0.0.1:3000';
-const DEFAULT_TAILSCALE = 'http://alexs-mac-mini.tailf87358.ts.net';
 
 const localBase = (process.env.COMMAND_DECK_LOCAL_URL || DEFAULT_LOCAL).replace(/\/$/, '');
-const privateBase = (process.env.COMMAND_DECK_PRIVATE_URL || DEFAULT_TAILSCALE).replace(/\/$/, '');
+const configuredPrivateBase = (process.env.COMMAND_DECK_PRIVATE_URL || '').replace(/\/$/, '');
 
 function ok(label, detail) {
   console.log(`[operator-status] ok — ${label}${detail ? `: ${detail}` : ''}`);
@@ -52,15 +51,24 @@ function runTailscale(args) {
 }
 
 await fetchJson('local health', `${localBase}/api/health`);
-await fetchJson('private health', `${privateBase}/api/health`);
 
 const serve = runTailscale(['serve', 'status']);
+let discoveredPrivateBase = '';
 if (serve) {
   if (/tailnet only/i.test(serve) && /localhost:3000/.test(serve)) {
     ok('tailscale serve', serve.replace(/\n/g, ' | '));
+    const match = serve.match(/https?:\/\/[^\s]+/);
+    discoveredPrivateBase = match?.[0]?.replace(/\/$/, '') || '';
   } else {
     fail('tailscale serve', `unexpected config: ${serve.replace(/\n/g, ' | ')}`);
   }
+}
+
+const privateBase = configuredPrivateBase || discoveredPrivateBase;
+if (privateBase) {
+  await fetchJson('private health', `${privateBase}/api/health`);
+} else {
+  warn('private health', 'COMMAND_DECK_PRIVATE_URL not set and no URL discovered from tailscale serve status');
 }
 
 const funnel = runTailscale(['funnel', 'status']);
@@ -74,6 +82,8 @@ if (funnel) {
   warn('tailscale funnel', 'no output returned');
 }
 
-if (!process.exitCode) {
+if (!process.exitCode && privateBase) {
   console.log(`[operator-status] ready — open ${privateBase}/ on a phone in the same tailnet and pair with a fresh one-time code.`);
+} else if (!process.exitCode) {
+  console.log('[operator-status] ready — set COMMAND_DECK_PRIVATE_URL or configure Tailscale Serve, then open the private URL on a phone in the same tailnet.');
 }

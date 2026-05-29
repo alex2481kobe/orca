@@ -2,13 +2,15 @@
 
 This report records the current full-buildout evidence for Command Deck. It is
 public-safe: it does not include API tokens, pairing codes, provider secrets,
-local private prompts, or raw credential values.
+local private prompts, machine-specific Tailscale hostnames, or raw credential
+values.
 
 ## Status
 
 - Local product buildout: ready by current automated evidence.
-- Private Tailscale Serve: configured and locally verified as tailnet-only.
-- Real phone reachability: pending user-device confirmation.
+- Private Tailscale Serve: implemented and locally verifiable with
+  `npm run operator:status` when configured on a host.
+- Real phone reachability: requires user-device confirmation.
 - Native Tauri/iOS/Android packaging: later product phase; PWA phone-first is
   the v1 path.
 
@@ -16,12 +18,12 @@ Do not mark the overall project goal complete until real phone access is
 confirmed from the user's phone or the user explicitly accepts that final
 manual check as external.
 
-## Current live setup
+## Live setup shape
 
 - Local backend: `http://127.0.0.1:3000`
-- Private Tailscale URL: `http://alexs-mac-mini.tailf87358.ts.net/`
+- Private Tailscale URL: host-specific; read it from `tailscale serve status`.
 - Tailscale Serve mode: HTTP over Tailscale, tailnet-only.
-- Tailscale Funnel: no public Funnel config.
+- Tailscale Funnel: must remain off.
 - Direct Tailscale IP behavior: hostname routing is expected; use MagicDNS URL,
   not bare Tailscale IP, for Serve.
 - Durable Mac service setup: documented in `docs/macos-launchd-runbook.md`.
@@ -30,6 +32,9 @@ manual check as external.
 ## Latest implementation commits
 
 ```text
+74d8d62 Add phone pairing helper
+6da5203 Add live operator status check
+6f3f1cc Document durable Mac launch setup
 c611e14 Record live Tailscale Serve verification
 d3ebe7b Align public docs with acceptance baseline
 8b65a30 Add full acceptance smoke gate
@@ -154,12 +159,12 @@ UI contract result:
 - No unlabeled icon buttons reported.
 - Desktop and 390px phone overflow remained `0`.
 
-Live Tailscale UI proof:
+Live Tailscale UI proof can be rerun on a configured host with:
 
-- `npm run smoke:ui` passed through
-  `http://alexs-mac-mini.tailf87358.ts.net/`.
-- Desktop screenshot: `artifacts/ui-smoke/desktop.png`
-- Phone screenshot: `artifacts/ui-smoke/phone.png`
+```bash
+COMMAND_DECK_PRIVATE_URL=<tailnet-url> npm run operator:status
+COMMAND_DECK_BASE_URL=<tailnet-url> COMMAND_DECK_API_TOKEN=... npm run smoke:ui
+```
 
 ## Provider support
 
@@ -270,15 +275,18 @@ Proof commands:
 
 Current private URL:
 
-```text
-http://alexs-mac-mini.tailf87358.ts.net/
+```bash
+tailscale serve status
 ```
 
 Live operator status check:
 
 ```bash
-npm run operator:status
+COMMAND_DECK_PRIVATE_URL=<tailnet-url> npm run operator:status
 ```
+
+If `COMMAND_DECK_PRIVATE_URL` is omitted, `operator:status` attempts to
+discover a tailnet-only URL from `tailscale serve status`.
 
 This command is read-only. It checks local health, private Tailscale health,
 tailnet-only Serve status, and public Funnel status without changing Serve,
@@ -298,17 +306,17 @@ Use one-time browser pairing from the dashboard. Do not put tokens in URLs.
 Pairing codes are one-time secrets and should not be stored in docs, logs,
 screenshots, or issue comments.
 
-If Command Deck needs to stay available after this terminal session exits, use
-`docs/macos-launchd-runbook.md` to install a user LaunchAgent. The runbook keeps
-the API token in `~/.command-deck.env` with mode `600` and keeps the plist
-secret-free.
+If Command Deck needs to stay available after the active terminal session exits,
+use `docs/macos-launchd-runbook.md` to install a user LaunchAgent. The runbook
+keeps the API token in `~/.command-deck.env` with mode `600` and keeps the
+plist secret-free.
 
 Phone check:
 
-1. Open `http://alexs-mac-mini.tailf87358.ts.net/` on a phone connected to the
-   same tailnet.
+1. Open the tailnet URL from `tailscale serve status` on a phone connected to
+   the same tailnet.
 2. Pair the browser with a fresh one-time code from the local dashboard or
-   operator console.
+   `npm run operator:pair`.
 3. Confirm the project rail loads.
 4. Open a project, a session, and a lane.
 5. Open settings, providers, private access, and evidence routes.
