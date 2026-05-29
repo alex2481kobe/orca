@@ -256,6 +256,41 @@ function clientUrl(value) {
   }
 }
 
+// Attribute-safe href/src value. Only same-page anchors, root-relative paths,
+// and http(s) URLs are allowed; anything else (e.g. javascript:) becomes '#'.
+function safeHref(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  if (raw.startsWith('/') || raw.startsWith('#')) return safeAttr(raw);
+  try {
+    const parsed = new URL(raw, window.location.origin);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return safeAttr(parsed.toString());
+    }
+  } catch {
+    /* fall through to safe no-op */
+  }
+  return '#';
+}
+
+// Only navigate to safe destinations (blocks javascript:/data: from server data).
+function safeNavigate(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return;
+  if (raw.startsWith('/') || raw.startsWith('#')) {
+    window.location.href = raw;
+    return;
+  }
+  try {
+    const parsed = new URL(raw, window.location.origin);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      window.location.href = parsed.toString();
+    }
+  } catch {
+    /* refuse unsafe navigation */
+  }
+}
+
 function authRequiredMessage() {
   return 'This browser is not authenticated. Pair it from the trusted workstation or unlock the workstation with the API token.';
 }
@@ -306,8 +341,28 @@ function abortRefreshFromUnauthorized(response, requestId, uiState) {
   return true;
 }
 
+// Cache the MediaQueryList and track its value so pointer/click handlers don't
+// re-run matchMedia() several times per gesture.
+let _mobileMql = null;
+let _isMobileCached = false;
 function isMobileLayout() {
-  return window.matchMedia(`(max-width: ${MOBILE_NAV_BREAKPOINT}px)`).matches;
+  if (!_mobileMql) {
+    _mobileMql = window.matchMedia(`(max-width: ${MOBILE_NAV_BREAKPOINT}px)`);
+    _isMobileCached = _mobileMql.matches;
+    const onChange = (event) => { _isMobileCached = event.matches; };
+    if (typeof _mobileMql.addEventListener === 'function') _mobileMql.addEventListener('change', onChange);
+    else if (typeof _mobileMql.addListener === 'function') _mobileMql.addListener(onChange);
+  }
+  return _isMobileCached;
+}
+
+// Assign innerHTML only when it actually changed, so the per-refresh poll does
+// not destroy/recreate identical DOM (avoids needless layout/paint churn).
+function writeHtml(el, html) {
+  if (!el) return;
+  if (el.__lastHtml === html) return;
+  el.__lastHtml = html;
+  el.innerHTML = html;
 }
 
 function closeMobileNavPanel() {
@@ -365,7 +420,18 @@ function preferredPhoneUrl(privateTargets = [], privateSettings = {}, tailnet = 
   return url ? clientUrl(url) : window.location.origin;
 }
 
+let _qrCache = { text: null, svg: '' };
 function qrSvgForText(text) {
+  // The phone URL rarely changes; memoize so we don't rebuild ~1000 <rect>s on
+  // every 3s render.
+  const key = String(text || '');
+  if (_qrCache.text === key) return _qrCache.svg;
+  const svg = computeQrSvgForText(key);
+  _qrCache = { text: key, svg };
+  return svg;
+}
+
+function computeQrSvgForText(text) {
   const bytes = Array.from(new TextEncoder().encode(String(text || '')));
   const size = 33;
   const dataCodewords = 80;
@@ -793,7 +859,7 @@ function maybeShowBrowserNotifications() {
     if (item.href) {
       notice.onclick = () => {
         window.focus();
-        window.location.href = item.href;
+        safeNavigate(item.href);
       };
     }
   }
@@ -2458,7 +2524,7 @@ function renderLane(project, session, lane) {
         <h3>${safeText(lane.title)}</h3>
         <p>${safeText(lane.taskDescription || 'No task description')}</p>
         ${lane.taskPrompt ? `<div class="tiny"><strong>Task prompt:</strong> ${safeText(lane.taskPrompt)}</div>` : ''}
-        ${lane.targetUrl ? `<div class="tiny"><strong>Target URL:</strong> <a class="secondary" href="${safeText(lane.targetUrl)}" target="_blank" rel="noopener noreferrer">${safeText(lane.targetUrl)}</a></div>` : ''}
+        ${lane.targetUrl ? `<div class="tiny"><strong>Target URL:</strong> <a class="secondary" href="${safeHref(lane.targetUrl)}" target="_blank" rel="noopener noreferrer">${safeText(lane.targetUrl)}</a></div>` : ''}
         <div class="tiny">Owner: ${safeText(lane.owner)} / Executor: ${safeText(lane.executorType)} / State: <span class="tag ${stateTagClass(lane.state)}">${safeText(lane.state)}</span></div>
       </div>
       <div class="card">
@@ -2606,53 +2672,53 @@ function renderStatusStrip() {
   const failed = lanes.filter((lane) => lane.state === 'failed').length;
   const auditCount = (shell.pendingAuditEvents || []).length;
   const blockerCount = (shell.systemBlockers || []).filter((b) => b.severity === 'error').length;
-  refs.statusStrip.innerHTML = [
+  writeHtml(refs.statusStrip, [
     tokenTag,
     executorTags,
     schedTag,
     `<span class="tag" data-status="lanes">${running} running · ${failed} failed</span>`,
     `<span class="tag ${auditCount > 0 ? 'warn' : ''}" data-status="audit">${auditCount} pending audits</span>`,
     blockerCount ? `<span class="tag bad" data-status="blockers">${blockerCount} blockers</span>` : '',
-  ].filter(Boolean).join('');
+  ].filter(Boolean).join(''));
 }
 
 function renderBlockers() {
   if (!refs.blockers) return;
   const blockers = shell.systemBlockers || [];
   if (!blockers.length) {
-    refs.blockers.innerHTML = '';
+    writeHtml(refs.blockers, '');
     return;
   }
-  refs.blockers.innerHTML = blockers.map((blocker) => `
+  writeHtml(refs.blockers, blockers.map((blocker) => `
     <div class="blocker ${blocker.severity === 'warn' ? 'warn' : ''}" role="alertdialog">
       <strong>${safeText(blocker.summary)}</strong>
       <div class="tiny" style="color:inherit">${safeText(blocker.detail)}</div>
       <div class="tiny" style="color:inherit;margin-top:0.25rem">Remediation: <code>${safeText(blocker.remediation)}</code></div>
     </div>
-  `).join('');
+  `).join(''));
 }
 
 function renderSidebarProjects(activeProject) {
   if (!refs.sidebarProjects) return;
   if (browserAccessBlocked()) {
-    refs.sidebarProjects.innerHTML = `
+    writeHtml(refs.sidebarProjects, `
       <a class="sidebar-link sidebar-create-project" href="/#private-access">
         <span class="row-icon" aria-hidden="true">🔒</span>
         <span>Device not paired</span>
       </a>
       <div class="tiny muted">Open pairing setup to unlock projects and sessions.</div>
-    `;
+    `);
     return;
   }
   const projects = shell.projects || [];
   if (!projects.length) {
-    refs.sidebarProjects.innerHTML = `
+    writeHtml(refs.sidebarProjects, `
       <a class="sidebar-link sidebar-create-project" href="/#create">
         <span class="row-icon" aria-hidden="true">+</span>
         <span>New project</span>
       </a>
       <div class="tiny muted">No projects yet.</div>
-    `;
+    `);
     return;
   }
   const storedOrder = readSidebarOrder();
@@ -2710,13 +2776,13 @@ function renderSidebarProjects(activeProject) {
     `;
   };
   const primaryProjects = orderItems(projects.filter((project) => !isVerificationProject(project)), storedOrder.projects);
-  refs.sidebarProjects.innerHTML = `
+  writeHtml(refs.sidebarProjects, `
     <a class="sidebar-link sidebar-create-project" href="/#create">
       <span class="row-icon" aria-hidden="true">+</span>
       <span>New project</span>
     </a>
     ${primaryProjects.map(renderSidebarProject).join('')}
-  `;
+  `);
 }
 
 function setupSidebarReorder() {
@@ -2789,14 +2855,14 @@ async function loadEvidenceGallery(laneId) {
     const tiles = ['screenshot', 'video', 'trace', 'log'].map((mode) => {
       const item = files[mode];
       if (!item) return `<div class="card"><strong>${mode}</strong><div class="tiny muted">none yet</div></div>`;
-      const link = `<a class="secondary" href="${safeText(item.url)}" target="_blank" rel="noopener noreferrer">Open</a>`;
+      const link = `<a class="secondary" href="${safeHref(item.url)}" target="_blank" rel="noopener noreferrer">Open</a>`;
       const preview = mode === 'screenshot'
-        ? `<img src="${safeText(item.url)}" alt="${mode}" style="max-width:100%;border-radius:8px;margin-top:0.4rem" loading="lazy" />`
+        ? `<img src="${safeHref(item.url)}" alt="${safeAttr(mode)}" style="max-width:100%;border-radius:8px;margin-top:0.4rem" loading="lazy" />`
         : '';
       return `<div class="card"><strong>${mode}</strong><div class="tiny">${safeText(item.name)} · ${safeText(item.at)}</div>${preview}<div style="margin-top:0.4rem">${link}</div></div>`;
     }).join('');
     const presetsRow = presetList.length
-      ? `<div class="lane-row" style="margin-top:0.4rem">${presetList.map((preset) => `<button class="secondary" data-action="captureEvidencePreset" data-lane-id="${safeText(laneId)}" data-url="${safeText(preset.url)}" type="button">${safeText(preset.label || preset.url)}</button>`).join('')}</div>`
+      ? `<div class="lane-row" style="margin-top:0.4rem">${presetList.map((preset) => `<button class="secondary" data-action="captureEvidencePreset" data-lane-id="${safeAttr(laneId)}" data-url="${safeAttr(preset.url)}" type="button">${safeText(preset.label || preset.url)}</button>`).join('')}</div>`
       : '<div class="tiny muted">No presets — set a lane target URL or project quick links to populate.</div>';
     target.innerHTML = `${presetsRow}<div class="card-grid" style="margin-top:0.5rem">${tiles}</div>`;
   } catch {
@@ -3094,7 +3160,7 @@ async function showArtifacts(laneId) {
     target.textContent = 'No artifacts yet.';
     return;
   }
-  target.innerHTML = files.map((file) => `<div><a href="${safeText(file.url)}" target="_blank">${safeText(file.name)}</a></div>`).join('');
+  target.innerHTML = files.map((file) => `<div><a href="${safeHref(file.url)}" target="_blank" rel="noopener noreferrer">${safeText(file.name)}</a></div>`).join('');
 }
 
 async function handleCreateProject(event) {
@@ -4254,7 +4320,7 @@ document.addEventListener('click', async (event) => {
     const interactive = event.target?.closest?.('a, button, input, select, textarea, label, summary');
     if (navCard && !interactive && navCard.dataset.href) {
       event.preventDefault();
-      window.location.href = navCard.dataset.href;
+      safeNavigate(navCard.dataset.href);
     }
     return;
   }
@@ -4348,7 +4414,7 @@ document.addEventListener('keydown', (event) => {
   const navCard = event.target?.closest?.('[data-href]');
   if (!navCard || !navCard.dataset.href) return;
   event.preventDefault();
-  window.location.href = navCard.dataset.href;
+  safeNavigate(navCard.dataset.href);
 });
 
 window.addEventListener('hashchange', () => {
