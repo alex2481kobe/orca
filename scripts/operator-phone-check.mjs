@@ -34,8 +34,8 @@ const summary = {
   kind: 'command-deck.operator-phone-check',
   generatedAt: new Date().toISOString(),
   status: 'passed',
-  localBase,
-  privateBase: configuredPrivateBase || null,
+  localBase: redactUrl(localBase),
+  privateBase: configuredPrivateBase ? redactUrl(configuredPrivateBase) : null,
   checks: [],
   pairing: {
     requested: createPairingCode,
@@ -55,10 +55,31 @@ const summary = {
 };
 
 function record(id, status, detail = {}) {
-  summary.checks.push({ id, status, ...detail });
+  summary.checks.push({ id, status, ...redactDetail(detail) });
   const line = detail.message || detail.url || '';
   console.log(`[operator-phone-check] ${status} — ${id}${line ? `: ${line}` : ''}`);
   if (status === 'failed') summary.status = 'failed';
+}
+
+function redactUrl(value) {
+  if (!value || typeof value !== 'string') return value;
+  try {
+    const url = new URL(value);
+    const host = url.hostname === '127.0.0.1' || url.hostname === 'localhost'
+      ? url.host
+      : '<private-host>';
+    return `${url.protocol}//${host}${url.pathname}${url.search ? '<query>' : ''}`;
+  } catch {
+    return value.replace(/https?:\/\/[^\s|]+/g, (match) => redactUrl(match));
+  }
+}
+
+function redactDetail(detail) {
+  const redacted = {};
+  for (const [key, value] of Object.entries(detail || {})) {
+    redacted[key] = typeof value === 'string' ? redactUrl(value) : value;
+  }
+  return redacted;
 }
 
 function runTailscale(args) {
@@ -111,6 +132,7 @@ if (funnel) {
 
 const privateBase = configuredPrivateBase || discoveredPrivateBase;
 summary.privateBase = privateBase || null;
+summary.privateBase = privateBase ? redactUrl(privateBase) : null;
 if (!privateBase) {
   record('private-url', 'failed', { message: 'set COMMAND_DECK_PRIVATE_URL or configure Tailscale Serve' });
 }

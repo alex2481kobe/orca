@@ -162,7 +162,7 @@ COMMAND_DECK_API_TOKEN=... \
 ```
 
 The generated `artifacts/operator-phone-check/phone-check-summary.json` never
-stores API tokens, cookies, or pairing codes.
+stores API tokens, cookies, pairing codes, or private hostnames.
 
 ## Configuration
 
