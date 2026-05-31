@@ -26,8 +26,10 @@ second product.
   browser/PWA access. Users who do not want a desktop wrapper should not need
   Rust, Cargo, or Tauri to run the web app.
 - Keep desktop operation available through `npm run tauri:dev` and
-  `npm run tauri:build`. Tauri-specific files, Rust commands, icons,
-  capabilities, and packaging metadata stay under `src-tauri/`.
+  `npm run tauri:build`. The default build target is the unsigned macOS app
+  bundle; signed DMG/notarized installer output belongs to the release
+  packaging phase. Tauri-specific files, Rust commands, icons, capabilities,
+  and packaging metadata stay under `src-tauri/`.
 - Split into a second repo only if release channels, licensing, update
   infrastructure, or platform-specific packaging begins forcing separate
   version lifecycles. Until then, one repo keeps security policy and route
@@ -47,15 +49,24 @@ second product.
 
 ## Phase 1: macOS desktop shell
 
-- Scaffold Tauri with the existing web app as the frontend.
-- Run the local Node server as a managed sidecar or embedded process.
-- Generate a random `COMMAND_DECK_API_TOKEN` on first launch.
-- Store that token in macOS Keychain through the Tauri backend.
-- Reuse the stored token for server startup on later launches.
-- Provide menu actions for Open Dashboard, Open Phone Setup, Copy Phone URL,
-  Create Pairing Code, Restart Server, and Quit.
+- Scaffold Tauri with the existing web app as the frontend. Implemented under
+  `src-tauri/`.
+- Run the local Node server as a native-managed process. Implemented for dev
+  and macOS package-path smoke: dev mode uses the Tauri before-dev server, and
+  direct/package runtime resolves bundled `src/`, `public/`, and `package.json`
+  resources before starting `src/server.js`.
+- Generate a random `COMMAND_DECK_API_TOKEN` on first launch. Implemented with
+  a 32-byte random hex token.
+- Store that token in macOS Keychain through the Tauri backend. Implemented
+  through the cross-platform `keyring` crate, which maps to Keychain,
+  Credential Manager, or Secret Service depending on OS support.
+- Reuse the stored token for server startup on later launches. Implemented.
+- Provide menu/tray actions for Open Dashboard, Copy Dashboard URL, Create
+  Pairing Code, Restart Server, Stop Server, and Quit. Implemented.
 - Surface server health, local URL, tailnet HTTP URL, HTTPS Serve URL, and
-  active paired sessions.
+  active paired sessions. Server health and local URL are exposed through
+  Tauri commands now; tailnet URL and paired-session display remain web UI/API
+  surfaces.
 
 ## Cross-platform infrastructure
 
@@ -72,9 +83,10 @@ second product.
 - Treat the Node server as a managed app sidecar with explicit lifecycle states:
   token-ready, process-starting, health-ready, dashboard-opened, degraded,
   restarting, and stopped.
-- Reserve or discover the local dashboard port before process launch, write the
-  selected URL into app state, then wait for `/api/health` before opening the
-  renderer route.
+- Use `127.0.0.1:34125` by default, configurable with
+  `COMMAND_DECK_DESKTOP_HOST` and `COMMAND_DECK_DESKTOP_PORT`. The host waits
+  for authenticated `/api/auth/status` readiness so an unrelated process or
+  wrong-token server does not count as ready.
 - Keep startup logs local and redacted; never print the generated API token,
   provider secrets, pairing codes, or credential payloads.
 - Add launch-at-login as an explicit user setting after first-run setup, not as
@@ -90,6 +102,10 @@ second product.
   tool surface. Something already running must own startup.
 - In the packaged app, the Tauri host owns startup, restart, shutdown, health
   wait, and dashboard opening.
+- In direct/package runtime, Tauri stores mutable Command Deck state under the
+  OS app data directory while loading server/static resources from the bundled
+  app resources. This avoids writing registry or artifact state into the signed
+  app bundle.
 - In CLI/PWA development, a user-run command or OS supervisor owns startup.
   Useful supervisors are launchd on macOS, systemd user services on Linux, and
   Task Scheduler or a service wrapper on Windows.
@@ -126,28 +142,37 @@ second product.
 
 ## Phase 2: first-run desktop wizard
 
-- Step 1: confirm local server health.
-- Step 2: detect Tailscale binary/login/Serve status.
-- Step 3: show current private URL and QR code.
-- Step 4: create a one-time phone pairing code.
-- Step 5: confirm phone browser pairing.
-- Step 6: show Add to Home Screen instructions.
+- Step 1: create or load the desktop API token from OS credentials. Implemented.
+- Step 2: start the local server and confirm authenticated health. Implemented.
+- Step 3: show the dashboard in the Tauri window. Implemented.
+- Step 4: create a one-time phone/browser pairing code from a native menu/tray
+  action. Implemented.
+- Step 5: detect Tailscale binary/login/Serve status and show current private
+  URL/QR code. Covered by existing web settings/API surfaces; native first-run
+  presentation remains a UI follow-up.
+- Step 6: confirm phone browser pairing and show Add to Home Screen
+  instructions. Covered by web/PWA flow; native first-run presentation remains
+  a UI follow-up.
 
 ## Phase 3: credential and security hardening
 
-- Use OS credential storage for the Command Deck API token.
+- Use OS credential storage for the Command Deck API token. Implemented in the
+  Tauri host with `keyring`.
 - Keep the token out of logs, screenshots, exports, support bundles, URLs, and
   renderer localStorage/sessionStorage.
-- Renderer requests privileged native actions through narrow Tauri commands.
-- Tauri commands require app-local authorization and audit events.
+- Renderer requests privileged native actions through narrow Tauri commands:
+  `server_status`, `server_start`, `server_stop`, `server_restart`,
+  `copy_phone_url`, and `create_pairing_code`.
+- Tauri commands stay app-local and narrow. Audit events for destructive native
+  host actions are a follow-up when the renderer starts exposing those controls.
 - Destructive or broad actions remain confirmation-gated.
 - HTTPS Serve setup remains user-approved and never enables Funnel.
 
 ## Phase 4: platform expansion
 
-- Validate macOS first.
-- Add Windows Credential Manager support for Windows.
-- Add Secret Service/libsecret support for Linux.
+- Validate macOS app bundle first.
+- Add Windows Credential Manager validation for Windows.
+- Add Secret Service/libsecret validation for Linux.
 - Keep iOS/Android native packaging as a later decision; phone-first PWA and
   browser/device previews remain the default unless native runtime limitations
   justify platform SDK work.

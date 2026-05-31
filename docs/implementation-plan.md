@@ -121,10 +121,13 @@ smoke gates before being listed.
 - Preview surface scope in `docs/preview-surfaces.md` covering implemented web
   links/artifacts, browser mobile emulation, future Android browser/device
   adapters, future native simulator adapters, and the Tauri host boundary.
-- Initial Tauri v2 desktop scaffold under `src-tauri/`, with local
-  `@tauri-apps/cli` scripts, a dedicated Tauri dev server on
-  `127.0.0.1:34125`, static frontend build verification, Cargo lockfile, and
-  Rust compile check.
+- Tauri v2 desktop scaffold under `src-tauri/`, with local `@tauri-apps/cli`
+  scripts, a dedicated Tauri dev server on `127.0.0.1:34125`, native
+  start/stop/restart/health commands, OS credential-backed
+  `COMMAND_DECK_API_TOKEN` creation, menu/tray actions for dashboard URL and
+  pairing-code creation, bundled server/static resources for the macOS package
+  path, static frontend build verification, Cargo lockfile, Rust unit tests,
+  and Rust compile check.
 - Cleanup scheduler with dry-run default, confirmed destructive runs,
   active-lane protection, monotonic `nextRunAt`, audit events.
 - Mobile manifest covers projects, sessions, lanes, detail/stop/retry/
@@ -194,10 +197,11 @@ operator/device setup, not missing local code:
   locally through MagicDNS. Use `docs/tailscale-mobile-access.md` for exact
   HTTP and HTTPS Serve commands, status checks, Funnel-off verification,
   shutdown commands, and phone reachability checks.
-- Tauri v2 desktop scaffolding is in place and compiles locally. Production
-  sidecar startup, OS credential storage, signed/notarized packages, and native
-  iOS/Android preview adapters remain later product phases requiring host
-  SDK/device setup.
+- Tauri v2 desktop scaffolding is in place and compiles locally. Native server
+  lifecycle, OS credential storage, menu/tray actions, and macOS package-path
+  resources are implemented. Signed/notarized packages, release updater, and
+  native iOS/Android preview adapters remain later product phases requiring
+  platform packaging or SDK/device setup.
 
 Playwright + Chromium are installed locally and exercised end-to-end, Claude is
 executable, and the broken Homebrew Codex symlink was repaired with

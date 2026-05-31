@@ -121,9 +121,12 @@ These are not missing local app code:
 
 - Real phone reachability requires the user's phone on the same tailnet. See
   [`docs/tailscale-mobile-access.md`](docs/tailscale-mobile-access.md).
-- Tauri v2 desktop scaffolding is present under `src-tauri/` and can be checked
-  with `npm run tauri:check` or launched in dev with `npm run tauri:dev`.
-  Production sidecar startup, OS credential storage, signing, and native
+- Tauri v2 desktop scaffolding is present under `src-tauri/`. It owns native
+  server start/stop/restart/health commands, OS credential storage for the
+  generated `COMMAND_DECK_API_TOKEN`, dashboard URL copy, pairing-code
+  creation, and menu/tray actions. Check it with `npm run tauri:check`, launch
+  development mode with `npm run tauri:dev`, and build the macOS package path
+  with `npm run tauri:build`. Signing/notarization, release updater, and native
   iOS/Android preview adapters remain later-phase work.
 
 ## Public agent docs

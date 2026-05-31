@@ -115,9 +115,10 @@ The two external rows are:
 
 - `private-access-tailscale`: code-side and local Serve proof complete; real
   phone reachability remains a user-device check.
-- `native-packaging-tauri`: initial Tauri v2 scaffold exists and compiles;
-  production sidecar startup, OS credentials, signing, and native mobile
-  adapters remain later-phase work.
+- `native-packaging-tauri`: Tauri v2 scaffold exists and compiles with native
+  server lifecycle, OS credential storage, menu/tray actions, and bundled
+  macOS package-path resources. Signing/notarization, release updater, and
+  native mobile adapters remain later-phase work.
 
 ## UI evidence
 
