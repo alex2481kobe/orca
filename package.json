@@ -11,6 +11,13 @@
   "scripts": {
     "dev": "node src/server.js",
     "start": "node src/server.js",
+    "build": "node scripts/tauri-build-static.mjs",
+    "build:web": "node scripts/tauri-build-static.mjs",
+    "tauri": "tauri",
+    "tauri:server": "node scripts/tauri-dev-server.mjs",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "tauri:check": "cargo check --manifest-path src-tauri/Cargo.toml",
     "test": "node --test ./test/**/*.test.js",
     "smoke": "node scripts/smoke.mjs",
     "smoke:api": "node scripts/smoke.mjs",
@@ -44,6 +51,8 @@
     "operator:completion-audit": "node scripts/operator-completion-audit.mjs"
   },
   "devDependencies": {
+    "@tauri-apps/api": "^2.11.0",
+    "@tauri-apps/cli": "^2.11.2",
     "playwright": "^1.60.0"
   }
 }

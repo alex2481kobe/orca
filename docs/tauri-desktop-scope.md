@@ -17,6 +17,22 @@ second product.
 - Do not fork product behavior between web and desktop. Share the same routes,
   registry, auth, audit, evidence, and quick-link contracts.
 
+## Repo layout
+
+- Keep the desktop wrapper in this repo under `src-tauri/`.
+- Keep shared JavaScript server/frontend code in `src/`, `public/`, `scripts/`,
+  and `test/`.
+- Keep JavaScript-only operation available through `npm start` and
+  browser/PWA access. Users who do not want a desktop wrapper should not need
+  Rust, Cargo, or Tauri to run the web app.
+- Keep desktop operation available through `npm run tauri:dev` and
+  `npm run tauri:build`. Tauri-specific files, Rust commands, icons,
+  capabilities, and packaging metadata stay under `src-tauri/`.
+- Split into a second repo only if release channels, licensing, update
+  infrastructure, or platform-specific packaging begins forcing separate
+  version lifecycles. Until then, one repo keeps security policy and route
+  contracts coherent.
+
 ## Product goals
 
 - Start and stop the local Command Deck server from a native desktop app.

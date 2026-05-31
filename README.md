@@ -121,9 +121,10 @@ These are not missing local app code:
 
 - Real phone reachability requires the user's phone on the same tailnet. See
   [`docs/tailscale-mobile-access.md`](docs/tailscale-mobile-access.md).
-- Native Tauri/iOS/Android packaging is a later product phase. The v1 app path
-  is PWA phone-first with browser/PWA preview support; native previews require
-  host SDK/device setup.
+- Tauri v2 desktop scaffolding is present under `src-tauri/` and can be checked
+  with `npm run tauri:check` or launched in dev with `npm run tauri:dev`.
+  Production sidecar startup, OS credential storage, signing, and native
+  iOS/Android preview adapters remain later-phase work.
 
 ## Public agent docs
 

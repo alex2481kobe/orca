@@ -11,8 +11,8 @@ values.
 - Private Tailscale Serve: implemented and locally verifiable with
   `npm run operator:status` when configured on a host.
 - Real phone reachability: requires user-device confirmation.
-- Native Tauri/iOS/Android packaging: later product phase; PWA phone-first is
-  the v1 path.
+- Native Tauri/iOS/Android packaging: initial Tauri v2 scaffold exists; signed
+  production packaging and native mobile adapters remain later product phases.
 
 Do not mark the overall project goal complete until real phone access is
 confirmed from the user's phone or the user explicitly accepts that final
@@ -115,7 +115,9 @@ The two external rows are:
 
 - `private-access-tailscale`: code-side and local Serve proof complete; real
   phone reachability remains a user-device check.
-- `native-packaging-tauri`: later phase; PWA phone-first is the v1 path.
+- `native-packaging-tauri`: initial Tauri v2 scaffold exists and compiles;
+  production sidecar startup, OS credentials, signing, and native mobile
+  adapters remain later-phase work.
 
 ## UI evidence
 
