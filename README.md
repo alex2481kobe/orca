@@ -51,7 +51,8 @@ The consolidated full-buildout evidence report is
   behavior, and smoke coverage.
 - Server-authoritative project live links for dev servers, previews, docs, and
   artifacts, including dashboard/API routes, MCP tool discovery, SSRF
-  validation, health checks, and public agent handoff docs.
+  validation, health checks, evidence preset capture, and public agent handoff
+  docs.
 - Provider profiles for Codex, Claude, Custom CLI, OpenAI-compatible API,
   Gemini API, Kimi, DeepSeek, OpenRouter, and Composer.
 - API-provider execution through local dummy OpenAI-compatible and native
@@ -71,7 +72,8 @@ The consolidated full-buildout evidence report is
 - MCP tool CRUD, validation, scopes, leases, per-lane generated configs, and
   public-safe agent tool discovery.
 - Playwright-backed evidence capture for screenshots, traces, videos, logs,
-  latest evidence views, redacted artifact serving, and cleanup controls.
+  latest evidence views, server-resolved saved presets, redacted artifact
+  serving, and cleanup controls.
 - PWA manifest and static-only service worker cache. Sensitive API, auth,
   provider, artifact, log, screenshot, video, trace, import/export, and state
   routes are not cached.
@@ -120,7 +122,8 @@ These are not missing local app code:
 - Real phone reachability requires the user's phone on the same tailnet. See
   [`docs/tailscale-mobile-access.md`](docs/tailscale-mobile-access.md).
 - Native Tauri/iOS/Android packaging is a later product phase. The v1 app path
-  is PWA phone-first.
+  is PWA phone-first with browser/PWA preview support; native previews require
+  host SDK/device setup.
 
 ## Public agent docs
 

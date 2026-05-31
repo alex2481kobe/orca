@@ -4,6 +4,19 @@ Command Deck v1 remains PWA-first for phone use. The Tauri desktop app is the
 packaged workstation shell for the same local server and security model, not a
 second product.
 
+## Web-only and desktop editions
+
+- The web/PWA edition remains the portable operator UI. It works when a local
+  Command Deck server already exists and can open saved project live links,
+  pair phones, capture browser evidence, and run responsive/mobile-browser
+  previews.
+- The Tauri edition wraps the same web UI and local API. It owns workstation
+  responsibilities that a browser page cannot own: server startup, restart,
+  shutdown, OS credential storage, native menus, launch-at-login, host status,
+  and optional native preview bridges.
+- Do not fork product behavior between web and desktop. Share the same routes,
+  registry, auth, audit, evidence, and quick-link contracts.
+
 ## Product goals
 
 - Start and stop the local Command Deck server from a native desktop app.
@@ -70,10 +83,23 @@ second product.
 - Do not design the orchestrator as the only boot path. It should consume the
   running server contract, not be required to make the app exist.
 
+## Host capability bridge
+
+- The desktop host should report redacted capabilities such as server running,
+  Playwright browsers installed, Android ADB available, Xcode simulator
+  available, Tailscale status known, and launch-at-login enabled.
+- The renderer and agents should consume those capabilities through narrow
+  commands or API state. They should not infer host access from local paths,
+  shell commands, or environment variables.
+- Future preview tools should call server/host adapters with saved target ids
+  and named profiles. The adapter resolves URLs, simulator ids, process ids, and
+  filesystem paths server-side.
+
 ## Live links in the desktop app
 
 - Reuse the server-authoritative project quick-link routes and agent tools from
   `docs/live-project-links.md`.
+- Reuse the preview target model from `docs/preview-surfaces.md`.
 - Surface favorite links in the app menu or project toolbar so a user can open
   `localhost:5173`, a tailnet HTTP URL, or an HTTPS Serve URL without searching
   chat history.
@@ -106,8 +132,9 @@ second product.
 - Validate macOS first.
 - Add Windows Credential Manager support for Windows.
 - Add Secret Service/libsecret support for Linux.
-- Keep iOS/Android native packaging as a later decision; phone-first PWA remains
-  the default unless browser limitations justify native mobile work.
+- Keep iOS/Android native packaging as a later decision; phone-first PWA and
+  browser/device previews remain the default unless native runtime limitations
+  justify platform SDK work.
 
 ## Acceptance
 

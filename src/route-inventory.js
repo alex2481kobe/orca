@@ -1286,7 +1286,7 @@ const ROUTE_INVENTORY = [
     auth: 'api_token_or_paired_browser_session',
     mutationRisk: 'high',
     approval: 'captureEvidence',
-    validation: 'actor spoofing rejected; URL/mode allowlists; SSRF policy in evidence capture',
+    validation: 'actor spoofing rejected; presetId resolved server-side; URL/mode allowlists; SSRF policy in evidence capture',
     auditEvent: 'lane_evidence_captured_or_failed',
     uiSurface: 'evidence gallery/lane detail',
     smokeCoverage: ['smoke:api', 'test/server.test.js', 'smoke:ssrf'],

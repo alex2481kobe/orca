@@ -19,6 +19,8 @@ blocked.
 - Prefer existing package scripts and documented smoke gates.
 - Attach screenshots, logs, traces, or artifacts when the lane affects UI,
   browser behavior, generated files, or integration flows.
+- Prefer saved preview targets for evidence. Do not ask the dashboard to capture
+  arbitrary URLs when a project live link or lane target can be saved instead.
 - Mark the lane blocked only when a real external dependency prevents progress.
 - Do not self-accept your lane. Submit it for critique/audit.
 
@@ -39,6 +41,15 @@ https serve: https://device.tailnet.ts.net
 
 The orchestrator or dashboard should save those values through Command Deck so
 future agents use the server-authoritative link instead of stale chat text.
+
+## Preview evidence handoff
+
+For browser projects, include the local dev-server URL and the intended preview
+profile, such as desktop, phone, tablet, trace, or artifact. For native mobile
+or desktop app work, report the actual host prerequisite you used, such as
+Android ADB, Xcode Simulator, or Tauri desktop host. If that prerequisite is not
+available, keep the lane evidence to browser/PWA previews and mark native
+preview as blocked by host setup.
 
 ## Security rules
 

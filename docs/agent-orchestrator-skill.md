@@ -20,6 +20,8 @@ Command Deck policy gates.
   URL, kind, and port.
 - Health-check saved live links through Command Deck before telling the user a
   link is ready.
+- Capture previews through saved evidence presets or future preview-target
+  tools, not one-off URLs copied from chat.
 - Require evidence for UI, browser, or artifact changes before acceptance.
 - Use audit/critique tools for completed lanes instead of treating executor
   summaries as final.
@@ -43,6 +45,19 @@ port 5173, use:
 
 Use `project.quick_link.health` to check a saved link. Do not run arbitrary URL
 probes from agent text; Command Deck validates hosts and sensitive routes.
+
+## Preview evidence
+
+When a lane affects a web UI, docs app, generated artifact, or dashboard route,
+ask for evidence against a saved preview target. The dashboard and API expose
+lane evidence presets derived from the lane target URL and project live links.
+Use those server-resolved presets so capture, health checks, and remote links
+stay consistent.
+
+Native mobile or desktop previews are optional host capabilities, not baseline
+requirements. If a host does not report Android, Xcode, or Tauri preview support,
+fall back to browser/PWA evidence and record the native preview as externally
+blocked.
 
 ## Startup limits
 

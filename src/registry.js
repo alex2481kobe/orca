@@ -2129,6 +2129,7 @@ export class CommandDeckRegistry {
 
   async captureLaneEvidence(laneLocator, {
     url,
+    presetId,
     modes,
     timeoutMs,
     oneTimeUrlApproved = false,
@@ -2151,19 +2152,19 @@ export class CommandDeckRegistry {
       };
     }
 
-    const project = this.projects.find((item) => item.id === lane.projectId) || null;
-    const allowedUrls = [
-      lane.targetUrl,
-      ...(Array.isArray(project?.quickLinks)
-        ? project.quickLinks.flatMap((quickLink) => [
-          quickLink?.url,
-          quickLink?.localUrl,
-          quickLink?.tailnetHttpUrl,
-          quickLink?.httpsServeUrl,
-        ])
-        : []),
-    ].filter(Boolean);
-    const requestedUrl = String(url || lane.targetUrl || '').trim();
+    const presetList = this.getEvidencePresets(lane.id).presets || [];
+    const requestedPresetId = sanitizeQuickLinkText(presetId || '', '', 160);
+    if (requestedPresetId && url) {
+      throw { status: 422, message: 'Use either presetId or url for evidence capture, not both.' };
+    }
+    const preset = requestedPresetId
+      ? presetList.find((item) => item.id === requestedPresetId)
+      : null;
+    if (requestedPresetId && !preset) {
+      throw { status: 404, message: 'Evidence preset not found.' };
+    }
+    const allowedUrls = presetList.map((item) => item.url).filter(Boolean);
+    const requestedUrl = String(preset?.url || url || presetList[0]?.url || lane.targetUrl || '').trim();
     const networkPolicy = validateEvidenceUrl(requestedUrl, {
       allowedUrls,
       oneTimeApproved: oneTimeUrlApproved,
@@ -3317,14 +3318,27 @@ export class CommandDeckRegistry {
     const project = this.projects.find((item) => item.id === lane.projectId) || null;
     const presets = [];
     if (lane.targetUrl) {
-      presets.push({ label: 'Lane target URL', url: lane.targetUrl });
+      presets.push({
+        id: 'lane-target',
+        label: 'Lane target URL',
+        url: lane.targetUrl,
+        source: 'lane',
+        kind: 'target-url',
+      });
     }
     if (project) {
       for (const link of project.quickLinks || []) {
         if (!link) continue;
         const presetUrl = effectiveQuickLinkUrl(link, { prefer: 'auto' });
-        if (!presetUrl) continue;
-        presets.push({ label: link.label || presetUrl, url: presetUrl });
+        if (!presetUrl || presetUrl.startsWith('/')) continue;
+        presets.push({
+          id: `project-link:${link.id}`,
+          label: link.label || presetUrl,
+          url: presetUrl,
+          source: 'project-quick-link',
+          kind: link.kind || 'other',
+          linkId: link.id,
+        });
       }
     }
     return {

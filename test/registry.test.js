@@ -1547,6 +1547,74 @@ test('buildExecutorCommandArgs derives safe argv from lane task prompt', async (
   assert.equal(/\x01/.test(text), false);
 });
 
+test('evidence capture resolves saved preview presets server-side', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    let capturedOptions = null;
+    registry.evidenceRunner = {
+      capture: async (_lane, options) => {
+        capturedOptions = options;
+        return {
+          captured: true,
+          evidence: {
+            status: 'captured',
+            requested: options.modes || [],
+            produced: ['evidence-shot.png'],
+          },
+        };
+      },
+    };
+
+    const project = registry.createProject({
+      name: 'Preset Evidence Project',
+      quickLinks: [{
+        label: 'Realm Shaper',
+        url: 'http://127.0.0.1:5173',
+        kind: 'vite',
+      }],
+    }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Preset Evidence Session' }, { actor: 'test', approved: true });
+    const lane = registry.createLane(session.id, {
+      title: 'Preset Evidence Lane',
+      executorType: 'mock',
+    }, { actor: 'test', approved: true });
+
+    const presets = registry.getEvidencePresets(lane.id).presets;
+    assert.equal(presets.length, 1);
+    assert.equal(presets[0].id.startsWith('project-link:'), true);
+
+    const result = await registry.captureLaneEvidence(lane.id, {
+      actor: 'dashboard',
+      approved: true,
+      presetId: presets[0].id,
+      modes: ['screenshot'],
+    });
+    assert.equal(result.captured, true);
+    assert.equal(capturedOptions.url, 'http://127.0.0.1:5173/');
+    assert.equal(capturedOptions.networkPolicy.savedUrl, true);
+
+    await assert.rejects(
+      () => registry.captureLaneEvidence(lane.id, {
+        actor: 'dashboard',
+        approved: true,
+        presetId: 'missing-preset',
+      }),
+      (error) => error.status === 404,
+    );
+    await assert.rejects(
+      () => registry.captureLaneEvidence(lane.id, {
+        actor: 'dashboard',
+        approved: true,
+        presetId: presets[0].id,
+        url: 'http://127.0.0.1:5174',
+      }),
+      (error) => error.status === 422,
+    );
+  } finally {
+    await cleanup();
+  }
+});
+
 test('Recovery flips orphaned running lanes to failed with explicit reason', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {

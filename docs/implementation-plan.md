@@ -6,7 +6,7 @@ smoke gates before being listed.
 
 ## Proven on this host
 
-- 140 tests pass.
+- 142 tests pass.
 - `npm run smoke` (v2) passes including five negative-path checks
   (unauthorized 401, spoofed actor 403, oversized body 413, malformed
   JSON 400, malformed query 400) and asserts evidence
@@ -116,7 +116,11 @@ smoke gates before being listed.
   and public orchestrator/executor handoff docs.
 - Evidence runner with real Playwright capture + degraded fallback,
   gallery (`/api/lanes/:id/evidence/latest`), presets
-  (`/api/lanes/:id/evidence/presets`).
+  (`/api/lanes/:id/evidence/presets`), and server-resolved preset capture from
+  saved lane/project targets.
+- Preview surface scope in `docs/preview-surfaces.md` covering implemented web
+  links/artifacts, browser mobile emulation, future Android browser/device
+  adapters, future native simulator adapters, and the Tauri host boundary.
 - Cleanup scheduler with dry-run default, confirmed destructive runs,
   active-lane protection, monotonic `nextRunAt`, audit events.
 - Mobile manifest covers projects, sessions, lanes, detail/stop/retry/
@@ -187,7 +191,8 @@ operator/device setup, not missing local code:
   HTTP and HTTPS Serve commands, status checks, Funnel-off verification,
   shutdown commands, and phone reachability checks.
 - Native Tauri/iOS/Android packaging is a later product phase. PWA phone-first
-  support is the v1 app path.
+  support and browser/PWA previews are the v1 app path; native preview adapters
+  require host SDK/device setup.
 
 Playwright + Chromium are installed locally and exercised end-to-end, Claude is
 executable, and the broken Homebrew Codex symlink was repaired with

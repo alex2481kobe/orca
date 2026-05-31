@@ -5,6 +5,10 @@ artifacts, or dashboard-relative pages. They are server-authoritative: agents
 and the dashboard should write them through Command Deck instead of relying on
 chat history.
 
+Saved project links also feed lane evidence presets. Normal dashboard evidence
+capture submits a preset id, and the server resolves that id back to a saved
+link before running URL policy and Playwright capture.
+
 ## Why this exists
 
 When an executor starts a project server, the user needs a stable place to click
@@ -48,6 +52,19 @@ Supported `kind` values are `dev-server`, `vite`, `preview`, `dashboard`,
 Writes require project-update approval. Health checks only check a saved link;
 they do not accept arbitrary probe URLs.
 
+## Evidence presets
+
+For a lane attached to a project, the server exposes
+`GET /api/lanes/{laneId}/evidence/presets`. Presets are derived from:
+
+- the lane target URL, when set
+- saved project quick links with absolute HTTP(S) URLs
+
+The dashboard posts `presetId` to `POST /api/lanes/{laneId}/evidence`. The
+server chooses the URL from the saved preset list. A request that includes both
+`presetId` and `url` is rejected so the client cannot silently override the
+server-resolved target.
+
 ## Security model
 
 - Saved URLs are validated with the same SSRF policy used by evidence capture.
@@ -67,3 +84,7 @@ health, open the dashboard, and surface saved live links in its menu or project
 view. A stopped server cannot be started through its own MCP/API routes, so
 startup belongs to the native Tauri host, a user-run CLI command, or an OS
 supervisor.
+
+See `docs/preview-surfaces.md` for the broader preview target model covering
+desktop browser, mobile browser emulation, artifacts, and future native
+simulator adapters.

@@ -1165,9 +1165,12 @@ function renderHome() {
     const projectSessions = shell.sessions.filter((session) => session.projectId === project.id);
     const projectLanes = shell.lanes.filter((lane) => lane.projectId === project.id);
     const latestActivity = latestTimestamp([...projectSessions, ...projectLanes, project]);
-    const quickLinks = project.quickLinks.map((quick) => `
-      <div><a href="${safeAttr(clientUrl(quick.url))}" target="_blank" rel="noopener noreferrer">${safeText(quick.label)}</a></div>
-    `).join('');
+    const quickLinks = (Array.isArray(project.quickLinks) ? project.quickLinks : [])
+      .filter((quick) => !quick.hidden)
+      .map((quick) => {
+        const url = clientUrl(effectiveProjectQuickLinkUrl(quick));
+        return `<div><a href="${safeHref(url)}" target="_blank" rel="noopener noreferrer">${safeText(quick.label)}</a></div>`;
+      }).join('');
     return `
       <article class="card click-card project-card" data-href="${safeAttr(project.route)}" tabindex="0" role="link" aria-label="Open ${safeAttr(project.name)} project">
         <div class="card-kicker">Project</div>
@@ -2927,7 +2930,7 @@ async function loadEvidenceGallery(laneId) {
       return `<div class="card"><strong>${mode}</strong><div class="tiny">${safeText(item.name)} · ${safeText(item.at)}</div>${preview}<div style="margin-top:0.4rem">${link}</div></div>`;
     }).join('');
     const presetsRow = presetList.length
-      ? `<div class="lane-row" style="margin-top:0.4rem">${presetList.map((preset) => `<button class="secondary" data-action="captureEvidencePreset" data-lane-id="${safeAttr(laneId)}" data-url="${safeAttr(preset.url)}" type="button">${safeText(preset.label || preset.url)}</button>`).join('')}</div>`
+      ? `<div class="lane-row" style="margin-top:0.4rem">${presetList.map((preset) => `<button class="secondary" data-action="captureEvidencePreset" data-lane-id="${safeAttr(laneId)}" data-preset-id="${safeAttr(preset.id)}" data-preset-label="${safeAttr(preset.label || preset.url)}" type="button">${safeText(preset.label || preset.url)}</button>`).join('')}</div>`
       : '<div class="tiny muted">No presets — set a lane target URL or project quick links to populate.</div>';
     target.innerHTML = `${presetsRow}<div class="card-grid" style="margin-top:0.5rem">${tiles}</div>`;
   } catch {
@@ -3431,12 +3434,13 @@ async function handleLaneActions(event) {
     return;
   }
   if (action === 'captureEvidencePreset') {
-    const url = event.currentTarget.dataset.url;
-    if (!url) return;
-    const approved = confirmHighRiskAction(`Capture screenshot for ${url}?`, 'captureEvidence');
+    const presetId = event.currentTarget.dataset.presetId;
+    const label = event.currentTarget.dataset.presetLabel || 'saved preview';
+    if (!presetId) return;
+    const approved = confirmHighRiskAction(`Capture screenshot for ${label}?`, 'captureEvidence');
     const response = await api(`/api/lanes/${laneId}/evidence`, {
       method: 'POST',
-      body: { approved, actor: 'dashboard', url, modes: ['screenshot'] },
+      body: { approved, actor: 'dashboard', presetId, modes: ['screenshot'] },
     });
     if (response.ok) {
       renderAlert(response.data?.captured ? 'Evidence captured.' : `Evidence attempt finished: ${response.data?.reason || 'degraded'}`);
@@ -3483,11 +3487,6 @@ async function handleLaneActions(event) {
   const approved = confirmHighRiskAction('This is a higher-risk action. Continue?', policyKey);
 
   if (action === 'captureEvidence') {
-    const providedUrl = window.prompt('Target URL for evidence capture (example: http://localhost:4173)');
-    if (!providedUrl) {
-      renderAlert('Evidence capture canceled.');
-      return;
-    }
     const modes = [];
     if (window.confirm('Capture screenshot?')) modes.push('screenshot');
     if (window.confirm('Capture trace (more expensive)?')) modes.push('trace');
@@ -3497,7 +3496,6 @@ async function handleLaneActions(event) {
       body: {
         approved,
         actor: 'dashboard',
-        url: providedUrl,
         modes: modes.length ? modes : ['screenshot'],
       },
     });
