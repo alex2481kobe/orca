@@ -88,6 +88,10 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
     assert.equal(ids.has(id), true, `missing ${id}`);
   }
   assert.equal(JSON.stringify(discovery).includes(process.cwd()), false);
+  assert.equal(findTool('project.quick_link.upsert')?.route, '/api/projects/{projectId}/quick-links');
+  assert.equal(findTool('project.quick_link.delete')?.route, '/api/projects/{projectId}/quick-links/{linkId}');
+  assert.equal(findTool('project.quick_link.health')?.route, '/api/projects/{projectId}/quick-links/{linkId}/check');
+  assert.equal(findTool('project.quick_link.health')?.implemented, true);
 });
 
 test('nextAction envelope only advertises an implemented nextRequiredTool', async () => {

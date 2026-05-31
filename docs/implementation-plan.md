@@ -111,6 +111,9 @@ smoke gates before being listed.
 - MCP tool CRUD with schema validation on every field; per-lane config
   emits both `tools` and `mcpServers` shapes for Codex/Claude native
   loading.
+- Server-authoritative project live links with dedicated create/update/delete/
+  health-check routes, MCP tool discovery, SSRF validation, dashboard controls,
+  and public orchestrator/executor handoff docs.
 - Evidence runner with real Playwright capture + degraded fallback,
   gallery (`/api/lanes/:id/evidence/latest`), presets
   (`/api/lanes/:id/evidence/presets`).

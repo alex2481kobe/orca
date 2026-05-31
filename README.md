@@ -11,14 +11,14 @@ private phone access.
 
 The latest recorded full local acceptance run passed:
 
-- `npm test`: 140/140 tests passing.
+- `npm test`: 141/141 tests passing.
 - `npm run smoke:acceptance`: 23 deterministic smoke steps passing.
 - `npm run smoke:full-flow`: isolated end-to-end operator flow passing.
 - `npm run smoke:ui-inventory`: 30 desktop/phone route screenshots with
   zero horizontal overflow.
 - `npm run smoke:ui-contract`: shared UI/action contract passing.
-- `npm run smoke:full-buildout-ledger`: 25 ledger areas checked with
-  23 `implemented_and_proven` and 2 true external blockers.
+- `npm run smoke:full-buildout-ledger`: 26 ledger areas checked with
+  24 `implemented_and_proven` and 2 true external blockers.
 
 The current completion ledger is
 [`docs/full-buildout-ledger.md`](docs/full-buildout-ledger.md). Do not rely on
@@ -46,9 +46,12 @@ The consolidated full-buildout evidence report is
   workstation bootstraps as admin; Tailscale Serve / reverse-proxied requests
   (identified by forwarding/identity headers) get nothing until they pair.
   Browser-session mutations are same-origin protected.
-- Route inventory and security matrix covering 98 routes with auth,
+- Route inventory and security matrix covering 102 routes with auth,
   validation, body limits, rate limits, audit metadata, UI coverage, mobile
   behavior, and smoke coverage.
+- Server-authoritative project live links for dev servers, previews, docs, and
+  artifacts, including dashboard/API routes, MCP tool discovery, SSRF
+  validation, health checks, and public agent handoff docs.
 - Provider profiles for Codex, Claude, Custom CLI, OpenAI-compatible API,
   Gemini API, Kimi, DeepSeek, OpenRouter, and Composer.
 - API-provider execution through local dummy OpenAI-compatible and native
@@ -118,6 +121,12 @@ These are not missing local app code:
   [`docs/tailscale-mobile-access.md`](docs/tailscale-mobile-access.md).
 - Native Tauri/iOS/Android packaging is a later product phase. The v1 app path
   is PWA phone-first.
+
+## Public agent docs
+
+- [`docs/agent-orchestrator-skill.md`](docs/agent-orchestrator-skill.md)
+- [`docs/agent-executor-skill.md`](docs/agent-executor-skill.md)
+- [`docs/live-project-links.md`](docs/live-project-links.md)
 
 ## Run locally
 

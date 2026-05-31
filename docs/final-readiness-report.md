@@ -102,13 +102,13 @@ npm run smoke:process-lifecycle
 
 Unit tests:
 
-- `140/140` passing in the acceptance run.
+- `141/141` passing in the acceptance run.
 
 Ledger:
 
 - `docs/full-buildout-ledger.md`
-- `npm run smoke:full-buildout-ledger` reports 25 areas:
-  - `23 implemented_and_proven`
+- `npm run smoke:full-buildout-ledger` reports 26 areas:
+  - `24 implemented_and_proven`
   - `2 externally_blocked`
 
 The two external rows are:
@@ -257,7 +257,7 @@ Security controls proven by tests/smokes include:
 - Same-origin checks for browser-session mutations.
 - Pairing code rate limits.
 - JSON body limits and malformed JSON/query handling.
-- Route security matrix for 98 routes.
+- Route security matrix for 102 routes.
 - Centralized rate-limit metadata.
 - Security headers and no-store sensitive responses.
 - SSRF URL policy reused by accepted URL surfaces.

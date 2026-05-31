@@ -407,6 +407,21 @@ function fallbackUrlForAccessMode(target, mode) {
   return target.tailnetHttpUrl || target.httpsServeUrl || target.localUrl || '';
 }
 
+function effectiveProjectQuickLinkUrl(quick, mode = 'auto') {
+  if (!quick) return '';
+  if (mode === 'local') return quick.localUrl || quick.url || '';
+  if (mode === 'tailnet-http') return quick.tailnetHttpUrl || quick.httpsServeUrl || quick.localUrl || quick.url || '';
+  if (mode === 'tailnet-https-serve') return quick.httpsServeUrl || quick.tailnetHttpUrl || quick.localUrl || quick.url || '';
+  return quick.url || quick.tailnetHttpUrl || quick.httpsServeUrl || quick.localUrl || '';
+}
+
+function quickLinkHealthLabel(status) {
+  if (status === 'reachable') return 'Reachable';
+  if (status === 'unreachable') return 'Unreachable';
+  if (status === 'not_checkable') return 'Dashboard link';
+  return 'Unchecked';
+}
+
 function preferredPhoneUrl(privateTargets = [], privateSettings = {}, tailnet = {}) {
   if (!isLocalHostName(window.location.hostname)) return window.location.origin;
   const targets = privateTargets.filter((item) => !item.hidden);
@@ -2241,7 +2256,35 @@ function renderProject(project) {
     `;
   }).join('');
   const createSessionOpen = window.location.hash === '#create-session' || !sessionsMarkup;
-  const quickLinksMarkup = project.quickLinks.map((quick) => `<a href="${safeAttr(clientUrl(quick.url))}" target="_blank" rel="noopener noreferrer">${safeText(quick.label)}</a>`).join('');
+  const quickLinks = Array.isArray(project.quickLinks) ? project.quickLinks.filter((quick) => !quick.hidden) : [];
+  const quickLinksMarkup = quickLinks
+    .map((quick) => {
+      const url = clientUrl(effectiveProjectQuickLinkUrl(quick));
+      return `<a href="${safeHref(url)}" target="_blank" rel="noopener noreferrer">${safeText(quick.label)}</a>`;
+    })
+    .join('');
+  const quickLinkRows = quickLinks.map((quick) => {
+    const url = clientUrl(effectiveProjectQuickLinkUrl(quick));
+    const detail = [
+      quick.kind || 'other',
+      quick.port ? `:${quick.port}` : '',
+      quick.lastCheckedAt ? `checked ${formatRelative(quick.lastCheckedAt)}` : 'not checked',
+    ].filter(Boolean).join(' / ');
+    return `
+      <div class="lane-row">
+        <div>
+          <div>${safeText(quick.label || 'Live link')}</div>
+          <a href="${safeHref(url)}" target="_blank" rel="noopener noreferrer">${safeText(url)}</a>
+          <div class="tiny muted">${safeText(detail)}</div>
+          <div class="tiny">${safeText(quickLinkHealthLabel(quick.healthStatus))}${quick.lastStatusCode ? ` / HTTP ${safeText(quick.lastStatusCode)}` : ''}</div>
+        </div>
+        <div class="lane-row">
+          <button class="secondary" data-action="checkProjectQuickLink" data-project-id="${safeAttr(project.id)}" data-link-id="${safeAttr(quick.id)}" type="button">Check</button>
+          <button class="secondary" data-action="deleteProjectQuickLink" data-project-id="${safeAttr(project.id)}" data-link-id="${safeAttr(quick.id)}" type="button">Remove</button>
+        </div>
+      </div>
+    `;
+  }).join('');
 
   refs.content.innerHTML = `
     <section class="project-shell">
@@ -2287,25 +2330,47 @@ function renderProject(project) {
             <div class="disclosure-body">
               <div class="lane-row">${quickLinksMarkup || '<span class="muted">No quick links.</span>'}</div>
               <div class="card-grid">
-                ${(project.quickLinks || [])
-                  .map((quick, index) => `
-                    <div class="lane-row">
-                      <div>
-                        <div>${safeText(quick.label || 'Primary')}</div>
-                        <a href="${safeAttr(clientUrl(quick.url))}" target="_blank" rel="noopener noreferrer">${safeText(clientUrl(quick.url))}</a>
-                      </div>
-                      <button class="secondary" data-action="deleteProjectQuickLink" data-project-id="${project.id}" data-link-index="${index}" type="button">Remove</button>
-                    </div>
-                  `).join('') || '<div class="muted">No quick links.</div>'}
+                ${quickLinkRows || '<div class="muted">No quick links.</div>'}
               </div>
               <form id="update-project-links-form" data-project-id="${project.id}">
                 <label>Quick link label
-                  <input name="quickLinkLabel" placeholder="Primary" required />
+                  <input name="quickLinkLabel" placeholder="Realm Shaper" required />
                 </label>
                 <label>Quick link URL
-                  <input name="quickLinkUrl" placeholder="http://localhost:3000" required />
+                  <input name="quickLinkUrl" placeholder="http://localhost:5173" required />
                 </label>
-                <button type="submit">Add quick link</button>
+                <div class="grid-2">
+                  <label>Kind
+                    <select name="quickLinkKind">
+                      <option value="vite">Vite</option>
+                      <option value="dev-server">Dev server</option>
+                      <option value="preview">Preview</option>
+                      <option value="dashboard">Dashboard</option>
+                      <option value="artifact">Artifact</option>
+                      <option value="docs">Docs</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </label>
+                  <label>Port
+                    <input name="quickLinkPort" type="number" min="1" max="65535" placeholder="5173" />
+                  </label>
+                </div>
+                <label><input type="checkbox" name="quickLinkFavorite"> Favorite</label>
+                <details class="disclosure compact-disclosure">
+                  <summary><span>Remote variants</span><small>optional</small></summary>
+                  <div class="disclosure-body">
+                    <label>Local URL
+                      <input name="quickLinkLocalUrl" placeholder="http://127.0.0.1:5173" />
+                    </label>
+                    <label>Tailnet HTTP URL
+                      <input name="quickLinkTailnetHttpUrl" placeholder="http://device.tailnet.ts.net:5173" />
+                    </label>
+                    <label>HTTPS Serve URL
+                      <input name="quickLinkHttpsServeUrl" placeholder="https://device.tailnet.ts.net" />
+                    </label>
+                  </div>
+                </details>
+                <button type="submit">Save live link</button>
               </form>
             </div>
           </details>
@@ -3231,30 +3296,33 @@ async function handleAddProjectQuickLink(event) {
   }
 
   const project = shell.projects.find((value) => value.id === projectId);
-  const existingLinks = Array.isArray(project?.quickLinks) ? project.quickLinks : [];
-  const nextLinks = existingLinks
-    .filter((item) => item && String(item.url || '').trim() && String(item.label || '').trim())
-    .concat([{ label, url }])
-    .slice(0, 8);
-  const approval = buildApprovedActionBody('updateProject', `Update quick links for ${project?.name || 'project'}?`);
+  const approval = buildApprovedActionBody('updateProject', `Save live link "${label}" for ${project?.name || 'project'}?`);
   if (!approval.approved) {
     renderAlert('Quick link addition canceled.');
     return;
   }
 
-  const response = await api(`/api/projects/${projectId}`, {
-    method: 'PATCH',
+  const port = Number.parseInt(payload.quickLinkPort || '', 10);
+  const response = await api(`/api/projects/${projectId}/quick-links`, {
+    method: 'POST',
     body: {
       actor: approval.actor,
       approved: approval.approved,
-      quickLinks: nextLinks,
+      label,
+      url,
+      kind: payload.quickLinkKind || 'vite',
+      favorite: Boolean(payload.quickLinkFavorite),
+      ...(Number.isFinite(port) ? { port } : {}),
+      ...(payload.quickLinkLocalUrl ? { localUrl: payload.quickLinkLocalUrl } : {}),
+      ...(payload.quickLinkTailnetHttpUrl ? { tailnetHttpUrl: payload.quickLinkTailnetHttpUrl } : {}),
+      ...(payload.quickLinkHttpsServeUrl ? { httpsServeUrl: payload.quickLinkHttpsServeUrl } : {}),
     },
   });
   if (response.ok) {
-    renderAlert('Quick link added.');
+    renderAlert('Live link saved.');
     await refresh();
   } else {
-    renderAlert(response.data?.error || 'Could not add quick link.', 'bad');
+    renderAlert(response.data?.error || 'Could not save live link.', 'bad');
   }
 }
 
@@ -3797,37 +3865,52 @@ async function handleSystemActions(event) {
 
   if (action === 'deleteProjectQuickLink') {
     const projectId = event.currentTarget.dataset.projectId;
-    const linkIndex = Number.parseInt(event.currentTarget.dataset.linkIndex, 10);
-    if (!projectId || Number.isNaN(linkIndex)) return;
-    const project = shell.projects.find((value) => value.id === projectId);
-    const confirmed = window.confirm('Remove this quick link from the project?');
+    const linkId = event.currentTarget.dataset.linkId;
+    if (!projectId || !linkId) return;
+    const confirmed = window.confirm('Remove this live link from the project?');
     if (!confirmed) {
-      renderAlert('Quick link removal canceled.');
+      renderAlert('Live link removal canceled.');
       return;
     }
-    const existingLinks = Array.isArray(project?.quickLinks) ? project.quickLinks : [];
-    const nextLinks = existingLinks.filter((_, index) => index !== linkIndex);
     const approval = buildApprovedActionBody('updateProject');
     if (!approval.approved) {
-      renderAlert('Quick link removal canceled.');
+      renderAlert('Live link removal canceled.');
       return;
     }
 
-    const response = await api(`/api/projects/${projectId}`, {
-      method: 'PATCH',
+    const response = await api(`/api/projects/${projectId}/quick-links/${encodeURIComponent(linkId)}`, {
+      method: 'DELETE',
       body: {
         actor: approval.actor,
         approved: approval.approved,
-        quickLinks: nextLinks,
       },
     });
     if (response.ok) {
-      renderAlert('Quick link removed.');
+      renderAlert('Live link removed.');
       await refresh();
     } else if (response.data?.requiresApproval) {
-      renderAlert('Approval required to remove this quick link.', 'bad');
+      renderAlert('Approval required to remove this live link.', 'bad');
     } else {
-      renderAlert(response.data?.error || 'Could not remove quick link.', 'bad');
+      renderAlert(response.data?.error || 'Could not remove live link.', 'bad');
+    }
+  }
+
+  if (action === 'checkProjectQuickLink') {
+    const projectId = event.currentTarget.dataset.projectId;
+    const linkId = event.currentTarget.dataset.linkId;
+    if (!projectId || !linkId) return;
+    const response = await api(`/api/projects/${projectId}/quick-links/${encodeURIComponent(linkId)}/check`, {
+      method: 'POST',
+      body: {
+        actor: 'dashboard',
+        prefer: 'auto',
+      },
+    });
+    if (response.ok) {
+      renderAlert(`Live link check: ${quickLinkHealthLabel(response.data?.result?.status)}.`);
+      await refresh();
+    } else {
+      renderAlert(response.data?.error || 'Could not check live link.', 'bad');
     }
   }
 
@@ -4352,6 +4435,7 @@ document.addEventListener('click', async (event) => {
     'cleanupArtifactsRunNow',
     'deleteMcpTool',
     'editMcpTool',
+    'checkProjectQuickLink',
     'deleteProjectQuickLink',
     'refreshExecutorCli',
     'reinstallExecutorCli',

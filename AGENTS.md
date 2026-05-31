@@ -6,7 +6,7 @@ Canonical project guide for coding agents and contributors working in this repo.
 
 Command Deck is a local-first control plane for coordinating AI coding agents, project sessions, worker lanes, browser evidence, logs, artifacts, and review actions from one dashboard.
 
-This repo now contains the Node HTTP server, browser dashboard, provider profile system, credential abstraction, MCP tool contract, evidence runner, PWA assets, route inventory, tests, and smoke gates. Do not treat it as scaffold-only. Before changing behavior, inspect the current source, `docs/implementation-plan.md`, `docs/full-buildout-ledger.md`, and the relevant tests/smokes.
+This repo now contains the Node HTTP server, browser dashboard, provider profile system, credential abstraction, MCP tool contract, evidence runner, PWA assets, route inventory, public agent skill docs, tests, and smoke gates. Do not treat it as scaffold-only. Before changing behavior, inspect the current source, `docs/implementation-plan.md`, `docs/full-buildout-ledger.md`, `docs/live-project-links.md`, and the relevant tests/smokes.
 
 ## Public / Private Boundary
 
@@ -35,6 +35,7 @@ Command Deck will eventually touch sensitive surfaces: local files, git repos, s
 - Never auto-install or auto-update CLIs, package managers, browser binaries, Tailscale, credential helpers, or native runtimes by default. Managed install/update behavior requires explicit opt-in, dry-run command preview, approval, and audit logging.
 - Keep Tailscale access private to the tailnet. Tailscale Funnel is forbidden for v1.
 - Route changes must update `src/route-inventory.js`, route-security docs if needed, and the matching tests/smokes in the same logical change.
+- Project live links are server-authoritative. Agents and the dashboard must manage them through the quick-link API/tool contract, not stale chat text.
 
 ## Command Shape
 

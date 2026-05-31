@@ -1,0 +1,69 @@
+# Live project links
+
+Live project links are saved project URLs for dev servers, previews, docs,
+artifacts, or dashboard-relative pages. They are server-authoritative: agents
+and the dashboard should write them through Command Deck instead of relying on
+chat history.
+
+## Why this exists
+
+When an executor starts a project server, the user needs a stable place to click
+the current link later from desktop, phone, or a future desktop app. For
+example, Realm Shaper on Vite port 5173 should be saved once as a project live
+link, then health-checked by the server.
+
+## Data shape
+
+Each link is normalized by the server:
+
+```json
+{
+  "id": "generated-or-stable-id",
+  "label": "Realm Shaper",
+  "url": "http://localhost:5173/",
+  "localUrl": "http://127.0.0.1:5173/",
+  "tailnetHttpUrl": "http://device.tailnet.ts.net:5173/",
+  "httpsServeUrl": "https://device.tailnet.ts.net/",
+  "port": 5173,
+  "kind": "vite",
+  "favorite": true,
+  "hidden": false,
+  "healthStatus": "configured_unchecked"
+}
+```
+
+Supported `kind` values are `dev-server`, `vite`, `preview`, `dashboard`,
+`artifact`, `docs`, and `other`.
+
+## Routes and tools
+
+- Dashboard/API create: `POST /api/projects/{projectId}/quick-links`
+- Dashboard/API update: `PATCH /api/projects/{projectId}/quick-links/{linkId}`
+- Dashboard/API delete: `DELETE /api/projects/{projectId}/quick-links/{linkId}`
+- Dashboard/API check: `POST /api/projects/{projectId}/quick-links/{linkId}/check`
+- Agent tool create/update: `project.quick_link.upsert`
+- Agent tool delete: `project.quick_link.delete`
+- Agent tool check: `project.quick_link.health`
+
+Writes require project-update approval. Health checks only check a saved link;
+they do not accept arbitrary probe URLs.
+
+## Security model
+
+- Saved URLs are validated with the same SSRF policy used by evidence capture.
+- Loopback, localhost, configured tailnet hosts, and public HTTP(S) URLs are
+  accepted where policy allows them.
+- Metadata, link-local, private LAN, multicast, obfuscated numeric IPs,
+  credential-bearing URLs, sensitive Command Deck routes, and Funnel URLs are
+  blocked.
+- Unpaired devices cannot list projects, read live links, check links, or mutate
+  links. Pairing creates a revocable browser session; it does not reveal the API
+  token.
+
+## Desktop/Tauri direction
+
+The future Tauri app should launch the local Command Deck server, wait for
+health, open the dashboard, and surface saved live links in its menu or project
+view. A stopped server cannot be started through its own MCP/API routes, so
+startup belongs to the native Tauri host, a user-run CLI command, or an OS
+supervisor.

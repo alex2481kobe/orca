@@ -596,6 +596,147 @@ function normalizeSlug(value) {
     .slice(0, 64);
 }
 
+const MAX_PROJECT_QUICK_LINKS = 50;
+const QUICK_LINK_KINDS = new Set(['dev-server', 'vite', 'preview', 'dashboard', 'artifact', 'docs', 'other']);
+const QUICK_LINK_HEALTH_STATUSES = new Set(['configured_unchecked', 'reachable', 'unreachable', 'not_checkable']);
+
+function sanitizeQuickLinkText(raw, fallback = '', max = 120) {
+  return String(raw ?? fallback)
+    .replace(/[\x00-\x1f\x7f]/g, '')
+    .trim()
+    .slice(0, max);
+}
+
+function normalizeQuickLinkUrl(raw, field, { allowBlank = false } = {}) {
+  const text = sanitizeQuickLinkText(raw, '', 2048);
+  if (!text) {
+    if (allowBlank) return '';
+    throw { status: 422, message: `${field} is required.` };
+  }
+  if (text.startsWith('/') && !text.startsWith('//')) return text;
+  const parsed = validateNetworkUrl(text, {
+    field,
+    allowedHosts: ['loopback', 'tailnet'],
+    allowPublic: true,
+    allowSensitive: false,
+  });
+  return parsed.url;
+}
+
+function normalizeQuickLink(raw = {}, existing = null) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw { status: 422, message: 'Quick link must be an object.' };
+  }
+  const localUrl = normalizeQuickLinkUrl(raw.localUrl ?? existing?.localUrl, 'localUrl', { allowBlank: true });
+  const tailnetHttpUrl = normalizeQuickLinkUrl(raw.tailnetHttpUrl ?? existing?.tailnetHttpUrl, 'tailnetHttpUrl', { allowBlank: true });
+  const httpsServeUrl = normalizeQuickLinkUrl(raw.httpsServeUrl ?? existing?.httpsServeUrl, 'httpsServeUrl', { allowBlank: true });
+  const primaryRaw = raw.url ?? existing?.url ?? tailnetHttpUrl ?? httpsServeUrl ?? localUrl;
+  const url = normalizeQuickLinkUrl(primaryRaw, 'quick link URL', { allowBlank: false });
+  const parsedPort = (() => {
+    const rawPort = Number.parseInt(raw.port ?? existing?.port ?? '', 10);
+    if (Number.isFinite(rawPort) && rawPort >= 1 && rawPort <= 65535) return rawPort;
+    try {
+      const parsed = new URL(url, 'http://command-deck.local');
+      const urlPort = Number.parseInt(parsed.port || '', 10);
+      if (Number.isFinite(urlPort) && urlPort >= 1 && urlPort <= 65535) return urlPort;
+    } catch {
+      /* relative dashboard URL */
+    }
+    return null;
+  })();
+  const kind = sanitizeQuickLinkText(raw.kind ?? existing?.kind ?? (parsedPort ? 'dev-server' : 'other'), 'other', 40).toLowerCase();
+  const healthStatus = sanitizeQuickLinkText(raw.healthStatus ?? existing?.healthStatus ?? 'configured_unchecked', 'configured_unchecked', 40);
+  return {
+    id: sanitizeQuickLinkText(raw.id ?? existing?.id ?? randomUUID(), '', 80).replace(/[^A-Za-z0-9._:-]/g, '-') || randomUUID(),
+    label: sanitizeQuickLinkText(raw.label ?? existing?.label ?? 'Live link', 'Live link', 100),
+    url,
+    localUrl,
+    tailnetHttpUrl,
+    httpsServeUrl,
+    port: parsedPort,
+    kind: QUICK_LINK_KINDS.has(kind) ? kind : 'other',
+    group: sanitizeQuickLinkText(raw.group ?? existing?.group ?? '', '', 80),
+    favorite: Boolean(raw.favorite ?? existing?.favorite ?? false),
+    hidden: Boolean(raw.hidden ?? existing?.hidden ?? false),
+    healthPath: sanitizeQuickLinkText(raw.healthPath ?? existing?.healthPath ?? '/', '/', 240) || '/',
+    healthStatus: QUICK_LINK_HEALTH_STATUSES.has(healthStatus) ? healthStatus : 'configured_unchecked',
+    lastCheckedAt: existing?.lastCheckedAt || raw.lastCheckedAt || null,
+    lastStatusCode: Number.isFinite(existing?.lastStatusCode) ? existing.lastStatusCode : (Number.isFinite(raw.lastStatusCode) ? raw.lastStatusCode : null),
+    lastHealthDetail: sanitizeQuickLinkText(existing?.lastHealthDetail || raw.lastHealthDetail || '', '', 180),
+    createdAt: existing?.createdAt || raw.createdAt || nowIso(),
+    updatedAt: nowIso(),
+  };
+}
+
+function normalizeQuickLinks(rawLinks = []) {
+  if (!Array.isArray(rawLinks)) return [];
+  return rawLinks
+    .slice(0, MAX_PROJECT_QUICK_LINKS)
+    .map((link) => normalizeQuickLink(link));
+}
+
+function effectiveQuickLinkUrl(link, { prefer = 'auto' } = {}) {
+  if (!link) return '';
+  if (prefer === 'local') return link.localUrl || link.url || '';
+  if (prefer === 'https') return link.httpsServeUrl || link.tailnetHttpUrl || link.localUrl || link.url || '';
+  if (prefer === 'tailnet') return link.tailnetHttpUrl || link.httpsServeUrl || link.localUrl || link.url || '';
+  return link.url || link.tailnetHttpUrl || link.httpsServeUrl || link.localUrl || '';
+}
+
+async function boundedQuickLinkHealthCheck(link, { prefer = 'auto' } = {}) {
+  const candidate = effectiveQuickLinkUrl(link, { prefer });
+  if (!candidate || candidate.startsWith('/')) {
+    return {
+      status: 'not_checkable',
+      httpStatus: null,
+      detail: 'Relative dashboard links do not have an external health check.',
+      checkedUrl: candidate || '',
+    };
+  }
+  let policy;
+  try {
+    policy = validateNetworkUrl(candidate, {
+      field: 'quick link health URL',
+      allowedHosts: ['loopback', 'tailnet'],
+      allowPublic: true,
+      allowSensitive: false,
+    });
+  } catch (error) {
+    return {
+      status: 'unreachable',
+      httpStatus: null,
+      detail: error.message || 'Quick link URL failed validation.',
+      checkedUrl: candidate,
+    };
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 2500);
+  try {
+    const response = await fetch(policy.url, {
+      method: 'GET',
+      redirect: 'manual',
+      signal: controller.signal,
+    });
+    return {
+      status: response.status >= 200 && response.status < 500 ? 'reachable' : 'unreachable',
+      httpStatus: response.status,
+      detail: response.status >= 200 && response.status < 500
+        ? `Responded with HTTP ${response.status}.`
+        : `Unexpected HTTP ${response.status}.`,
+      checkedUrl: policy.url,
+    };
+  } catch (error) {
+    return {
+      status: 'unreachable',
+      httpStatus: null,
+      detail: error?.name === 'AbortError' ? 'Health check timed out.' : 'Health check failed.',
+      checkedUrl: policy.url,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 const MAX_LANE_LOG_ENTRIES = 2000;
 
 // Prefer the native structured clone (faster, less GC pressure than
@@ -902,7 +1043,10 @@ export class CommandDeckRegistry {
     this.stateLoadStatus = recovered.status;
     try {
       const parsed = recovered.data || fallback;
-      this.projects = safeArray(parsed.projects);
+      this.projects = safeArray(parsed.projects).map((project) => ({
+        ...project,
+        quickLinks: normalizeQuickLinks(project.quickLinks || []),
+      }));
       this.sessions = safeArray(parsed.sessions);
       this.lanes = safeArray(parsed.lanes);
       this.auditEvents = safeArray(parsed.auditEvents, []).slice(0, 200);
@@ -1184,8 +1328,8 @@ export class CommandDeckRegistry {
       name: 'Realm Shaper',
       slug: 'realm-shaper',
       quickLinks: [
-        { label: 'Local dev server', url: 'http://localhost:4173' },
-        { label: 'Artifacts', url: '/projects/realm-shaper/sessions/overview?section=artifacts' },
+        { label: 'Local dev server', url: 'http://localhost:4173', localUrl: 'http://localhost:4173', port: 4173, kind: 'vite', favorite: true },
+        { label: 'Artifacts', url: '/projects/realm-shaper/sessions/overview?section=artifacts', kind: 'dashboard' },
       ],
       owner: 'seed',
     }, {
@@ -1282,7 +1426,7 @@ export class CommandDeckRegistry {
       name: String(name).trim(),
       slug: finalSlug,
       route: `/projects/${finalSlug}`,
-      quickLinks: quickLinks.slice(0, 8),
+      quickLinks: normalizeQuickLinks(quickLinks),
       policyProfile,
       settingsOverrides: sanitizeSettingsOverrides(settingsOverrides),
       owner: actor,
@@ -1351,7 +1495,7 @@ export class CommandDeckRegistry {
     }
 
     if (Array.isArray(patch.quickLinks)) {
-      project.quickLinks = patch.quickLinks;
+      project.quickLinks = normalizeQuickLinks(patch.quickLinks);
     }
 
     if (patch.policyProfile) {
@@ -1382,6 +1526,119 @@ export class CommandDeckRegistry {
     this.persistState();
 
     return clonePayload(project);
+  }
+
+  upsertProjectQuickLink(locator, payload = {}, context = {}) {
+    const project = this.getProject(locator);
+    if (!project) {
+      throw { status: 404, message: 'Project not found.' };
+    }
+    const actor = context.actor || payload.actor || 'dashboard';
+    const policyCheck = this.evaluateActionPolicy('updateProject', {
+      actor,
+      approved: context.approved ?? payload.approved,
+    });
+    if (!policyCheck.allowed) {
+      throw {
+        status: 409,
+        message: policyCheck.message,
+        requiresApproval: true,
+        risk: policyCheck.policy.risk,
+      };
+    }
+    const existingIndex = (project.quickLinks || []).findIndex((link) =>
+      link.id === payload.id || (
+        payload.label && link.label === payload.label
+      )
+    );
+    const existing = existingIndex >= 0 ? project.quickLinks[existingIndex] : null;
+    const link = normalizeQuickLink(payload, existing);
+    if (existingIndex >= 0) {
+      project.quickLinks[existingIndex] = link;
+    } else {
+      project.quickLinks = [...(project.quickLinks || []), link].slice(0, MAX_PROJECT_QUICK_LINKS);
+    }
+    project.updatedAt = nowIso();
+    this.recordAudit({
+      type: 'project_quick_link_upserted',
+      actor,
+      projectId: project.id,
+      summary: `Quick link "${link.label}" saved for ${project.name}`,
+      evidence: { link: { ...link, checkedUrl: undefined } },
+      status: 'passed',
+    });
+    this.persistState();
+    return clonePayload({ project, link });
+  }
+
+  deleteProjectQuickLink(locator, linkId, context = {}) {
+    const project = this.getProject(locator);
+    if (!project) {
+      throw { status: 404, message: 'Project not found.' };
+    }
+    const actor = context.actor || 'dashboard';
+    const policyCheck = this.evaluateActionPolicy('updateProject', {
+      actor,
+      approved: context.approved,
+    });
+    if (!policyCheck.allowed) {
+      throw {
+        status: 409,
+        message: policyCheck.message,
+        requiresApproval: true,
+        risk: policyCheck.policy.risk,
+      };
+    }
+    const before = project.quickLinks || [];
+    const next = before.filter((link) => link.id !== linkId);
+    if (before.length === next.length) {
+      throw { status: 404, message: 'Quick link not found.' };
+    }
+    project.quickLinks = next;
+    project.updatedAt = nowIso();
+    this.recordAudit({
+      type: 'project_quick_link_deleted',
+      actor,
+      projectId: project.id,
+      summary: `Quick link removed from ${project.name}`,
+      evidence: { linkId },
+      status: 'passed',
+    });
+    this.persistState();
+    return clonePayload({ project, removed: true, linkId });
+  }
+
+  async checkProjectQuickLink(locator, linkId, { actor = 'dashboard', prefer = 'auto' } = {}) {
+    const project = this.getProject(locator);
+    if (!project) {
+      throw { status: 404, message: 'Project not found.' };
+    }
+    const link = (project.quickLinks || []).find((item) => item.id === linkId);
+    if (!link) {
+      throw { status: 404, message: 'Quick link not found.' };
+    }
+    const result = await boundedQuickLinkHealthCheck(link, { prefer });
+    link.healthStatus = result.status;
+    link.lastCheckedAt = nowIso();
+    link.lastStatusCode = result.httpStatus;
+    link.lastHealthDetail = sanitizeQuickLinkText(result.detail, '', 180);
+    link.updatedAt = nowIso();
+    project.updatedAt = nowIso();
+    this.recordAudit({
+      type: 'project_quick_link_health_checked',
+      actor,
+      projectId: project.id,
+      summary: `Quick link "${link.label}" health checked: ${result.status}`,
+      evidence: {
+        linkId: link.id,
+        status: result.status,
+        httpStatus: result.httpStatus,
+        detail: result.detail,
+      },
+      status: result.status === 'reachable' || result.status === 'not_checkable' ? 'passed' : 'failed',
+    });
+    this.persistState();
+    return clonePayload({ project, link, result });
   }
 
   updateSession(locator, patch = {}, context = {}) {
@@ -1897,7 +2154,14 @@ export class CommandDeckRegistry {
     const project = this.projects.find((item) => item.id === lane.projectId) || null;
     const allowedUrls = [
       lane.targetUrl,
-      ...(Array.isArray(project?.quickLinks) ? project.quickLinks.map((quickLink) => quickLink?.url) : []),
+      ...(Array.isArray(project?.quickLinks)
+        ? project.quickLinks.flatMap((quickLink) => [
+          quickLink?.url,
+          quickLink?.localUrl,
+          quickLink?.tailnetHttpUrl,
+          quickLink?.httpsServeUrl,
+        ])
+        : []),
     ].filter(Boolean);
     const requestedUrl = String(url || lane.targetUrl || '').trim();
     const networkPolicy = validateEvidenceUrl(requestedUrl, {
@@ -3057,8 +3321,10 @@ export class CommandDeckRegistry {
     }
     if (project) {
       for (const link of project.quickLinks || []) {
-        if (!link || !link.url) continue;
-        presets.push({ label: link.label || link.url, url: link.url });
+        if (!link) continue;
+        const presetUrl = effectiveQuickLinkUrl(link, { prefer: 'auto' });
+        if (!presetUrl) continue;
+        presets.push({ label: link.label || presetUrl, url: presetUrl });
       }
     }
     return {

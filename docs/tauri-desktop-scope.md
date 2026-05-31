@@ -40,6 +40,47 @@ second product.
 - Initial manual packaging validation can happen on Windows first if that is the
   available test machine, but the source layout must not hardcode Windows-only
   paths or shell behavior.
+- Treat the Node server as a managed app sidecar with explicit lifecycle states:
+  token-ready, process-starting, health-ready, dashboard-opened, degraded,
+  restarting, and stopped.
+- Reserve or discover the local dashboard port before process launch, write the
+  selected URL into app state, then wait for `/api/health` before opening the
+  renderer route.
+- Keep startup logs local and redacted; never print the generated API token,
+  provider secrets, pairing codes, or credential payloads.
+- Add launch-at-login as an explicit user setting after first-run setup, not as
+  a default installer side effect.
+- Keep path, process, and shell behavior platform-specific behind Rust/Tauri
+  adapters. The renderer should request narrow commands such as
+  `server_status`, `server_start`, `server_restart`, `open_dashboard`,
+  `copy_phone_url`, and `create_pairing_code`.
+
+## Server startup and MCP boundary
+
+- A stopped Command Deck server cannot start itself through its own API or MCP
+  tool surface. Something already running must own startup.
+- In the packaged app, the Tauri host owns startup, restart, shutdown, health
+  wait, and dashboard opening.
+- In CLI/PWA development, a user-run command or OS supervisor owns startup.
+  Useful supervisors are launchd on macOS, systemd user services on Linux, and
+  Task Scheduler or a service wrapper on Windows.
+- Agent/MCP tools may expose status, saved project live links, and health checks
+  while the server is running. They may request a restart only when the native
+  host or supervisor bridge is available and the action is approval-gated.
+- Do not design the orchestrator as the only boot path. It should consume the
+  running server contract, not be required to make the app exist.
+
+## Live links in the desktop app
+
+- Reuse the server-authoritative project quick-link routes and agent tools from
+  `docs/live-project-links.md`.
+- Surface favorite links in the app menu or project toolbar so a user can open
+  `localhost:5173`, a tailnet HTTP URL, or an HTTPS Serve URL without searching
+  chat history.
+- Let the native host detect obvious local ports only as suggestions. The saved
+  quick-link API remains the source of truth.
+- When Tailscale Serve mode changes, refresh the private URL/QR and prefer
+  saved `tailnetHttpUrl` or `httpsServeUrl` variants where available.
 
 ## Phase 2: first-run desktop wizard
 

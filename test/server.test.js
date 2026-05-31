@@ -158,6 +158,23 @@ async function startDummyApiProvider(secret) {
   };
 }
 
+async function startDummyWebTarget() {
+  const requests = [];
+  const server = http.createServer((req, res) => {
+    requests.push({ method: req.method, url: req.url, headers: req.headers });
+    res.writeHead(200, { 'content-type': 'text/plain' });
+    res.end('ok');
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  return {
+    url: `http://127.0.0.1:${address.port}/`,
+    port: address.port,
+    requests,
+    close: () => new Promise((resolve) => server.close(resolve)),
+  };
+}
+
 async function waitForServerLane(server, laneId, token) {
   const headers = token ? { 'x-commanddeck-token': token } : {};
   for (let i = 0; i < 80; i += 1) {
@@ -315,7 +332,11 @@ test('an unpaired client with only the URL receives no workspace or host data', 
     const project = await server.requestJson('/api/projects', {
       method: 'POST',
       headers: { 'x-commanddeck-token': token },
-      body: { name: 'Secret Project', approved: true },
+      body: {
+        name: 'Secret Project',
+        approved: true,
+        quickLinks: [{ label: 'Secret Live Link', url: 'http://127.0.0.1:5173' }],
+      },
     });
     assert.equal(project.status, 201);
 
@@ -342,6 +363,20 @@ test('an unpaired client with only the URL receives no workspace or host data', 
       const res = await server.requestJson(route, { method: 'GET' });
       assert.equal(res.status, 401, `${route} must require auth`);
       assert.equal(JSON.stringify(res.body || {}).includes('Secret Project'), false, `${route} leaked project data`);
+      assert.equal(JSON.stringify(res.body || {}).includes('Secret Live Link'), false, `${route} leaked quick link data`);
+    }
+
+    const protectedWrites = [
+      ['POST', `/api/projects/${project.body.id}/quick-links`, { actor: 'dashboard', approved: true, label: 'Remote', url: 'http://127.0.0.1:5173' }],
+      ['PATCH', `/api/projects/${project.body.id}/quick-links/${project.body.quickLinks[0].id}`, { actor: 'dashboard', approved: true, label: 'Remote Updated', url: 'http://127.0.0.1:5174' }],
+      ['POST', `/api/projects/${project.body.id}/quick-links/${project.body.quickLinks[0].id}/check`, { actor: 'dashboard' }],
+      ['DELETE', `/api/projects/${project.body.id}/quick-links/${project.body.quickLinks[0].id}`, { actor: 'dashboard', approved: true }],
+    ];
+    for (const [method, route, body] of protectedWrites) {
+      const res = await server.requestJson(route, { method, body });
+      assert.equal(res.status, 401, `${method} ${route} must require auth`);
+      assert.equal(JSON.stringify(res.body || {}).includes('Secret Project'), false, `${method} ${route} leaked project data`);
+      assert.equal(JSON.stringify(res.body || {}).includes('Secret Live Link'), false, `${method} ${route} leaked quick link data`);
     }
 
     // Liveness is the only public surface, and it must not expose counts.
@@ -1846,7 +1881,7 @@ test('projects can be patched to manage quick links from the dashboard', async (
     assert.equal(Array.isArray(added.body.quickLinks), true);
     assert.equal(added.body.quickLinks.length, 1);
     assert.equal(added.body.quickLinks[0].label, 'Local');
-    assert.equal(added.body.quickLinks[0].url, 'http://localhost:3000');
+    assert.equal(added.body.quickLinks[0].url, 'http://localhost:3000/');
 
     const cleared = await server.requestJson(`/api/projects/${project.body.id}`, {
       method: 'PATCH',
@@ -1861,6 +1896,100 @@ test('projects can be patched to manage quick links from the dashboard', async (
     assert.equal(cleared.body.quickLinks.length, 0);
   } finally {
     await server.stop();
+  }
+});
+
+test('project live links are server-authoritative, SSRF-checked, health-checked, and removable', async () => {
+  const token = 'route-token-live-links';
+  const target = await startDummyWebTarget();
+  const server = await startServer({ token });
+
+  try {
+    const project = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        name: 'Live Link Project',
+        approved: true,
+      },
+    });
+    assert.equal(project.status, 201);
+
+    const approvalRequired = await server.requestJson(`/api/projects/${project.body.id}/quick-links`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        label: 'Realm Shaper',
+        url: target.url,
+        kind: 'vite',
+      },
+    });
+    assert.equal(approvalRequired.status, 409);
+    assert.equal(Boolean(approvalRequired.body?.requiresApproval), true);
+
+    const badSsr = await server.requestJson(`/api/projects/${project.body.id}/quick-links`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+        label: 'Metadata',
+        url: 'http://169.254.169.254/latest/meta-data',
+        kind: 'dev-server',
+      },
+    });
+    assert.equal(badSsr.status, 422);
+
+    const added = await server.requestJson(`/api/projects/${project.body.id}/quick-links`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+        label: 'Realm Shaper',
+        url: target.url,
+        localUrl: target.url,
+        port: target.port,
+        kind: 'vite',
+        favorite: true,
+      },
+    });
+    assert.equal(added.status, 201);
+    assert.equal(added.body?.link?.label, 'Realm Shaper');
+    assert.equal(added.body?.link?.kind, 'vite');
+    assert.equal(added.body?.link?.port, target.port);
+    assert.equal(added.body?.link?.favorite, true);
+    assert.equal(added.body?.project?.quickLinks?.length, 1);
+
+    const checked = await server.requestJson(`/api/projects/${project.body.id}/quick-links/${added.body.link.id}/check`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        prefer: 'local',
+      },
+    });
+    assert.equal(checked.status, 200);
+    assert.equal(checked.body?.result?.status, 'reachable');
+    assert.equal(checked.body?.link?.healthStatus, 'reachable');
+    assert.equal(checked.body?.link?.lastStatusCode, 200);
+    assert.equal(target.requests.length >= 1, true);
+
+    const removed = await server.requestJson(`/api/projects/${project.body.id}/quick-links/${added.body.link.id}`, {
+      method: 'DELETE',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+      },
+    });
+    assert.equal(removed.status, 200);
+    assert.equal(removed.body?.removed, true);
+    assert.equal(removed.body?.project?.quickLinks?.length, 0);
+  } finally {
+    await server.stop();
+    await target.close();
   }
 });
 
