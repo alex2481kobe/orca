@@ -6,7 +6,7 @@ smoke gates before being listed.
 
 ## Proven on this host
 
-- 135 tests pass.
+- 140 tests pass.
 - `npm run smoke` (v2) passes including five negative-path checks
   (unauthorized 401, spoofed actor 403, oversized body 413, malformed
   JSON 400, malformed query 400) and asserts evidence

@@ -56,9 +56,9 @@ artifacts/acceptance/acceptance-summary.json
 Latest recorded acceptance result:
 
 - Status: `passed`
-- Started: `2026-05-28T23:52:00.003Z`
-- Ended: `2026-05-28T23:53:23.584Z`
-- Elapsed: `83581ms`
+- Started: `2026-05-31T20:44:54.190Z`
+- Ended: `2026-05-31T20:46:23.894Z`
+- Elapsed: `89704ms`
 - Steps passed: `23`
 
 Additional live operator preflight:
@@ -102,7 +102,7 @@ npm run smoke:process-lifecycle
 
 Unit tests:
 
-- `135/135` passing in the acceptance run.
+- `140/140` passing in the acceptance run.
 
 Ledger:
 
@@ -257,7 +257,7 @@ Security controls proven by tests/smokes include:
 - Same-origin checks for browser-session mutations.
 - Pairing code rate limits.
 - JSON body limits and malformed JSON/query handling.
-- Route security matrix for 97 routes.
+- Route security matrix for 98 routes.
 - Centralized rate-limit metadata.
 - Security headers and no-store sensitive responses.
 - SSRF URL policy reused by accepted URL surfaces.
