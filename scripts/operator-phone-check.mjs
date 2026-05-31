@@ -109,6 +109,28 @@ async function fetchJson(id, url) {
   }
 }
 
+async function expectHttpStatus(id, url, expectedStatus, { forbiddenText = [] } = {}) {
+  try {
+    const response = await fetch(url, { cache: 'no-store' });
+    const text = await response.text();
+    if (response.status !== expectedStatus) {
+      record(id, 'failed', { url, message: `expected HTTP ${expectedStatus}, got HTTP ${response.status} ${text.slice(0, 160)}` });
+      return null;
+    }
+    for (const marker of forbiddenText) {
+      if (marker && text.includes(marker)) {
+        record(id, 'failed', { url, message: `response contained forbidden marker: ${marker}` });
+        return null;
+      }
+    }
+    record(id, 'passed', { url, message: `HTTP ${expectedStatus}` });
+    return text;
+  } catch (error) {
+    record(id, 'failed', { url, message: error.message });
+    return null;
+  }
+}
+
 const serve = runTailscale(['serve', 'status']);
 let discoveredPrivateBase = '';
 if (serve) {
@@ -144,9 +166,12 @@ if (privateBase) {
   const privateHealth = await fetchJson('private-health', `${privateBase}/api/health`);
   if (privateHealth?.status !== 'ok') record('private-health-body', 'failed', { message: 'health body did not report ok' });
 
-  const manifest = await fetchJson('private-mobile-manifest', `${privateBase}/api/mobile/manifest`);
-  if (!manifest?.apiTokenRequired) record('private-mobile-manifest-auth', 'failed', { message: 'manifest did not report apiTokenRequired=true' });
-  if (!Array.isArray(manifest?.projects)) record('private-mobile-manifest-projects', 'failed', { message: 'manifest did not include projects array' });
+  await expectHttpStatus('private-projects-prepair-auth', `${privateBase}/api/projects`, 401, {
+    forbiddenText: ['projects', 'sessions', 'lanes'],
+  });
+  await expectHttpStatus('private-mobile-manifest-prepair-auth', `${privateBase}/api/mobile/manifest`, 401, {
+    forbiddenText: ['projects', 'sessions', 'lanes'],
+  });
 }
 
 if (createPairingCode) {

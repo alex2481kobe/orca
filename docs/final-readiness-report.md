@@ -323,10 +323,10 @@ COMMAND_DECK_PRIVATE_URL=<tailnet-url> COMMAND_DECK_API_TOKEN=... npm run operat
 ```
 
 This writes `artifacts/operator-phone-check/phone-check-summary.json` with
-local/private health, mobile manifest, Tailscale Serve, Funnel, and manual
-phone checklist status. The summary never stores API tokens, cookies, or
-pairing codes. It also redacts private hostnames from recorded URLs and
-Tailscale status output.
+local/private health, pre-pairing no-data checks for private workspace routes,
+Tailscale Serve, Funnel, and manual phone checklist status. The summary never
+stores API tokens, cookies, or pairing codes. It also redacts private hostnames
+from recorded URLs and Tailscale status output.
 
 Local completion audit:
 

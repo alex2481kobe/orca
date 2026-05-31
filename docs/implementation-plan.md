@@ -70,8 +70,8 @@ smoke gates before being listed.
   at desktop and 390px phone viewports.
 - `npm run operator:status` and `npm run operator:phone-check` provide
   repeatable live preflight checks for local health, private Tailscale health,
-  tailnet-only Serve status, public Funnel absence, and private mobile
-  manifest availability. `operator:phone-check` writes a redacted
+  tailnet-only Serve status, public Funnel absence, and the private no-data
+  pre-pairing gate for workspace routes. `operator:phone-check` writes a redacted
   `artifacts/operator-phone-check/phone-check-summary.json` that omits API
   tokens, cookies, pairing codes, and private hostnames.
 - Real Claude CLI execution flows through the adapter (`claude
