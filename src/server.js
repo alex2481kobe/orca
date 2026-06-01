@@ -1443,6 +1443,33 @@ async function handleApi(req, res, pathname, method, parts) {
     }
   }
 
+  if (parts[1] === 'capture' && parts[2] === 'status' && parts.length === 3 && method === 'GET') {
+    const playwrightAvailable = await registry.evidenceRunner.ensurePlaywrightDetected().catch(() => false);
+    return sendJson(res, 200, registry.captureStatus({ playwrightAvailable }));
+  }
+
+  if (parts[1] === 'capture' && parts[2] === 'install' && parts.length === 3 && method === 'POST') {
+    if (!requireAdminAuth(req, res)) return;
+    const body = await parseJsonBody(req);
+    if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
+    try {
+      const result = await registry.setupCaptureBackend({
+        actor: body.actor || 'dashboard',
+        approved: Boolean(body.approved),
+        confirmed: Boolean(body.confirmed),
+        preferSystemChrome: body.preferSystemChrome !== false,
+      });
+      return sendJson(res, 200, result);
+    } catch (error) {
+      return sendJson(res, error.status || 500, {
+        error: error.message || 'Could not set up capture backend.',
+        requiresApproval: error.requiresApproval || false,
+        risk: error.risk || null,
+      });
+    }
+  }
+
   if (parts[1] === 'artifacts' && parts[2] === 'cleanup' && parts.length === 3 && method === 'POST') {
     const body = await parseJsonBody(req);
     if (body === null) return sendBodyError(req, res);

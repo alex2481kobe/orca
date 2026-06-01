@@ -1242,6 +1242,19 @@ function renderHome() {
   `).join('');
   const showMainHome = panel === 'overview' || panel === 'projects';
 
+  const captureStatus = shell.captureStatus || null;
+  const captureReady = Boolean(captureStatus?.videoReady);
+  const captureScreens = Boolean(captureStatus?.screenshotsReady);
+  const captureSummary = !captureStatus
+    ? 'Status unavailable'
+    : captureReady ? 'Ready (screenshots + video)' : captureScreens ? 'Screenshots only' : 'Not set up';
+  const captureBackends = captureStatus
+    ? (Object.entries(captureStatus.backends || {}).filter(([, v]) => v).map(([k]) => k).join(', ') || 'none')
+    : 'unknown';
+  const captureDetail = captureStatus
+    ? `Active backends: ${captureBackends}.${captureStatus.systemChrome?.present ? ' System Chrome detected, so no large download is needed.' : ''}${captureReady ? ' Screenshot, video, and trace capture are available.' : ' Enable capture to take screenshots and video of project URLs.'}`
+    : 'Capture status is unavailable.';
+
   refs.content.innerHTML = `
     <section class="simple-section ${showMainHome ? '' : 'is-hidden'}">
       <article class="card onboarding-card">
@@ -1534,6 +1547,21 @@ function renderHome() {
             <small>Defaults, binaries, workdirs</small>
           </summary>
           <div class="disclosure-body">${profileRows || '<div class="muted">No executor profiles loaded yet.</div>'}</div>
+        </details>
+      </article>
+      <article class="card control-card" data-panel-card="system">
+        <details class="disclosure">
+          <summary>
+            <span>Evidence capture backend</span>
+            <small>${safeText(captureSummary)}</small>
+          </summary>
+          <div class="disclosure-body">
+            <div class="tiny muted">${safeText(captureDetail)}</div>
+            <div class="lane-row">
+              <button class="secondary" data-action="setupCapture" type="button">${captureReady ? 'Reconfigure capture' : 'Enable screenshots &amp; video'}</button>
+            </div>
+            <div class="tiny muted">Setup is governed: it runs a dry-run first, then installs only after you confirm. The desktop app can also capture screenshots natively (no download) on macOS.</div>
+          </div>
         </details>
       </article>
       <article class="card control-card" data-panel-card="system">
@@ -3437,6 +3465,11 @@ async function refresh() {
     if (profilesResp.ok && profilesResp.data?.profiles) {
       shell.executorProfiles = profilesResp.data.profiles;
     }
+    const captureStatusResp = await api('/api/capture/status');
+    if (abortFromAuth(captureStatusResp)) return;
+    if (captureStatusResp.ok && captureStatusResp.data) {
+      shell.captureStatus = captureStatusResp.data;
+    }
     const providerCatalogResp = await api('/api/providers');
     if (abortFromAuth(providerCatalogResp)) return;
     if (providerCatalogResp.ok && providerCatalogResp.data) {
@@ -4204,6 +4237,34 @@ async function handleSystemActions(event) {
       await refresh();
     } else {
       renderAlert(response.data?.error || 'Could not create pairing code.', 'bad');
+    }
+    return;
+  }
+  if (action === 'setupCapture') {
+    // Dry-run first to preview the governed plan, then confirm to execute.
+    const dry = await api('/api/capture/install', {
+      method: 'POST',
+      body: { actor: 'dashboard', approved: true, confirmed: false },
+    });
+    if (!dry.ok) {
+      renderAlert(dry.data?.error || 'Could not plan capture setup.', 'bad');
+      return;
+    }
+    const plan = dry.data?.plan;
+    const desc = plan ? `${plan.backend} — ${plan.estimatedDownload}` : 'capture backend';
+    if (!window.confirm(`Set up evidence capture: ${desc}.\n\nThis installs a browser backend on this machine. Proceed?`)) {
+      return;
+    }
+    renderAlert('Setting up capture backend… this can take a minute.');
+    const run = await api('/api/capture/install', {
+      method: 'POST',
+      body: { actor: 'dashboard', approved: true, confirmed: true },
+    });
+    if (run.ok && run.data?.ok) {
+      renderAlert('Capture backend is ready.');
+      await refresh();
+    } else {
+      renderAlert(run.data?.error || run.data?.result?.failedStep || 'Capture setup failed.', 'bad');
     }
     return;
   }

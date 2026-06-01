@@ -46,6 +46,7 @@ const ADMIN_ROUTE_KEYS = new Set([
   'DELETE /api/private-access/targets/{targetId}',
   'POST /api/private-access/targets/{targetId}/check',
   'POST /api/auth/pairing-codes',
+  'POST /api/capture/install',
 ]);
 
 function resolveAuthContract(method, routePath, declared) {
@@ -662,6 +663,33 @@ const ROUTE_INVENTORY = [
     uiSurface: 'provider CLI health',
     smokeCoverage: ['test/registry.test.js', 'test/server.test.js'],
     serverHints: ['runExecutorCliReinstall'],
+  }),
+
+  route({
+    method: 'GET',
+    route: '/api/capture/status',
+    group: 'evidence',
+    auth: 'none',
+    mutationRisk: 'none',
+    approval: 'none',
+    validation: 'reports capture backends (native/system-chrome/playwright); no secrets',
+    auditEvent: 'none',
+    uiSurface: 'evidence capture setup',
+    smokeCoverage: ['test/capture-setup.test.js'],
+    serverHints: ["parts[1] === 'capture'", "parts[2] === 'status'"],
+  }),
+  route({
+    method: 'POST',
+    route: '/api/capture/install',
+    group: 'evidence',
+    auth: 'api_token_or_local_host_admin',
+    mutationRisk: 'critical',
+    approval: 'manageExecutorCli',
+    validation: 'governed browser setup; dry-run unless approved+confirmed; allowlisted binaries (npm/npx)',
+    auditEvent: 'capture_setup_planned_or_executed',
+    uiSurface: 'evidence capture setup',
+    smokeCoverage: ['test/capture-setup.test.js'],
+    serverHints: ['setupCaptureBackend'],
   }),
 
   route({

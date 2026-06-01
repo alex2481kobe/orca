@@ -48,6 +48,7 @@ const WIRED_ACTIONS = new Set([
   'copyPhoneUrl',
   'copyPrivateAccessCommand',
   'createPairingCode',
+  'setupCapture',
   'deleteMcpTool',
   'deletePrivateAccessTarget',
   'deleteProjectQuickLink',

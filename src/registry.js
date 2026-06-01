@@ -1,9 +1,14 @@
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync, spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { LANE_STATES } from './worker-contract.js';
+import {
+  planPlaywrightInstall,
+  runCaptureInstall,
+  describeCaptureStatus,
+} from './capture-setup.js';
 import {
   createExecutorAdapter,
   FIRST_CLASS_CLI_EXECUTOR_TYPES,
@@ -4729,6 +4734,76 @@ export class OrcaRegistry {
         sourceCommand: getReinstallSourceCommand(type),
       },
     };
+  }
+
+  // Governed on-demand setup of the evidence-capture browser backend.
+  // Dry-run by default; executes only with approval + explicit confirmation.
+  async setupCaptureBackend({
+    actor = 'dashboard',
+    approved = false,
+    confirmed = false,
+    preferSystemChrome = true,
+  } = {}) {
+    const policyCheck = this.evaluateActionPolicy('manageExecutorCli', { actor, approved });
+    if (!policyCheck.allowed) {
+      throw {
+        status: 409,
+        message: policyCheck.message,
+        requiresApproval: true,
+        risk: policyCheck.policy.risk,
+      };
+    }
+
+    const installDir = path.join(this.storageDir, 'capture', 'playwright');
+    const plan = planPlaywrightInstall({ installDir, preferSystemChrome });
+
+    if (!confirmed) {
+      this.recordAudit({
+        type: 'capture_setup_planned',
+        actor,
+        summary: `Capture setup planned (${plan.backend})`,
+        evidence: { backend: plan.backend, channel: plan.channel, installDir, steps: plan.steps.map((s) => s.label) },
+        status: 'passed',
+      });
+      return { dryRun: true, plan };
+    }
+
+    await fs.mkdir(installDir, { recursive: true });
+    const result = await runCaptureInstall(plan, {
+      approved: true,
+      spawn: (command, args, options) => new Promise((resolve) => {
+        const child = spawn(command, args, {
+          cwd: options?.cwd,
+          env: { ...process.env, ...(options?.env || {}) },
+          stdio: 'ignore',
+        });
+        child.on('error', () => resolve({ code: 1 }));
+        child.on('close', (code) => resolve({ code: code ?? 1 }));
+      }),
+    });
+
+    if (result.ok) {
+      // Wire env so capture works immediately, without restarting the server.
+      process.env.ORCA_PLAYWRIGHT_DIR = installDir;
+      if (plan.channel) process.env.ORCA_CAPTURE_CHANNEL = plan.channel;
+      else delete process.env.ORCA_CAPTURE_CHANNEL;
+      if (plan.browsersDir) process.env.PLAYWRIGHT_BROWSERS_PATH = plan.browsersDir;
+      if (this.evidenceRunner) this.evidenceRunner._hasPlaywright = null; // force re-detect
+    }
+
+    this.recordAudit({
+      type: 'capture_setup_executed',
+      actor,
+      summary: `Capture setup ${result.ok ? 'succeeded' : 'failed'} (${plan.backend})`,
+      evidence: { backend: plan.backend, channel: plan.channel, ok: result.ok, failedStep: result.failedStep || null },
+      status: result.ok ? 'passed' : 'failed',
+    });
+
+    return { dryRun: false, executed: true, ok: result.ok, plan, result };
+  }
+
+  captureStatus({ playwrightAvailable = false } = {}) {
+    return describeCaptureStatus({ playwrightAvailable });
   }
 
   async runExecutorCliReinstall(executorType, {
