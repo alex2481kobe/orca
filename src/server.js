@@ -1914,6 +1914,25 @@ async function handleApi(req, res, pathname, method, parts) {
       return sendJson(res, 200, lane);
     }
 
+    if (parts.length === 4 && parts[3] === 'controls' && method === 'PATCH') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+      if (rejectSpoofedActor(body, res)) return;
+      try {
+        const updated = registry.updateLaneControls(lane.id, body, {
+          actor: body.actor || 'dashboard',
+          approved: body.approved,
+        });
+        return sendJson(res, 200, updated);
+      } catch (error) {
+        return sendJson(res, error.status || 500, {
+          error: error.message || 'Could not update lane controls.',
+          requiresApproval: error.requiresApproval || false,
+          risk: error.risk || null,
+        });
+      }
+    }
+
     if (parts.length === 4 && parts[3] === 'stop' && method === 'POST') {
       const body = await parseJsonBody(req);
       if (body === null) return sendBodyError(req, res);

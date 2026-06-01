@@ -165,6 +165,10 @@ function normalizeNotificationSeverity(raw, fallback = 'info') {
   return NOTIFICATION_SEVERITIES.has(normalized) ? normalized : fallback;
 }
 
+function isLiveLaneState(state) {
+  return [QUEUED_STATE, STARTING_STATE, RUNNING_STATE].includes(String(state || '').toLowerCase());
+}
+
 function redactNotificationText(value) {
   return String(value ?? '')
     .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer [REDACTED]')
@@ -607,6 +611,11 @@ const defaultPolicy = {
     requiresApproval: false,
     risk: 'medium',
     message: 'Replays a lane from last known terminal state.',
+  },
+  updateLaneControls: {
+    requiresApproval: true,
+    risk: 'high',
+    message: 'Changes agent model, mode, or intelligence controls for a lane.',
   },
   auditLane: {
     requiresApproval: false,
@@ -3091,6 +3100,70 @@ export class CommandDeckRegistry {
       throw { status: 404, message: 'Session not found.' };
     }
     return clonePayload(this.lanes.filter((lane) => lane.sessionId === session.id));
+  }
+
+  updateLaneControls(laneLocator, {
+    model,
+    permissionsProfile,
+    intelligenceProfile,
+  } = {}, context = {}) {
+    const lane = this.getLane(laneLocator);
+    if (!lane) {
+      throw { status: 404, message: 'Lane not found.' };
+    }
+
+    const policyCheck = this.evaluateActionPolicy('updateLaneControls', context);
+    if (!policyCheck.allowed) {
+      throw {
+        status: 409,
+        message: policyCheck.message,
+        requiresApproval: true,
+        risk: policyCheck.policy.risk,
+      };
+    }
+
+    const before = {
+      model: lane.model || '',
+      permissionsProfile: lane.permissionsProfile || '',
+      intelligenceProfile: lane.intelligenceProfile || '',
+    };
+    const next = {
+      model: typeof model === 'string' ? model.trim().slice(0, 120) : before.model,
+      permissionsProfile: typeof permissionsProfile === 'string' ? permissionsProfile.trim().slice(0, 120) : before.permissionsProfile,
+      intelligenceProfile: typeof intelligenceProfile === 'string' ? intelligenceProfile.trim().slice(0, 80) : before.intelligenceProfile,
+    };
+
+    lane.model = next.model;
+    lane.permissionsProfile = next.permissionsProfile;
+    lane.intelligenceProfile = next.intelligenceProfile;
+    lane.executorCapabilities = this.getExecutorCapabilities(lane.executorType);
+    lane.updatedAt = nowIso();
+    lane.logs.push({
+      at: lane.updatedAt,
+      message: `Lane controls updated: model=${next.model || 'default'}, mode=${next.permissionsProfile || 'default'}, intelligence=${next.intelligenceProfile || 'default'}.`,
+    });
+    this.appendLaneAgentEvent(lane, {
+      type: 'agent.controls_updated',
+      source: lane.executorType,
+      title: 'Controls updated',
+      content: `Model: ${next.model || 'default'}\nMode: ${next.permissionsProfile || 'default'}\nIntelligence: ${next.intelligenceProfile || 'default'}`,
+    }, { persist: false });
+    this.recordAudit({
+      type: 'lane_controls_updated',
+      actor: context.actor || 'dashboard',
+      projectId: lane.projectId,
+      sessionId: lane.sessionId,
+      laneId: lane.id,
+      summary: `Updated controls for lane ${lane.title}`,
+      status: 'passed',
+      evidence: {
+        before,
+        after: next,
+        runningProcess: isLiveLaneState(lane.state),
+      },
+    });
+    this.persistState();
+    return clonePayload(lane);
   }
 
   async stopLane(laneLocator, context = {}) {

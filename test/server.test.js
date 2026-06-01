@@ -750,6 +750,33 @@ test('project updates and lane creations require explicit approval', async () =>
     });
     assert.equal(allowedLane.status, 201);
     assert.equal(allowedLane.body?.title, 'Approved lane');
+
+    const deniedControls = await server.requestJson(`/api/lanes/${allowedLane.body.id}/controls`, {
+      method: 'PATCH',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        model: 'gpt-5',
+        permissionsProfile: 'plan',
+        intelligenceProfile: 'high',
+      },
+    });
+    assert.equal(deniedControls.status, 409);
+    assert.equal(Boolean(deniedControls.body?.requiresApproval), true);
+
+    const updatedControls = await server.requestJson(`/api/lanes/${allowedLane.body.id}/controls`, {
+      method: 'PATCH',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        approved: true,
+        model: 'gpt-5',
+        permissionsProfile: 'auto-edit',
+        intelligenceProfile: 'max',
+      },
+    });
+    assert.equal(updatedControls.status, 200);
+    assert.equal(updatedControls.body?.model, 'gpt-5');
+    assert.equal(updatedControls.body?.permissionsProfile, 'auto-edit');
+    assert.equal(updatedControls.body?.intelligenceProfile, 'max');
   } finally {
     await server.stop();
   }

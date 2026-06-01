@@ -1101,6 +1101,41 @@ test('executor capabilities are available for every supported executor and snaps
   }
 });
 
+test('lane controls update model, mode, intelligence, and audit event', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+
+  try {
+    const project = registry.createProject({ name: 'Lane Controls Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Lane Controls Session' }, { actor: 'test', approved: true });
+    const lane = registry.createLane(session.id, {
+      title: 'Controlled lane',
+      executorType: 'mock',
+      taskPrompt: 'Run with controls.',
+      sharedWorktree: true,
+    }, { actor: 'test', approved: true });
+
+    assert.throws(() => registry.updateLaneControls(lane.id, {
+      model: 'gpt-5',
+      permissionsProfile: 'plan',
+      intelligenceProfile: 'high',
+    }, { actor: 'test', approved: false }), (error) => error.status === 409);
+
+    const updated = registry.updateLaneControls(lane.id, {
+      model: 'gpt-5',
+      permissionsProfile: 'auto-edit',
+      intelligenceProfile: 'max',
+    }, { actor: 'test', approved: true });
+
+    assert.equal(updated.model, 'gpt-5');
+    assert.equal(updated.permissionsProfile, 'auto-edit');
+    assert.equal(updated.intelligenceProfile, 'max');
+    assert.equal(updated.agentEvents.some((event) => event.type === 'agent.controls_updated'), true);
+    assert.equal(registry.auditEvents.some((event) => event.type === 'lane_controls_updated' && event.laneId === lane.id), true);
+  } finally {
+    await cleanup();
+  }
+});
+
 test('executor CLI reinstall execute mode requires confirmation', async () => {
   const restore = restoreEnv({
     COMMAND_DECK_CODEX_BINARY: process.env.COMMAND_DECK_CODEX_BINARY,

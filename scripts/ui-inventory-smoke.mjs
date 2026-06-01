@@ -81,6 +81,7 @@ const WIRED_ACTIONS = new Set([
   'revokeBrowserSession',
   'reinstallExecutorCli',
   'removeWorktree',
+  'restartLane',
   'retryLane',
   'setApiToken',
   'pairBrowserSession',
@@ -88,6 +89,7 @@ const WIRED_ACTIONS = new Set([
   'setProviderSecret',
   'showArtifacts',
   'stopLane',
+  'toggleExecutorPanel',
   'toggleNav',
   'toggleProviderEnabled',
 ]);

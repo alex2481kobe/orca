@@ -25,6 +25,7 @@ const shell = {
   notifications: null,
   authSessions: null,
   lastPairing: null,
+  executorPanelOpen: true,
 };
 
 let refreshRequestId = 0;
@@ -2603,6 +2604,10 @@ function runModeOptions(selected = 'plan') {
   ].map(([value, label]) => `<option value="${safeAttr(value)}"${normalized === value ? ' selected' : ''}>${safeText(label)}</option>`).join('');
 }
 
+function modelControlOptions(selected = '') {
+  return modelPresetOptions(selected || '');
+}
+
 function executorCapabilitiesFor(type) {
   const info = shell.executorCliInfo || {};
   return info[String(type || '').trim()]?.capabilities || null;
@@ -2735,38 +2740,87 @@ function renderOrchestratorConsole(session) {
       </div>
       ${renderOrchestratorTerminal(project, session, activeLane)}
       ${renderExecutorCapabilities(activeLane?.executorCapabilities || executorCapabilitiesFor(selectedExecutor))}
-      <form id="orchestrator-message-form" data-session-id="${safeAttr(session.id)}" class="orchestrator-form">
-        <textarea name="message" rows="4" required placeholder="Tell the orchestrator what to build, audit, or coordinate next."></textarea>
-        <div class="orchestrator-options">
-          <label>Agent
-            <select name="executorType">
-              ${cliExecutorOptions(selectedExecutor)}
-              ${apiProviderOptions()}
-              <option value="mock"${normalizeExecutorType(selectedExecutor) === 'mock' ? ' selected' : ''}>mock</option>
-            </select>
-          </label>
-          <label>Model
-            <select name="modelPreset">
-              ${modelPresetOptions(selectedModel)}
-            </select>
-          </label>
-          <label>Custom model
-            <input name="model" placeholder="optional override" />
-          </label>
-          <label>Intelligence
-            <select name="intelligenceProfile">
-              ${intelligenceOptions(selectedIntelligence)}
-            </select>
-          </label>
-          <label>Mode
-            <select name="permissionsProfile">
-              ${runModeOptions(selectedRunMode)}
-            </select>
-          </label>
+      <form id="orchestrator-message-form" data-session-id="${safeAttr(session.id)}" class="orchestrator-form composer-shell">
+        <textarea name="message" rows="4" required placeholder="Ask the orchestrator..."></textarea>
+        <div class="composer-bar">
+          <select name="executorType" aria-label="Agent">
+            ${cliExecutorOptions(selectedExecutor)}
+            ${apiProviderOptions()}
+            <option value="mock"${normalizeExecutorType(selectedExecutor) === 'mock' ? ' selected' : ''}>mock</option>
+          </select>
+          <select name="modelPreset" aria-label="Model">
+            ${modelControlOptions(selectedModel)}
+          </select>
+          <input name="model" aria-label="Custom model" placeholder="custom model" />
+          <select name="intelligenceProfile" aria-label="Intelligence">
+            ${intelligenceOptions(selectedIntelligence)}
+          </select>
+          <select name="permissionsProfile" aria-label="Mode">
+            ${runModeOptions(selectedRunMode)}
+          </select>
+          <button class="send-button" type="submit" aria-label="Send">Send</button>
         </div>
-        <button type="submit">Send</button>
       </form>
     </article>
+  `;
+}
+
+function renderExecutorLanePanelItem(lane) {
+  const stopButton = isLiveLaneState(lane.state)
+    ? `<button data-action="stopLane" data-lane-id="${safeAttr(lane.id)}" type="button">Stop</button>` : '';
+  const restartButton = (isLiveLaneState(lane.state) || isRestartableLaneState(lane.state))
+    ? `<button class="secondary" data-action="restartLane" data-lane-id="${safeAttr(lane.id)}" type="button">Restart</button>` : '';
+  const latestEvents = renderAgentEventTimeline(lane, { limit: 16, compact: true });
+  return `
+    <article class="executor-panel-lane">
+      <div class="executor-panel-lane-head">
+        <div>
+          <strong>${safeText(lane.title || lane.executorType)}</strong>
+          <div class="tiny muted">${safeText(lane.executorType)} / ${safeText(lane.owner)} / ${safeText(formatRelative(lane.updatedAt || lane.startedAt))}</div>
+        </div>
+        ${stateBadge(lane.state)}
+      </div>
+      <form class="lane-controls-form" data-lane-id="${safeAttr(lane.id)}">
+        <input name="model" value="${safeAttr(lane.model || '')}" placeholder="model" aria-label="Model" />
+        <select name="intelligenceProfile" aria-label="Intelligence">
+          ${intelligenceOptions(lane.intelligenceProfile || 'high')}
+        </select>
+        <select name="permissionsProfile" aria-label="Mode">
+          ${runModeOptions(lane.permissionsProfile || 'plan')}
+        </select>
+        <button type="submit">Save</button>
+      </form>
+      ${renderExecutorCapabilities(lane.executorCapabilities || executorCapabilitiesFor(lane.executorType), { compact: true })}
+      <div class="lane-row">
+        ${stopButton}
+        ${restartButton}
+        <a class="secondary" href="${safeAttr(lane.route || '#')}">Open</a>
+      </div>
+      <details class="disclosure compact-disclosure">
+        <summary>Activity</summary>
+        ${latestEvents}
+      </details>
+    </article>
+  `;
+}
+
+function renderExecutorSidePanel(session) {
+  const executorLanes = shell.lanes
+    .filter((lane) => lane.sessionId === session.id && lane.owner !== 'orchestrator')
+    .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
+  return `
+    <aside class="executor-side-panel" aria-label="Executor lanes">
+      <div class="executor-panel-titlebar">
+        <div>
+          <strong>Executors</strong>
+          <div class="tiny muted">${safeText(executorLanes.length)} lane${executorLanes.length === 1 ? '' : 's'}</div>
+        </div>
+        <button class="secondary" data-action="toggleExecutorPanel" type="button">Hide</button>
+      </div>
+      <div class="executor-panel-list">
+        ${executorLanes.map(renderExecutorLanePanelItem).join('') || '<div class="muted">No executor lanes yet.</div>'}
+      </div>
+    </aside>
   `;
 }
 
@@ -2777,20 +2831,23 @@ function renderSession(project, session) {
     ? `<p>Pending audit events: ${pendingAudits.length}</p>`
     : '<p>No pending audit events.</p>';
   refs.content.innerHTML = `
-    <section class="session-shell">
+    <section class="session-shell ${shell.executorPanelOpen ? 'executor-panel-open' : 'executor-panel-closed'}">
       <div class="session-toolbar">
         <div class="tiny muted">${safeText(project.name)} · ${safeText(session.leader)} led</div>
+        <button class="secondary" data-action="toggleExecutorPanel" type="button">${shell.executorPanelOpen ? 'Hide executors' : 'Show executors'}</button>
       </div>
-      ${renderOrchestratorConsole(session)}
-      <div class="grid-2 session-controls">
-        <article class="card control-card" id="create-session">
-          <details class="disclosure">
-            <summary>
-              <span>Create lane</span>
-              <small>Queue Codex, Claude, API, CLI, or mock work</small>
-            </summary>
-            <div class="disclosure-body">
-          <form id="create-lane-form" data-session-id="${session.id}">
+      <div class="session-workbench">
+        <div class="session-main-column">
+          ${renderOrchestratorConsole(session)}
+          <div class="grid-2 session-controls">
+            <article class="card control-card" id="create-session">
+              <details class="disclosure">
+                <summary>
+                  <span>Create lane</span>
+                  <small>Queue Codex, Claude, API, CLI, or mock work</small>
+                </summary>
+                <div class="disclosure-body">
+              <form id="create-lane-form" data-session-id="${session.id}">
             <label>Title
               <input name="title" required />
             </label>
@@ -2850,29 +2907,32 @@ function renderSession(project, session) {
             </label>
             <input type="hidden" name="mcpToolIdsRaw" />
             <button type="submit">Queue lane</button>
-          </form>
-            </div>
-          </details>
-        </article>
-        <article class="card control-card">
-          <details class="disclosure">
-            <summary>
-              <span>Session tools</span>
-              <small>${pendingAudits.length} pending audits</small>
-            </summary>
-            <div class="disclosure-body">
-              ${pendingAuditSummary}
-              <div class="lane-row">
-                <button class="secondary" data-action="auditDone" data-session-id="${session.id}" type="button">Audit done lanes</button>
-                <button class="secondary" data-action="refresh" type="button">Refresh</button>
-              </div>
-            </div>
-          </details>
-        </article>
+              </form>
+                </div>
+              </details>
+            </article>
+            <article class="card control-card">
+              <details class="disclosure">
+                <summary>
+                  <span>Session tools</span>
+                  <small>${pendingAudits.length} pending audits</small>
+                </summary>
+                <div class="disclosure-body">
+                  ${pendingAuditSummary}
+                  <div class="lane-row">
+                    <button class="secondary" data-action="auditDone" data-session-id="${session.id}" type="button">Audit done lanes</button>
+                    <button class="secondary" data-action="refresh" type="button">Refresh</button>
+                  </div>
+                </div>
+              </details>
+            </article>
+          </div>
+          <section class="lane-queue">
+            <div class="card-grid">${laneList || '<div class="muted">No lanes yet.</div>'}</div>
+          </section>
+        </div>
+        ${shell.executorPanelOpen ? renderExecutorSidePanel(session) : ''}
       </div>
-      <section class="lane-queue">
-        <div class="card-grid">${laneList || '<div class="muted">No lanes yet.</div>'}</div>
-      </section>
     </section>
   `;
   renderLaneExecutorGuidance(document.getElementById('create-lane-form'));
@@ -3813,6 +3873,47 @@ async function handleOrchestratorMessage(event) {
   }
 }
 
+async function handleLaneControlsUpdate(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const laneId = form.dataset.laneId;
+  const lane = shell.lanes.find((item) => item.id === laneId);
+  if (!lane) {
+    renderAlert('Lane not found.', 'bad');
+    return;
+  }
+  const payload = toObj(form);
+  const model = String(payload.model || '').trim();
+  const intelligenceProfile = String(payload.intelligenceProfile || '').trim();
+  const permissionsProfile = String(payload.permissionsProfile || '').trim();
+  const approval = buildApprovedActionBody(
+    'updateLaneControls',
+    `Update controls for ${lane.title}?\nMode: ${permissionsProfile || 'default'}\nModel: ${model || 'default'}\nIntelligence: ${intelligenceProfile || 'default'}`,
+  );
+  if (!approval.approved) {
+    renderAlert('Lane control update canceled.');
+    return;
+  }
+  const response = await api(`/api/lanes/${laneId}/controls`, {
+    method: 'PATCH',
+    body: {
+      actor: approval.actor,
+      approved: approval.approved,
+      model,
+      permissionsProfile,
+      intelligenceProfile,
+    },
+  });
+  if (response.ok) {
+    renderAlert(isLiveLaneState(lane.state) ? 'Lane controls saved. Restart to apply to the running process.' : 'Lane controls saved.');
+    await refresh();
+  } else if (response.data?.requiresApproval) {
+    renderAlert('Approval required for lane controls.', 'bad');
+  } else {
+    renderAlert(response.data?.error || 'Could not update lane controls.', 'bad');
+  }
+}
+
 async function handleLaneActions(event) {
   const action = event.currentTarget.dataset.action;
   const laneId = event.currentTarget.dataset.laneId;
@@ -4634,6 +4735,10 @@ document.addEventListener('submit', async (event) => {
     await handleOrchestratorMessage(formEvent);
     return;
   }
+  if (event.target.classList.contains('lane-controls-form')) {
+    await handleLaneControlsUpdate(formEvent);
+    return;
+  }
   if (event.target.id === 'create-mcp-tool-form') {
     await handleCreateMcpTool(formEvent);
     return;
@@ -4839,6 +4944,12 @@ document.addEventListener('click', async (event) => {
 
   if (['stopLane', 'retryLane', 'restartLane', 'auditLane', 'captureEvidence', 'clearEvidence', 'captureEvidencePreset', 'removeWorktree'].includes(action)) {
     await handleLaneActions({ currentTarget: actionTarget });
+    return;
+  }
+
+  if (action === 'toggleExecutorPanel') {
+    shell.executorPanelOpen = !shell.executorPanelOpen;
+    render(captureContentUiState());
     return;
   }
 

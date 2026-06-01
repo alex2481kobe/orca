@@ -77,6 +77,7 @@ const WIRED_ACTIONS = new Set([
   'setProviderSecret',
   'showArtifacts',
   'stopLane',
+  'toggleExecutorPanel',
   'toggleNav',
   'toggleProviderEnabled',
 ]);
