@@ -156,6 +156,7 @@ These are not missing local app code:
 
 - [`docs/agent-orchestrator-skill.md`](docs/agent-orchestrator-skill.md)
 - [`docs/agent-executor-skill.md`](docs/agent-executor-skill.md)
+- [`docs/agent-run-modes.md`](docs/agent-run-modes.md)
 - [`docs/live-project-links.md`](docs/live-project-links.md)
 
 ## Project docs

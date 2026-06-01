@@ -14,6 +14,9 @@ Command Deck policy gates.
 - Read the current project, session, and lane state before assigning work.
 - Use the agent-tool discovery contract instead of guessing route names.
 - Create lanes only when the work is scoped, reviewable, and within capacity.
+- Choose executor run mode through lane fields documented in
+  `docs/agent-run-modes.md`; make high-risk modes such as auto-edit or bypass
+  explicit in the lane.
 - Assign exactly one owner per lane and name the expected reviewer.
 - Prefer server-authoritative project live links over pasted local URLs.
 - Ask executors to report any started dev server as a live link with label,

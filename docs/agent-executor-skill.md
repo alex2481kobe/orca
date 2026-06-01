@@ -12,6 +12,9 @@ blocked.
 ## Required behavior
 
 - Read the assigned lane, project, and session context before editing files.
+- Confirm the lane's executor type, model, permissions profile, workdir, and MCP
+  tools before starting; these are the run-mode contract from
+  `docs/agent-run-modes.md`.
 - Keep changes inside the assigned scope and existing repo style.
 - Report meaningful progress with lane heartbeat/progress tools.
 - If you start a dev server, record the exact local URL, port, and framework
