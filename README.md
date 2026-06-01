@@ -196,6 +196,22 @@ For durable Mac operation after the current terminal exits, use
 API token in a local `chmod 600` env file instead of committing it or storing it
 in the launchd plist.
 
+## Evidence capture
+
+Screenshots, video, and traces of project URLs need a browser engine. To keep
+the app small, none is bundled by default; a backend is set up on demand:
+
+- **macOS desktop app:** screenshot capture runs natively through the app's
+  WKWebView — no Chromium download. Video and traces fall back to Playwright.
+- **Playwright (any mode):** the dashboard's *Settings → Evidence capture
+  backend* card installs Playwright on demand (governed: dry-run, then confirm).
+  It uses your installed Google Chrome when present (`channel:'chrome'`, no large
+  download) and otherwise downloads the pinned Chromium. From source you can also
+  run `npm install --save-dev playwright && npx playwright install chromium`.
+
+Capture degrades gracefully and reports a clear blocker when no backend is set
+up; it never silently produces empty evidence.
+
 ## Verification commands
 
 ```bash

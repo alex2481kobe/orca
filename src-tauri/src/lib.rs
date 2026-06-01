@@ -17,6 +17,8 @@ use tauri::{
 };
 use tauri_plugin_updater::UpdaterExt;
 
+mod native_capture;
+
 const SERVICE_NAME: &str = "app.orca.desktop";
 const TOKEN_ACCOUNT: &str = "orca-api-token";
 const DEFAULT_HOST: &str = "127.0.0.1";
@@ -78,6 +80,8 @@ struct DesktopHost {
     last_error: Option<String>,
     resource_dir: Option<PathBuf>,
     data_dir: Option<PathBuf>,
+    native_capture_url: Option<String>,
+    native_capture_token: Option<String>,
 }
 
 struct DesktopHostState {
@@ -100,12 +104,19 @@ impl DesktopHost {
             last_error: None,
             resource_dir: None,
             data_dir: None,
+            native_capture_url: None,
+            native_capture_token: None,
         }
     }
 
     fn set_runtime_paths(&mut self, resource_dir: Option<PathBuf>, data_dir: Option<PathBuf>) {
         self.resource_dir = resource_dir;
         self.data_dir = data_dir;
+    }
+
+    fn set_native_capture(&mut self, url: String, token: String) {
+        self.native_capture_url = Some(url);
+        self.native_capture_token = Some(token);
     }
 
     fn local_url(&self) -> String {
@@ -220,7 +231,15 @@ impl DesktopHost {
             .env("ORCA_HOST", &self.host)
             .env("PORT", self.port.to_string())
             .env("ORCA_API_TOKEN", &token)
-            .env("ORCA_DESKTOP_HOSTED", "true")
+            .env("ORCA_DESKTOP_HOSTED", "true");
+        if let (Some(url), Some(native_token)) =
+            (self.native_capture_url.as_ref(), self.native_capture_token.as_ref())
+        {
+            command
+                .env("ORCA_NATIVE_CAPTURE_URL", url)
+                .env("ORCA_NATIVE_CAPTURE_TOKEN", native_token);
+        }
+        command
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
@@ -683,6 +702,15 @@ pub fn run() {
             let state = app.state::<DesktopHostState>();
             let resource_dir = app.path().resource_dir().ok();
             let data_dir = app.path().app_data_dir().ok();
+            // Start the native capture bridge (macOS: Chromium-free WKWebView
+            // screenshots) before the server so its env can be passed to Node.
+            let native_token = generate_token();
+            if let Some(bridge) = native_capture::start(app.handle().clone(), native_token) {
+                let _ = with_host(&state, |host| {
+                    host.set_native_capture(bridge.endpoint, bridge.token);
+                    Ok(())
+                });
+            }
             with_host(&state, |host| {
                 host.set_runtime_paths(resource_dir, data_dir);
                 host.start()
