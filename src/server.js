@@ -278,6 +278,13 @@ function toolLeaseRequirementForRoute(method, parts) {
   if (parts[1] === 'lanes' && parts[2] && parts[3] === 'submit' && method === 'POST') {
     return { toolId: 'lane.submit', laneId: parts[2] };
   }
+  if (parts[1] === 'lanes' && parts[2] && parts[3] === 'approvals' && parts.length === 4) {
+    if (method === 'POST') return { toolId: 'approval.request', laneId: parts[2] };
+    if (method === 'GET') return { toolId: 'approval.list', laneId: parts[2] };
+  }
+  if (parts[1] === 'lanes' && parts[2] && parts[3] === 'approvals' && parts[4] && parts[5] === 'decide' && method === 'POST') {
+    return { toolId: 'approval.respond', laneId: parts[2] };
+  }
   if (parts[1] === 'lanes' && parts[2] && parts[3] === 'stop' && method === 'POST') {
     return { toolId: 'lane.shutdown', laneId: parts[2] };
   }
@@ -2253,6 +2260,46 @@ async function handleApi(req, res, pathname, method, parts) {
         return sendJson(res, 200, result);
       } catch (error) {
         return sendJson(res, error.status || 500, { error: error.message || 'Could not submit lane.' });
+      }
+    }
+
+    if (parts.length === 4 && parts[3] === 'approvals' && method === 'GET') {
+      try {
+        return sendJson(res, 200, registry.getLaneApprovals(lane.id));
+      } catch (error) {
+        return sendJson(res, error.status || 500, { error: error.message || 'Could not list approvals.' });
+      }
+    }
+
+    if (parts.length === 4 && parts[3] === 'approvals' && method === 'POST') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+      if (rejectSpoofedActor(body, res)) return;
+      try {
+        const result = registry.recordLaneApproval(lane.id, {
+          kind: body.kind,
+          detail: body.detail,
+          requestId: body.requestId,
+          actor: String(body.actor || 'executor').trim() || 'executor',
+        });
+        return sendJson(res, 201, result);
+      } catch (error) {
+        return sendJson(res, error.status || 500, { error: error.message || 'Could not record approval.' });
+      }
+    }
+
+    if (parts.length === 6 && parts[3] === 'approvals' && parts[5] === 'decide' && method === 'POST') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+      if (rejectSpoofedActor(body, res)) return;
+      try {
+        const result = registry.decideLaneApproval(lane.id, parts[4], {
+          decision: body.decision,
+          actor: String(body.actor || 'dashboard').trim() || 'dashboard',
+        });
+        return sendJson(res, 200, result);
+      } catch (error) {
+        return sendJson(res, error.status || 500, { error: error.message || 'Could not decide approval.' });
       }
     }
 

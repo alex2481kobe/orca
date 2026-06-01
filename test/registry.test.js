@@ -2431,3 +2431,47 @@ test('assertAgentToolAllowed enforces the workflow state machine', async () => {
     await cleanup();
   }
 });
+
+test('lane approval flow records, decides, and surfaces pending approvals', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const project = registry.createProject({ name: 'Approval Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Approval Session' }, { actor: 'test', approved: true });
+    const lane = registry.createLane(session.id, { title: 'work', executorType: 'mock' }, { approved: true, actor: 'test' });
+    registry.getLane(lane.id).state = 'running';
+
+    const req1 = registry.recordLaneApproval(lane.id, { kind: 'command', detail: 'rm -rf build', actor: 'executor' });
+    assert.equal(req1.approval.status, 'pending');
+    assert.equal(req1.lane.awaitingApproval, true);
+
+    const listing = registry.getLaneApprovals(lane.id);
+    assert.equal(listing.awaitingApproval, true);
+    assert.equal(listing.approvals.length, 1);
+    assert.equal(listing.approvals[0].kind, 'command');
+
+    const decided = registry.decideLaneApproval(lane.id, req1.approval.id, { decision: 'approve', actor: 'orchestrator' });
+    assert.equal(decided.approval.status, 'approved');
+    assert.equal(decided.approval.decidedBy, 'orchestrator');
+    assert.equal(registry.getLaneApprovals(lane.id).awaitingApproval, false);
+
+    // Re-deciding a settled approval is refused.
+    assert.throws(
+      () => registry.decideLaneApproval(lane.id, req1.approval.id, { decision: 'deny', actor: 'orchestrator' }),
+      (err) => err.status === 409,
+    );
+
+    // A second request can be denied.
+    const req2 = registry.recordLaneApproval(lane.id, { kind: 'patch', detail: 'apply patch', actor: 'executor' });
+    const denied = registry.decideLaneApproval(lane.id, req2.approval.id, { decision: 'deny', actor: 'user' });
+    assert.equal(denied.approval.status, 'denied');
+
+    // Invalid decision is rejected.
+    const req3 = registry.recordLaneApproval(lane.id, { kind: 'tool', detail: 'x', actor: 'executor' });
+    assert.throws(
+      () => registry.decideLaneApproval(lane.id, req3.approval.id, { decision: 'maybe' }),
+      (err) => err.status === 422,
+    );
+  } finally {
+    await cleanup();
+  }
+});

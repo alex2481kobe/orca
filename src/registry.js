@@ -3177,6 +3177,93 @@ export class OrcaRegistry {
     return { lane: clonePayload(lane), needsCritique };
   }
 
+  // --- Permission-approval relay (Codex-app-style approval loop) -----------
+  // An executor agent that hits a permission decision records a pending approval;
+  // the orchestrator (or user) approves/denies; the decision is relayed back.
+  recordLaneApproval(laneLocator, { kind = 'command', detail = '', requestId = '', actor = 'executor' } = {}) {
+    const lane = this.getLane(laneLocator);
+    if (!lane) throw { status: 404, message: 'Lane not found.' };
+    const normalizedKind = ['command', 'patch', 'tool', 'network', 'other'].includes(String(kind))
+      ? String(kind) : 'other';
+    const approval = {
+      id: randomUUID(),
+      requestId: String(requestId || '').slice(0, 200) || null,
+      kind: normalizedKind,
+      detail: String(detail || '').slice(0, 2000),
+      status: 'pending',
+      decision: null,
+      requestedBy: String(actor || 'executor').slice(0, 120),
+      requestedAt: nowIso(),
+      decidedBy: null,
+      decidedAt: null,
+    };
+    lane.pendingApprovals = [...safeArray(lane.pendingApprovals), approval].slice(-50);
+    lane.awaitingApproval = true;
+    lane.updatedAt = nowIso();
+    this.appendLaneAgentEvent(lane, {
+      type: 'agent.approval_requested',
+      title: `Approval requested: ${approval.kind}`,
+      content: approval.detail,
+    }, { persist: false });
+    this.recordAudit({
+      type: 'lane_approval_requested',
+      actor: approval.requestedBy,
+      projectId: lane.projectId,
+      sessionId: lane.sessionId,
+      laneId: lane.id,
+      summary: `Approval requested (${approval.kind}) for lane ${lane.title}`,
+      status: 'pending',
+      evidence: { approval },
+    });
+    this.persistState();
+    return { lane: clonePayload(lane), approval: clonePayload(approval) };
+  }
+
+  decideLaneApproval(laneLocator, approvalId, { decision, actor = 'dashboard' } = {}) {
+    const lane = this.getLane(laneLocator);
+    if (!lane) throw { status: 404, message: 'Lane not found.' };
+    const normalized = String(decision || '').toLowerCase();
+    const approve = ['approve', 'approved', 'allow', 'yes'].includes(normalized);
+    const deny = ['deny', 'denied', 'reject', 'no'].includes(normalized);
+    if (!approve && !deny) throw { status: 422, message: 'Decision must be approve or deny.' };
+    const approval = safeArray(lane.pendingApprovals).find((entry) => entry.id === approvalId);
+    if (!approval) throw { status: 404, message: 'Approval not found.' };
+    if (approval.status !== 'pending') throw { status: 409, message: `Approval already ${approval.status}.` };
+    approval.status = approve ? 'approved' : 'denied';
+    approval.decision = approve ? 'approve' : 'deny';
+    approval.decidedBy = String(actor || 'dashboard').slice(0, 120);
+    approval.decidedAt = nowIso();
+    lane.awaitingApproval = safeArray(lane.pendingApprovals).some((entry) => entry.status === 'pending');
+    lane.updatedAt = nowIso();
+    this.appendLaneAgentEvent(lane, {
+      type: 'agent.approval_decided',
+      title: `Approval ${approval.status}`,
+      content: approval.detail,
+    }, { persist: false });
+    this.recordAudit({
+      type: 'lane_approval_decided',
+      actor: approval.decidedBy,
+      projectId: lane.projectId,
+      sessionId: lane.sessionId,
+      laneId: lane.id,
+      summary: `Approval ${approval.status} for lane ${lane.title}`,
+      status: approve ? 'passed' : 'failed',
+      evidence: { approval },
+    });
+    this.persistState();
+    return { lane: clonePayload(lane), approval: clonePayload(approval) };
+  }
+
+  getLaneApprovals(laneLocator) {
+    const lane = this.getLane(laneLocator);
+    if (!lane) throw { status: 404, message: 'Lane not found.' };
+    return {
+      laneId: lane.id,
+      awaitingApproval: Boolean(lane.awaitingApproval),
+      approvals: safeArray(lane.pendingApprovals).map(clonePayload),
+    };
+  }
+
   updateLaneControls(laneLocator, {
     model,
     permissionsProfile,

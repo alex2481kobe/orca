@@ -285,6 +285,22 @@ try {
     log('authoritative gate (executor)', 'critique.findings.record refused while running');
   }
 
+  // Permission-approval loop via MCP: executor requests, orchestrator approves.
+  const reqApproval = await exec.call('approval__request', {
+    laneId: execLane.body.id,
+    body: { actor: 'executor', kind: 'command', detail: 'run build script' },
+  });
+  if (reqApproval.isError || !reqApproval.data?.approval?.id) fail('executor approval__request', reqApproval.text);
+  const approvalId = reqApproval.data.approval.id;
+  const pending = await req('GET', `/api/lanes/${execLane.body.id}/approvals`);
+  if (!pending.body?.awaitingApproval) fail('approval not surfaced as pending', JSON.stringify(pending.body));
+  const respond = await orch.call('approval__respond', {
+    laneId: execLane.body.id, approvalId,
+    body: { actor: 'orchestrator', decision: 'approve' },
+  });
+  if (respond.isError || respond.data?.approval?.status !== 'approved') fail('orchestrator approval__respond', respond.text);
+  log('approval loop', `executor requested -> orchestrator approved (${approvalId.slice(0, 8)})`);
+
   // submit (summary + changed files) -> ready_for_audit
   const submit = await exec.call('lane__submit', {
     laneId: execLane.body.id,
