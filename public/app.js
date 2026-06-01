@@ -28,6 +28,8 @@ const shell = {
 };
 
 let refreshRequestId = 0;
+let refreshInFlight = false;
+let lastRefreshAt = 0;
 const MOBILE_NAV_BREAKPOINT = 880;
 
 const API_PROVIDER_EXECUTOR_TYPES = ['api', 'openai-compatible', 'gemini', 'kimi', 'deepseek', 'openrouter', 'composer'];
@@ -2478,10 +2480,84 @@ function renderLaneCard(lane) {
   `;
 }
 
+function isLiveLaneState(state) {
+  return ['queued', 'starting', 'running'].includes(String(state || '').toLowerCase());
+}
+
+function isRestartableLaneState(state) {
+  return ['failed', 'stopped', 'fix_requested'].includes(String(state || '').toLowerCase());
+}
+
+function activeOrchestratorLaneForSession(session) {
+  const thread = session?.orchestratorThread || {};
+  if (thread.activeLaneId) {
+    const active = shell.lanes.find((lane) => lane.id === thread.activeLaneId);
+    if (active) return active;
+  }
+  const laneIds = Array.isArray(thread.laneIds) ? thread.laneIds : [];
+  for (let i = laneIds.length - 1; i >= 0; i -= 1) {
+    const lane = shell.lanes.find((item) => item.id === laneIds[i]);
+    if (lane) return lane;
+  }
+  return shell.lanes
+    .filter((lane) => lane.sessionId === session?.id && lane.owner === 'orchestrator')
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))[0] || null;
+}
+
+function renderOrchestratorTerminal(project, session, lane) {
+  if (!lane) {
+    return `
+      <div class="orchestrator-terminal empty">
+        <div class="terminal-titlebar">
+          <span>Terminal</span>
+          <span class="tag">Idle</span>
+        </div>
+        <pre class="orchestrator-terminal-output">No active orchestrator process.</pre>
+      </div>
+    `;
+  }
+  const logs = Array.isArray(lane.logs) ? lane.logs.slice(-40) : [];
+  const logText = logs.length
+    ? logs.map((entry) => {
+      const at = entry?.at ? formatMeta(entry.at) : '--:--:--';
+      return `[${at}] ${String(entry?.message || '')}`;
+    }).join('\n')
+    : 'Waiting for process output...';
+  const route = laneDetailRoute(project, session, lane);
+  const stopButton = isLiveLaneState(lane.state)
+    ? `<button data-action="stopLane" data-lane-id="${safeAttr(lane.id)}" type="button">Stop</button>`
+    : '';
+  const restartButton = (isLiveLaneState(lane.state) || isRestartableLaneState(lane.state))
+    ? `<button class="secondary" data-action="restartLane" data-lane-id="${safeAttr(lane.id)}" type="button">Restart</button>`
+    : '';
+  const openLane = route ? `<a class="secondary" href="${safeAttr(route)}">Open lane</a>` : '';
+  const processMeta = lane.processMeta
+    ? `PID ${safeText(String(lane.processMeta.pid ?? 'n/a'))} / exit ${safeText(String(lane.processMeta.exitCode ?? 'running'))}`
+    : 'Process pending';
+  return `
+    <div class="orchestrator-terminal">
+      <div class="terminal-titlebar">
+        <div>
+          <span>${safeText(lane.title || 'Orchestrator lane')}</span>
+          <div class="tiny muted">${safeText(lane.executorType)} | ${processMeta}</div>
+        </div>
+        <div class="lane-row">
+          ${stateBadge(lane.state)}
+          ${openLane}
+          ${stopButton}
+          ${restartButton}
+        </div>
+      </div>
+      <pre class="orchestrator-terminal-output">${safeText(logText)}</pre>
+    </div>
+  `;
+}
+
 function renderOrchestratorConsole(session) {
+  const project = shell.projects.find((value) => value.id === session.projectId) || currentActiveProject();
   const thread = session.orchestratorThread || {};
   const messages = Array.isArray(thread.messages) ? thread.messages : [];
-  const activeLane = thread.activeLaneId ? shell.lanes.find((lane) => lane.id === thread.activeLaneId) : null;
+  const activeLane = activeOrchestratorLaneForSession(session);
   const messageRows = messages.slice(-12).map((message) => {
     const role = String(message.role || 'system').toLowerCase();
     const lane = message.laneId ? shell.lanes.find((item) => item.id === message.laneId) : null;
@@ -2499,11 +2575,15 @@ function renderOrchestratorConsole(session) {
         <div>
           <h2>Orchestrator</h2>
         </div>
-        <div class="tiny">${activeLane ? stateBadge(activeLane.state) : '<span class="tag">Idle</span>'}</div>
+        <div class="lane-row">
+          <span class="tiny muted">${safeText(messages.length)} messages</span>
+          ${activeLane ? stateBadge(activeLane.state) : '<span class="tag">Idle</span>'}
+        </div>
       </div>
       <div class="orchestrator-feed">
         ${messageRows || '<div class="muted">No orchestration messages yet.</div>'}
       </div>
+      ${renderOrchestratorTerminal(project, session, activeLane)}
       <form id="orchestrator-message-form" data-session-id="${safeAttr(session.id)}" class="orchestrator-form">
         <textarea name="message" rows="4" required placeholder="Tell the orchestrator what to build, audit, or coordinate next."></textarea>
         <div class="orchestrator-options">
@@ -3020,132 +3100,139 @@ function renderMobileManifest() {
 }
 
 async function refresh() {
+  if (refreshInFlight) return;
+  refreshInFlight = true;
+  lastRefreshAt = Date.now();
   const requestId = ++refreshRequestId;
   const uiState = captureContentUiState();
-  shell.route = parseRoute();
-  shell.alerts = [];
-  const abortFromAuth = (response) => abortRefreshFromUnauthorized(response, requestId, uiState);
-  const authResp = await api('/api/auth/status');
-  if (abortFromAuth(authResp)) return;
-  if (authResp.ok && authResp.data) {
-    shell.authStatus = authResp.data;
-  }
-  if (browserAccessBlocked()) {
-    clearProtectedWorkspaceState();
-    render(captureContentUiState());
-    return;
-  }
-  const policyResp = await api('/api/policy');
-  if (abortFromAuth(policyResp)) return;
-  if (policyResp.ok && policyResp.data) {
-    shell.policy = policyResp.data.policies;
-  }
-  const effectiveSettingsResp = await api('/api/settings/effective');
-  if (abortFromAuth(effectiveSettingsResp)) return;
-  if (effectiveSettingsResp.ok && effectiveSettingsResp.data) {
-    shell.effectiveSettings = effectiveSettingsResp.data;
-  }
-  const notificationsResp = await api('/api/notifications');
-  if (abortFromAuth(notificationsResp)) return;
-  if (notificationsResp.ok && notificationsResp.data) {
-    shell.notifications = notificationsResp.data;
-    maybeShowBrowserNotifications();
-  }
-  const blockersResp = await api('/api/system/blockers');
-  if (abortFromAuth(blockersResp)) return;
-  if (blockersResp.ok && Array.isArray(blockersResp.data?.blockers)) {
-    shell.systemBlockers = blockersResp.data.blockers;
-  }
-  const privateAccessResp = await api('/api/private-access');
-  if (abortFromAuth(privateAccessResp)) return;
-  if (privateAccessResp.ok && privateAccessResp.data) {
-    shell.privateAccess = privateAccessResp.data;
-  }
-  const profilesResp = await api('/api/executors/profiles');
-  if (abortFromAuth(profilesResp)) return;
-  if (profilesResp.ok && profilesResp.data?.profiles) {
-    shell.executorProfiles = profilesResp.data.profiles;
-  }
-  const providerCatalogResp = await api('/api/providers');
-  if (abortFromAuth(providerCatalogResp)) return;
-  if (providerCatalogResp.ok && providerCatalogResp.data) {
-    shell.providerCatalog = providerCatalogResp.data;
-  }
-  const authSessionsResp = await api('/api/auth/sessions');
-  if (abortFromAuth(authSessionsResp)) return;
-  if (authSessionsResp.ok && Array.isArray(authSessionsResp.data?.sessions)) {
-    shell.authSessions = authSessionsResp.data.sessions;
-  }
+  try {
+    shell.route = parseRoute();
+    shell.alerts = [];
+    const abortFromAuth = (response) => abortRefreshFromUnauthorized(response, requestId, uiState);
+    const authResp = await api('/api/auth/status');
+    if (abortFromAuth(authResp)) return;
+    if (authResp.ok && authResp.data) {
+      shell.authStatus = authResp.data;
+    }
+    if (browserAccessBlocked()) {
+      clearProtectedWorkspaceState();
+      render(captureContentUiState());
+      return;
+    }
+    const policyResp = await api('/api/policy');
+    if (abortFromAuth(policyResp)) return;
+    if (policyResp.ok && policyResp.data) {
+      shell.policy = policyResp.data.policies;
+    }
+    const effectiveSettingsResp = await api('/api/settings/effective');
+    if (abortFromAuth(effectiveSettingsResp)) return;
+    if (effectiveSettingsResp.ok && effectiveSettingsResp.data) {
+      shell.effectiveSettings = effectiveSettingsResp.data;
+    }
+    const notificationsResp = await api('/api/notifications');
+    if (abortFromAuth(notificationsResp)) return;
+    if (notificationsResp.ok && notificationsResp.data) {
+      shell.notifications = notificationsResp.data;
+      maybeShowBrowserNotifications();
+    }
+    const blockersResp = await api('/api/system/blockers');
+    if (abortFromAuth(blockersResp)) return;
+    if (blockersResp.ok && Array.isArray(blockersResp.data?.blockers)) {
+      shell.systemBlockers = blockersResp.data.blockers;
+    }
+    const privateAccessResp = await api('/api/private-access');
+    if (abortFromAuth(privateAccessResp)) return;
+    if (privateAccessResp.ok && privateAccessResp.data) {
+      shell.privateAccess = privateAccessResp.data;
+    }
+    const profilesResp = await api('/api/executors/profiles');
+    if (abortFromAuth(profilesResp)) return;
+    if (profilesResp.ok && profilesResp.data?.profiles) {
+      shell.executorProfiles = profilesResp.data.profiles;
+    }
+    const providerCatalogResp = await api('/api/providers');
+    if (abortFromAuth(providerCatalogResp)) return;
+    if (providerCatalogResp.ok && providerCatalogResp.data) {
+      shell.providerCatalog = providerCatalogResp.data;
+    }
+    const authSessionsResp = await api('/api/auth/sessions');
+    if (abortFromAuth(authSessionsResp)) return;
+    if (authSessionsResp.ok && Array.isArray(authSessionsResp.data?.sessions)) {
+      shell.authSessions = authSessionsResp.data.sessions;
+    }
 
-  if (shell.executorProfiles && typeof shell.executorProfiles === 'object') {
-    const cliInfo = {};
-    for (const executorType of Object.keys(shell.executorProfiles)) {
-      const response = await api(`/api/executors/${encodeURIComponent(executorType)}/cli`);
-      if (abortFromAuth(response)) return;
-      if (response.ok && response.data) {
-        cliInfo[executorType] = response.data;
+    if (shell.executorProfiles && typeof shell.executorProfiles === 'object') {
+      const cliInfo = {};
+      for (const executorType of Object.keys(shell.executorProfiles)) {
+        const response = await api(`/api/executors/${encodeURIComponent(executorType)}/cli`);
+        if (abortFromAuth(response)) return;
+        if (response.ok && response.data) {
+          cliInfo[executorType] = response.data;
+        }
+      }
+      shell.executorCliInfo = cliInfo;
+    }
+
+    const cleanupScheduleResp = await api('/api/artifacts/cleanup/schedule');
+    if (abortFromAuth(cleanupScheduleResp)) return;
+    if (cleanupScheduleResp.ok && cleanupScheduleResp.data?.schedule) {
+      shell.cleanupSchedule = cleanupScheduleResp.data.schedule;
+    }
+    const mcpToolsResp = await api('/api/mcp/tools');
+    if (abortFromAuth(mcpToolsResp)) return;
+    if (mcpToolsResp.ok && Array.isArray(mcpToolsResp.data)) {
+      shell.mcpTools = mcpToolsResp.data;
+    }
+
+    const pendingAuditResp = await api('/api/audit/events?status=pending');
+    if (abortFromAuth(pendingAuditResp)) return;
+    if (requestId !== refreshRequestId) return;
+    if (pendingAuditResp.ok && Array.isArray(pendingAuditResp.data)) {
+      shell.pendingAuditEvents = pendingAuditResp.data;
+    }
+
+    const projectsResp = await api('/api/projects');
+    if (abortFromAuth(projectsResp)) return;
+    if (requestId !== refreshRequestId) return;
+    if (projectsResp.ok && Array.isArray(projectsResp.data)) {
+      const nextProjects = projectsResp.data;
+      const allSessions = [];
+      let sessionsComplete = true;
+      for (const project of nextProjects) {
+        const sessionsResp = await api(`/api/projects/${project.id}/sessions`);
+        if (requestId !== refreshRequestId) return;
+        if (abortFromAuth(sessionsResp)) return;
+        if (sessionsResp.ok && Array.isArray(sessionsResp.data)) {
+          allSessions.push(...sessionsResp.data);
+        } else {
+          sessionsComplete = false;
+        }
+      }
+
+      let allLanes = shell.lanes;
+      let lanesComplete = false;
+      if (sessionsComplete) {
+        const allLaneResponses = await Promise.all(allSessions.map((session) => api(`/api/sessions/${session.id}/lanes`)));
+        if (requestId !== refreshRequestId) return;
+        const unauthorizedLanes = allLaneResponses.find((response) => response.status === 401);
+        if (abortFromAuth(unauthorizedLanes)) return;
+        lanesComplete = allLaneResponses.every((response) => response.ok && Array.isArray(response.data));
+        if (lanesComplete) {
+          allLanes = allLaneResponses.flatMap((response) => response.data);
+        }
+      }
+
+      shell.projects = nextProjects;
+      if (sessionsComplete && lanesComplete) {
+        shell.sessions = allSessions;
+        shell.lanes = allLanes;
       }
     }
-    shell.executorCliInfo = cliInfo;
+    if (requestId !== refreshRequestId) return;
+    render(uiState);
+  } finally {
+    refreshInFlight = false;
   }
-
-  const cleanupScheduleResp = await api('/api/artifacts/cleanup/schedule');
-  if (abortFromAuth(cleanupScheduleResp)) return;
-  if (cleanupScheduleResp.ok && cleanupScheduleResp.data?.schedule) {
-    shell.cleanupSchedule = cleanupScheduleResp.data.schedule;
-  }
-  const mcpToolsResp = await api('/api/mcp/tools');
-  if (abortFromAuth(mcpToolsResp)) return;
-  if (mcpToolsResp.ok && Array.isArray(mcpToolsResp.data)) {
-    shell.mcpTools = mcpToolsResp.data;
-  }
-
-  const pendingAuditResp = await api('/api/audit/events?status=pending');
-  if (abortFromAuth(pendingAuditResp)) return;
-  if (requestId !== refreshRequestId) return;
-  if (pendingAuditResp.ok && Array.isArray(pendingAuditResp.data)) {
-    shell.pendingAuditEvents = pendingAuditResp.data;
-  }
-
-  const projectsResp = await api('/api/projects');
-  if (abortFromAuth(projectsResp)) return;
-  if (requestId !== refreshRequestId) return;
-  if (projectsResp.ok && Array.isArray(projectsResp.data)) {
-    const nextProjects = projectsResp.data;
-    const allSessions = [];
-    let sessionsComplete = true;
-    for (const project of nextProjects) {
-      const sessionsResp = await api(`/api/projects/${project.id}/sessions`);
-      if (requestId !== refreshRequestId) return;
-      if (abortFromAuth(sessionsResp)) return;
-      if (sessionsResp.ok && Array.isArray(sessionsResp.data)) {
-        allSessions.push(...sessionsResp.data);
-      } else {
-        sessionsComplete = false;
-      }
-    }
-
-    let allLanes = shell.lanes;
-    let lanesComplete = false;
-    if (sessionsComplete) {
-      const allLaneResponses = await Promise.all(allSessions.map((session) => api(`/api/sessions/${session.id}/lanes`)));
-      if (requestId !== refreshRequestId) return;
-      const unauthorizedLanes = allLaneResponses.find((response) => response.status === 401);
-      if (abortFromAuth(unauthorizedLanes)) return;
-      lanesComplete = allLaneResponses.every((response) => response.ok && Array.isArray(response.data));
-      if (lanesComplete) {
-        allLanes = allLaneResponses.flatMap((response) => response.data);
-      }
-    }
-
-    shell.projects = nextProjects;
-    if (sessionsComplete && lanesComplete) {
-      shell.sessions = allSessions;
-      shell.lanes = allLanes;
-    }
-  }
-  if (requestId !== refreshRequestId) return;
-  render(uiState);
 }
 
 function buildCleanupScheduleBody(formData) {
@@ -3574,6 +3661,37 @@ async function handleLaneActions(event) {
       await refresh();
     } else {
       renderAlert(response.data?.error || 'Could not remove worktree.', 'bad');
+    }
+    return;
+  }
+  if (action === 'restartLane') {
+    const lane = shell.lanes.find((item) => item.id === laneId);
+    const approved = confirmHighRiskAction('Restart this agent process?', 'retryLane');
+    if (!approved) {
+      renderAlert('Lane restart canceled.');
+      return;
+    }
+    if (lane && isLiveLaneState(lane.state)) {
+      const stopped = await api(`/api/lanes/${laneId}/stop`, {
+        method: 'POST',
+        body: { approved, actor: 'dashboard' },
+      });
+      if (!stopped.ok) {
+        renderAlert(stopped.data?.error || 'Could not stop lane before restart.', 'bad');
+        return;
+      }
+    }
+    const restarted = await api(`/api/lanes/${laneId}/retry`, {
+      method: 'POST',
+      body: { approved, actor: 'dashboard' },
+    });
+    if (restarted.ok) {
+      renderAlert('Lane restarted.');
+      await refresh();
+    } else if (restarted.data?.requiresApproval) {
+      renderAlert('Approval required. Retry with approval enabled.', 'bad');
+    } else {
+      renderAlert(restarted.data?.error || 'Could not restart lane.', 'bad');
     }
     return;
   }
@@ -4520,7 +4638,7 @@ document.addEventListener('click', async (event) => {
     return;
   }
 
-  if (['stopLane', 'retryLane', 'auditLane', 'captureEvidence', 'clearEvidence', 'captureEvidencePreset', 'removeWorktree'].includes(action)) {
+  if (['stopLane', 'retryLane', 'restartLane', 'auditLane', 'captureEvidence', 'clearEvidence', 'captureEvidencePreset', 'removeWorktree'].includes(action)) {
     await handleLaneActions({ currentTarget: actionTarget });
     return;
   }
@@ -4617,7 +4735,19 @@ window.addEventListener('hashchange', () => {
   render();
 });
 
-setInterval(refresh, 3000);
+function hasLiveOrchestratorConsole() {
+  const session = shell.sessions.find((value) => value.id === shell.route.sessionId);
+  if (!session) return false;
+  const lane = activeOrchestratorLaneForSession(session);
+  return Boolean(lane && isLiveLaneState(lane.state));
+}
+
+setInterval(() => {
+  const cadenceMs = hasLiveOrchestratorConsole() ? 1000 : 3000;
+  if (Date.now() - lastRefreshAt >= cadenceMs) {
+    refresh();
+  }
+}, 500);
 initializeApiToken();
 registerServiceWorker();
 renderMobileManifest();

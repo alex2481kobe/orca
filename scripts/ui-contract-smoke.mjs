@@ -71,6 +71,7 @@ const WIRED_ACTIONS = new Set([
   'revokeBrowserSession',
   'reinstallExecutorCli',
   'removeWorktree',
+  'restartLane',
   'retryLane',
   'setApiToken',
   'setProviderSecret',

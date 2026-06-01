@@ -18,6 +18,7 @@
   --topbar-height: 45px;
   --safe-area-top: env(safe-area-inset-top);
   --safe-area-bottom: env(safe-area-inset-bottom);
+  --mono: "SFMono-Regular", "Cascadia Code", "Roboto Mono", Consolas, monospace;
 }
 
 * {
@@ -1128,7 +1129,7 @@ body.sidebar-collapsed .sidebar-project-line {
 .orchestrator-feed {
   display: grid;
   gap: 0.45rem;
-  max-height: 18rem;
+  max-height: 14rem;
   overflow: auto;
 }
 
@@ -1143,6 +1144,44 @@ body.sidebar-collapsed .sidebar-project-line {
 
 .orchestrator-message.assistant {
   border-color: var(--ok);
+}
+
+.orchestrator-terminal {
+  background: #0d0f0c;
+  border: 1px solid rgba(245, 241, 232, 0.14);
+  border-radius: 8px;
+  display: grid;
+  min-height: 14rem;
+  overflow: hidden;
+}
+
+.terminal-titlebar {
+  align-items: center;
+  background: rgba(245, 241, 232, 0.05);
+  border-bottom: 1px solid rgba(245, 241, 232, 0.1);
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+  min-height: 3.1rem;
+  padding: 0.55rem 0.65rem;
+}
+
+.orchestrator-terminal-output {
+  color: #e6f1df;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  margin: 0;
+  max-height: 22rem;
+  min-height: 10rem;
+  overflow: auto;
+  padding: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.orchestrator-terminal.empty .orchestrator-terminal-output {
+  color: var(--muted);
 }
 
 .orchestrator-form {
@@ -1812,6 +1851,10 @@ pre {
     display: grid;
   }
   .orchestrator-header {
+    display: grid;
+  }
+  .terminal-titlebar {
+    align-items: flex-start;
     display: grid;
   }
   .orchestrator-options {
