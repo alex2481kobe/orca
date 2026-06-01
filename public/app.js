@@ -2504,6 +2504,66 @@ function activeOrchestratorLaneForSession(session) {
     .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))[0] || null;
 }
 
+function agentEventTone(type) {
+  const normalized = String(type || '').toLowerCase();
+  if (normalized.includes('failed') || normalized === 'error') return 'bad';
+  if (normalized.includes('done') || normalized.includes('completed')) return 'ok';
+  if (normalized.includes('stopped') || normalized.includes('queued') || normalized.includes('started')) return 'warn';
+  return '';
+}
+
+function agentEventLabel(type) {
+  const map = {
+    'agent.queued': 'Queued',
+    'agent.started': 'Started',
+    'agent.done': 'Done',
+    'agent.failed': 'Failed',
+    'agent.stopped': 'Stopped',
+    'agent.needs_critique': 'Needs check',
+    'message.user': 'User',
+    'message.assistant.delta': 'Assistant',
+    'message.assistant.final': 'Final',
+    'tool.started': 'Tool',
+    'tool.completed': 'Tool done',
+    'command.started': 'Command',
+    'command.output': 'Output',
+    'file.changed': 'Files',
+    error: 'Error',
+  };
+  return map[type] || String(type || 'Event').replaceAll('.', ' ');
+}
+
+function renderAgentEventTimeline(lane, { limit = 80, compact = false } = {}) {
+  const events = Array.isArray(lane?.agentEvents) ? lane.agentEvents.slice(-limit) : [];
+  if (!events.length) {
+    return '<div class="agent-event-empty muted">No structured agent events yet. Raw terminal output will appear below.</div>';
+  }
+  return `
+    <div class="agent-event-list ${compact ? 'compact' : ''}">
+      ${events.map((item) => {
+        const type = String(item.type || 'event');
+        const tone = agentEventTone(type);
+        const content = item.command || item.content || item.title || '';
+        const meta = [
+          item.toolName,
+          item.stream,
+          item.source,
+          formatMeta(item.at),
+        ].filter(Boolean).join(' · ');
+        return `
+          <article class="agent-event ${safeAttr(type.replaceAll('.', '-'))}">
+            <div class="agent-event-topline">
+              <span class="tag ${tone}">${safeText(agentEventLabel(type))}</span>
+              <span class="tiny muted">${safeText(meta)}</span>
+            </div>
+            ${content ? `<pre>${safeText(content)}</pre>` : ''}
+          </article>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
 function renderOrchestratorTerminal(project, session, lane) {
   if (!lane) {
     return `
@@ -2557,6 +2617,7 @@ function renderOrchestratorTerminal(project, session, lane) {
           ${restartButton}
         </div>
       </div>
+      ${renderAgentEventTimeline(lane, { limit: 80 })}
       <pre class="orchestrator-terminal-output">${hiddenCount ? safeText(`[Showing latest 500 of ${allLogs.length} stored log entries. Open Full log for raw terminal output.]\n`) : ''}${safeText(logText)}</pre>
     </div>
   `;
@@ -2742,9 +2803,13 @@ function renderLane(project, session, lane) {
     : '<div>None</div>';
   const auditLabel = pendingAudits.length ? 'Refresh audit queue' : 'Audit now';
   const laneLogs = Array.isArray(lane.logs) ? lane.logs.slice(-8) : [];
+  const executorMonitorNote = lane.owner !== 'orchestrator'
+    ? '<div class="alert">Executor monitor is read-only. Use Stop to interrupt the process; send new direction through the orchestrator chat.</div>'
+    : '';
 
   return `
     <section class="lane-detail-shell">
+      ${executorMonitorNote}
       ${(lane.warnings || []).map((warning) => `
         <div class="alert bad"><strong>Warning:</strong> ${safeText(warning.message || warning.kind)}</div>
       `).join('')}
@@ -2786,6 +2851,15 @@ function renderLane(project, session, lane) {
             <a class="secondary" href="${evidenceUrl}" target="_blank" rel="noopener noreferrer">Evidence API</a>
             <a class="secondary" href="${evidenceLatestUrl}" target="_blank" rel="noopener noreferrer">Latest evidence API</a>
           </div>
+        </div>
+      </details>
+      <details class="disclosure card">
+        <summary>
+          <span>Agent activity</span>
+          <small>${safeText(String((lane.agentEvents || []).length))} events</small>
+        </summary>
+        <div class="disclosure-body">
+          ${renderAgentEventTimeline(lane, { limit: 120, compact: true })}
         </div>
       </details>
       <details class="disclosure card">

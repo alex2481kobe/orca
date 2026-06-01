@@ -1653,6 +1653,35 @@ test('CLI executor writes raw terminal stdout and stderr artifacts', async () =>
   }
 });
 
+test('manual executor stop records structured event and notifies orchestrator thread', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const project = registry.createProject({ name: 'Stop Notify Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Stop Notify Session' }, { actor: 'test', approved: true });
+    await registry.sendOrchestratorMessage(session.id, {
+      message: 'Coordinate executor work.',
+      executorType: 'mock',
+      baseUrl: 'http://127.0.0.1:1',
+    }, { actor: 'dashboard', approved: true });
+    const executorLane = registry.createLane(session.id, {
+      title: 'Executor to stop',
+      executorType: 'mock',
+      owner: 'dashboard',
+    }, { actor: 'dashboard', approved: true });
+
+    await registry.stopLane(executorLane.id, { actor: 'dashboard', approved: true });
+    const stopped = registry.getLane(executorLane.id);
+    assert.equal(stopped.agentEvents.some((event) => event.type === 'agent.stopped'), true);
+    const thread = registry.getOrchestratorThread(session.id);
+    assert.equal(
+      thread.messages.some((message) => message.role === 'system' && String(message.content).includes('Operator manually stopped executor lane')),
+      true,
+    );
+  } finally {
+    await cleanup();
+  }
+});
+
 test('buildExecutorCommandArgs derives safe argv from lane task prompt', async () => {
   const { buildExecutorCommandArgs } = await import('../src/executor-factory.js');
   const codexArgs = buildExecutorCommandArgs('codex', {
@@ -1663,16 +1692,15 @@ test('buildExecutorCommandArgs derives safe argv from lane task prompt', async (
     mcpConfigPath: '/tmp/mcp.json',
   });
   const count = (args, value) => args.filter((item) => item === value).length;
+  assert.deepEqual(codexArgs.slice(0, 2), ['exec', '--json']);
   assert.ok(codexArgs.includes('--model'));
   assert.ok(codexArgs.includes('gpt-5'));
-  assert.ok(codexArgs.includes('--permissions'));
-  assert.ok(codexArgs.includes('auto-edit'));
+  assert.ok(codexArgs.includes('--full-auto'));
   assert.ok(codexArgs.includes('--mcp-config'));
   assert.ok(codexArgs.includes('/tmp/mcp.json'));
-  assert.ok(codexArgs.includes('--prompt'));
-  assert.ok(codexArgs.includes('Ship the dashboard'));
+  assert.ok(codexArgs.includes('Target: http://localhost:5173\nShip the dashboard'));
   assert.equal(count(codexArgs, '--mcp-config'), 1);
-  assert.equal(count(codexArgs, '--prompt'), 1);
+  assert.equal(count(codexArgs, '--json'), 1);
 
   const claudeArgs = buildExecutorCommandArgs('claude', {
     taskPrompt: 'Audit the auth flow',
@@ -1687,7 +1715,11 @@ test('buildExecutorCommandArgs derives safe argv from lane task prompt', async (
   assert.ok(claudeArgs.includes('bypass-permissions'));
   assert.ok(claudeArgs.includes('--mcp-config'));
   assert.ok(claudeArgs.includes('/tmp/mcp.json'));
-  assert.ok(claudeArgs.includes('--print'));
+  assert.equal(claudeArgs[0], '--print');
+  assert.ok(claudeArgs.includes('--output-format'));
+  assert.ok(claudeArgs.includes('stream-json'));
+  assert.ok(claudeArgs.includes('--verbose'));
+  assert.ok(claudeArgs.includes('--include-partial-messages'));
   assert.ok(claudeArgs.includes('Target: http://localhost:5173\nAudit the auth flow'));
   assert.equal(count(claudeArgs, '--mcp-config'), 1);
   assert.equal(count(claudeArgs, '--print'), 1);
@@ -1704,6 +1736,8 @@ test('buildExecutorCommandArgs derives safe argv from lane task prompt', async (
     'gemini-2.5-pro',
     '--approval-mode',
     'auto_edit',
+    '--output-format',
+    'json',
     '--prompt',
     'Target: http://localhost:5173\nRun tests',
   ]);
@@ -1719,7 +1753,7 @@ test('buildExecutorCommandArgs derives safe argv from lane task prompt', async (
     'gpt-5',
     '--force',
     '--output-format',
-    'text',
+    'stream-json',
     '-p',
     'Target: http://localhost:5173\nRefactor view',
   ]);

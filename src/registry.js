@@ -748,6 +748,7 @@ async function boundedQuickLinkHealthCheck(link, { prefer = 'auto' } = {}) {
 }
 
 const MAX_LANE_LOG_ENTRIES = 2000;
+const MAX_AGENT_EVENT_ENTRIES = 3000;
 
 // Prefer the native structured clone (faster, less GC pressure than
 // JSON.parse(JSON.stringify(...))); fall back for older runtimes.
@@ -1031,6 +1032,7 @@ export class CommandDeckRegistry {
     this.laneRuntimeEnv = new Map();
     const baseExecutorCallbacks = {
       onLog: (lane, message) => this.appendLaneLog(lane, message, { persist: false }),
+      onAgentEvent: (lane, agentEvent) => this.appendLaneAgentEvent(lane, agentEvent, { persist: false }),
       onComplete: async (lane) => this.markLaneCompleted(lane),
       onFail: async (lane, reason) => this.markLaneFailed(lane, reason, 'scheduler'),
       onStop: async (lane, context) => this.markLaneStopped(lane, context),
@@ -1351,6 +1353,9 @@ export class CommandDeckRegistry {
       }
       if (!Array.isArray(lane.logs)) {
         lane.logs = [];
+      }
+      if (!Array.isArray(lane.agentEvents)) {
+        lane.agentEvents = [];
       }
       if (typeof lane.runProfile?.autoCompleteMs !== 'number') {
         lane.runProfile = { ...lane.runProfile, autoCompleteMs: this.autoCompleteMs };
@@ -2210,6 +2215,25 @@ export class CommandDeckRegistry {
     });
   }
 
+  notifyOrchestratorManualLaneStop(lane, actor = 'dashboard', reason = '') {
+    if (!lane || lane.owner === 'orchestrator') return;
+    if (!['dashboard', 'operator', 'user'].includes(String(actor || '').toLowerCase())) return;
+    const session = this.getSession(lane.sessionId);
+    if (!session) return;
+    const thread = this.ensureOrchestratorThread(session);
+    const activeLaneId = thread.activeLaneId || '';
+    const hasOrchestrator = activeLaneId || (Array.isArray(thread.laneIds) && thread.laneIds.length);
+    if (!hasOrchestrator) return;
+    thread.messages.push({
+      id: randomUUID(),
+      role: 'system',
+      content: `Operator manually stopped executor lane "${lane.title}". Reason: ${reason || 'stopped by dashboard'}.`,
+      laneId: lane.id,
+      createdAt: nowIso(),
+    });
+    thread.updatedAt = nowIso();
+  }
+
   resolveOrchestratorExecutorType(session, requestedType = '') {
     const supported = this.getSupportedExecutorTypes();
     const requested = normalizeExecutorType(requestedType);
@@ -2631,6 +2655,7 @@ export class CommandDeckRegistry {
 
     const callbackBundle = {
       onLog: (lane, message) => this.appendLaneLog(lane, message, { persist: false }),
+      onAgentEvent: (lane, agentEvent) => this.appendLaneAgentEvent(lane, agentEvent, { persist: false }),
       onComplete: async (lane) => this.markLaneCompleted(lane),
       onFail: async (lane, reason) => this.markLaneFailed(lane, reason, 'scheduler'),
       onStop: async (lane, context) => this.markLaneStopped(lane, context),
@@ -2906,6 +2931,16 @@ export class CommandDeckRegistry {
           message: 'Lane queued by controller.',
         },
       ],
+      agentEvents: [
+        {
+          id: randomUUID(),
+          at: now,
+          type: 'agent.queued',
+          source: normalizedExecutorType,
+          title: 'Lane queued',
+          content: String(taskDescription || sanitizedTaskPrompt || title || '').trim().slice(0, 1000),
+        },
+      ],
       artifactPath: `/artifacts/${session.id}/${laneId}`,
     };
 
@@ -2990,6 +3025,13 @@ export class CommandDeckRegistry {
       lane.completedAt = now;
       lane.updatedAt = now;
       lane.logs.push({ at: now, message: lane.exitReason });
+      this.appendLaneAgentEvent(lane, {
+        type: 'agent.stopped',
+        source: lane.executorType,
+        title: 'Agent stopped',
+        content: lane.exitReason,
+      });
+      this.notifyOrchestratorManualLaneStop(lane, context.actor || 'dashboard', lane.exitReason);
       this.recordAudit({
         type: 'lane_stopped',
         actor: context.actor || 'dashboard',
@@ -4467,6 +4509,35 @@ export class CommandDeckRegistry {
     }
   }
 
+  appendLaneAgentEvent(lane, agentEvent, { persist = false } = {}) {
+    if (!lane || !agentEvent || typeof agentEvent !== 'object') return;
+    if (!Array.isArray(lane.agentEvents)) {
+      lane.agentEvents = [];
+    }
+    const now = nowIso();
+    lane.agentEvents.push({
+      id: randomUUID(),
+      at: now,
+      source: String(agentEvent.source || lane.executorType || 'agent').slice(0, 80),
+      type: String(agentEvent.type || 'event').slice(0, 120),
+      title: agentEvent.title ? String(agentEvent.title).slice(0, 240) : '',
+      content: agentEvent.content ? String(agentEvent.content).slice(0, 12000) : '',
+      stream: agentEvent.stream ? String(agentEvent.stream).slice(0, 40) : '',
+      command: agentEvent.command ? String(agentEvent.command).slice(0, 2000) : '',
+      toolName: agentEvent.toolName ? String(agentEvent.toolName).slice(0, 160) : '',
+      callId: agentEvent.callId ? String(agentEvent.callId).slice(0, 160) : '',
+      externalSessionId: agentEvent.externalSessionId ? String(agentEvent.externalSessionId).slice(0, 200) : '',
+      durationMs: Number.isFinite(agentEvent.durationMs) ? agentEvent.durationMs : null,
+    });
+    if (lane.agentEvents.length > MAX_AGENT_EVENT_ENTRIES) {
+      lane.agentEvents = lane.agentEvents.slice(-MAX_AGENT_EVENT_ENTRIES);
+    }
+    lane.updatedAt = now;
+    if (!this._starting && persist) {
+      this.persistState();
+    }
+  }
+
   recordAudit(event) {
     const record = {
       id: randomUUID(),
@@ -4658,6 +4729,12 @@ export class CommandDeckRegistry {
     lane.completedAt = now;
     lane.exitReason = needsCritique ? 'Execution completed; self-verification required before audit.' : 'Mock execution completed';
     lane.logs.push({ at: now, message: lane.exitReason });
+    this.appendLaneAgentEvent(lane, {
+      type: needsCritique ? 'agent.needs_critique' : 'agent.done',
+      source: lane.executorType,
+      title: needsCritique ? 'Needs self-check' : 'Agent completed',
+      content: lane.exitReason,
+    });
     this.recordAudit({
       type: needsCritique ? 'lane_needs_critique' : 'lane_completed',
       actor: 'mock-worker',
@@ -4690,6 +4767,12 @@ export class CommandDeckRegistry {
     lane.completedAt = now;
     lane.exitReason = reason || 'Execution failed';
     lane.logs.push({ at: now, message: lane.exitReason });
+    this.appendLaneAgentEvent(lane, {
+      type: 'agent.failed',
+      source: lane.executorType,
+      title: 'Agent failed',
+      content: lane.exitReason,
+    });
     this.recordAudit({
       type: 'lane_failed',
       actor,
@@ -4721,6 +4804,13 @@ export class CommandDeckRegistry {
     lane.completedAt = now;
     lane.exitReason = reason;
     lane.logs.push({ at: now, message: reason });
+    this.appendLaneAgentEvent(lane, {
+      type: 'agent.stopped',
+      source: lane.executorType,
+      title: 'Agent stopped',
+      content: reason,
+    });
+    this.notifyOrchestratorManualLaneStop(lane, actor, reason);
     this.recordAudit({
       type: 'lane_stopped',
       actor,
@@ -4791,6 +4881,7 @@ Changed files: ${changedFiles.length}
       laneId: lane.id,
       title: lane.title,
       logs: lane.logs,
+      agentEvents: lane.agentEvents || [],
       terminalArtifacts: ['terminal.log', 'stdout.log', 'stderr.log'],
       completedAt: lane.completedAt,
       status,
@@ -4897,6 +4988,12 @@ Changed files: ${changedFiles.length}
         lane.exitReason = null;
         lane.heartbeatAt = now;
         lane.logs.push({ at: now, message: `Lane started by scheduler using ${lane.executorType} executor` });
+        this.appendLaneAgentEvent(lane, {
+          type: 'agent.started',
+          source: lane.executorType,
+          title: 'Agent process started',
+          content: `Started ${lane.executorType} executor.`,
+        });
 
         this.recordAudit({
           type: 'lane_started',

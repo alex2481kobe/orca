@@ -1184,6 +1184,72 @@ body.sidebar-collapsed .sidebar-project-line {
   color: var(--muted);
 }
 
+.agent-event-list {
+  display: grid;
+  gap: 0.45rem;
+  max-height: 28rem;
+  overflow: auto;
+  padding: 0.65rem;
+}
+
+.agent-event-list.compact {
+  max-height: 36rem;
+  padding: 0;
+}
+
+.agent-event {
+  background: rgba(245, 241, 232, 0.045);
+  border: 1px solid rgba(245, 241, 232, 0.09);
+  border-radius: 8px;
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.55rem;
+}
+
+.agent-event.message-assistant-delta,
+.agent-event.message-assistant-final {
+  background: rgba(139, 213, 157, 0.07);
+  border-color: rgba(139, 213, 157, 0.18);
+}
+
+.agent-event.command-output,
+.agent-event.tool-started,
+.agent-event.tool-completed {
+  background: rgba(216, 191, 143, 0.06);
+}
+
+.agent-event.error,
+.agent-event.agent-failed {
+  background: rgba(239, 131, 119, 0.08);
+  border-color: rgba(239, 131, 119, 0.22);
+}
+
+.agent-event-topline {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: space-between;
+}
+
+.agent-event pre {
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  margin: 0;
+  max-height: 12rem;
+  overflow: auto;
+  padding: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.agent-event-empty {
+  padding: 0.65rem;
+}
+
 .orchestrator-form {
   display: grid;
   gap: 0.65rem;

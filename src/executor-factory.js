@@ -5,6 +5,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import { CredentialStore, defaultProfiles } from './provider-profiles.js';
 import { validateNetworkUrl } from './url-policy.js';
+import { createAgentEventNormalizer } from './agent-events.js';
 
 const noopAsync = async () => {};
 
@@ -235,24 +236,28 @@ function buildExecutorCommandArgs(label, lane) {
   const out = [];
   switch (String(label).toLowerCase()) {
     case 'codex': {
+      out.push('exec', '--json');
       if (model) out.push('--model', model);
-      if (permissions) out.push('--permissions', permissions);
+      if (isForceMode(permissions)) out.push('--full-auto');
+      if (permissions === 'read-only' || permissions === 'readonly') out.push('--sandbox', 'read-only');
       if (lane.mcpConfigPath) out.push('--mcp-config', lane.mcpConfigPath);
       if (targetUrl) out.push('--target', targetUrl);
-      out.push('--prompt', safePrompt);
+      out.push(targetUrl ? `Target: ${targetUrl}\n${safePrompt}` : safePrompt);
       break;
     }
     case 'claude': {
+      out.push('--print');
       if (model) out.push('--model', model);
       if (permissions) out.push('--permission-mode', permissions);
       if (lane.mcpConfigPath) out.push('--mcp-config', lane.mcpConfigPath);
-      if (targetUrl) out.push('--print', `Target: ${targetUrl}\n${safePrompt}`);
-      else out.push('--print', safePrompt);
+      out.push('--output-format', 'stream-json', '--verbose', '--include-partial-messages');
+      out.push(targetUrl ? `Target: ${targetUrl}\n${safePrompt}` : safePrompt);
       break;
     }
     case 'gemini-cli': {
       if (model) out.push('--model', model);
       if (permissions) out.push('--approval-mode', geminiApprovalMode(permissions));
+      out.push('--output-format', 'json');
       out.push('--prompt', targetUrl ? `Target: ${targetUrl}\n${safePrompt}` : safePrompt);
       break;
     }
@@ -261,7 +266,7 @@ function buildExecutorCommandArgs(label, lane) {
       if (isForceMode(permissions)) {
         out.push('--force');
       }
-      out.push('--output-format', 'text');
+      out.push('--output-format', 'stream-json');
       out.push('-p', targetUrl ? `Target: ${targetUrl}\n${safePrompt}` : safePrompt);
       break;
     }
@@ -628,6 +633,7 @@ class CliExecutorAdapter {
         binary: safeBinary,
         args,
         process: null,
+        eventNormalizer: createAgentEventNormalizer(this.label),
       };
       await fs.mkdir(runtimeDir, { recursive: true });
       lane.artifactPath = `/artifacts/${lane.sessionId || 'orphan'}/${lane.id}`;
@@ -675,7 +681,7 @@ class CliExecutorAdapter {
       // through queued data events feeding an async onLog callback.
       runtime.outputBytes = 0;
       runtime.outputCapped = false;
-      const forward = (prefix, chunk, streamPath) => {
+      const forward = (prefix, chunk, streamPath, streamName) => {
         if (runtime.outputCapped) return;
         const text = String(chunk);
         const nextBytes = runtime.outputBytes + Buffer.byteLength(text, 'utf8');
@@ -697,10 +703,13 @@ class CliExecutorAdapter {
         runtime.outputBytes = nextBytes;
         fs.appendFile(streamPath, text).catch(() => {});
         fs.appendFile(runtime.terminalLogPath, text).catch(() => {});
+        for (const agentEvent of runtime.eventNormalizer.consume(streamName, text)) {
+          safeFire(this.onAgentEvent, lane, agentEvent);
+        }
         safeFire(this.onLog, lane, `${prefix} ${text.trim()}`);
       };
-      child.stdout?.on('data', (chunk) => forward(`[${this.label}]`, chunk, runtime.stdoutLogPath));
-      child.stderr?.on('data', (chunk) => forward(`[${this.label} err]`, chunk, runtime.stderrLogPath));
+      child.stdout?.on('data', (chunk) => forward(`[${this.label}]`, chunk, runtime.stdoutLogPath, 'stdout'));
+      child.stderr?.on('data', (chunk) => forward(`[${this.label} err]`, chunk, runtime.stderrLogPath, 'stderr'));
 
       child.on('error', (error) => {
         if (runtime.status !== 'active') return;
@@ -716,6 +725,9 @@ class CliExecutorAdapter {
 
       child.on('exit', (code, signal) => {
         fs.appendFile(runtime.terminalLogPath, `\n[command-deck] process exited code=${code} signal=${signal || ''}\n`).catch(() => {});
+        for (const agentEvent of runtime.eventNormalizer.flush()) {
+          safeFire(this.onAgentEvent, lane, agentEvent);
+        }
         if (lane.processMeta) {
           lane.processMeta.endedAt = new Date().toISOString();
           lane.processMeta.exitCode = code;
