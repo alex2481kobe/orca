@@ -2394,3 +2394,40 @@ test('submitLane routes to self-verification when critique is required', async (
     await cleanup();
   }
 });
+
+test('assertAgentToolAllowed enforces the workflow state machine', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const project = registry.createProject({ name: 'Gate Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Gate Session' }, { actor: 'test', approved: true });
+    const lane = registry.createLane(session.id, { title: 'gate', executorType: 'mock' }, { approved: true, actor: 'test' });
+    const target = registry.getLane(lane.id);
+
+    target.state = 'running';
+    // submit is legal while running; audit.accept is not.
+    assert.equal(registry.assertAgentToolAllowed('lane.submit', { laneId: lane.id }), true);
+    assert.throws(
+      () => registry.assertAgentToolAllowed('audit.accept', { laneId: lane.id }),
+      (err) => err.status === 409 && /not allowed while lane is "running"/.test(err.message) && Boolean(err.nextAction),
+    );
+
+    target.state = 'ready_for_audit';
+    // Now audit.accept is legal; submit is not.
+    assert.equal(registry.assertAgentToolAllowed('audit.accept', { laneId: lane.id }), true);
+    assert.throws(
+      () => registry.assertAgentToolAllowed('lane.submit', { laneId: lane.id }),
+      (err) => err.status === 409,
+    );
+
+    // critique.findings.record only legal in needs_critique.
+    assert.throws(() => registry.assertAgentToolAllowed('critique.findings.record', { laneId: lane.id }), (e) => e.status === 409);
+    target.state = 'needs_critique';
+    assert.equal(registry.assertAgentToolAllowed('critique.findings.record', { laneId: lane.id }), true);
+
+    // Ungated tools always pass regardless of state.
+    assert.equal(registry.assertAgentToolAllowed('lane.shutdown', { laneId: lane.id }), true);
+    assert.equal(registry.assertAgentToolAllowed('lane.create', { laneId: lane.id }), true);
+  } finally {
+    await cleanup();
+  }
+});

@@ -389,9 +389,30 @@ function isPublicReadApiRoute(parts) {
   return parts[1] === 'health';
 }
 
+// Authoritative workflow enforcement for agent (tool-lease) calls: refuse
+// out-of-order tool calls with a 409 + nextAction envelope so the agent learns
+// the required next step. Dashboard/admin calls are not routed through here.
+function enforceAgentToolStateGate(req, res, parts) {
+  const requirement = toolLeaseRequirementForRoute(req.method || 'GET', parts);
+  if (!requirement) return true;
+  const toolId = requirement.toolId
+    || (Array.isArray(requirement.toolIds) ? requirement.toolIds[0] : null);
+  if (!toolId) return true;
+  try {
+    registry.assertAgentToolAllowed(toolId, { laneId: requirement.laneId });
+    return true;
+  } catch (error) {
+    sendJson(res, error.status || 409, {
+      error: error.message || 'Tool call refused by workflow state gate.',
+      nextAction: error.nextAction || null,
+    });
+    return false;
+  }
+}
+
 function requireApiAuth(req, res, parts) {
   if (req.method === 'GET' && isPublicReadApiRoute(parts)) return true;
-  if (hasToolLeaseRouteAuth(req, parts)) return true;
+  if (hasToolLeaseRouteAuth(req, parts)) return enforceAgentToolStateGate(req, res, parts);
   return requireOperatorAuth(req, res);
 }
 

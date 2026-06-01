@@ -9,7 +9,23 @@ import {
   runCaptureInstall,
   describeCaptureStatus,
 } from './capture-setup.js';
-import { availableToolIdsForRole } from './agent-tools.js';
+import { availableToolIdsForRole, buildNextActionEnvelope } from './agent-tools.js';
+
+// Authoritative workflow gates: lane states in which each agent tool is legal.
+// Enforced only on the agent (tool-lease) path so out-of-order/skipped/stale
+// calls are refused with a nextAction envelope. Dashboard/admin calls are not
+// gated. Only the core lifecycle is gated; flexible ops (stop/retry/controls/
+// evidence) stay ungated.
+const LANE_TOOL_STATE_GATES = {
+  'lane.submit': ['starting', 'running', 'needs_critique'],
+  'critique.bundle.create': ['needs_critique'],
+  'critique.findings.record': ['needs_critique'],
+  'audit.queue_one': ['ready_for_audit', 'done'],
+  'audit.findings.record': ['ready_for_audit', 'auditing', 'done'],
+  'audit.accept': ['ready_for_audit', 'auditing', 'done'],
+  'audit.request_fix': ['ready_for_audit', 'auditing', 'done'],
+  'audit.block': ['ready_for_audit', 'auditing', 'done'],
+};
 import {
   createExecutorAdapter,
   FIRST_CLASS_CLI_EXECUTOR_TYPES,
@@ -4771,6 +4787,28 @@ export class OrcaRegistry {
         sourceRepos: reinstallSourceRepos,
         sourceCommand: getReinstallSourceCommand(type),
       },
+    };
+  }
+
+  // Authoritative state gate for agent tool calls. Returns true when allowed;
+  // throws { status: 409, message, nextAction } when the lane is in the wrong
+  // state for this tool. Ungated tools always pass.
+  assertAgentToolAllowed(toolId, { laneId } = {}) {
+    const legal = LANE_TOOL_STATE_GATES[toolId];
+    if (!legal) return true;
+    const lane = laneId ? this.getLane(laneId) : null;
+    if (!lane) throw { status: 404, message: 'Lane not found for tool call.' };
+    if (legal.includes(lane.state)) return true;
+    const nextAction = buildNextActionEnvelope(this, {
+      role: 'executor',
+      projectId: lane.projectId,
+      sessionId: lane.sessionId,
+      laneId: lane.id,
+    });
+    throw {
+      status: 409,
+      message: `Tool "${toolId}" is not allowed while lane is "${lane.state}". Expected lane state in: ${legal.join(', ')}.`,
+      nextAction,
     };
   }
 
