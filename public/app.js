@@ -2775,6 +2775,37 @@ function renderOrchestratorTerminal(project, session, lane) {
   `;
 }
 
+function renderApprovalRows(lane) {
+  const pending = (lane.pendingApprovals || []).filter((entry) => entry.status === 'pending');
+  if (!pending.length) return '';
+  return `<div class="approval-list">${pending.map((entry) => `
+    <div class="approval-item">
+      <div class="approval-detail">
+        <span class="tag warn">approval</span> <strong>${safeText(entry.kind)}</strong>
+        <div class="tiny">${safeText(entry.detail || '')}</div>
+      </div>
+      <div class="lane-row">
+        <button data-action="approveApproval" data-lane-id="${safeAttr(lane.id)}" data-approval-id="${safeAttr(entry.id)}" type="button">Approve</button>
+        <button class="danger" data-action="denyApproval" data-lane-id="${safeAttr(lane.id)}" data-approval-id="${safeAttr(entry.id)}" type="button">Deny</button>
+      </div>
+    </div>`).join('')}</div>`;
+}
+
+function renderSessionApprovals(session) {
+  const lanes = (shell.lanes || []).filter((lane) =>
+    lane.sessionId === session.id && (lane.pendingApprovals || []).some((entry) => entry.status === 'pending'));
+  if (!lanes.length) return '';
+  return `
+    <article class="approvals-banner">
+      <div class="card-kicker">Agent is asking for permission</div>
+      ${lanes.map((lane) => `
+        <div class="approval-lane">
+          <div class="tiny muted">${safeText(lane.title || lane.id)} · ${safeText(lane.executorType || 'agent')}</div>
+          ${renderApprovalRows(lane)}
+        </div>`).join('')}
+    </article>`;
+}
+
 function renderOrchestratorConsole(session) {
   const project = shell.projects.find((value) => value.id === session.projectId) || currentActiveProject();
   const thread = session.orchestratorThread || {};
@@ -2805,6 +2836,7 @@ function renderOrchestratorConsole(session) {
           ${activeLane ? stateBadge(activeLane.state) : '<span class="tag">Idle</span>'}
         </div>
       </div>
+      ${renderSessionApprovals(session)}
       <div class="orchestrator-feed">
         ${messageRows || '<div class="muted">No orchestration messages yet.</div>'}
       </div>
@@ -3038,9 +3070,14 @@ function renderLane(project, session, lane) {
     ? '<div class="alert">Executor monitor is read-only. Use Stop to interrupt the process; send new direction through the orchestrator chat.</div>'
     : '';
 
+  const laneApprovals = (lane.pendingApprovals || []).some((entry) => entry.status === 'pending')
+    ? `<article class="approvals-banner"><div class="card-kicker">Agent is asking for permission</div>${renderApprovalRows(lane)}</article>`
+    : '';
+
   return `
     <section class="lane-detail-shell">
       ${executorMonitorNote}
+      ${laneApprovals}
       ${(lane.warnings || []).map((warning) => `
         <div class="alert bad"><strong>Warning:</strong> ${safeText(warning.message || warning.kind)}</div>
       `).join('')}
@@ -4240,6 +4277,22 @@ async function handleSystemActions(event) {
     }
     return;
   }
+  if (action === 'approveApproval' || action === 'denyApproval') {
+    const laneId = event.currentTarget.dataset.laneId;
+    const approvalId = event.currentTarget.dataset.approvalId;
+    const decision = action === 'approveApproval' ? 'approve' : 'deny';
+    const response = await api(`/api/lanes/${laneId}/approvals/${approvalId}/decide`, {
+      method: 'POST',
+      body: { actor: 'dashboard', decision },
+    });
+    if (response.ok) {
+      renderAlert(`Approval ${decision === 'approve' ? 'approved' : 'denied'}.`);
+      await refresh();
+    } else {
+      renderAlert(response.data?.error || 'Could not record decision.', 'bad');
+    }
+    return;
+  }
   if (action === 'setupCapture') {
     // Dry-run first to preview the governed plan, then confirm to execute.
     const dry = await api('/api/capture/install', {
@@ -5198,5 +5251,7 @@ initializeApiToken();
 registerServiceWorker();
 renderMobileManifest();
 setupSidebarReorder();
-refresh();
-connectEventStream();
+// Connect the live SSE stream only after the initial load settles. A persistent
+// SSE connection would otherwise keep the page from ever reaching "network idle"
+// (used by automated checks); the polling timer covers this short window.
+refresh().then(() => window.setTimeout(connectEventStream, 1200)).catch(() => {});

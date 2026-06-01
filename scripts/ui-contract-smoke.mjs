@@ -48,6 +48,8 @@ const WIRED_ACTIONS = new Set([
   'copyPhoneUrl',
   'copyPrivateAccessCommand',
   'createPairingCode',
+  'approveApproval',
+  'denyApproval',
   'setupCapture',
   'deleteMcpTool',
   'deletePrivateAccessTarget',

@@ -2107,3 +2107,34 @@ pre {
     flex: 1 1 100%;
   }
 }
+
+/* Pending-approval banner (Codex-app-style permission prompts in the chat). */
+.approvals-banner {
+  border: 1px solid var(--warn);
+  background: rgba(230, 188, 106, 0.1);
+  border-radius: 12px;
+  padding: 0.8rem 0.9rem;
+  margin-bottom: 0.8rem;
+  display: grid;
+  gap: 0.6rem;
+}
+.approval-lane {
+  display: grid;
+  gap: 0.4rem;
+}
+.approval-list {
+  display: grid;
+  gap: 0.5rem;
+}
+.approval-item {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.approval-detail .tiny {
+  color: var(--muted);
+  word-break: break-word;
+}

@@ -50,6 +50,8 @@ const WIRED_ACTIONS = new Set([
   'auditLane',
   'captureEvidence',
   'captureEvidencePreset',
+  'approveApproval',
+  'denyApproval',
   'setupCapture',
   'checkProjectQuickLink',
   'checkPrivateAccessTarget',
