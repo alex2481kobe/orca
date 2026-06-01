@@ -29,9 +29,10 @@ The consolidated full-buildout evidence report is
 
 ## Open-source and macOS release
 
-This repository is prepared for source release with MIT licensing,
-contribution guidance, security reporting guidance, and GitHub issue/PR/release
-templates. Use
+This repository is prepared for source release under
+`AGPL-3.0-or-later`: everyone can use, study, modify, and share it, and
+modified distributed or network-hosted versions must keep the corresponding
+source available under the same license. Use
 [`docs/open-source-release-checklist.md`](docs/open-source-release-checklist.md)
 as the public-release gate.
 

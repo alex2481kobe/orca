@@ -62,3 +62,8 @@ cargo test --manifest-path src-tauri/Cargo.toml
 Use `docs/tauri-manual-release-checklist.md` for macOS releases. Do not commit
 signing material, notarization credentials, local release artifacts, or updater
 private keys.
+
+## License
+
+Contributions are accepted under `AGPL-3.0-or-later`. By contributing, you agree
+that your contribution can be distributed under that license.

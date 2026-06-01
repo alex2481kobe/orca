@@ -640,6 +640,12 @@ body.sidebar-collapsed .ops-sidebar {
   min-height: 2.3rem;
 }
 
+.legal-row {
+  min-height: 2rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
 body.sidebar-collapsed .sidebar-title,
 body.sidebar-collapsed .sidebar-thread,
 body.sidebar-collapsed .sidebar-session-line,

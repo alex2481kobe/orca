@@ -5,7 +5,8 @@ macOS release.
 
 ## Repo readiness
 
-- `LICENSE` exists and matches `package.json`.
+- `LICENSE` contains the GNU AGPLv3 text and matches `package.json` /
+  `src-tauri/Cargo.toml` as `AGPL-3.0-or-later`.
 - `README.md` links to contribution, security, support, Tauri release, and
   macOS manual release docs.
 - `.github/` issue, pull request, and release templates are present.
@@ -15,6 +16,8 @@ macOS release.
 - `package.json` has repository, issue, homepage, license, and engine metadata.
 - `.gitignore` excludes local credentials, `.tauri/`, artifacts, logs, and
   release bundles.
+- The dashboard includes visible Source and License links for AGPL network-use
+  compliance.
 
 ## Automated release gate
 

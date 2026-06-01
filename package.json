@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Local-first control plane prototype for coordinating AI coding workers.",
-  "license": "MIT",
+  "license": "AGPL-3.0-or-later",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/alex2481kobe/orca.git"
