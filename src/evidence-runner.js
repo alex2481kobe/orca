@@ -70,7 +70,13 @@ async function safeImportPlaywright() {
 
 export async function detectPlaywright() {
   const pw = await safeImportPlaywright();
-  return Boolean(pw && pw.chromium);
+  if (!pw?.chromium) return false;
+  try {
+    await fs.access(pw.chromium.executablePath());
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export class PlaywrightEvidenceRunner {
