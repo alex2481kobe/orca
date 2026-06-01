@@ -11,10 +11,10 @@ private phone access.
 
 The latest recorded full local acceptance run passed:
 
-- `npm test`: 143/143 tests passing.
+- `npm test`: 156/156 tests passing.
 - `npm run smoke:acceptance`: 23 deterministic smoke steps passing.
 - `npm run smoke:full-flow`: isolated end-to-end operator flow passing.
-- `npm run smoke:ui-inventory`: 30 desktop/phone route screenshots with
+- `npm run smoke:ui-inventory`: 32 desktop/phone route screenshots with
   zero horizontal overflow.
 - `npm run smoke:ui-contract`: shared UI/action contract passing.
 - `npm run smoke:full-buildout-ledger`: 26 ledger areas checked with
@@ -66,7 +66,7 @@ see [`docs/web-pwa-distribution.md`](docs/web-pwa-distribution.md).
   workstation bootstraps as admin; Tailscale Serve / reverse-proxied requests
   (identified by forwarding/identity headers) get nothing until they pair.
   Browser-session mutations are same-origin protected.
-- Route inventory and security matrix covering 102 routes with auth,
+- Route inventory and security matrix covering 105 routes with auth,
   validation, body limits, rate limits, audit metadata, UI coverage, mobile
   behavior, and smoke coverage.
 - Server-authoritative project live links for dev servers, previews, docs, and
