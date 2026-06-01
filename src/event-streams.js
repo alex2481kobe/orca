@@ -57,6 +57,7 @@ function buildStreamSnapshot(registry) {
   return {
     contractVersion: STREAM_CONTRACT_VERSION,
     generatedAt: new Date().toISOString(),
+    revision: typeof registry.getStreamRevision === 'function' ? registry.getStreamRevision() : 0,
     counts: {
       projects: projects.length,
       sessions: sessions.length,

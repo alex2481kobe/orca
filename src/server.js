@@ -564,6 +564,12 @@ function handleEventStream(req, res) {
     res.end();
     return undefined;
   }
+  // Poll the registry revision frequently so changes are pushed live as `update`
+  // events; emit `heartbeat` at the slower configured cadence as a keepalive.
+  const heartbeatMs = streamHeartbeatMs();
+  const pollMs = Math.max(250, Math.min(heartbeatMs, 700));
+  let lastRevision = typeof registry.getStreamRevision === 'function' ? registry.getStreamRevision() : 0;
+  let lastHeartbeatAt = Date.now();
   const interval = setInterval(() => {
     if (!hasStreamAuth(req)) {
       writeSse(res, 'stream_close', {
@@ -574,11 +580,20 @@ function handleEventStream(req, res) {
       res.end();
       return;
     }
-    writeSse(res, 'heartbeat', {
-      at: new Date().toISOString(),
-      counts: buildStreamSnapshot(registry).counts,
-    });
-  }, streamHeartbeatMs());
+    const revision = typeof registry.getStreamRevision === 'function' ? registry.getStreamRevision() : 0;
+    if (revision !== lastRevision) {
+      lastRevision = revision;
+      writeSse(res, 'update', buildStreamSnapshot(registry));
+    }
+    if (Date.now() - lastHeartbeatAt >= heartbeatMs) {
+      lastHeartbeatAt = Date.now();
+      writeSse(res, 'heartbeat', {
+        at: new Date().toISOString(),
+        revision,
+        counts: buildStreamSnapshot(registry).counts,
+      });
+    }
+  }, pollMs);
   if (typeof interval.unref === 'function') interval.unref();
   const stopHeartbeat = () => clearInterval(interval);
   if (typeof res.on === 'function') res.on('close', stopHeartbeat);

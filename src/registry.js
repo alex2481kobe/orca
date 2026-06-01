@@ -1295,7 +1295,14 @@ export class OrcaRegistry {
     }
   }
 
+  // Monotonic counter bumped on any state change; SSE clients diff it to know
+  // when to refresh (live push instead of fixed-interval polling).
+  getStreamRevision() {
+    return this._streamRevision || 0;
+  }
+
   async persistState() {
+    this._streamRevision = (this._streamRevision || 0) + 1;
     if (this._persistTimer) return;
     this._persistTimer = setTimeout(() => {
       this._persistTimer = null;
@@ -5175,6 +5182,7 @@ export class OrcaRegistry {
       lane.logs = lane.logs.slice(-MAX_LANE_LOG_ENTRIES);
     }
     lane.updatedAt = nowIso();
+    this._streamRevision = (this._streamRevision || 0) + 1;
     if (!this._starting && persist) {
       this.persistState();
     }
@@ -5204,6 +5212,7 @@ export class OrcaRegistry {
       lane.agentEvents = lane.agentEvents.slice(-MAX_AGENT_EVENT_ENTRIES);
     }
     lane.updatedAt = now;
+    this._streamRevision = (this._streamRevision || 0) + 1;
     if (!this._starting && persist) {
       this.persistState();
     }

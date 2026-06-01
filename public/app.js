@@ -5161,8 +5161,42 @@ setInterval(() => {
     refresh();
   }
 }, 500);
+
+// Live push: subscribe to the server event stream and refresh promptly when the
+// state revision changes (agent turns, approvals, lane transitions). Works when
+// the browser is paired (cookie) or on the loopback workstation; falls back to
+// the polling timer above for token-in-page browsers where SSE can't authenticate.
+let _streamRefreshTimer = null;
+function scheduleStreamRefresh() {
+  if (_streamRefreshTimer) return;
+  _streamRefreshTimer = setTimeout(() => { _streamRefreshTimer = null; refresh(); }, 150);
+}
+function connectEventStream() {
+  if (typeof EventSource === 'undefined') return;
+  let retryMs = 2000;
+  const open = () => {
+    let es;
+    try {
+      es = new EventSource('/api/streams/events');
+    } catch {
+      return;
+    }
+    es.addEventListener('update', scheduleStreamRefresh);
+    es.addEventListener('snapshot', scheduleStreamRefresh);
+    es.onerror = () => {
+      try { es.close(); } catch { /* ignore */ }
+      // Reconnect with backoff; the polling timer keeps the UI fresh meanwhile.
+      retryMs = Math.min(retryMs * 2, 30000);
+      window.setTimeout(open, retryMs);
+    };
+    es.onopen = () => { retryMs = 2000; };
+  };
+  open();
+}
+
 initializeApiToken();
 registerServiceWorker();
 renderMobileManifest();
 setupSidebarReorder();
 refresh();
+connectEventStream();
