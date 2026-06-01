@@ -49,6 +49,7 @@
     "smoke:security-headers": "node scripts/security-headers-smoke.mjs",
     "smoke:streams": "node scripts/streams-smoke.mjs",
     "smoke:private-access": "node scripts/private-access-smoke.mjs",
+    "smoke:mcp-flow": "node scripts/mcp-flow-smoke.mjs",
     "smoke:pwa-cache": "node scripts/pwa-cache-smoke.mjs",
     "smoke:providers": "node scripts/provider-smoke.mjs",
     "smoke:api-provider": "node scripts/api-provider-smoke.mjs",
