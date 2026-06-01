@@ -1251,7 +1251,7 @@ async function handleApi(req, res, pathname, method, parts) {
 
   if (parts[1] === 'agent-tools') {
     if (parts[2] === 'discovery' && method === 'GET') {
-      return sendJson(res, 200, buildAgentToolDiscovery());
+      return sendJson(res, 200, buildAgentToolDiscovery(registry));
     }
     if (parts[2] === 'next-action' && method === 'GET') {
       const searchParams = getSearchParams(req.url || '/');
@@ -1324,7 +1324,7 @@ async function handleApi(req, res, pathname, method, parts) {
     });
   }
 
-  if (parts[1] === 'executors' && ['codex', 'claude'].includes(parts[2]) && parts[3] === 'cli' && method === 'GET' && parts.length === 4) {
+  if (parts[1] === 'executors' && parts[2] && parts[3] === 'cli' && method === 'GET' && parts.length === 4) {
     try {
       const info = registry.getExecutorCliInfo(parts[2]);
       return sendJson(res, 200, info);

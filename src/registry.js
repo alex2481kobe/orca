@@ -10,6 +10,7 @@ import {
   getApiProviderExecutorTypes,
   getExecutorProfiles as getExecutorProfilesFromFactory,
   getExecutorProfile as getExecutorProfileFromFactory,
+  getApiProviderProfile as getApiProviderProfileFromFactory,
 } from './executor-factory.js';
 import { PlaywrightEvidenceRunner } from './evidence-runner.js';
 import {
@@ -135,6 +136,8 @@ const DEFAULT_NOTIFICATION_SETTINGS = {
   minSeverity: 'info',
   muted: false,
 };
+const CLI_CAPABILITY_CACHE_MS = 30 * 1000;
+const cliCapabilityCache = new Map();
 
 function normalizeSpawnPolicy(value, fallback = 'within_capacity') {
   const normalized = String(value || fallback).trim().toLowerCase();
@@ -468,6 +471,81 @@ function getCliVersion(binary) {
       exitCode: error.code,
     };
   }
+}
+
+function getCliHelp(binary, executorType) {
+  try {
+    const args = normalizeExecutorType(executorType) === 'codex'
+      ? ['exec', '--help']
+      : ['--help'];
+    const result = spawnSync(binary, args, {
+      encoding: 'utf8',
+      timeout: 4000,
+      maxBuffer: 128 * 1024,
+      windowsHide: true,
+    });
+    if (result.error) {
+      return {
+        ok: false,
+        text: '',
+        exitCode: result.error.code,
+      };
+    }
+    return {
+      ok: result.status === 0,
+      text: String(result.stdout || result.stderr || '').slice(0, 128 * 1024),
+      exitCode: result.status,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      text: '',
+      exitCode: error.code,
+    };
+  }
+}
+
+function firstLine(value, max = 160) {
+  return String(value || '').split(/\r?\n/).map((line) => line.trim()).find(Boolean)?.slice(0, max) || null;
+}
+
+function publicBinaryName(binary) {
+  return path.basename(String(binary || '').trim()) || '';
+}
+
+function helpHas(helpText, pattern) {
+  return pattern.test(String(helpText || ''));
+}
+
+function parseHelpChoices(helpText, flagName) {
+  const text = String(helpText || '');
+  const line = text.split(/\r?\n/).find((entry) => entry.includes(flagName) && (entry.includes('choices:') || entry.includes('possible values:')));
+  if (!line) return [];
+  const match = line.match(/\((?:choices|possible values):\s*([^)]+)\)/i);
+  if (!match) return [];
+  return match[1]
+    .split(/[,\s|]+/)
+    .map((value) => value.replace(/["'`]/g, '').trim())
+    .filter(Boolean)
+    .filter((value, index, all) => all.indexOf(value) === index)
+    .slice(0, 32);
+}
+
+function compactCapabilities(capabilities) {
+  if (!capabilities || typeof capabilities !== 'object') return null;
+  return {
+    type: capabilities.type,
+    displayName: capabilities.displayName,
+    kind: capabilities.kind,
+    binary: capabilities.binary,
+    binaryExists: Boolean(capabilities.binaryExists),
+    version: capabilities.version || null,
+    roles: safeArray(capabilities.roles),
+    controls: capabilities.controls || {},
+    invocation: capabilities.invocation || {},
+    mcpScopes: safeArray(capabilities.mcpScopes),
+    detection: capabilities.detection || {},
+  };
 }
 
 async function getDirectorySize(directoryPath) {
@@ -966,6 +1044,7 @@ function buildOrchestratorPrompt({
   baseUrl = '',
   nextActionUrl = '',
   discoveryUrl = '',
+  executorCapabilities = null,
 } = {}) {
   const transcript = messages
     .slice(-20)
@@ -981,6 +1060,7 @@ function buildOrchestratorPrompt({
     discoveryUrl ? `Tool discovery URL: ${discoveryUrl}` : '',
     nextActionUrl ? `Next-action URL: ${nextActionUrl}` : '',
     'For HTTP tool calls, send header x-commanddeck-tool-lease: $COMMAND_DECK_TOOL_LEASE_TOKEN.',
+    executorCapabilities ? `Executor capability matrix available to you:\n${safeChatText(JSON.stringify(executorCapabilities, null, 2), 6000)}` : '',
     `Project: ${project?.name || project?.id || 'unknown'}`,
     `Session: ${session?.name || session?.id || 'unknown'}`,
     model ? `Requested model: ${safeChatText(model, 120)}` : '',
@@ -2277,6 +2357,7 @@ export class CommandDeckRegistry {
     thread.messages.push(userMessage);
 
     const resolvedExecutorType = this.resolveOrchestratorExecutorType(session, executorType);
+    const executorCapabilities = this.getExecutorCapabilitiesMatrix();
     const turnNumber = thread.messages.filter((entry) => entry.role === 'user').length;
     const workdir = session.repoRoot || session.worktreeRoot;
     let lane;
@@ -2299,6 +2380,7 @@ export class CommandDeckRegistry {
           baseUrl,
           discoveryUrl,
           nextActionUrl,
+          executorCapabilities,
         }),
         model,
         permissionsProfile,
@@ -2342,6 +2424,7 @@ export class CommandDeckRegistry {
       role: 'assistant',
       content: `Started ${resolvedExecutorType} orchestrator lane "${lane.title}".`,
       laneId: lane.id,
+      executorCapabilities: lane.executorCapabilities || null,
       createdAt: thread.updatedAt,
     });
     this.recordAudit({
@@ -2355,6 +2438,7 @@ export class CommandDeckRegistry {
       evidence: {
         messageId: userMessage.id,
         executorType: resolvedExecutorType,
+        executorCapabilities: lane.executorCapabilities || null,
         leaseId: lease?.lease?.id || null,
       },
     });
@@ -2872,6 +2956,7 @@ export class CommandDeckRegistry {
       ? permissionsProfile.trim().slice(0, 120) : '';
     const sanitizedIntelligenceProfile = typeof intelligenceProfile === 'string'
       ? intelligenceProfile.trim().slice(0, 80) : '';
+    const executorCapabilities = this.getExecutorCapabilities(normalizedExecutorType);
     const sanitizedVerificationCommand = typeof verificationCommand === 'string'
       ? verificationCommand.trim().slice(0, 1000) : '';
     const sanitizedTargetUrl = typeof targetUrl === 'string' && targetUrl.trim()
@@ -2909,6 +2994,7 @@ export class CommandDeckRegistry {
       model: sanitizedModel,
       permissionsProfile: sanitizedPermissionsProfile,
       intelligenceProfile: sanitizedIntelligenceProfile,
+      executorCapabilities,
       verificationCommand: sanitizedVerificationCommand,
       expectedArtifacts: expectedArtifactsList,
       targetUrl: sanitizedTargetUrl,
@@ -4321,10 +4407,209 @@ export class CommandDeckRegistry {
     return clonePayload(getExecutorProfilesFromFactory());
   }
 
+  getExecutorCapabilities(executorType) {
+    const type = normalizeExecutorType(executorType);
+    const supported = this.getSupportedExecutorTypes();
+    if (!supported.includes(type)) {
+      throw { status: 404, message: 'Unsupported executor type.' };
+    }
+
+    if (type === 'mock') {
+      return compactCapabilities({
+        type,
+        displayName: 'Mock',
+        kind: 'mock',
+        binary: null,
+        binaryExists: true,
+        version: 'built-in',
+        roles: ['orchestrator', 'executor', 'auditor', 'critique'],
+        controls: {
+          model: { supported: false, values: [] },
+          permissions: { supported: true, values: ['plan', 'read-only', 'auto-edit'] },
+          intelligence: { supported: true, values: ['low', 'medium', 'high', 'xhigh', 'max'], passthrough: true },
+          structuredOutput: { supported: true, formats: ['mock-events'] },
+          backgroundAgents: { supported: false },
+        },
+        invocation: {
+          canRunAsOrchestrator: true,
+          canRunAsExecutor: true,
+          commandDerivedFromLane: true,
+          customArgs: false,
+        },
+        mcpScopes: ['mock', 'all'],
+        detection: { source: 'built-in', checkedAt: nowIso() },
+      });
+    }
+
+    if (FIRST_CLASS_CLI_EXECUTOR_TYPES.includes(type) || type === 'cli') {
+      const profile = getExecutorProfileFromFactory(type) || {};
+      const binary = String(profile.defaultBinary || type);
+      const cacheKey = `${type}:${binary}:${safeArray(profile.allowedModels).join(',')}`;
+      const cached = cliCapabilityCache.get(cacheKey);
+      if (cached && Date.now() - cached.cachedAt < CLI_CAPABILITY_CACHE_MS) {
+        return clonePayload(cached.capabilities);
+      }
+      const versionInfo = getCliVersion(binary);
+      const helpInfo = versionInfo.exists ? getCliHelp(binary, type) : { ok: false, text: '', exitCode: null };
+      const helpText = helpInfo.text || '';
+      const supportsModel = helpHas(helpText, /(?:^|\s)--model(?:\s|[=<])/m);
+      const supportsMcpConfig = helpHas(helpText, /(?:^|\s)--mcp-config(?:\s|[=<])/m);
+      const supportsOutputFormat = helpHas(helpText, /(?:^|\s)--output-format(?:\s|[=<])/m) || type === 'codex';
+      const supportsPermissionMode = helpHas(helpText, /(?:^|\s)--permission-mode(?:\s|[=<])/m);
+      const supportsApprovalMode = helpHas(helpText, /(?:^|\s)--approval-mode(?:\s|[=<])/m);
+      const supportsEffort = helpHas(helpText, /(?:^|\s)--effort(?:\s|[=<])/m);
+      const permissionChoices = parseHelpChoices(helpText, '--permission-mode');
+      const outputChoices = parseHelpChoices(helpText, '--output-format');
+      const effortChoices = parseHelpChoices(helpText, '--effort');
+      const permissionValues = permissionChoices.length
+        ? permissionChoices
+        : (type === 'codex'
+          ? ['plan', 'read-only', 'auto-edit', 'bypass-permissions']
+          : (supportsApprovalMode ? ['plan', 'read-only', 'auto-edit', 'bypass-permissions'] : ['plan', 'read-only', 'auto-edit', 'acceptEdits', 'bypassPermissions']));
+      const intelligenceValues = supportsEffort
+        ? (effortChoices.length ? effortChoices : ['low', 'medium', 'high', 'xhigh', 'max'])
+        : ['low', 'medium', 'high', 'xhigh', 'max'];
+      const backgroundAgents = type === 'claude' && (
+        helpHas(helpText, /^\s*agents\s/m)
+        || helpHas(helpText, /(?:^|\s)--agents(?:\s|[=<])/m)
+        || helpHas(helpText, /(?:^|\s)--agent(?:\s|[=<])/m)
+      );
+      const attachable = type === 'claude' && helpHas(helpText, /^\s*attach\s/m);
+      const stoppable = type === 'claude' && helpHas(helpText, /^\s*stop\s/m);
+      const logs = type === 'claude' && helpHas(helpText, /^\s*logs\s/m);
+
+      const capabilities = compactCapabilities({
+        type,
+        displayName: type === 'cli' ? 'Custom CLI' : type,
+        kind: 'cli',
+        binary: publicBinaryName(binary),
+        binaryExists: Boolean(versionInfo.exists),
+        version: firstLine(versionInfo.version),
+        roles: ['orchestrator', 'executor', 'auditor', 'critique'],
+        controls: {
+          model: {
+            supported: supportsModel || safeArray(profile.allowedModels).length > 0,
+            values: safeArray(profile.allowedModels),
+            defaultValue: String(process.env[`COMMAND_DECK_${String(type).toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_MODEL`] || '').slice(0, 120) || null,
+          },
+          permissions: {
+            supported: true,
+            values: permissionValues,
+            nativeFlag: supportsPermissionMode ? '--permission-mode' : (supportsApprovalMode ? '--approval-mode' : (type === 'codex' ? '--sandbox/--full-auto' : 'derived-or-passthrough')),
+          },
+          intelligence: {
+            supported: supportsEffort,
+            values: intelligenceValues,
+            nativeFlag: supportsEffort ? '--effort' : null,
+            passthrough: !supportsEffort,
+          },
+          structuredOutput: {
+            supported: supportsOutputFormat || ['codex', 'claude', 'gemini-cli', 'composer-cli'].includes(type),
+            formats: outputChoices.length ? outputChoices : (type === 'codex' ? ['jsonl'] : []),
+          },
+          mcpConfig: {
+            supported: supportsMcpConfig || ['codex', 'claude'].includes(type),
+            nativeFlag: supportsMcpConfig || ['codex', 'claude'].includes(type) ? '--mcp-config' : null,
+          },
+          backgroundAgents: {
+            supported: backgroundAgents,
+            attachable,
+            logs,
+            stoppable,
+            commands: backgroundAgents ? ['agents', 'attach', 'logs', 'stop', 'respawn'].filter((command) => command === 'agents' || helpHas(helpText, new RegExp(`^\\s*${command}\\s`, 'm'))) : [],
+          },
+        },
+        invocation: {
+          canRunAsOrchestrator: true,
+          canRunAsExecutor: true,
+          commandDerivedFromLane: type !== 'cli',
+          customArgs: type === 'cli',
+          rawTerminalArtifacts: true,
+          structuredAgentEvents: ['codex', 'claude', 'gemini-cli', 'composer-cli'].includes(type),
+        },
+        mcpScopes: type === 'cli' ? ['cli', 'custom-cli', 'all'] : [type, 'all'],
+        detection: {
+          source: helpInfo.ok ? 'version-and-help' : (versionInfo.exists ? 'version-only' : 'static'),
+          checkedAt: nowIso(),
+          helpExitCode: helpInfo.exitCode ?? null,
+        },
+      });
+      cliCapabilityCache.set(cacheKey, {
+        cachedAt: Date.now(),
+        capabilities,
+      });
+      return clonePayload(capabilities);
+    }
+
+    const profile = getApiProviderProfileFromFactory(type) || {};
+    return compactCapabilities({
+      type,
+      displayName: profile.id || type,
+      kind: 'api',
+      binary: null,
+      binaryExists: false,
+      version: null,
+      roles: ['orchestrator', 'executor', 'auditor', 'critique'],
+      controls: {
+        model: { supported: true, values: safeArray(profile.allowedModels), defaultValue: profile.defaultModel || null },
+        permissions: { supported: false, values: ['restricted'] },
+        intelligence: { supported: false, values: ['low', 'medium', 'high', 'xhigh', 'max'], passthrough: true },
+        structuredOutput: { supported: Boolean(profile.streaming), formats: profile.streaming ? ['provider-stream'] : ['provider-json'] },
+        backgroundAgents: { supported: false },
+      },
+      invocation: {
+        canRunAsOrchestrator: true,
+        canRunAsExecutor: true,
+        commandDerivedFromLane: false,
+        customArgs: false,
+        rawTerminalArtifacts: false,
+        structuredAgentEvents: false,
+      },
+      mcpScopes: ['api', type, 'all'],
+      detection: { source: 'provider-profile', checkedAt: nowIso() },
+    });
+  }
+
+  getExecutorCapabilitiesMatrix() {
+    return this.getSupportedExecutorTypes().reduce((accum, executorType) => {
+      try {
+        accum[executorType] = this.getExecutorCapabilities(executorType);
+      } catch (error) {
+        accum[executorType] = {
+          type: executorType,
+          error: error?.message || 'Capability detection failed.',
+          roles: [],
+          controls: {},
+          invocation: {},
+          detection: { source: 'error', checkedAt: nowIso() },
+        };
+      }
+      return accum;
+    }, {});
+  }
+
   getExecutorCliInfo(executorType) {
     const type = normalizeExecutorType(executorType);
-    if (!FIRST_CLASS_CLI_EXECUTOR_TYPES.includes(type)) {
+    if (!this.getSupportedExecutorTypes().includes(type)) {
       throw { status: 404, message: 'Unsupported executor type.' };
+    }
+    if (!FIRST_CLASS_CLI_EXECUTOR_TYPES.includes(type) && type !== 'cli') {
+      return {
+        type,
+        profile: getApiProviderProfileFromFactory(type) || {},
+        binary: null,
+        binaryExists: false,
+        version: null,
+        binaryExitCode: null,
+        capabilities: this.getExecutorCapabilities(type),
+        reinstall: {
+          available: false,
+          command: null,
+          preferSource: false,
+          sourceRepos: [],
+          sourceCommand: null,
+        },
+      };
     }
 
     const profile = getExecutorProfileFromFactory(type) || {};
@@ -4340,6 +4625,7 @@ export class CommandDeckRegistry {
       binaryExists: versionInfo.exists,
       version: versionInfo.version,
       binaryExitCode: versionInfo.exitCode,
+      capabilities: this.getExecutorCapabilities(type),
       reinstall: {
         available: Boolean(reinstallCommand),
         command: reinstallCommand,

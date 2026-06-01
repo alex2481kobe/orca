@@ -34,6 +34,16 @@ const TOOL_DEFINITIONS = [
     summary: 'Fetch the server-approved next legal tool/action envelope.',
   },
   {
+    id: 'executor.capabilities',
+    group: 'executor',
+    roles: ['orchestrator', 'executor', 'auditor', 'critique', 'dashboard'],
+    method: 'GET',
+    route: '/api/agent-tools/discovery',
+    implemented: true,
+    mutating: false,
+    summary: 'Read the executor capability matrix, including supported roles, modes, intelligence, structured output, and MCP support.',
+  },
+  {
     id: 'lane.create',
     group: 'lane',
     roles: ['orchestrator', 'dashboard'],
@@ -568,7 +578,22 @@ function blockedToolSummariesForRole(role) {
     }));
 }
 
-function buildAgentToolDiscovery() {
+function buildMcpToolsByExecutor(registry) {
+  if (typeof registry?.getSupportedExecutorTypes !== 'function' || typeof registry?.listToolsForExecutor !== 'function') {
+    return {};
+  }
+  return registry.getSupportedExecutorTypes().reduce((accum, executorType) => {
+    accum[executorType] = registry.listToolsForExecutor(executorType).map((tool) => ({
+      id: tool.id,
+      name: tool.name,
+      scope: Array.isArray(tool.scope) ? tool.scope : [],
+      enabled: Boolean(tool.enabled),
+    }));
+    return accum;
+  }, {});
+}
+
+function buildAgentToolDiscovery(registry = null) {
   const tools = getToolDefinitions();
   const groups = [...new Set(tools.map((tool) => tool.group))].sort();
   const roles = [...ROLES].sort().map((role) => ({
@@ -584,6 +609,10 @@ function buildAgentToolDiscovery() {
     leasePolicy: 'Mutating agent tools require normal dashboard auth today; lane/session leases are minted by /api/agent-tools/leases and are required by future guarded tool execution routes.',
     groups,
     roles,
+    executorCapabilities: typeof registry?.getExecutorCapabilitiesMatrix === 'function'
+      ? registry.getExecutorCapabilitiesMatrix()
+      : {},
+    mcpToolsByExecutor: buildMcpToolsByExecutor(registry),
     tools,
   };
 }
@@ -745,6 +774,10 @@ function buildNextActionEnvelope(registry, {
     auditRequired,
     auditSatisfied: auditRequired ? auditSatisfied : true,
     capacity: buildCapacity(registry, session),
+    executorCapabilities: typeof registry?.getExecutorCapabilitiesMatrix === 'function'
+      ? registry.getExecutorCapabilitiesMatrix()
+      : {},
+    mcpToolsByExecutor: buildMcpToolsByExecutor(registry),
     links: buildLinks({ project, session, lane }),
   };
 }

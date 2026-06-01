@@ -36,6 +36,7 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
     'session.describe',
     'session.plan.update',
     'session.next_action',
+    'executor.capabilities',
     'lane.create',
     'lane.claim',
     'lane.heartbeat',

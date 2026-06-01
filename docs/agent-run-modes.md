@@ -4,6 +4,11 @@ Command Deck chooses how an agent runs at lane creation time. The dashboard,
 orchestrator tools, and direct API calls all write the same lane fields; the
 server then derives safe argv, workdir, env, MCP config, and audit state.
 
+Every supported executor can be selected for an orchestrator lane or an
+executor lane. Command Deck records a capability snapshot on each lane so the
+dashboard, read-only executor monitor, and orchestrator chat all show what the
+selected agent could support at launch time.
+
 ## Lane fields that control agent execution
 
 | Field | Applies to | Purpose |
@@ -19,6 +24,29 @@ server then derives safe argv, workdir, env, MCP config, and audit state.
 | `executorBinary` | CLI-backed lanes | Optional binary override. Must target the selected executor and pass allowlists. |
 | `workdir` | CLI-backed lanes | Execution directory. Must stay inside approved roots or the session workspace. |
 | `settingsOverrides` | all lanes | Scoped product policy overrides. Cannot weaken locked defaults without approval. |
+
+## Capability discovery
+
+Command Deck exposes a public-safe capability matrix through agent tool
+discovery and next-action envelopes. Orchestrators should consult that matrix
+before spawning executors instead of assuming a fixed flag set.
+
+The matrix includes:
+
+- roles: whether the executor can be used as orchestrator, executor, auditor,
+  or critique agent.
+- controls: model, permissions/run modes, intelligence/effort support,
+  structured output formats, MCP config support, and background-agent support.
+- invocation: whether Command Deck derives argv from lane fields, whether
+  custom argv is supported, and whether raw terminal artifacts or structured
+  agent events are available.
+- MCP scopes: which configured MCP tools are valid for that executor.
+
+CLI capabilities are detected from the configured binary's version/help output
+when possible and fall back to conservative static metadata. This means new
+Claude, Codex, Gemini, Composer, or custom CLI features become visible when the
+installed CLI exposes them, while Command Deck still preserves server-side
+allowlists and safe argv derivation.
 
 ## Current adapter mapping
 

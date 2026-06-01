@@ -644,7 +644,7 @@ const ROUTE_INVENTORY = [
     auth: 'none',
     mutationRisk: 'none',
     approval: 'none',
-    validation: 'executor type allowlist codex/claude',
+    validation: 'executor type must be supported; capability summary is public-safe',
     auditEvent: 'none',
     uiSurface: 'provider CLI health',
     smokeCoverage: ['test/registry.test.js', 'test/server.test.js'],

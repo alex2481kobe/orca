@@ -1146,6 +1146,7 @@ function renderHome() {
         <div class="tiny muted">allowlist: ${(profile.allowedBinaries || []).slice(0, 6).join(', ') || 'default'}</div>
         <div class="tiny muted">model: per-lane (lane.model overrides). Set env ${safeText(modelEnv)} for default.</div>
         <div class="tiny muted">permissions: per-lane (lane.permissionsProfile). Suggested values: plan / restricted / full.</div>
+        ${renderExecutorCapabilities(executorCapabilitiesFor(profile.type), { compact: true })}
         <div class="tiny muted">env allowlist: ${(profile.envWhitelist || []).slice(0, 6).join(', ') || 'default'}</div>
         <div class="tiny muted">workdir roots: ${(profile.workdirRoots || []).slice(0, 3).join(', ') || 'default'}</div>
       </div>
@@ -1173,6 +1174,7 @@ function renderHome() {
           <strong>${safeText(type.toUpperCase())}</strong>
           <div class="tiny muted">binary: ${safeText(info?.binary || '')}</div>
           <div class="tiny muted">version: ${safeText(info?.version || 'unknown')}</div>
+          ${renderExecutorCapabilities(info?.capabilities, { compact: true })}
           <div class="tiny muted">reinstall: ${command}</div>
         <div class="tiny muted">source-first mode: ${safeText(preferSource)}</div>
         <div class="tiny muted">source repos: ${safeText(sourceRepos)}</div>
@@ -2601,6 +2603,44 @@ function runModeOptions(selected = 'plan') {
   ].map(([value, label]) => `<option value="${safeAttr(value)}"${normalized === value ? ' selected' : ''}>${safeText(label)}</option>`).join('');
 }
 
+function executorCapabilitiesFor(type) {
+  const info = shell.executorCliInfo || {};
+  return info[String(type || '').trim()]?.capabilities || null;
+}
+
+function capabilityList(value, fallback = 'none') {
+  const list = Array.isArray(value) ? value.filter(Boolean) : [];
+  return list.length ? list.join(', ') : fallback;
+}
+
+function renderExecutorCapabilities(capabilities, { compact = false } = {}) {
+  if (!capabilities) return '<div class="tiny muted">Capabilities: not detected yet.</div>';
+  const controls = capabilities.controls || {};
+  const invocation = capabilities.invocation || {};
+  const details = [
+    `roles ${capabilityList(capabilities.roles)}`,
+    `model ${controls.model?.supported ? 'yes' : 'no'}`,
+    `modes ${capabilityList(controls.permissions?.values)}`,
+    `intelligence ${controls.intelligence?.supported ? capabilityList(controls.intelligence?.values) : 'metadata only'}`,
+    `MCP ${controls.mcpConfig?.supported ? 'native' : capabilityList(capabilities.mcpScopes)}`,
+    `events ${invocation.structuredAgentEvents ? 'structured' : (invocation.rawTerminalArtifacts ? 'raw logs' : 'provider response')}`,
+    controls.backgroundAgents?.supported ? 'background agents yes' : 'background agents no',
+  ];
+  const version = capabilities.version ? ` · ${capabilities.version}` : '';
+  const title = `${capabilities.displayName || capabilities.type || 'executor'}${version}`;
+  if (compact) {
+    return `<div class="tiny muted">Capabilities: ${safeText(details.join(' · '))}</div>`;
+  }
+  return `
+    <details class="disclosure compact-disclosure">
+      <summary>Capabilities: ${safeText(title)}</summary>
+      <div class="tiny muted">${safeText(details.join(' · '))}</div>
+      <div class="tiny muted">output: ${safeText(capabilityList(controls.structuredOutput?.formats))}</div>
+      <div class="tiny muted">detected: ${safeText(capabilities.detection?.source || 'unknown')} ${capabilities.detection?.checkedAt ? `· ${safeText(formatMeta(capabilities.detection.checkedAt))}` : ''}</div>
+    </details>
+  `;
+}
+
 function renderOrchestratorTerminal(project, session, lane) {
   if (!lane) {
     return `
@@ -2694,6 +2734,7 @@ function renderOrchestratorConsole(session) {
         ${messageRows || '<div class="muted">No orchestration messages yet.</div>'}
       </div>
       ${renderOrchestratorTerminal(project, session, activeLane)}
+      ${renderExecutorCapabilities(activeLane?.executorCapabilities || executorCapabilitiesFor(selectedExecutor))}
       <form id="orchestrator-message-form" data-session-id="${safeAttr(session.id)}" class="orchestrator-form">
         <textarea name="message" rows="4" required placeholder="Tell the orchestrator what to build, audit, or coordinate next."></textarea>
         <div class="orchestrator-options">
@@ -2793,6 +2834,7 @@ function renderSession(project, session) {
                 ${runModeOptions('plan')}
               </select>
             </label>
+            <div class="tiny muted">Command Deck snapshots the selected executor's detected capabilities when the lane is queued.</div>
             <label>Target URL
               <input name="targetUrl" placeholder="https://localhost:5173" />
             </label>
@@ -2897,6 +2939,7 @@ function renderLane(project, session, lane) {
           <div class="tiny muted">MCP tools: ${(lane.mcpTools || []).map((item) => safeText(item.name)).join(', ') || 'none'}</div>
           <div class="tiny muted">Route: ${safeText(laneDetailRoute(project, session, lane))}</div>
           ${lane.model || lane.permissionsProfile || lane.intelligenceProfile || lane.branch ? `<div class="tiny">Model: ${safeText(lane.model || '—')} / Mode: ${safeText(lane.permissionsProfile || '—')} / Intelligence: ${safeText(lane.intelligenceProfile || '—')} / Branch: ${safeText(lane.branch || '—')}</div>` : ''}
+          ${renderExecutorCapabilities(lane.executorCapabilities || executorCapabilitiesFor(lane.executorType))}
           ${lane.workdir ? `<div class="tiny">Workdir: ${safeText(lane.workdir)}</div>` : ''}
           ${lane.processMeta && lane.processMeta.pid !== null ? `<div class="tiny">Process: PID ${safeText(String(lane.processMeta.pid))} / exit ${safeText(String(lane.processMeta.exitCode ?? '—'))} / signal ${safeText(String(lane.processMeta.signal ?? '—'))}${lane.processMeta.stopRequestedBy ? ' / stopped by ' + safeText(lane.processMeta.stopRequestedBy) : ''}</div>` : ''}
           <div class="tiny">Pending audits: ${pendingAudits.length}</div>

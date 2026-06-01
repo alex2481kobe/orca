@@ -1792,11 +1792,14 @@ test('agent tool routes expose discovery, nextAction, and token-gated leases', a
     assert.equal(discovery.body?.contractVersion, 'command-deck.agent-tools.v1');
     assert.equal(discovery.body?.publicSafe, true);
     assert.equal(discovery.body.tools.some((tool) => tool.id === 'session.next_action'), true);
+    assert.equal(discovery.body.tools.some((tool) => tool.id === 'executor.capabilities'), true);
+    assert.equal(discovery.body.executorCapabilities?.codex?.invocation?.canRunAsOrchestrator, true);
 
     const next = await server.requestJson(`/api/agent-tools/next-action?role=orchestrator&projectId=${project.body.id}&sessionId=${session.body.id}`, { method: 'GET', headers: { 'x-commanddeck-token': token } });
     assert.equal(next.status, 200);
     assert.equal(next.body?.nextRequiredTool, 'lane.create');
     assert.equal(next.body?.allowedTools.includes('lane.create'), true);
+    assert.equal(next.body?.executorCapabilities?.claude?.invocation?.canRunAsExecutor, true);
 
     const deniedLease = await server.requestJson('/api/agent-tools/leases', {
       method: 'POST',

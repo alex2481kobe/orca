@@ -13,6 +13,10 @@ Command Deck policy gates.
 
 - Read the current project, session, and lane state before assigning work.
 - Use the agent-tool discovery contract instead of guessing route names.
+- Read `executor.capabilities` from discovery or the next-action envelope before
+  spawning lanes. Pick models, permissions, intelligence/effort, MCP tools, and
+  background-agent expectations from the selected executor's advertised
+  capabilities.
 - Create lanes only when the work is scoped, reviewable, and within capacity.
 - Choose executor run mode through lane fields documented in
   `docs/agent-run-modes.md`; make high-risk modes such as auto-edit or bypass

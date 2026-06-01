@@ -1070,6 +1070,37 @@ test('executor CLI info and managed reinstall require approval', async () => {
   }
 });
 
+test('executor capabilities are available for every supported executor and snapshotted on lanes', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+
+  try {
+    const matrix = registry.getExecutorCapabilitiesMatrix();
+    assert.equal(matrix.mock.invocation.canRunAsOrchestrator, true);
+    assert.equal(matrix.codex.invocation.canRunAsExecutor, true);
+    assert.equal(matrix.claude.controls.permissions.supported, true);
+    assert.equal(Array.isArray(matrix.claude.controls.intelligence.values), true);
+    assert.equal(matrix['gemini-cli']?.invocation.canRunAsOrchestrator, true);
+
+    const project = registry.createProject({ name: 'Capability Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Capability Session' }, { actor: 'test', approved: true });
+    const lane = registry.createLane(session.id, {
+      title: 'Capability lane',
+      executorType: 'claude',
+      taskPrompt: 'Inspect detected capabilities.',
+      permissionsProfile: 'plan',
+      intelligenceProfile: 'high',
+      sharedWorktree: true,
+    }, { actor: 'test', approved: true });
+
+    assert.equal(lane.executorCapabilities.type, 'claude');
+    assert.equal(lane.executorCapabilities.invocation.canRunAsOrchestrator, true);
+    assert.equal(lane.executorCapabilities.invocation.canRunAsExecutor, true);
+    assert.equal(Array.isArray(lane.executorCapabilities.controls.permissions.values), true);
+  } finally {
+    await cleanup();
+  }
+});
+
 test('executor CLI reinstall execute mode requires confirmation', async () => {
   const restore = restoreEnv({
     COMMAND_DECK_CODEX_BINARY: process.env.COMMAND_DECK_CODEX_BINARY,

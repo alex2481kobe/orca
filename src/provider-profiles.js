@@ -301,7 +301,7 @@ function defaultProfiles() {
       displayName: 'Custom CLI',
       kind: 'cli',
       enabled: Boolean(process.env.COMMAND_DECK_ENABLE_CUSTOM_CLI === 'true' || process.env.COMMAND_DECK_CLI_BINARY),
-      roleCompatibility: ['executor', 'auditor', 'critique'],
+      roleCompatibility: [...ROLE_COMPATIBILITY],
       defaultModel: '',
       allowedModels: [],
       defaultArgs: normalizeStringArray((process.env.COMMAND_DECK_CLI_DEFAULT_ARGS || '').split(/\s+/), [], 64),
