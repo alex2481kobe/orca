@@ -8,6 +8,10 @@ Command Deck has two desktop build modes:
   create updater-signed release artifacts. The default release bundle is the
   macOS `.app`.
 - `npm run tauri:build:dmg` produces the DMG bundle path.
+- `npm run tauri:release-preflight` checks whether the release environment has
+  the required updater, Apple signing/notarization, and GitHub upload secrets
+  without printing secret values. Add `-- --local` to allow the ignored local
+  `.tauri/` updater key and a local `APPLE_SIGNING_IDENTITY`.
 
 ## Secrets
 
@@ -45,6 +49,9 @@ Common CI secrets:
 - `APPLE_API_ISSUER`: App Store Connect issuer ID.
 - `APPLE_API_KEY`: App Store Connect key ID.
 - `APPLE_API_KEY_PATH`: path to the App Store Connect `.p8` private key.
+- `APPLE_API_PRIVATE_KEY`: inline App Store Connect `.p8` private key, if the
+  CI workflow writes it to a temporary file before running Tauri.
+- `GITHUB_TOKEN` or `GH_TOKEN`: upload release assets and `latest.json`.
 
 Apple ID notarization also works with:
 
@@ -59,27 +66,33 @@ ID app-specific password in the workflow.
 
 1. Bump `version` in `src-tauri/tauri.conf.json` and `package.json`.
 2. Build and test the web/PWA app normally.
-3. Build release artifacts:
+3. Verify the release environment:
+
+   ```sh
+   npm run tauri:release-preflight
+   ```
+
+4. Build release artifacts:
 
    ```sh
    npm run tauri:build:release
    ```
 
-4. For DMG output:
+5. For DMG output:
 
    ```sh
    npm run tauri:build:dmg
    ```
 
-5. Upload the app/DMG and the updater artifact files to GitHub Releases.
-6. Generate `latest.json` after setting the final download URL:
+6. Upload the app/DMG and the updater artifact files to GitHub Releases.
+7. Generate `latest.json` after setting the final download URL:
 
    ```sh
    COMMAND_DECK_UPDATE_ARTIFACT_URL="https://github.com/alex2481kobe/orca/releases/download/v0.1.0/Command%20Deck.app.tar.gz" \
      npm run tauri:release-manifest
    ```
 
-7. Upload `latest.json` to:
+8. Upload `latest.json` to:
 
    ```text
    https://github.com/alex2481kobe/orca/releases/latest/download/latest.json

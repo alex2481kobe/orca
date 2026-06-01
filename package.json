@@ -19,6 +19,7 @@
     "tauri:build": "tauri build",
     "tauri:build:release": "node scripts/tauri-release-build.mjs",
     "tauri:build:dmg": "node scripts/tauri-release-build.mjs --bundles dmg",
+    "tauri:release-preflight": "node scripts/tauri-release-preflight.mjs",
     "tauri:release-manifest": "node scripts/tauri-release-manifest.mjs",
     "tauri:check": "cargo check --manifest-path src-tauri/Cargo.toml",
     "test": "node --test ./test/**/*.test.js",
