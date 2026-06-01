@@ -4483,7 +4483,7 @@ export class OrcaRegistry {
         area: 'evidence',
         summary: 'Playwright not installed; evidence capture is degraded',
         detail: 'Without Playwright, /api/lanes/:id/evidence returns captured=false and writes a JSON marker only. Screenshots, traces, and videos cannot be produced.',
-        remediation: 'cd command-deck-client && npm install --save-dev playwright && npx playwright install chromium',
+        remediation: 'From the repo root, run: npm install --save-dev playwright && npx playwright install chromium',
         approvalRequired: true,
       });
     }

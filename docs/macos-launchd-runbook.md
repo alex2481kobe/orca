@@ -21,7 +21,7 @@ that local port. Do not use public Funnel for v1.
 Set the repo path for your machine:
 
 ```bash
-export ORCA_REPO="$HOME/Documents/Projects/web/command-deck/command-deck-client"
+export ORCA_REPO="$HOME/orca"  # path to your cloned repo
 ```
 
 If your checkout lives elsewhere, use that absolute path instead.

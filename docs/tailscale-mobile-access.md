@@ -8,7 +8,7 @@ private Tailscale Serve. No public Funnel.
 - Tailscale installed and signed in on both the Mac and the phone, both on the
   same tailnet, MagicDNS on.
 - Node 18.18+ installed on the Mac.
-- This repo cloned to `command-deck-client/`.
+- This repo cloned locally (the directory is `orca/` after `git clone`).
 
 ## 1. Generate a strong API token
 
@@ -24,7 +24,7 @@ Do not paste it into chat, screenshots, or commit it.
 ## 2. Start the server (binds locally by default)
 
 ```bash
-cd command-deck-client
+cd orca
 PORT=3000 ORCA_HOST=127.0.0.1 \
   ORCA_API_TOKEN=$ORCA_API_TOKEN \
   npm run dev

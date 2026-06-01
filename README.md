@@ -180,7 +180,8 @@ These are not missing local app code:
 ## Run locally
 
 ```bash
-cd command-deck-client
+git clone https://github.com/alex2481kobe/orca.git
+cd orca
 npm install
 ORCA_API_TOKEN="$(openssl rand -hex 32)" npm run dev
 ```

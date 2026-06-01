@@ -5,6 +5,9 @@ import path from 'node:path';
 import test from 'node:test';
 import { OrcaRegistry } from '../src/registry.js';
 
+// Portable MCP config path for command-arg assertions (no hardcoded /tmp).
+const MCP_CONFIG_PATH = path.join(os.tmpdir(), 'orca-mcp.json');
+
 async function withIsolatedRegistry() {
   const previousCwd = process.cwd();
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-registry-test-'));
@@ -1826,7 +1829,7 @@ test('buildExecutorCommandArgs derives safe argv from lane task prompt', async (
     model: 'gpt-5',
     permissionsProfile: 'auto-edit',
     targetUrl: 'http://localhost:5173',
-    mcpConfigPath: '/tmp/mcp.json',
+    mcpConfigPath: MCP_CONFIG_PATH,
   });
   const count = (args, value) => args.filter((item) => item === value).length;
   assert.deepEqual(codexArgs.slice(0, 2), ['exec', '--json']);
@@ -1834,7 +1837,7 @@ test('buildExecutorCommandArgs derives safe argv from lane task prompt', async (
   assert.ok(codexArgs.includes('gpt-5'));
   assert.ok(codexArgs.includes('--full-auto'));
   assert.ok(codexArgs.includes('--mcp-config'));
-  assert.ok(codexArgs.includes('/tmp/mcp.json'));
+  assert.ok(codexArgs.includes(MCP_CONFIG_PATH));
   assert.ok(codexArgs.includes('Target: http://localhost:5173\nShip the dashboard'));
   assert.equal(count(codexArgs, '--mcp-config'), 1);
   assert.equal(count(codexArgs, '--json'), 1);
@@ -1845,7 +1848,7 @@ test('buildExecutorCommandArgs derives safe argv from lane task prompt', async (
     permissionsProfile: 'bypass-permissions',
     intelligenceProfile: 'max',
     targetUrl: 'http://localhost:5173',
-    mcpConfigPath: '/tmp/mcp.json',
+    mcpConfigPath: MCP_CONFIG_PATH,
   });
   assert.ok(claudeArgs.includes('--model'));
   assert.ok(claudeArgs.includes('claude-opus-4-7'));
@@ -1854,7 +1857,7 @@ test('buildExecutorCommandArgs derives safe argv from lane task prompt', async (
   assert.ok(claudeArgs.includes('--permission-mode'));
   assert.ok(claudeArgs.includes('bypassPermissions'));
   assert.ok(claudeArgs.includes('--mcp-config'));
-  assert.ok(claudeArgs.includes('/tmp/mcp.json'));
+  assert.ok(claudeArgs.includes(MCP_CONFIG_PATH));
   assert.equal(claudeArgs[0], '--print');
   assert.ok(claudeArgs.includes('--output-format'));
   assert.ok(claudeArgs.includes('stream-json'));
@@ -1869,7 +1872,7 @@ test('buildExecutorCommandArgs derives safe argv from lane task prompt', async (
     model: 'gemini-2.5-pro',
     permissionsProfile: 'auto-edit',
     targetUrl: 'http://localhost:5173',
-    mcpConfigPath: '/tmp/mcp.json',
+    mcpConfigPath: MCP_CONFIG_PATH,
   });
   assert.deepEqual(geminiArgs, [
     '--model',
@@ -2081,7 +2084,7 @@ test('Lane terminal artifacts include process/MCP/changed-files metadata', async
       stopResult: 'sigterm',
       platform: process.platform,
     };
-    target.mcpConfigPath = '/tmp/mcp.json';
+    target.mcpConfigPath = MCP_CONFIG_PATH;
     target.lastEvidence = { status: 'degraded', produced: ['evidence.json'], requested: ['screenshot'] };
     target.lastEvidenceCaptureAt = nowIso();
     target.changedFiles = ['M src/foo.ts'];
@@ -2095,7 +2098,7 @@ test('Lane terminal artifacts include process/MCP/changed-files metadata', async
     assert.equal(transcript.verificationCommand, 'npm test');
     assert.equal(transcript.branch, 'feature/foo');
     assert.equal(transcript.processMeta.pid, 4242);
-    assert.equal(transcript.mcpConfigPath, '/tmp/mcp.json');
+    assert.equal(transcript.mcpConfigPath, MCP_CONFIG_PATH);
     assert.equal(transcript.evidence.status, 'degraded');
     assert.deepEqual(transcript.changedFiles, ['M src/foo.ts']);
 
