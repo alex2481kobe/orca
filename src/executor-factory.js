@@ -224,6 +224,7 @@ function buildExecutorCommandArgs(label, lane) {
   };
   const model = flagSafe(lane.model, 120);
   const permissions = flagSafe(lane.permissionsProfile, 120);
+  const intelligence = flagSafe(lane.intelligenceProfile, 80);
   const targetUrl = flagSafe(lane.targetUrl, 1024);
   const geminiApprovalMode = (value) => {
     const normalized = String(value || '').trim().toLowerCase();
@@ -237,6 +238,15 @@ function buildExecutorCommandArgs(label, lane) {
     if (key === 'auto-edit' || key === 'auto_accept' || key === 'auto-accept') return 'acceptEdits';
     if (key === 'bypass' || key === 'bypass-permissions') return 'bypassPermissions';
     return normalized;
+  };
+  const claudeEffortLevel = (value) => {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (normalized === 'max') return 'max';
+    if (normalized === 'xhigh' || normalized === 'extra-high' || normalized === 'very-high') return 'xhigh';
+    if (normalized === 'high') return 'high';
+    if (normalized === 'medium') return 'medium';
+    if (normalized === 'low') return 'low';
+    return '';
   };
   const isPlanMode = (value) => ['plan', 'read-only', 'readonly', 'default', 'ask'].includes(String(value || '').trim().toLowerCase());
   const isForceMode = (value) => ['auto', 'auto-edit', 'auto_edit', 'auto-accept', 'auto_accept', 'acceptedits', 'bypass', 'bypass-permissions', 'bypasspermissions', 'force', 'yolo']
@@ -256,6 +266,8 @@ function buildExecutorCommandArgs(label, lane) {
     case 'claude': {
       out.push('--print');
       if (model) out.push('--model', model);
+      const effort = claudeEffortLevel(intelligence);
+      if (effort) out.push('--effort', effort);
       if (permissions) out.push('--permission-mode', claudePermissionMode(permissions));
       if (lane.mcpConfigPath) out.push('--mcp-config', lane.mcpConfigPath);
       out.push('--output-format', 'stream-json', '--verbose', '--include-partial-messages');

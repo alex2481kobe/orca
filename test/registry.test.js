@@ -1706,11 +1706,14 @@ test('buildExecutorCommandArgs derives safe argv from lane task prompt', async (
     taskPrompt: 'Audit the auth flow',
     model: 'claude-opus-4-7',
     permissionsProfile: 'bypass-permissions',
+    intelligenceProfile: 'max',
     targetUrl: 'http://localhost:5173',
     mcpConfigPath: '/tmp/mcp.json',
   });
   assert.ok(claudeArgs.includes('--model'));
   assert.ok(claudeArgs.includes('claude-opus-4-7'));
+  assert.ok(claudeArgs.includes('--effort'));
+  assert.ok(claudeArgs.includes('max'));
   assert.ok(claudeArgs.includes('--permission-mode'));
   assert.ok(claudeArgs.includes('bypassPermissions'));
   assert.ok(claudeArgs.includes('--mcp-config'));

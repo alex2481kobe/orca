@@ -12,6 +12,7 @@ server then derives safe argv, workdir, env, MCP config, and audit state.
 | `taskPrompt` | Codex, Claude, API providers, custom CLI fallback | Main instruction body. Control characters are stripped before argv/API use. |
 | `model` | Codex, Claude, API providers | Per-lane model override. Also supports provider/env defaults. |
 | `permissionsProfile` | Codex, Claude | Per-lane run mode, such as plan/restricted/auto-edit/bypass, interpreted by the underlying CLI. |
+| `intelligenceProfile` | Claude, dashboard/orchestrator metadata for others | Per-lane effort/intelligence request. Claude maps supported values to `--effort`; other executors keep it visible in lane metadata and prompts until their CLI exposes a stable equivalent. |
 | `mcpToolIds` | Codex, Claude, custom CLI | Attaches approved MCP tools scoped to the selected executor. |
 | `targetUrl` | Codex, Claude, evidence | Saved preview or app target; validated by Command Deck URL policy. |
 | `commandArgs` | CLI-backed lanes | Explicit argv tokens. Use for known-safe commands such as `--version`. |
@@ -26,10 +27,10 @@ lane fields:
 
 | Executor | Derived argv |
 | --- | --- |
-| Codex | `--model <model>`, `--permissions <permissionsProfile>`, `--mcp-config <path>`, `--target <targetUrl>`, `--prompt <taskPrompt>` |
-| Claude | `--model <model>`, `--permission-mode <permissionsProfile>`, `--mcp-config <path>`, `--print <taskPrompt>` |
-| Gemini CLI | `--model <model>`, `--approval-mode <permissionsProfile>`, `--prompt <taskPrompt>`. Shared labels normalize `auto-edit` to `auto_edit` and bypass/force labels to `yolo`. |
-| Composer CLI | `--model <model>`, optional `--force` for force-style modes, `--output-format text`, `-p <taskPrompt>` |
+| Codex | `exec --json`, optional `--model <model>`, `--full-auto` for force-style modes, `--sandbox read-only` for plan/read-only modes, `--mcp-config <path>`, and `<taskPrompt>`. |
+| Claude | `--print`, optional `--model <model>`, `--effort <low\|medium\|high\|xhigh\|max>`, `--permission-mode <permissionsProfile>`, `--mcp-config <path>`, `--output-format stream-json`, `--verbose`, `--include-partial-messages`, and `<taskPrompt>`. |
+| Gemini CLI | Optional `--model <model>`, `--approval-mode <permissionsProfile>` for non-plan modes, `--output-format json`, and `--prompt <taskPrompt>`. Shared labels normalize `auto-edit` to `auto_edit` and bypass/force labels to `yolo`. |
+| Composer CLI | Optional `--model <model>`, optional `--force` for force-style modes, `--output-format stream-json`, `-p <taskPrompt>`. |
 | API providers | JSON request body with `model` and prompt content; secrets resolved server-side. |
 | Custom CLI | Uses explicit `commandArgs`, default args, or the task prompt as argv. Custom CLI is disabled unless explicitly configured. |
 
@@ -53,10 +54,11 @@ advanced Custom CLI adapter.
 The release posture is: tested adapters are listed as supported; untested CLIs
 are documented as experimental host configuration, not selectable defaults.
 
-The exact meaning of `permissionsProfile` is owned by the selected CLI. Command
-Deck stores and passes the string, but the CLI decides whether values such as
-`plan`, `restricted`, `auto-edit`, or `bypass` are valid for that installed
-version.
+The exact meaning of `permissionsProfile` and `intelligenceProfile` is owned by
+the selected CLI. Command Deck stores and passes supported values where the
+adapter has a stable mapping, but the installed CLI version decides whether
+values such as `plan`, `auto`, `acceptEdits`, `bypassPermissions`, `high`, or
+`max` are valid.
 
 ## Defaults and allowlists
 

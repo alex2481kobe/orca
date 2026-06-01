@@ -2585,6 +2585,7 @@ function intelligenceOptions(selected = 'high') {
     ['low', 'Low'],
     ['medium', 'Medium'],
     ['high', 'High'],
+    ['xhigh', 'Extra high'],
     ['max', 'Max'],
   ].map(([value, label]) => `<option value="${safeAttr(value)}"${normalized === value ? ' selected' : ''}>${safeText(label)}</option>`).join('');
 }
