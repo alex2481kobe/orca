@@ -65,9 +65,9 @@ const refs = {
 };
 // Audit queue is rendered inside refs.content for the new operator shell.
 refs.actions = refs.content;
-const API_TOKEN_STORAGE_KEY = 'commandDeckApiToken';
-const SIDEBAR_ORDER_STORAGE_KEY = 'commandDeckSidebarOrder:v1';
-const NOTIFICATION_SEEN_STORAGE_KEY = 'commandDeckNotificationsSeen:v1';
+const API_TOKEN_STORAGE_KEY = 'orcaApiToken';
+const SIDEBAR_ORDER_STORAGE_KEY = 'orcaSidebarOrder:v1';
+const NOTIFICATION_SEEN_STORAGE_KEY = 'orcaNotificationsSeen:v1';
 const FOLDER_ICON = `
   <span class="sidebar-folder" aria-hidden="true">
     <svg viewBox="0 0 20 16" focusable="false">
@@ -843,7 +843,7 @@ function isVerificationProject(project) {
 
 function activeHomePanel() {
   const panel = String(window.location.hash || '').replace(/^#/, '').toLowerCase();
-  const allowed = new Set(['projects', 'setup', 'create', 'system', 'mcp', 'audit', 'cleanup', 'token', 'private-access', 'providers', 'effective-settings', 'notifications', 'backup']);
+  const allowed = new Set(['projects', 'setup', 'create', 'system', 'mcp', 'audit', 'cleanup', 'token', 'private-access', 'providers', 'effective-settings', 'notifications', 'backup', 'pair']);
   return allowed.has(panel) ? panel : 'overview';
 }
 
@@ -892,7 +892,7 @@ function maybeShowBrowserNotifications() {
   for (const item of items.filter((notification) => !notification.readAt).slice(0, 5)) {
     if (!item.id || seen.has(item.id)) continue;
     seen.add(item.id);
-    const notice = new window.Notification(item.title || 'Command Deck update', {
+    const notice = new window.Notification(item.title || 'Orca update', {
       body: item.body || item.severity || 'Status changed',
       tag: item.id,
       renotify: false,
@@ -961,7 +961,7 @@ async function api(path, options = {}) {
     'Content-Type': 'application/json',
   };
   if (shell.apiToken) {
-    headers['x-commanddeck-token'] = shell.apiToken;
+    headers['x-orca-token'] = shell.apiToken;
   }
   const resp = await fetch(path, {
     headers,
@@ -991,7 +991,7 @@ function renderBreadcrumbs(project, session) {
 
 function renderTopbarTitle(project, session, lane) {
   if (!refs.topbarTitle) return;
-  refs.topbarTitle.textContent = 'Command Deck';
+  refs.topbarTitle.textContent = 'Orca';
 }
 
 function captureContentUiState() {
@@ -1079,7 +1079,7 @@ function renderHome() {
   const notificationRows = notificationItems.map((notification) => `
     <div class="provider-row ${notification.readAt ? '' : 'panel-elevated'}">
       <div>
-        <strong>${safeText(notification.title || 'Command Deck update')}</strong>
+        <strong>${safeText(notification.title || 'Orca update')}</strong>
         <div class="tiny muted">${safeText(notification.severity || 'info')} · ${safeText(formatRelative(notification.createdAt))} · ${notification.readAt ? 'read' : 'unread'}</div>
         ${notification.body ? `<div class="tiny muted">${safeText(notification.body)}</div>` : ''}
       </div>
@@ -1135,7 +1135,7 @@ function renderHome() {
   const profiles = shell.executorProfiles || {};
   const profileRows = Object.values(profiles).map((profile) => {
     const typeUpper = String(profile.type || '').toUpperCase();
-    const envKey = typeUpper ? `COMMAND_DECK_${typeUpper}` : null;
+    const envKey = typeUpper ? `ORCA_${typeUpper}` : null;
     const modelEnv = envKey ? `${envKey}_MODEL` : '';
     const permissionsEnv = envKey ? `${envKey}_PERMISSIONS` : '';
     return `
@@ -1247,7 +1247,7 @@ function renderHome() {
       <article class="card onboarding-card">
         <div>
           <div class="card-kicker">Phone and laptop setup</div>
-          <h3>Open Command Deck from another device</h3>
+          <h3>Open Orca from another device</h3>
           <p class="muted">Use a device on the same tailnet, open this private URL, then enter a one-time pairing code from this workstation. API tokens stay on trusted admin browsers.</p>
           <code class="copy-url">${safeText(phoneUrl)}</code>
           <div class="lane-row">
@@ -1303,10 +1303,52 @@ function renderHome() {
       </div>
     </div>
     <section class="grid-2 home-panels" data-active-panel="${safeAttr(panel)}">
+      <article class="card control-card pair-panel" id="section-pair" data-panel-card="pair">
+        <div class="card-kicker">Pair a device</div>
+        <h3>Pair with remote device</h3>
+        <p class="muted">Open Orca on a laptop or phone, then connect it to this workstation. Scan the QR code or open the private URL on the other device, then enter a one-time pairing code. The code grants workflow access without ever exposing the API token.</p>
+        <div class="onboarding-card">
+          <div>
+            <strong>1. Open this URL on the other device</strong>
+            <code class="copy-url">${safeText(phoneUrl)}</code>
+            <div class="lane-row">
+              <button class="secondary" data-action="copyPhoneUrl" data-url="${safeAttr(phoneUrl)}" type="button">Copy link</button>
+              <a class="secondary" href="#private-access">Tailscale setup</a>
+            </div>
+            <div class="tiny muted">Access preference: ${safeText(accessModeSummary)}. On the same tailnet use the private URL; on the same LAN the local URL works without Tailscale.</div>
+          </div>
+          <div class="qr-wrap">${phoneQr}<span>Scan from phone or laptop</span></div>
+        </div>
+        <div class="pair-step">
+          <strong>2. Create a one-time pairing code</strong>
+          <div class="lane-row">
+            <button data-action="createPairingCode" type="button">Create pairing code</button>
+          </div>
+          ${shell.lastPairing ? `
+            <div class="pairing-code-box">
+              <div class="tiny muted">One-time pairing code. Do not screenshot or paste into URLs.</div>
+              <strong>${safeText(shell.lastPairing.code)}</strong>
+              <span>Expires ${safeText(formatRelative(shell.lastPairing.expiresAt))}</span>
+            </div>
+          ` : '<div class="tiny muted">Create a code here, then type it into the access screen on the other device. Codes are single-use and expire quickly.</div>'}
+        </div>
+        <div class="pair-step">
+          <strong>3. Enter the code on the other device</strong>
+          <div class="tiny muted">On the laptop/phone access screen, paste the code to pair that browser. Paired devices get workflow access; API tokens stay on trusted admin browsers only.</div>
+        </div>
+        <details class="disclosure compact-disclosure">
+          <summary><span>Paired devices</span><small>${safeText((shell.authSessions || []).length)} session${(shell.authSessions || []).length === 1 ? '' : 's'}</small></summary>
+          <div class="disclosure-body">${authSessionRows || '<div class="muted">No paired browser sessions yet.</div>'}</div>
+        </details>
+        <div class="lane-row">
+          <a class="secondary" href="#setup">Full setup wizard</a>
+          <a class="secondary" href="#system">Access &amp; token settings</a>
+        </div>
+      </article>
       <article class="card control-card setup-wizard" id="section-setup" data-panel-card="setup">
         <div class="card-kicker">First-run wizard</div>
         <h3>Connect phone or PWA</h3>
-        <p class="muted">The secure flow is tailnet access first, then Command Deck pairing. Tailnet membership alone is not enough to control the dashboard.</p>
+        <p class="muted">The secure flow is tailnet access first, then Orca pairing. Tailnet membership alone is not enough to control the dashboard.</p>
         <div class="setup-steps">
           <div class="setup-step ${tailnet.binaryAvailable ? 'ok' : 'warn'}">
             <span>1</span>
@@ -1314,7 +1356,7 @@ function renderHome() {
           </div>
           <div class="setup-step ${tailnet.loggedIn ? 'ok' : 'warn'}">
             <span>2</span>
-            <div><strong>Tailnet session</strong><small>${tailnet.loggedIn ? 'This workstation is signed in.' : 'Sign in, then refresh Command Deck.'}</small></div>
+            <div><strong>Tailnet session</strong><small>${tailnet.loggedIn ? 'This workstation is signed in.' : 'Sign in, then refresh Orca.'}</small></div>
           </div>
           <div class="setup-step ${phoneUrl.startsWith('http') ? 'ok' : 'warn'}">
             <span>3</span>
@@ -1633,7 +1675,7 @@ function renderHome() {
                 <div class="card">
                   <h3>Rotate or rename hostname</h3>
                   <p>Rename the device in Tailscale admin before enabling HTTPS certs if you do not want the current Mac name in certificate metadata. Tailnet DNS suffix rotation is an admin-level Tailscale setting and may break existing links.</p>
-                  <div class="tiny muted">Command Deck does not run these changes automatically. Make the change in Tailscale, then update the private access target URL here.</div>
+                  <div class="tiny muted">Orca does not run these changes automatically. Make the change in Tailscale, then update the private access target URL here.</div>
                 </div>
               </div>
             </details>
@@ -1793,7 +1835,7 @@ function renderHome() {
                 <small>dry-run before apply</small>
               </summary>
               <div class="disclosure-body">
-                <textarea id="app-import-json" rows="8" placeholder='{"schemaVersion":1,"kind":"command-deck.app-export"}'></textarea>
+                <textarea id="app-import-json" rows="8" placeholder='{"schemaVersion":1,"kind":"orca.app-export"}'></textarea>
                 <div class="lane-row">
                   <button class="secondary" data-action="dryRunAppImport" type="button">Dry-run import</button>
                   <button class="danger" data-action="applyAppImport" type="button">Apply import</button>
@@ -2194,7 +2236,7 @@ function renderAccessGate() {
         <article class="card control-card auth-gate">
           <div class="card-kicker">Pair this device</div>
           <h3>Enter the code from your workstation</h3>
-          <p>No dashboard data is shown until this browser is paired. Open Command Deck on the trusted workstation, go to Settings -> Access and paired devices, create a one-time code, then enter it here.</p>
+          <p>No dashboard data is shown until this browser is paired. Open Orca on the trusted workstation, go to Settings -> Access and paired devices, create a one-time code, then enter it here.</p>
           <div class="setup-steps">
             <div class="setup-step ok">
               <span>1</span>
@@ -2891,7 +2933,7 @@ function renderSession(project, session) {
                 ${runModeOptions('plan')}
               </select>
             </label>
-            <div class="tiny muted">Command Deck snapshots the selected executor's detected capabilities when the lane is queued.</div>
+            <div class="tiny muted">Orca snapshots the selected executor's detected capabilities when the lane is queued.</div>
             <label>Target URL
               <input name="targetUrl" placeholder="https://localhost:5173" />
             </label>
@@ -3095,7 +3137,7 @@ function render(uiState = null) {
   if (refs.content) refs.content.setAttribute('aria-busy', 'false');
   if (browserAccessBlocked()) {
     renderSidebarProjects();
-    if (refs.topbarTitle) refs.topbarTitle.textContent = 'Command Deck';
+    if (refs.topbarTitle) refs.topbarTitle.textContent = 'Orca';
     renderAccessGate();
     return;
   }

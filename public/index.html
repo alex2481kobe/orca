@@ -8,16 +8,16 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="Command Deck" />
-    <meta name="application-name" content="Command Deck" />
-    <title>Command Deck</title>
+    <meta name="apple-mobile-web-app-title" content="Orca" />
+    <meta name="application-name" content="Orca" />
+    <title>Orca</title>
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="stylesheet" href="/styles.css?v=20260529-setup-wizard" />
   </head>
-  <body data-app="command-deck">
+  <body data-app="orca">
     <header class="app-topbar">
       <button id="mobile-nav-toggle" class="shell-toggle" data-action="toggleNav" type="button" aria-label="Toggle navigation" aria-controls="sidebar"><span class="panel-toggle-icon" aria-hidden="true"></span></button>
       <div id="topbar-title" class="app-topbar-title"></div>
@@ -26,6 +26,12 @@
     <div id="sidebar-backdrop" class="sidebar-backdrop" aria-hidden="true"></div>
     <main id="shell" class="ops-shell">
       <aside id="sidebar" class="ops-sidebar" aria-label="navigation">
+        <div class="sidebar-section sidebar-pair-section">
+          <a href="/#pair" data-route="pair" class="sidebar-pair-button" aria-label="Pair with a remote device">
+            <span class="sidebar-pair-icon" aria-hidden="true">⧉</span>
+            <span class="sidebar-pair-label">Pair with remote device</span>
+          </a>
+        </div>
         <div class="sidebar-section">
           <div class="sidebar-title">Projects</div>
           <div id="sidebar-projects" class="sidebar-list"></div>

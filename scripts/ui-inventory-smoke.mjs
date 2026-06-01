@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Command Deck UI inventory smoke.
+ * Orca UI inventory smoke.
  *
  * This is the product-quality gate for the Codex-style shell and route
  * inventory. It intentionally visits multiple real screens at desktop and
@@ -9,7 +9,7 @@
  *
  * Usage:
  *   npm run smoke:ui-inventory
- *   COMMAND_DECK_API_TOKEN=<token> COMMAND_DECK_BASE_URL=http://127.0.0.1:3000 npm run smoke:ui-inventory
+ *   ORCA_API_TOKEN=<token> ORCA_BASE_URL=http://127.0.0.1:3000 npm run smoke:ui-inventory
  */
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -19,19 +19,19 @@ import process from 'node:process';
 const previousCwd = process.cwd();
 const previousEnv = { ...process.env };
 const args = process.argv.slice(2);
-let explicitBase = Boolean(process.env.COMMAND_DECK_BASE_URL);
-let base = process.env.COMMAND_DECK_BASE_URL || 'http://127.0.0.1:3000';
+let explicitBase = Boolean(process.env.ORCA_BASE_URL);
+let base = process.env.ORCA_BASE_URL || 'http://127.0.0.1:3000';
 for (let i = 0; i < args.length; i += 1) {
   if (args[i] === '--base' && args[i + 1]) {
     base = args[i + 1];
     explicitBase = true;
   }
 }
-let token = process.env.COMMAND_DECK_API_TOKEN || '';
+let token = process.env.ORCA_API_TOKEN || '';
 const artifactDir = path.resolve('artifacts', 'ui-inventory');
 const inventoryDocPath = path.resolve('docs', 'ui-inventory.md');
 const runSuffix = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
-const tempDir = explicitBase ? null : await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-ui-inventory-'));
+const tempDir = explicitBase ? null : await fs.mkdtemp(path.join(os.tmpdir(), 'orca-ui-inventory-'));
 let server = null;
 let stopServer = null;
 
@@ -96,6 +96,7 @@ const WIRED_ACTIONS = new Set([
 
 const REQUIRED_INVENTORY_SCREENS = [
   { name: 'home', path: '/', purpose: 'Default operator overview and project navigation entry.', primaryAction: 'Open a project/session.' },
+  { name: 'pair', path: '/#pair', purpose: 'Pair a remote laptop/phone via QR code and one-time pairing code.', primaryAction: 'Create pairing code.' },
   { name: 'projects', path: '/#projects', purpose: 'Project list management view.', primaryAction: 'Open project.' },
   { name: 'new-project', path: '/#create', purpose: 'Create a new project.', primaryAction: 'Create project.' },
   { name: 'settings', path: '/#system', purpose: 'Global settings and system health entry.', primaryAction: 'Review effective system state.' },
@@ -141,7 +142,7 @@ async function requestJson(reqPath, options = {}) {
     method: options.method || 'GET',
     headers: {
       'content-type': 'application/json',
-      ...(token ? { 'x-commanddeck-token': token } : {}),
+      ...(token ? { 'x-orca-token': token } : {}),
       ...(options.headers || {}),
     },
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
@@ -159,11 +160,11 @@ async function startIsolatedServerIfNeeded() {
   if (explicitBase) return;
   process.chdir(tempDir);
   process.env.PORT = '0';
-  process.env.COMMAND_DECK_HOST = '127.0.0.1';
-  process.env.COMMAND_DECK_API_TOKEN = 'ui-inventory-token';
-  process.env.COMMAND_DECK_CREDENTIAL_BACKEND = 'memory';
-  process.env.COMMAND_DECK_RATE_LIMIT_DISABLED = 'true';
-  token = process.env.COMMAND_DECK_API_TOKEN;
+  process.env.ORCA_HOST = '127.0.0.1';
+  process.env.ORCA_API_TOKEN = 'ui-inventory-token';
+  process.env.ORCA_CREDENTIAL_BACKEND = 'memory';
+  process.env.ORCA_RATE_LIMIT_DISABLED = 'true';
+  token = process.env.ORCA_API_TOKEN;
   const serverModule = await import('../src/server.js');
   server = await serverModule.startServer(0, '127.0.0.1');
   stopServer = serverModule.stopServer;
@@ -192,7 +193,7 @@ async function requestJsonWithHeaders(reqPath, options = {}) {
     method: options.method || 'GET',
     headers: {
       'content-type': 'application/json',
-      ...(token ? { 'x-commanddeck-token': token } : {}),
+      ...(token ? { 'x-orca-token': token } : {}),
       ...(options.headers || {}),
     },
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
@@ -244,7 +245,7 @@ async function addSessionCookie(context, cookieHeader) {
 }
 
 async function seedInventoryState() {
-  if (!token) fail('COMMAND_DECK_API_TOKEN is required for inventory seeding');
+  if (!token) fail('ORCA_API_TOKEN is required for inventory seeding');
   const project = await requestJson('/api/projects', {
     method: 'POST',
     body: {

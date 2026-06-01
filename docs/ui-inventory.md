@@ -1,6 +1,6 @@
 # UI inventory and design contract
 
-This document is the public-safe UI acceptance inventory for Command Deck.
+This document is the public-safe UI acceptance inventory for Orca.
 It pairs with `npm run smoke:ui-inventory` and `npm run smoke:ui-contract`.
 
 The UI target is a clean Codex-app-style operator surface:
@@ -55,6 +55,7 @@ The smoke summary for each screen must include:
 | Screen | Route | Purpose | Primary action | Hidden/collapsed advanced actions | Required primitives |
 | --- | --- | --- | --- | --- | --- |
 | `home` | `/` | Default operator overview and project navigation entry. | Open a project/session. | System details and advanced health state. | shell, rail, rows, disclosures |
+| `pair` | `/#pair` | Pair a remote laptop/phone via QR code and one-time pairing code. | Create pairing code. | Paired-device list and full setup wizard behind disclosures/links. | shell, card, qr, disclosures |
 | `projects` | `/#projects` | Project list management view. | Open project. | Reorder/archive actions through row controls or sheets. | shell, rail, rows, panels |
 | `new-project` | `/#create` | Create a new project. | Create project. | Policy/approval details. | form, panel, validation |
 | `settings` | `/#system` | Global settings and system health entry. | Review effective system state. | Raw diagnostics, token/session details, CLI internals. | settings panel, disclosures, forms |
