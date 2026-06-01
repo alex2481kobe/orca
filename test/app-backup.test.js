@@ -49,7 +49,7 @@ test('app import dry-run summarizes accepted backup payloads', () => {
 test('redaction removes secrets and local absolute paths from support-shaped data', () => {
   const redacted = redactDeep({
     message: 'token=sk-redaction-secret-value',
-    path: '/Users/alexrodriguez/Documents/private/project',
+    path: '/Users/testuser/Documents/private/project',
     nested: {
       apiKey: 'sk-redaction-secret-value',
       safe: 'ok',
@@ -57,7 +57,7 @@ test('redaction removes secrets and local absolute paths from support-shaped dat
   });
   const text = JSON.stringify(redacted);
   assert.equal(text.includes('sk-redaction-secret-value'), false);
-  assert.equal(text.includes('/Users/alexrodriguez'), false);
+  assert.equal(text.includes('/Users/testuser'), false);
   assert.equal(text.includes('[LOCAL_PATH]'), true);
   assert.equal(redacted.nested.safe, 'ok');
 });
@@ -105,7 +105,7 @@ test('support bundle builder excludes auth sessions and raw artifacts', async ()
     routeInventory: { routeCount: 1, routes: [] },
   });
   const text = JSON.stringify(bundle);
-  assert.equal(bundle.kind, 'command-deck.support-bundle');
+  assert.equal(bundle.kind, 'orca.support-bundle');
   assert.equal(bundle.includesAuthSessions, false);
   assert.equal(bundle.includesArtifacts, false);
   assert.equal(text.includes('sk-support-secret-value'), false);
