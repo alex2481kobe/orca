@@ -114,6 +114,16 @@ const TOOL_DEFINITIONS = [
     summary: 'Retry a failed, stopped, or fix-requested lane.',
   },
   {
+    id: 'lane.controls.update',
+    group: 'lane',
+    roles: ['orchestrator', 'dashboard'],
+    method: 'PATCH',
+    route: '/api/lanes/{laneId}/controls',
+    implemented: true,
+    mutating: true,
+    summary: 'Update model, permissions mode, or intelligence controls for a lane.',
+  },
+  {
     id: 'lane.archive',
     group: 'lane',
     roles: ['orchestrator', 'dashboard'],

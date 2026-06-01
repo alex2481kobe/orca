@@ -1855,6 +1855,55 @@ test('agent tool routes expose discovery, nextAction, and token-gated leases', a
     assert.equal(lease.body?.lease?.allowedTools.includes('lane.create'), true);
     assert.equal(JSON.stringify(lease.body?.lease || {}).includes(lease.body.leaseToken), false);
     assert.equal(lease.body?.nextAction?.nextRequiredTool, 'lane.create');
+
+    const createdByLease = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-tool-lease': lease.body.leaseToken },
+      body: {
+        actor: 'orchestrator',
+        approved: true,
+        title: 'Lease controlled lane',
+        executorType: 'mock',
+        owner: 'orchestrator',
+      },
+    });
+    assert.equal(createdByLease.status, 201);
+
+    const controlsByLease = await server.requestJson(`/api/lanes/${createdByLease.body.id}/controls`, {
+      method: 'PATCH',
+      headers: { 'x-commanddeck-tool-lease': lease.body.leaseToken },
+      body: {
+        actor: 'orchestrator',
+        approved: true,
+        model: 'gpt-5',
+        permissionsProfile: 'plan',
+        intelligenceProfile: 'high',
+      },
+    });
+    assert.equal(controlsByLease.status, 200);
+    assert.equal(controlsByLease.body?.model, 'gpt-5');
+
+    const stoppedByLease = await server.requestJson(`/api/lanes/${createdByLease.body.id}/stop`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-tool-lease': lease.body.leaseToken },
+      body: {
+        actor: 'orchestrator',
+        approved: true,
+      },
+    });
+    assert.equal(stoppedByLease.status, 200);
+    assert.equal(stoppedByLease.body?.state, 'stopped');
+
+    const retriedByLease = await server.requestJson(`/api/lanes/${createdByLease.body.id}/retry`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-tool-lease': lease.body.leaseToken },
+      body: {
+        actor: 'orchestrator',
+        approved: true,
+      },
+    });
+    assert.equal(retriedByLease.status, 200);
+    assert.equal(retriedByLease.body?.state, 'queued');
   } finally {
     await server.stop();
   }

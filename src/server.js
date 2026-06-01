@@ -242,6 +242,15 @@ function toolLeaseRequirementForRoute(method, parts) {
   if (parts[1] === 'sessions' && parts[2] && parts[3] === 'capacity' && parts[4] === 'policy' && method === 'POST') {
     return { toolId: 'capacity.set_policy', sessionId: parts[2] };
   }
+  if (parts[1] === 'lanes' && parts[2] && parts[3] === 'stop' && method === 'POST') {
+    return { toolId: 'lane.shutdown', laneId: parts[2] };
+  }
+  if (parts[1] === 'lanes' && parts[2] && parts[3] === 'retry' && method === 'POST') {
+    return { toolId: 'lane.retry', laneId: parts[2] };
+  }
+  if (parts[1] === 'lanes' && parts[2] && parts[3] === 'controls' && method === 'PATCH') {
+    return { toolId: 'lane.controls.update', laneId: parts[2] };
+  }
   return null;
 }
 

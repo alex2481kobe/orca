@@ -43,6 +43,7 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
     'lane.submit',
     'lane.block',
     'lane.shutdown',
+    'lane.controls.update',
     'lane.archive',
     'capacity.request',
     'capacity.approve',
