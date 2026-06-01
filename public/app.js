@@ -31,11 +31,20 @@ let refreshRequestId = 0;
 const MOBILE_NAV_BREAKPOINT = 880;
 
 const API_PROVIDER_EXECUTOR_TYPES = ['api', 'openai-compatible', 'gemini', 'kimi', 'deepseek', 'openrouter', 'composer'];
+const FIRST_CLASS_CLI_EXECUTOR_TYPES = ['codex', 'claude', 'gemini-cli', 'composer-cli'];
+const CLI_EXECUTOR_TARGET_ALIASES = {
+  codex: ['codex'],
+  claude: ['claude'],
+  'gemini-cli': ['gemini', 'gemini-cli'],
+  'composer-cli': ['cursor-agent', 'composer-cli'],
+};
 const MCP_TOOL_SCOPE_ALLOWLIST = [
   'all',
   'mock',
   'codex',
   'claude',
+  'gemini-cli',
+  'composer-cli',
   'cli',
   'custom-cli',
   ...API_PROVIDER_EXECUTOR_TYPES,
@@ -621,7 +630,9 @@ function executorTargetsCommand(executorType, commandParts) {
   const normalizedType = normalizeExecutorType(executorType);
   if (!normalizedType) return true;
   if (!Array.isArray(commandParts) || !commandParts.length) return true;
-  return String(commandParts[0]).toLowerCase().includes(normalizedType);
+  const first = String(commandParts[0]).toLowerCase();
+  const aliases = CLI_EXECUTOR_TARGET_ALIASES[normalizedType] || [normalizedType];
+  return aliases.some((alias) => first.includes(alias));
 }
 
 function executorTargetsBinary(executorType, binary) {
@@ -629,7 +640,8 @@ function executorTargetsBinary(executorType, binary) {
   if (!normalizedType) return true;
   const normalizedBinary = String(binary || '').trim().toLowerCase();
   const binaryName = normalizedBinary.split('/').pop();
-  return binaryName.includes(normalizedType);
+  const aliases = CLI_EXECUTOR_TARGET_ALIASES[normalizedType] || [normalizedType];
+  return aliases.some((alias) => binaryName.includes(alias));
 }
 
 function getExecutorProfile(type) {
@@ -656,6 +668,17 @@ function apiProviderOptions() {
       const label = safeText(profile.displayName || profile.id);
       const suffix = profile.enabled === false ? ' (setup)' : '';
       return `<option value="${id}">${label}${suffix}</option>`;
+    })
+    .join('');
+}
+
+function cliExecutorOptions(selected = '') {
+  const profiles = shell.executorProfiles || {};
+  return FIRST_CLASS_CLI_EXECUTOR_TYPES
+    .filter((id) => profiles[id])
+    .map((id) => {
+      const selectedAttr = normalizeExecutorType(selected) === id ? ' selected' : '';
+      return `<option value="${safeAttr(id)}"${selectedAttr}>${safeText(id)}</option>`;
     })
     .join('');
 }
@@ -2455,6 +2478,55 @@ function renderLaneCard(lane) {
   `;
 }
 
+function renderOrchestratorConsole(session) {
+  const thread = session.orchestratorThread || {};
+  const messages = Array.isArray(thread.messages) ? thread.messages : [];
+  const activeLane = thread.activeLaneId ? shell.lanes.find((lane) => lane.id === thread.activeLaneId) : null;
+  const messageRows = messages.slice(-12).map((message) => {
+    const role = String(message.role || 'system').toLowerCase();
+    const lane = message.laneId ? shell.lanes.find((item) => item.id === message.laneId) : null;
+    return `
+      <div class="orchestrator-message ${safeAttr(role)}">
+        <div class="tiny muted">${safeText(role)}${lane ? ` · ${safeText(lane.state)}` : ''}</div>
+        <div>${safeText(message.content || '')}</div>
+      </div>
+    `;
+  }).join('');
+  const selectedExecutor = thread.executorType || session.leader || 'codex';
+  return `
+    <article class="orchestrator-console">
+      <div class="orchestrator-header">
+        <div>
+          <h2>Orchestrator</h2>
+        </div>
+        <div class="tiny">${activeLane ? stateBadge(activeLane.state) : '<span class="tag">Idle</span>'}</div>
+      </div>
+      <div class="orchestrator-feed">
+        ${messageRows || '<div class="muted">No orchestration messages yet.</div>'}
+      </div>
+      <form id="orchestrator-message-form" data-session-id="${safeAttr(session.id)}" class="orchestrator-form">
+        <textarea name="message" rows="4" required placeholder="Tell the orchestrator what to build, audit, or coordinate next."></textarea>
+        <div class="orchestrator-options">
+          <label>Agent
+            <select name="executorType">
+              ${cliExecutorOptions(selectedExecutor)}
+              ${apiProviderOptions()}
+              <option value="mock"${normalizeExecutorType(selectedExecutor) === 'mock' ? ' selected' : ''}>mock</option>
+            </select>
+          </label>
+          <label>Model
+            <input name="model" placeholder="optional" />
+          </label>
+          <label>Permissions
+            <input name="permissionsProfile" placeholder="plan, auto-edit, restricted" />
+          </label>
+        </div>
+        <button type="submit">Send</button>
+      </form>
+    </article>
+  `;
+}
+
 function renderSession(project, session) {
   const laneList = shell.lanes.filter((lane) => lane.sessionId === session.id).map((lane) => renderLaneCard(lane)).join('');
   const pendingAudits = pendingAuditsForSession(session.id);
@@ -2466,6 +2538,7 @@ function renderSession(project, session) {
       <div class="session-toolbar">
         <div class="tiny muted">${safeText(project.name)} · ${safeText(session.leader)} led</div>
       </div>
+      ${renderOrchestratorConsole(session)}
       <div class="grid-2 session-controls">
         <article class="card control-card" id="create-session">
           <details class="disclosure">
@@ -2497,8 +2570,7 @@ function renderSession(project, session) {
             <label>Executor
               <select name="executorType">
                 <option value="mock">mock</option>
-                <option value="codex">codex</option>
-                <option value="claude">claude</option>
+                ${cliExecutorOptions()}
                 ${shell.executorProfiles?.cli ? '<option value="cli">cli</option>' : ''}
                 ${apiProviderOptions()}
               </select>
@@ -3363,13 +3435,13 @@ async function handleCreateLane(event) {
   const unknownTools = [];
   const disallowedTools = [];
 
-  if (executorType === 'codex' || executorType === 'claude') {
+  if (FIRST_CLASS_CLI_EXECUTOR_TYPES.includes(executorType)) {
     if (commandParts.length > 0 && !executorTargetsCommand(executorType, commandParts)) {
-      renderAlert(`Command for ${executorType} must include "${executorType}".`, 'bad');
+      renderAlert(`Command for ${executorType} must target an approved ${executorType} binary.`, 'bad');
       return;
     }
     if (!commandParts.length && payload.executorBinary && !executorTargetsBinary(executorType, payload.executorBinary)) {
-      renderAlert(`Executor binary for ${executorType} must include "${executorType}".`, 'bad');
+      renderAlert(`Executor binary for ${executorType} must target an approved ${executorType} binary.`, 'bad');
       return;
     }
   }
@@ -3423,6 +3495,44 @@ async function handleCreateLane(event) {
     renderAlert('Approval required for this action.', 'bad');
   } else {
     renderAlert(response.data?.error || 'Lane creation failed.', 'bad');
+  }
+}
+
+async function handleOrchestratorMessage(event) {
+  event.preventDefault();
+  const sessionId = event.currentTarget.dataset.sessionId;
+  const payload = toObj(event.currentTarget);
+  const message = String(payload.message || '').trim();
+  if (!message) {
+    renderAlert('Message is required.', 'bad');
+    return;
+  }
+  const executorType = normalizeExecutorType(payload.executorType || 'codex');
+  const approval = buildApprovedActionBody(
+    'createLane',
+    `Send this message to the ${executorType} orchestrator and start an orchestration lane?`,
+  );
+  if (!approval.approved) {
+    renderAlert('Orchestrator message canceled.');
+    return;
+  }
+  const response = await api(`/api/sessions/${sessionId}/orchestrator/messages`, {
+    method: 'POST',
+    body: {
+      message,
+      executorType,
+      model: payload.model || null,
+      permissionsProfile: payload.permissionsProfile || null,
+      actor: approval.actor,
+      approved: approval.approved,
+    },
+  });
+  if (response.ok) {
+    event.currentTarget.reset();
+    renderAlert('Orchestrator lane started.');
+    await refresh();
+  } else {
+    renderAlert(response.data?.error || 'Could not start orchestrator lane.', 'bad');
   }
 }
 
@@ -4201,6 +4311,10 @@ document.addEventListener('submit', async (event) => {
   }
   if (event.target.id === 'create-lane-form') {
     await handleCreateLane(event);
+    return;
+  }
+  if (event.target.id === 'orchestrator-message-form') {
+    await handleOrchestratorMessage(event);
     return;
   }
   if (event.target.id === 'create-mcp-tool-form') {

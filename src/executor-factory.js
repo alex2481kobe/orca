@@ -420,6 +420,9 @@ class CliExecutorAdapter {
     this.allowedBinaries = normalizeAllowedBinaries([this.defaultBinary, ...(options.allowedBinaries || [])]);
     this.enforceAllowedBinary = options.enforceAllowedBinary !== false;
     this.maxCommandArgs = Number.parseInt(options.maxCommandArgs, 10) || MAX_ARGS;
+    this.runtimeEnvForLane = typeof options.runtimeEnvForLane === 'function'
+      ? options.runtimeEnvForLane
+      : null;
 
     const rawRoots = Array.isArray(options.workdirRoots) && options.workdirRoots.length
       ? options.workdirRoots
@@ -501,6 +504,16 @@ class CliExecutorAdapter {
       if (RESERVED_EXECUTOR_ENV_KEYS.has(key)) continue;
       if (this.envAllowlist.has(key) || String(key).startsWith('COMMAND_DECK_')) {
         baseEnv[key] = value;
+      }
+    }
+
+    if (this.runtimeEnvForLane) {
+      const runtimeEnv = parseEnv(this.runtimeEnvForLane(lane));
+      for (const [key, value] of Object.entries(runtimeEnv)) {
+        if (RESERVED_EXECUTOR_ENV_KEYS.has(key)) continue;
+        if (this.envAllowlist.has(key) || String(key).startsWith('COMMAND_DECK_')) {
+          baseEnv[key] = value;
+        }
       }
     }
 

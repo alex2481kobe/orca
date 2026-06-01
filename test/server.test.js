@@ -1213,6 +1213,99 @@ test('API lane creation validates MCP tool IDs and executor constraints', async 
   }
 });
 
+test('dashboard orchestrator messages create server-owned turns and scoped tool leases', async () => {
+  const token = 'route-token-orchestrator-chat';
+  const server = await startServer({ token });
+
+  try {
+    const project = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        name: 'Orchestrator Chat Project',
+        approved: true,
+      },
+    });
+    assert.equal(project.status, 201);
+
+    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        name: 'Orchestrator Chat Session',
+        leader: 'mock',
+        approved: true,
+      },
+    });
+    assert.equal(session.status, 201);
+
+    const turn = await server.requestJson(`/api/sessions/${session.body.id}/orchestrator/messages`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+        executorType: 'mock',
+        message: 'Build the project plan and create the first executor lane.',
+      },
+    });
+    assert.equal(turn.status, 201);
+    assert.equal(turn.body?.lane?.owner, 'orchestrator');
+    assert.equal(turn.body?.lane?.executorType, 'mock');
+    assert.equal(turn.body?.thread?.messages?.length, 2);
+    assert.equal(JSON.stringify(turn.body).includes('leaseToken'), false);
+    assert.equal(JSON.stringify(turn.body).includes(token), false);
+    assert.equal(String(turn.body?.lane?.taskPrompt || '').includes('COMMAND_DECK_TOOL_LEASE_TOKEN'), true);
+    assert.equal(String(turn.body?.lane?.taskPrompt || '').includes('Build the project plan'), true);
+
+    const thread = await server.requestJson(`/api/sessions/${session.body.id}/orchestrator`, {
+      method: 'GET',
+      headers: { 'x-commanddeck-token': token },
+    });
+    assert.equal(thread.status, 200);
+    assert.equal(thread.body?.activeLaneId, turn.body.lane.id);
+    assert.equal(thread.body?.activeLane?.id, turn.body.lane.id);
+
+    const lease = await server.requestJson('/api/agent-tools/leases', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        role: 'orchestrator',
+        projectId: project.body.id,
+        sessionId: session.body.id,
+        actor: 'dashboard',
+      },
+    });
+    assert.equal(lease.status, 201);
+    assert.equal(Boolean(lease.body?.leaseToken), true);
+
+    const leaseLane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-tool-lease': lease.body.leaseToken },
+      body: {
+        actor: 'orchestrator',
+        approved: true,
+        title: 'Lease-created executor lane',
+        executorType: 'mock',
+      },
+    });
+    assert.equal(leaseLane.status, 201);
+    assert.equal(leaseLane.body?.title, 'Lease-created executor lane');
+
+    const forbidden = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-commanddeck-tool-lease': lease.body.leaseToken },
+      body: {
+        name: 'Forbidden by lease',
+        approved: true,
+      },
+    });
+    assert.equal(forbidden.status, 401);
+  } finally {
+    await server.stop();
+  }
+});
+
 test('executor CLI reinstall supports claude with source-mode and command validation', async () => {
   const token = 'route-token-03e';
   const server = await startServer({

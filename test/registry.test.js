@@ -2011,6 +2011,42 @@ test('Custom CLI lanes require explicit custom CLI enablement and configured bin
   }
 });
 
+test('CLI executor receives transient runtime env without storing it on the lane', async () => {
+  const restore = restoreEnv({
+    COMMAND_DECK_ENABLE_CUSTOM_CLI: process.env.COMMAND_DECK_ENABLE_CUSTOM_CLI,
+    COMMAND_DECK_CLI_BINARY: process.env.COMMAND_DECK_CLI_BINARY,
+    COMMAND_DECK_CLI_ALLOWED_BINARIES: process.env.COMMAND_DECK_CLI_ALLOWED_BINARIES,
+  });
+  try {
+    process.env.COMMAND_DECK_ENABLE_CUSTOM_CLI = 'true';
+    process.env.COMMAND_DECK_CLI_BINARY = 'node';
+    process.env.COMMAND_DECK_CLI_ALLOWED_BINARIES = 'node';
+    const { createExecutorAdapter } = await import('../src/executor-factory.js');
+    const adapter = createExecutorAdapter('cli', {
+      onLog: async () => {},
+      onComplete: async () => {},
+      onFail: async () => {},
+      onStop: async () => {},
+      runtimeEnvForLane: (lane) => lane.id === 'runtime-env-lane'
+        ? { COMMAND_DECK_TOOL_LEASE_TOKEN: 'scoped-lease-token' }
+        : {},
+      defaultWorkingDir: process.cwd(),
+    });
+    const lane = {
+      id: 'runtime-env-lane',
+      sessionId: 'runtime-env-session',
+      projectId: 'runtime-env-project',
+      workdir: process.cwd(),
+    };
+    const env = adapter._buildEnv(lane);
+    assert.equal(env.COMMAND_DECK_TOOL_LEASE_TOKEN, 'scoped-lease-token');
+    assert.equal(env.COMMAND_DECK_LANE_ID, 'runtime-env-lane');
+    assert.equal(Object.hasOwn(lane, 'env'), false);
+  } finally {
+    restore();
+  }
+});
+
 test('Real Claude CLI launches through the executor adapter and reports PID + exit', async () => {
   const claudeBinary = process.env.COMMAND_DECK_CLAUDE_BINARY || '/opt/homebrew/bin/claude';
   let canExec = false;

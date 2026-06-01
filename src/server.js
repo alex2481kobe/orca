@@ -216,6 +216,51 @@ function hasOperatorAuth(req) {
   return hasAdminAuth(req) || hasBrowserSessionAuth(req);
 }
 
+function getToolLeaseToken(req) {
+  const token = req.headers['x-commanddeck-tool-lease'];
+  return Array.isArray(token) ? token[0] : token;
+}
+
+function toolLeaseRequirementForRoute(method, parts) {
+  if (parts[0] !== 'api') return null;
+  if (parts[1] === 'agent-tools' && parts[2] === 'discovery' && method === 'GET') {
+    return { toolId: 'session.next_action' };
+  }
+  if (parts[1] === 'agent-tools' && parts[2] === 'next-action' && method === 'GET') {
+    return { toolId: 'session.next_action' };
+  }
+  if (parts[1] === 'sessions' && parts[2] && parts.length === 3 && method === 'GET') {
+    return { toolId: 'session.describe', sessionId: parts[2] };
+  }
+  if (parts[1] === 'sessions' && parts[2] && parts[3] === 'lanes') {
+    if (method === 'GET') return { toolId: 'session.describe', sessionId: parts[2] };
+    if (method === 'POST') return { toolId: 'lane.create', sessionId: parts[2] };
+  }
+  if (parts[1] === 'sessions' && parts[2] && parts[3] === 'capacity' && parts[4] === 'request' && method === 'POST') {
+    return { toolId: 'capacity.request', sessionId: parts[2] };
+  }
+  if (parts[1] === 'sessions' && parts[2] && parts[3] === 'capacity' && parts[4] === 'policy' && method === 'POST') {
+    return { toolId: 'capacity.set_policy', sessionId: parts[2] };
+  }
+  return null;
+}
+
+function hasToolLeaseRouteAuth(req, parts) {
+  const token = getToolLeaseToken(req);
+  if (!token) return false;
+  const requirement = toolLeaseRequirementForRoute(req.method || 'GET', parts);
+  if (!requirement) return false;
+  try {
+    registry.validateToolLease(token, {
+      ...requirement,
+      role: 'orchestrator',
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function hasStreamAuth(req) {
   return hasOperatorAuth(req);
 }
@@ -261,6 +306,7 @@ function isPublicReadApiRoute(parts) {
 
 function requireApiAuth(req, res, parts) {
   if (req.method === 'GET' && isPublicReadApiRoute(parts)) return true;
+  if (hasToolLeaseRouteAuth(req, parts)) return true;
   return requireOperatorAuth(req, res);
 }
 
@@ -605,6 +651,8 @@ function buildMobileManifest(req) {
             sessionName: session.name,
             route: `${origin}${session.route}`,
             lanesUrl: `${origin}/api/sessions/${session.id}/lanes`,
+            orchestratorUrl: `${origin}/api/sessions/${session.id}/orchestrator`,
+            orchestratorMessagesUrl: `${origin}/api/sessions/${session.id}/orchestrator/messages`,
             capacityUrl: `${origin}/api/sessions/${session.id}/capacity`,
             capacityRequestUrl: `${origin}/api/sessions/${session.id}/capacity/request`,
             capacityPolicyUrl: `${origin}/api/sessions/${session.id}/capacity/policy`,
@@ -1719,6 +1767,52 @@ async function handleApi(req, res, pathname, method, parts) {
       } catch (error) {
         return sendJson(res, error.status || 500, {
           error: error.message || 'Could not update capacity policy.',
+          requiresApproval: error.requiresApproval || false,
+          risk: error.risk || null,
+        });
+      }
+    }
+
+    if (parts.length === 4 && parts[3] === 'orchestrator' && method === 'GET') {
+      try {
+        return sendJson(res, 200, registry.getOrchestratorThread(session.id));
+      } catch (error) {
+        return sendJson(res, error.status || 500, { error: error.message || 'Could not load orchestrator thread.' });
+      }
+    }
+
+    if (parts.length === 5 && parts[3] === 'orchestrator' && parts[4] === 'messages' && method === 'POST') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+      if (rejectSpoofedActor(body, res)) return;
+      try {
+        const origin = requestOrigin(req);
+        const nextAction = buildNextActionEnvelope(registry, {
+          role: 'orchestrator',
+          projectId: session.projectId,
+          sessionId: session.id,
+        });
+        const result = await registry.sendOrchestratorMessage(session.id, {
+          message: body.message,
+          executorType: body.executorType,
+          model: body.model,
+          permissionsProfile: body.permissionsProfile,
+          targetUrl: body.targetUrl,
+          baseUrl: origin,
+          discoveryUrl: `${origin}/api/agent-tools/discovery`,
+          nextActionUrl: `${origin}/api/agent-tools/next-action?role=orchestrator&projectId=${encodeURIComponent(session.projectId)}&sessionId=${encodeURIComponent(session.id)}`,
+        }, {
+          actor: body.actor || 'dashboard',
+          approved: body.approved,
+          nextAction,
+        });
+        return sendJson(res, 201, {
+          ...result,
+          nextAction,
+        });
+      } catch (error) {
+        return sendJson(res, error.status || 500, {
+          error: error.message || 'Could not queue orchestrator message.',
           requiresApproval: error.requiresApproval || false,
           risk: error.risk || null,
         });

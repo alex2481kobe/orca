@@ -94,6 +94,9 @@ see [`docs/web-pwa-distribution.md`](docs/web-pwa-distribution.md).
   `repoRoot`, plus approval-gated worktree removal.
 - Orchestration state for projects, sessions, lanes, capacity requests,
   critique, audit-one, audit-all, accept, fix, block, and retry transitions.
+- Dashboard-native orchestrator console: session chat messages create
+  server-owned orchestrator turns, spawn an orchestrator lane, and receive a
+  scoped tool lease instead of the full API token.
 - MCP tool CRUD, validation, scopes, leases, per-lane generated configs, and
   public-safe agent tool discovery.
 - Playwright-backed evidence capture for screenshots, traces, videos, logs,

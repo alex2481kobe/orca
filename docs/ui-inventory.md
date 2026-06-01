@@ -67,7 +67,7 @@ The smoke summary for each screen must include:
 | `notifications` | `/#notifications` | In-app and browser notification settings plus unread status. | Mark notification read. | Browser permission state and delivery threshold controls. | rows, forms, badges, disclosures |
 | `backup-support` | `/#backup` | Local app backup, import dry-run/apply, and redacted support bundle. | Export app backup. | Import apply confirmation and support diagnostics. | forms, disclosures, danger action, code block |
 | `project-detail` | `/projects/:slug` | Project details, quick links, and sessions. | Open/create session. | Quick-link maintenance and operations panel. | project shell, rows, right panel |
-| `session-workflow` | `/projects/:slug/sessions/:id` | Active session workflow and lanes. | Create/open lane. | Capacity policy, critique/audit internals, raw lane metadata. | work surface, lane rows, forms |
+| `session-workflow` | `/projects/:slug/sessions/:id` | Active session workflow, orchestrator chat, and lanes. | Send orchestrator message or create/open lane. | Capacity policy, critique/audit internals, raw lane metadata. | orchestrator console, work surface, lane rows, forms |
 | `lane-detail` | `/projects/:slug/sessions/:id/lanes/:id` | Lane status, logs, evidence, and audit handoff. | Run next safe lane action. | Process metadata, MCP config path, logs, artifacts. | lane panel, evidence panel, disclosures |
 
 ## Smoke gates

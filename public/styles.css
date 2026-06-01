@@ -1099,6 +1099,63 @@ body.sidebar-collapsed .sidebar-project-line {
   grid-template-columns: 1fr;
 }
 
+.orchestrator-console {
+  background: linear-gradient(180deg, rgba(32, 35, 31, 0.94), rgba(18, 20, 17, 0.94));
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.85rem;
+}
+
+.orchestrator-header {
+  align-items: flex-start;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+}
+
+.orchestrator-header h2 {
+  font-size: 1.05rem;
+  font-weight: 620;
+  margin: 0 0 0.2rem;
+}
+
+.orchestrator-header p {
+  margin: 0;
+}
+
+.orchestrator-feed {
+  display: grid;
+  gap: 0.45rem;
+  max-height: 18rem;
+  overflow: auto;
+}
+
+.orchestrator-message {
+  border-left: 2px solid var(--line);
+  padding: 0.35rem 0.5rem;
+}
+
+.orchestrator-message.user {
+  border-color: var(--accent);
+}
+
+.orchestrator-message.assistant {
+  border-color: var(--ok);
+}
+
+.orchestrator-form {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.orchestrator-options {
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .lane-queue {
   display: grid;
   gap: 0.65rem;
@@ -1753,6 +1810,12 @@ pre {
   }
   .project-titlebar {
     display: grid;
+  }
+  .orchestrator-header {
+    display: grid;
+  }
+  .orchestrator-options {
+    grid-template-columns: 1fr;
   }
   .project-actions {
     overflow-x: auto;

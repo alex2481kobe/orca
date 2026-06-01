@@ -950,6 +950,41 @@ function buildLaneRoute(projectSlug, sessionId, laneId) {
   return `/projects/${projectSlug}/sessions/${sessionId}/lanes/${laneId}`;
 }
 
+function safeChatText(value, max = 12000) {
+  return String(value || '').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, ' ').trim().slice(0, max);
+}
+
+function buildOrchestratorPrompt({
+  project,
+  session,
+  message,
+  messages = [],
+  baseUrl = '',
+  nextActionUrl = '',
+  discoveryUrl = '',
+} = {}) {
+  const transcript = messages
+    .slice(-20)
+    .map((entry) => `${String(entry.role || 'user').toUpperCase()}: ${safeChatText(entry.content, 3000)}`)
+    .join('\n\n');
+  const apiBase = String(baseUrl || '').replace(/\/+$/, '');
+  return [
+    'You are the Command Deck orchestration agent for this project/session.',
+    'Own decomposition, planning, lane creation, executor assignment, and audit handoff.',
+    'Do not ask the human to manually create executor lanes when you can create them through Command Deck tools.',
+    'Use the scoped tool lease from COMMAND_DECK_TOOL_LEASE_TOKEN, never the full API token.',
+    apiBase ? `Command Deck base URL: ${apiBase}` : '',
+    discoveryUrl ? `Tool discovery URL: ${discoveryUrl}` : '',
+    nextActionUrl ? `Next-action URL: ${nextActionUrl}` : '',
+    'For HTTP tool calls, send header x-commanddeck-tool-lease: $COMMAND_DECK_TOOL_LEASE_TOKEN.',
+    `Project: ${project?.name || project?.id || 'unknown'}`,
+    `Session: ${session?.name || session?.id || 'unknown'}`,
+    session?.repoRoot ? `Repository root: ${session.repoRoot}` : `Session workspace: ${session?.worktreeRoot || ''}`,
+    transcript ? `Recent conversation:\n${transcript}` : '',
+    `Current user request:\n${safeChatText(message)}`,
+  ].filter(Boolean).join('\n\n');
+}
+
 export class CommandDeckRegistry {
   constructor({
     heartbeatIntervalMs = 2000,
@@ -993,6 +1028,7 @@ export class CommandDeckRegistry {
     this.stateLoadStatus = null;
     this._starting = true;
     this._pendingWrites = new Set();
+    this.laneRuntimeEnv = new Map();
     const baseExecutorCallbacks = {
       onLog: (lane, message) => this.appendLaneLog(lane, message, { persist: false }),
       onComplete: async (lane) => this.markLaneCompleted(lane),
@@ -1000,6 +1036,7 @@ export class CommandDeckRegistry {
       onStop: async (lane, context) => this.markLaneStopped(lane, context),
       credentialStore: this.credentialStore,
       providerProfileStore: this.providerProfileStore,
+      runtimeEnvForLane: (lane) => this.laneRuntimeEnv.get(String(lane?.id || '')) || {},
     };
     this.executors = {
       mock: createExecutorAdapter('mock', {
@@ -2103,6 +2140,14 @@ export class CommandDeckRegistry {
       worktreeRoot: path.join(this.workspacesRoot, sessionId),
       repoRoot: validatedRepoRoot,
       notes: [],
+      orchestratorThread: {
+        id: randomUUID(),
+        messages: [],
+        laneIds: [],
+        activeLaneId: null,
+        executorType: null,
+        updatedAt: now,
+      },
     };
     ensureDirectorySync(session.artifactsRoot);
     ensureDirectorySync(session.worktreeRoot);
@@ -2131,6 +2176,160 @@ export class CommandDeckRegistry {
 
   getSession(locator) {
     return this.sessions.find((session) => session.id === locator);
+  }
+
+  ensureOrchestratorThread(session) {
+    if (!session.orchestratorThread || typeof session.orchestratorThread !== 'object') {
+      session.orchestratorThread = {
+        id: randomUUID(),
+        messages: [],
+        laneIds: [],
+        activeLaneId: null,
+        executorType: null,
+        updatedAt: nowIso(),
+      };
+    }
+    if (!Array.isArray(session.orchestratorThread.messages)) {
+      session.orchestratorThread.messages = [];
+    }
+    if (!Array.isArray(session.orchestratorThread.laneIds)) {
+      session.orchestratorThread.laneIds = [];
+    }
+    return session.orchestratorThread;
+  }
+
+  getOrchestratorThread(sessionLocator) {
+    const session = this.getSession(sessionLocator);
+    if (!session) throw { status: 404, message: 'Session not found.' };
+    const thread = this.ensureOrchestratorThread(session);
+    return clonePayload({
+      ...thread,
+      sessionId: session.id,
+      projectId: session.projectId,
+      activeLane: thread.activeLaneId ? this.getLane(thread.activeLaneId) || null : null,
+    });
+  }
+
+  resolveOrchestratorExecutorType(session, requestedType = '') {
+    const supported = this.getSupportedExecutorTypes();
+    const requested = normalizeExecutorType(requestedType);
+    if (requested && supported.includes(requested)) return requested;
+    const leader = normalizeExecutorType(session?.leader);
+    if (leader && supported.includes(leader) && leader !== 'mock') return leader;
+    return supported.includes('codex') ? 'codex' : 'mock';
+  }
+
+  async sendOrchestratorMessage(sessionLocator, {
+    message,
+    executorType,
+    model,
+    permissionsProfile,
+    targetUrl,
+    baseUrl = '',
+    discoveryUrl = '',
+    nextActionUrl = '',
+  } = {}, context = {}) {
+    const session = this.getSession(sessionLocator);
+    if (!session) throw { status: 404, message: 'Session not found.' };
+    const text = safeChatText(message);
+    if (!text) throw { status: 422, message: 'Message is required.' };
+
+    const project = this.getProject(session.projectId);
+    const thread = this.ensureOrchestratorThread(session);
+    const now = nowIso();
+    const userMessage = {
+      id: randomUUID(),
+      role: 'user',
+      content: text,
+      createdAt: now,
+    };
+    thread.messages.push(userMessage);
+
+    const resolvedExecutorType = this.resolveOrchestratorExecutorType(session, executorType);
+    const turnNumber = thread.messages.filter((entry) => entry.role === 'user').length;
+    const workdir = session.repoRoot || session.worktreeRoot;
+    let lane;
+    try {
+      lane = await this.createLane(session.id, {
+        title: `Orchestrator turn ${turnNumber}`,
+        taskDescription: text.slice(0, 1000),
+        executorType: resolvedExecutorType,
+        owner: 'orchestrator',
+        workdir,
+        sharedWorktree: true,
+        taskPrompt: buildOrchestratorPrompt({
+          project,
+          session,
+          message: text,
+          messages: thread.messages,
+          baseUrl,
+          discoveryUrl,
+          nextActionUrl,
+        }),
+        model,
+        permissionsProfile,
+        targetUrl,
+      }, {
+        actor: context.actor || 'dashboard',
+        approved: context.approved,
+      });
+    } catch (error) {
+      thread.messages = thread.messages.filter((entry) => entry.id !== userMessage.id);
+      throw error;
+    }
+
+    const nextAction = context.nextAction || null;
+    let lease = null;
+    if (nextAction && Array.isArray(nextAction.allowedTools) && nextAction.allowedTools.length) {
+      lease = this.createToolLease({
+        role: 'orchestrator',
+        projectId: session.projectId,
+        sessionId: session.id,
+        laneId: lane.id,
+        allowedTools: nextAction.allowedTools,
+        ttlMs: 24 * 60 * 60 * 1000,
+        actor: 'orchestrator-bootstrap',
+      });
+      this.laneRuntimeEnv.set(String(lane.id), {
+        COMMAND_DECK_TOOL_LEASE_TOKEN: lease.leaseToken,
+        COMMAND_DECK_AGENT_TOOLS_BASE_URL: String(baseUrl || ''),
+        COMMAND_DECK_AGENT_TOOLS_DISCOVERY_URL: String(discoveryUrl || ''),
+        COMMAND_DECK_AGENT_TOOLS_NEXT_ACTION_URL: String(nextActionUrl || ''),
+      });
+    }
+
+    thread.laneIds = [...new Set([...thread.laneIds, lane.id])].slice(-100);
+    thread.activeLaneId = lane.id;
+    thread.executorType = resolvedExecutorType;
+    thread.updatedAt = nowIso();
+    thread.messages.push({
+      id: randomUUID(),
+      role: 'assistant',
+      content: `Started ${resolvedExecutorType} orchestrator lane "${lane.title}".`,
+      laneId: lane.id,
+      createdAt: thread.updatedAt,
+    });
+    this.recordAudit({
+      type: 'orchestrator_message_queued',
+      actor: context.actor || 'dashboard',
+      projectId: session.projectId,
+      sessionId: session.id,
+      laneId: lane.id,
+      summary: `Queued orchestrator turn for session ${session.name}`,
+      status: 'passed',
+      evidence: {
+        messageId: userMessage.id,
+        executorType: resolvedExecutorType,
+        leaseId: lease?.lease?.id || null,
+      },
+    });
+    this.persistState();
+    return clonePayload({
+      thread,
+      message: userMessage,
+      lane,
+      lease: lease ? lease.lease : null,
+    });
   }
 
   getLane(locator) {
@@ -2437,6 +2636,7 @@ export class CommandDeckRegistry {
       onStop: async (lane, context) => this.markLaneStopped(lane, context),
       credentialStore: this.credentialStore,
       providerProfileStore: this.providerProfileStore,
+      runtimeEnvForLane: (lane) => this.laneRuntimeEnv.get(String(lane?.id || '')) || {},
     };
     const adapter = createExecutorAdapter(normalized, callbackBundle);
     this.unknownExecutorAdapters.set(normalized, adapter);
@@ -4479,6 +4679,7 @@ export class CommandDeckRegistry {
     );
     this._trackAsync(this.writeLaneArtifacts(lane, lane.state).catch(() => {}));
     this.clearLaneExecutor(lane.id);
+    this.laneRuntimeEnv.delete(String(lane.id));
     this.persistState();
   }
 
@@ -4507,6 +4708,7 @@ export class CommandDeckRegistry {
     );
     this._trackAsync(this.writeLaneArtifacts(lane, 'failed').catch(() => {}));
     this.clearLaneExecutor(lane.id);
+    this.laneRuntimeEnv.delete(String(lane.id));
     if (persist) this.persistState();
   }
 
@@ -4537,6 +4739,7 @@ export class CommandDeckRegistry {
     );
     this._trackAsync(this.writeLaneArtifacts(lane, 'stopped').catch(() => {}));
     this.clearLaneExecutor(lane.id);
+    this.laneRuntimeEnv.delete(String(lane.id));
     this.persistState();
   }
 
