@@ -11,8 +11,10 @@ values.
 - Private Tailscale Serve: implemented and locally verifiable with
   `npm run operator:status` when configured on a host.
 - Real phone reachability: requires user-device confirmation.
-- Native Tauri/iOS/Android packaging: initial Tauri v2 scaffold exists; signed
-  production packaging and native mobile adapters remain later product phases.
+- Native Tauri desktop packaging: Tauri v2 scaffold exists and is locally
+  verified; signed/notarized macOS DMG production distribution remains a manual
+  Apple Developer ID release step.
+- Native iOS/Android preview adapters remain later product phases.
 
 Do not mark the overall project goal complete until real phone access is
 confirmed from the user's phone or the user explicitly accepts that final
@@ -102,7 +104,7 @@ npm run smoke:process-lifecycle
 
 Unit tests:
 
-- `141/141` passing in the acceptance run.
+- `142/142` passing in the latest local unit-test run.
 
 Ledger:
 
@@ -116,10 +118,11 @@ The two external rows are:
 - `private-access-tailscale`: code-side and local Serve proof complete; real
   phone reachability remains a user-device check.
 - `native-packaging-tauri`: Tauri v2 scaffold exists and compiles with native
-  server lifecycle, OS credential storage, menu/tray actions, and bundled
-  macOS package-path resources. Release updater scaffolding is present with a
-  committed public key and ignored private-key/CI-secret path. Signed/notarized
-  DMG validation and native mobile adapters remain later-phase work.
+  server lifecycle, OS credential storage, menu/tray actions, bundled macOS
+  package-path resources, and release updater scaffolding with a committed
+  public key plus ignored private-key/Apple-secret path. Signed/notarized DMG
+  validation remains a manual macOS release step; native mobile adapters remain
+  later-phase work.
 
 ## UI evidence
 
@@ -384,5 +387,6 @@ Only these remain after current evidence:
 
 - Real phone reachability from the user's phone is still unverified in this
   report.
-- Native packaging is later-phase and not part of the PWA v1 completion bar
-  unless explicitly approved.
+- Signed/notarized macOS DMG validation remains a manual release step requiring
+  Apple Developer ID credentials and a normal macOS desktop/CI packaging
+  environment.

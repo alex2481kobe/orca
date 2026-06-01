@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security policy
+    url: https://github.com/alex2481kobe/orca/security/policy
+    about: Report vulnerabilities privately when GitHub private reporting is enabled.

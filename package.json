@@ -5,6 +5,14 @@
   "type": "module",
   "description": "Local-first control plane prototype for coordinating AI coding workers.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alex2481kobe/orca.git"
+  },
+  "bugs": {
+    "url": "https://github.com/alex2481kobe/orca/issues"
+  },
+  "homepage": "https://github.com/alex2481kobe/orca#readme",
   "engines": {
     "node": ">=18.18.0"
   },

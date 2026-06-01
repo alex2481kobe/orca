@@ -11,7 +11,7 @@ private phone access.
 
 The latest recorded full local acceptance run passed:
 
-- `npm test`: 141/141 tests passing.
+- `npm test`: 142/142 tests passing.
 - `npm run smoke:acceptance`: 23 deterministic smoke steps passing.
 - `npm run smoke:full-flow`: isolated end-to-end operator flow passing.
 - `npm run smoke:ui-inventory`: 30 desktop/phone route screenshots with
@@ -26,6 +26,21 @@ prose claims alone; use the ledger and smoke gates as the authority.
 
 The consolidated full-buildout evidence report is
 [`docs/final-readiness-report.md`](docs/final-readiness-report.md).
+
+## Open-source and macOS release
+
+This repository is prepared for source release with MIT licensing,
+contribution guidance, security reporting guidance, and GitHub issue/PR/release
+templates. Use
+[`docs/open-source-release-checklist.md`](docs/open-source-release-checklist.md)
+as the public-release gate.
+
+The Tauri v2 macOS app path is scaffolded and locally verified. The remaining
+production distribution work is the operator-held Apple Developer ID signing,
+notarization, DMG creation from a normal macOS desktop/CI environment, and
+GitHub Release asset upload. Use
+[`docs/tauri-manual-release-checklist.md`](docs/tauri-manual-release-checklist.md)
+for that flow.
 
 ## Implemented and proven
 
@@ -137,6 +152,15 @@ These are not missing local app code:
 - [`docs/agent-orchestrator-skill.md`](docs/agent-orchestrator-skill.md)
 - [`docs/agent-executor-skill.md`](docs/agent-executor-skill.md)
 - [`docs/live-project-links.md`](docs/live-project-links.md)
+
+## Project docs
+
+- [`CONTRIBUTING.md`](CONTRIBUTING.md)
+- [`SECURITY.md`](SECURITY.md)
+- [`SUPPORT.md`](SUPPORT.md)
+- [`LICENSE`](LICENSE)
+- [`docs/tauri-release.md`](docs/tauri-release.md)
+- [`docs/open-source-release-checklist.md`](docs/open-source-release-checklist.md)
 
 ## Run locally
 

@@ -136,7 +136,7 @@ step above fails, walk the steps before mutating anything from the phone.
 Playwright 1.60.0 is now in `devDependencies` and locked in
 `package-lock.json`. `npm install` pulls the package; the first
 `npx playwright install chromium` downloads the browser into
-`~/Library/Caches/ms-playwright/` (~92MB on this host). After that,
+`~/Library/Caches/ms-playwright/`. After that,
 evidence captures produce real PNG/zip/webm files served back via
 `/artifacts/<session>/<lane>/<file>`.
 
