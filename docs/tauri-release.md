@@ -12,6 +12,14 @@ Command Deck has two desktop build modes:
   the required updater, Apple signing/notarization, and GitHub upload secrets
   without printing secret values. Add `-- --local` to allow the ignored local
   `.tauri/` updater key and a local `APPLE_SIGNING_IDENTITY`.
+- `npm run tauri:version -- 0.2.0` updates `package.json`,
+  `package-lock.json`, and `src-tauri/tauri.conf.json` together.
+- `npm run tauri:release-local` runs the local release prep sequence after
+  manual secrets are exported. Add `-- --dmg` to include the DMG target and
+  `-- --manifest-url=<url>` after the release asset URL is known.
+
+For the exact workstation flow, use
+[`docs/tauri-manual-release-checklist.md`](tauri-manual-release-checklist.md).
 
 ## Secrets
 
