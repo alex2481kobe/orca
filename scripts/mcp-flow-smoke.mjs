@@ -301,6 +301,22 @@ try {
   if (respond.isError || respond.data?.approval?.status !== 'approved') fail('orchestrator approval__respond', respond.text);
   log('approval loop', `executor requested -> orchestrator approved (${approvalId.slice(0, 8)})`);
 
+  // Claude permission-prompt-tool bridge: permission_prompt records an approval
+  // and BLOCKS until decided; orchestrator approves while it waits -> behavior:allow.
+  const promptPromise = exec.call('permission_prompt', { tool_name: 'Bash', input: { command: 'ls -la' } });
+  let pendingTool = null;
+  for (let i = 0; i < 50 && !pendingTool; i++) {
+    await new Promise((r) => setTimeout(r, 200));
+    const list = await req('GET', `/api/lanes/${execLane.body.id}/approvals`);
+    pendingTool = (list.body?.approvals || []).find((a) => a.kind === 'tool' && a.status === 'pending');
+  }
+  if (!pendingTool) fail('permission_prompt did not create a pending approval');
+  await orch.call('approval__respond', { laneId: execLane.body.id, approvalId: pendingTool.id, body: { actor: 'orchestrator', decision: 'approve' } });
+  const promptResult = await promptPromise;
+  const behavior = JSON.parse(promptResult.text);
+  if (behavior.behavior !== 'allow') fail('permission_prompt allow', promptResult.text);
+  log('claude permission-prompt bridge', 'permission_prompt -> approved -> behavior:allow');
+
   // submit (summary + changed files) -> ready_for_audit
   const submit = await exec.call('lane__submit', {
     laneId: execLane.body.id,

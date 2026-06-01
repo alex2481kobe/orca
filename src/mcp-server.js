@@ -18,7 +18,7 @@
 //   ORCA_LANE_ID / ORCA_SESSION_ID / ORCA_PROJECT_ID - default path params
 
 import readline from 'node:readline';
-import { TOOL_DEFINITIONS, normalizeRole } from '../src/agent-tools.js';
+import { TOOL_DEFINITIONS, normalizeRole } from './agent-tools.js';
 
 const BASE_URL = String(process.env.ORCA_AGENT_TOOLS_BASE_URL || 'http://127.0.0.1:3000').replace(/\/$/, '');
 const LEASE_TOKEN = String(process.env.ORCA_TOOL_LEASE_TOKEN || '');
@@ -124,6 +124,66 @@ async function callTool(name, args = {}) {
   }
 }
 
+// Claude's --permission-prompt-tool target. Claude calls mcp__orca__permission_prompt
+// when it needs approval for a tool; we record an approval on the lane and block
+// until the orchestrator/user decides, then return Claude's expected allow/deny shape.
+const PERMISSION_TOOL = {
+  name: 'permission_prompt',
+  description:
+    'Permission gateway for Claude --permission-prompt-tool. Records a pending approval on the lane and waits for the orchestrator/user decision, then returns {behavior: allow|deny}.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      tool_name: { type: 'string', description: 'The tool Claude wants to run.' },
+      input: { type: 'object', description: 'The proposed tool input.' },
+    },
+    required: ['tool_name'],
+  },
+};
+
+async function handlePermissionPrompt(args = {}) {
+  const laneId = DEFAULT_PARAMS.laneId;
+  const deny = (message) => ({ isError: false, text: JSON.stringify({ behavior: 'deny', message }) });
+  if (!laneId) return deny('No lane context for permission prompt.');
+  const toolName = String(args.tool_name || args.toolName || 'tool');
+  const input = args.input ?? {};
+  const headers = { 'x-orca-tool-lease': LEASE_TOKEN, accept: 'application/json', 'content-type': 'application/json' };
+  const approvalsUrl = `${BASE_URL}/api/lanes/${encodeURIComponent(laneId)}/approvals`;
+
+  let approvalId = null;
+  try {
+    const res = await fetch(approvalsUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ actor: 'executor', kind: 'tool', detail: `${toolName} ${JSON.stringify(input)}`.slice(0, 1900) }),
+    });
+    const data = await res.json().catch(() => null);
+    approvalId = data?.approval?.id;
+  } catch (error) {
+    return deny(`Approval request failed: ${error?.message || error}`);
+  }
+  if (!approvalId) return deny('Could not create approval request.');
+
+  // Wait for a decision; humans/orchestrators may take a while.
+  const deadline = Date.now() + 30 * 60 * 1000;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    try {
+      const res = await fetch(approvalsUrl, { headers });
+      const data = await res.json().catch(() => null);
+      const approval = (data?.approvals || []).find((entry) => entry.id === approvalId);
+      if (approval && approval.status !== 'pending') {
+        return approval.status === 'approved'
+          ? { isError: false, text: JSON.stringify({ behavior: 'allow', updatedInput: input }) }
+          : deny('Denied by orchestrator/user.');
+      }
+    } catch {
+      // keep polling
+    }
+  }
+  return deny('Approval timed out.');
+}
+
 // --- JSON-RPC plumbing -----------------------------------------------------
 
 function send(message) {
@@ -156,9 +216,13 @@ async function handle(message) {
     case 'ping':
       return reply(id, {});
     case 'tools/list':
-      return reply(id, { tools: callableTools().map(toMcpTool) });
+      return reply(id, { tools: [...callableTools().map(toMcpTool), PERMISSION_TOOL] });
     case 'tools/call': {
       const name = params?.name;
+      if (name === 'permission_prompt') {
+        const result = await handlePermissionPrompt(params?.arguments || {});
+        return reply(id, { content: [{ type: 'text', text: result.text }], isError: false });
+      }
       const result = await callTool(name, params?.arguments || {});
       return reply(id, {
         content: [{ type: 'text', text: result.text }],

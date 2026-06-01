@@ -3,7 +3,12 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { CredentialStore, defaultProfiles } from './provider-profiles.js';
+
+// Absolute path to the built-in Orca MCP server (sibling module), bundled with
+// the app resources so it resolves in both source and packaged runs.
+const ORCA_MCP_SERVER_PATH = fileURLToPath(new URL('./mcp-server.js', import.meta.url));
 import { validateNetworkUrl } from './url-policy.js';
 import { createAgentEventNormalizer } from './agent-events.js';
 
@@ -270,6 +275,11 @@ function buildExecutorCommandArgs(label, lane) {
       if (effort) out.push('--effort', effort);
       if (permissions) out.push('--permission-mode', claudePermissionMode(permissions));
       if (lane.mcpConfigPath) out.push('--mcp-config', lane.mcpConfigPath);
+      // Governed (non-bypass) lanes route Claude's permission prompts through the
+      // built-in Orca MCP server so the orchestrator/user can approve/deny.
+      if (lane.mcpConfigPath && !isForceMode(permissions)) {
+        out.push('--permission-prompt-tool', 'mcp__orca__permission_prompt');
+      }
       out.push('--output-format', 'stream-json', '--verbose', '--include-partial-messages');
       out.push(targetUrl ? `Target: ${targetUrl}\n${safePrompt}` : safePrompt);
       break;
@@ -559,17 +569,35 @@ class CliExecutorAdapter {
   }
 
   async _buildMcpConfig(runtimeDir, lane) {
-    if (!Array.isArray(lane.mcpTools) || !lane.mcpTools.length) {
-      return null;
-    }
     const label = String(this.label || '').toLowerCase();
     // Codex/Claude both consume a JSON map of servers; preserving the same
     // shape across executors keeps the dashboard simple while still letting
     // the file be loaded with executor-native config flags.
     const servers = {};
-    for (const tool of lane.mcpTools) {
+
+    // Built-in Orca workflow tools, available to every lane that has a lease.
+    // The lease/base-url/role are provided by the lane runtime env.
+    const runtimeEnv = this.runtimeEnvForLane ? (this.runtimeEnvForLane(lane) || {}) : {};
+    if (runtimeEnv.ORCA_TOOL_LEASE_TOKEN) {
+      servers.orca = {
+        command: process.execPath,
+        args: [ORCA_MCP_SERVER_PATH],
+        env: {
+          ORCA_AGENT_TOOLS_BASE_URL: String(runtimeEnv.ORCA_AGENT_TOOLS_BASE_URL || ''),
+          ORCA_TOOL_LEASE_TOKEN: String(runtimeEnv.ORCA_TOOL_LEASE_TOKEN),
+          ORCA_ROLE: String(runtimeEnv.ORCA_ROLE || 'executor'),
+          ORCA_LANE_ID: String(lane.id),
+          ORCA_SESSION_ID: String(lane.sessionId || ''),
+          ORCA_PROJECT_ID: String(lane.projectId || ''),
+        },
+        scope: ['all'],
+        description: 'Built-in Orca workflow tools (spawn/stop, tasks, audit, evidence, summary/diff).',
+      };
+    }
+
+    for (const tool of (Array.isArray(lane.mcpTools) ? lane.mcpTools : [])) {
       const id = String(tool?.id || tool?.name || '').trim();
-      if (!id) continue;
+      if (!id || id === 'orca') continue;
       servers[id] = {
         command: tool.command,
         args: Array.isArray(tool.args) ? tool.args : [],
@@ -578,11 +606,16 @@ class CliExecutorAdapter {
         description: tool.description || '',
       };
     }
+
+    if (!Object.keys(servers).length) {
+      return null;
+    }
+
     const config = {
       createdAt: new Date().toISOString(),
       laneId: lane.id,
       executorType: label,
-      tools: lane.mcpTools,
+      tools: Array.isArray(lane.mcpTools) ? lane.mcpTools : [],
       mcpServers: servers,
     };
     const configPath = path.join(runtimeDir, 'mcp-tools.json');
@@ -610,6 +643,13 @@ class CliExecutorAdapter {
     const explicitBinary = String(lane.executorBinary || '').trim();
     const laneArgs = this._normalizeArgList(lane.args);
     const explicitArgs = this._normalizeArgList(lane.commandArgs);
+
+    // Build the per-lane MCP config (including the built-in Orca server) before
+    // args so executors that derive a command from the task prompt get the
+    // --mcp-config flag pointing at it.
+    const runtimeDir = path.join(process.cwd(), 'artifacts', String(lane.sessionId || 'orphan'), String(lane.id));
+    await fs.mkdir(runtimeDir, { recursive: true });
+    lane.mcpConfigPath = await this._buildMcpConfig(runtimeDir, lane);
 
     if (commandInput) {
       try {
@@ -643,7 +683,6 @@ class CliExecutorAdapter {
 
     try {
       const safeBinary = this._resolveBinary(binary);
-      const runtimeDir = path.join(process.cwd(), 'artifacts', String(lane.sessionId || 'orphan'), String(lane.id));
       const runtime = {
         runtimeId: randomUUID(),
         lane,
@@ -655,9 +694,7 @@ class CliExecutorAdapter {
         process: null,
         eventNormalizer: createAgentEventNormalizer(this.label),
       };
-      await fs.mkdir(runtimeDir, { recursive: true });
       lane.artifactPath = `/artifacts/${lane.sessionId || 'orphan'}/${lane.id}`;
-      lane.mcpConfigPath = await this._buildMcpConfig(runtimeDir, lane);
       const safeWorkdir = await this._resolveWorkdir(lane.workdir || this.defaultWorkingDir);
 
       const child = spawn(safeBinary, args, {
