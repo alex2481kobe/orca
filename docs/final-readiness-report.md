@@ -104,7 +104,7 @@ npm run smoke:process-lifecycle
 
 Unit tests:
 
-- `142/142` passing in the latest local unit-test run.
+- `143/143` passing in the latest local unit-test run.
 
 Ledger:
 

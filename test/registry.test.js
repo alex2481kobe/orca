@@ -1497,6 +1497,24 @@ test('MCP config is generated per-lane with safe path and executor-specific shap
     assert.equal(Object.prototype.hasOwnProperty.call(parsed.mcpServers, 'demo-tool'), true);
     assert.equal(parsed.mcpServers['demo-tool'].command, 'node');
     assert.deepEqual(parsed.mcpServers['demo-tool'].args, ['-v']);
+    assert.equal(parsed.tools.length, 1);
+    assert.equal(Object.keys(parsed.mcpServers).length, 1);
+
+    const claudeLane = registry.createLane(session.id, {
+      title: 'Claude MCP lane',
+      executorType: 'claude',
+      executorBinary: '/usr/bin/claude',
+      mcpToolIds: ['demo-tool'],
+    }, { actor: 'test', approved: true });
+    const claudeAdapter = registry.getExecutorForType('claude');
+    const claudeRuntimeDir = path.join(process.cwd(), 'artifacts', session.id, claudeLane.id);
+    await fs.mkdir(claudeRuntimeDir, { recursive: true });
+    const claudeConfigPath = await claudeAdapter._buildMcpConfig(claudeRuntimeDir, registry.getLane(claudeLane.id));
+    const claudeParsed = JSON.parse(await fs.readFile(claudeConfigPath, 'utf8'));
+    assert.equal(claudeParsed.executorType, 'claude');
+    assert.equal(claudeParsed.tools.length, 1);
+    assert.equal(Object.keys(claudeParsed.mcpServers).length, 1);
+    assert.deepEqual(claudeParsed.mcpServers['demo-tool'].args, ['-v']);
 
     const noToolLane = registry.createLane(session.id, {
       title: 'No tool lane',
@@ -1518,29 +1536,39 @@ test('buildExecutorCommandArgs derives safe argv from lane task prompt', async (
   const codexArgs = buildExecutorCommandArgs('codex', {
     taskPrompt: 'Ship the dashboard',
     model: 'gpt-5',
-    permissionsProfile: 'restricted',
+    permissionsProfile: 'auto-edit',
     targetUrl: 'http://localhost:5173',
     mcpConfigPath: '/tmp/mcp.json',
   });
+  const count = (args, value) => args.filter((item) => item === value).length;
   assert.ok(codexArgs.includes('--model'));
   assert.ok(codexArgs.includes('gpt-5'));
   assert.ok(codexArgs.includes('--permissions'));
-  assert.ok(codexArgs.includes('restricted'));
+  assert.ok(codexArgs.includes('auto-edit'));
   assert.ok(codexArgs.includes('--mcp-config'));
   assert.ok(codexArgs.includes('/tmp/mcp.json'));
   assert.ok(codexArgs.includes('--prompt'));
   assert.ok(codexArgs.includes('Ship the dashboard'));
+  assert.equal(count(codexArgs, '--mcp-config'), 1);
+  assert.equal(count(codexArgs, '--prompt'), 1);
 
   const claudeArgs = buildExecutorCommandArgs('claude', {
     taskPrompt: 'Audit the auth flow',
     model: 'claude-opus-4-7',
-    permissionsProfile: 'plan',
+    permissionsProfile: 'bypass-permissions',
+    targetUrl: 'http://localhost:5173',
+    mcpConfigPath: '/tmp/mcp.json',
   });
   assert.ok(claudeArgs.includes('--model'));
   assert.ok(claudeArgs.includes('claude-opus-4-7'));
   assert.ok(claudeArgs.includes('--permission-mode'));
-  assert.ok(claudeArgs.includes('plan'));
+  assert.ok(claudeArgs.includes('bypass-permissions'));
+  assert.ok(claudeArgs.includes('--mcp-config'));
+  assert.ok(claudeArgs.includes('/tmp/mcp.json'));
   assert.ok(claudeArgs.includes('--print'));
+  assert.ok(claudeArgs.includes('Target: http://localhost:5173\nAudit the auth flow'));
+  assert.equal(count(claudeArgs, '--mcp-config'), 1);
+  assert.equal(count(claudeArgs, '--print'), 1);
   // Refuse control characters in derived prompt.
   const stripped = buildExecutorCommandArgs('codex', { taskPrompt: 'safe\nprompt' });
   const text = stripped.join('\n');

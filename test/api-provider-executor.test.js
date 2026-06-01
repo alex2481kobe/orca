@@ -269,3 +269,56 @@ test('Gemini API provider lane executes through native dummy endpoint and redact
     restore();
   }
 });
+
+test('Kimi, DeepSeek, and Composer use the shared OpenAI-compatible provider path safely', async () => {
+  const restore = snapshotEnv();
+  const providers = [
+    ['kimi', 'COMMAND_DECK_KIMI_BASE_URL', 'provider:kimi', 'kimi-secret'],
+    ['deepseek', 'COMMAND_DECK_DEEPSEEK_BASE_URL', 'provider:deepseek', 'deepseek-secret'],
+    ['composer', 'COMMAND_DECK_COMPOSER_BASE_URL', 'provider:composer', 'composer-secret'],
+  ];
+  const dummy = await startDummyApi(async (record, res) => {
+    assert.equal(record.method, 'POST');
+    assert.equal(record.url, '/v1/chat/completions');
+    assert.match(record.headers.authorization || '', /^Bearer /);
+    assert.equal(record.body.model, 'command-deck-test-model');
+    assert.equal(record.body.messages.at(-1).content, 'Summarize the Command Deck provider smoke.');
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({
+      choices: [{ message: { content: `ok ${record.headers.authorization}` } }],
+      usage: { prompt_tokens: 3, completion_tokens: 2 },
+    }));
+  });
+
+  const credentialStore = new CredentialStore({ backend: 'memory' });
+  for (const [providerId, envName, secretRef, secret] of providers) {
+    process.env[envName] = dummy.baseUrl;
+    await credentialStore.set(secretRef, secret);
+  }
+
+  const { registry, cleanup } = await withIsolatedRegistry({ credentialStore });
+  try {
+    for (const [providerId, , secretRef, secret] of providers) {
+      const lane = createApiLane(registry, providerId);
+      assert.equal(lane.executorType, providerId);
+      await registry.advanceLanes();
+      const completed = await waitForLane(registry, lane.id, (item) => ['done', 'failed'].includes(item?.state));
+      assert.equal(completed.state, 'done', `${providerId}: ${completed.exitReason || 'lane should complete'}`);
+      assert.equal(completed.processMeta.apiStyle, 'openai-compatible');
+      assert.equal(completed.processMeta.providerId, providerId);
+      assert.equal(completed.processMeta.providerType, providerId);
+      assert.equal(completed.processMeta.secretRef, secretRef);
+      assert.equal(completed.processMeta.endpointPath, '/v1/chat/completions');
+      assert.equal(completed.apiProviderResult.providerId, providerId);
+      assert.equal(completed.apiProviderResult.model, 'command-deck-test-model');
+      assert.match(completed.apiProviderResult.outputPreview, /\[REDACTED\]/);
+      assert.equal(JSON.stringify(completed).includes(secret), false, `${providerId} lane leaked secret`);
+      assert.equal(JSON.stringify(registry.auditEvents).includes(secret), false, `${providerId} audit leaked secret`);
+    }
+    assert.equal(dummy.requests.length, providers.length);
+  } finally {
+    await cleanup();
+    await dummy.close();
+    restore();
+  }
+});

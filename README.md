@@ -11,7 +11,7 @@ private phone access.
 
 The latest recorded full local acceptance run passed:
 
-- `npm test`: 142/142 tests passing.
+- `npm test`: 143/143 tests passing.
 - `npm run smoke:acceptance`: 23 deterministic smoke steps passing.
 - `npm run smoke:full-flow`: isolated end-to-end operator flow passing.
 - `npm run smoke:ui-inventory`: 30 desktop/phone route screenshots with
