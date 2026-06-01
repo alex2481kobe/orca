@@ -121,7 +121,10 @@ mod snapshot {
     use block2::RcBlock;
     use objc2::rc::Retained;
     use objc2::MainThreadMarker;
-    use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSImage};
+    use objc2_app_kit::{
+        NSBackingStoreType, NSBitmapImageFileType, NSBitmapImageRep, NSImage, NSWindow,
+        NSWindowStyleMask,
+    };
     use objc2_foundation::{
         NSData, NSDate, NSDefaultRunLoopMode, NSDictionary, NSError, NSPoint, NSRect, NSRunLoop,
         NSSize, NSString, NSURLRequest, NSURL,
@@ -147,6 +150,25 @@ mod snapshot {
             WKWebView::initWithFrame_configuration(mtm.alloc(), frame, &config)
         };
 
+        // An off-screen, window-less WKWebView never paints, so takeSnapshot returns
+        // a blank image. Host it in a borderless window positioned off-screen and
+        // order it front so WebKit performs a real render pass; keep it alive until
+        // after the snapshot. The window is never visible to the user.
+        let window = unsafe {
+            NSWindow::initWithContentRect_styleMask_backing_defer(
+                mtm.alloc(),
+                NSRect { origin: NSPoint { x: 0.0, y: 0.0 }, size: frame.size },
+                NSWindowStyleMask::Borderless,
+                NSBackingStoreType::Buffered,
+                false,
+            )
+        };
+        // On-screen so WebKit actually renders, but fully transparent so it's not
+        // visible to the user. takeSnapshot captures the view content, not the screen.
+        window.setAlphaValue(0.0);
+        window.setContentView(Some(&webview));
+        window.orderFrontRegardless();
+
         unsafe { webview.loadRequest(&request) };
 
         // Spin the run loop until the page stops loading (or we hit the deadline).
@@ -160,8 +182,8 @@ mod snapshot {
             }
             run_loop_tick(0.05);
         }
-        // Brief settle for first paint after load completes.
-        let settle = Instant::now() + Duration::from_millis(400);
+        // Let the webview complete a real render pass before snapshotting.
+        let settle = Instant::now() + Duration::from_millis(900);
         while Instant::now() < settle {
             run_loop_tick(0.05);
         }
@@ -194,10 +216,13 @@ mod snapshot {
         let snap_deadline = Instant::now() + Duration::from_millis(timeout_ms.max(2000));
         while !done.get() {
             if Instant::now() >= snap_deadline {
+                window.close();
                 return Err("WKWebView snapshot timed out".to_string());
             }
             run_loop_tick(0.05);
         }
+
+        window.close();
 
         if let Some(error) = err_slot.take() {
             return Err(error);
@@ -239,6 +264,11 @@ mod snapshot {
 #[cfg(target_os = "macos")]
 #[allow(unused_imports)] // NativeCaptureBridge re-export makes start()'s return type public
 pub use imp::{start, NativeCaptureBridge};
+
+// Exposed so a probe binary / integration check can exercise the WKWebView
+// snapshot directly on the main thread (see src/bin/orca-capture-probe.rs).
+#[cfg(target_os = "macos")]
+pub use snapshot::capture_to_png;
 
 // Non-macOS builds get a no-op bridge so the shared call sites stay simple.
 #[cfg(not(target_os = "macos"))]

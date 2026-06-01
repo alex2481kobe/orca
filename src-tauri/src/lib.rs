@@ -17,7 +17,7 @@ use tauri::{
 };
 use tauri_plugin_updater::UpdaterExt;
 
-mod native_capture;
+pub mod native_capture;
 
 const SERVICE_NAME: &str = "app.orca.desktop";
 const TOKEN_ACCOUNT: &str = "orca-api-token";
