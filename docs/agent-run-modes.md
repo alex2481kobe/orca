@@ -191,3 +191,14 @@ by CLI because each agent governs permissions differently:
   protocol and are a future enhancement; today Codex governance is sandbox-based.
 - **Any CLI** can also explicitly request approval via the `approval.request`
   MCP tool, and orchestrators decide with `approval.respond`.
+
+## Native screenshot capture (macOS desktop app)
+
+The Tauri shell exposes a loopback bridge backed by WKWebView so the desktop app
+can screenshot project URLs without bundling Chromium. The renderer is verified
+(`cargo run --bin orca-capture-probe -- <url> <out.png>` produces a correct PNG).
+In the long-running app the native fast-path is best-effort: it is attempted for
+screenshot-only captures and **falls back to Playwright** on any error, so a
+capture always succeeds with a correct image. Hardening the in-app fast-path for
+repeated use (async render, no nested run loop) is a tracked follow-up; video and
+traces always use Playwright.

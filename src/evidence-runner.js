@@ -113,7 +113,8 @@ async function captureViaNativeBridge({ url, outPath, timeoutMs = 15000 }) {
     await fs.access(outPath); // the shell writes the PNG; confirm it landed
     return { ok: true };
   } catch (error) {
-    return { ok: false, reason: error?.name === 'AbortError' ? 'native-timeout' : 'native-error' };
+    const detail = error?.message ? `: ${error.message}` : '';
+    return { ok: false, reason: error?.name === 'AbortError' ? 'native-timeout' : `native-error${detail}` };
   } finally {
     clearTimeout(timer);
   }

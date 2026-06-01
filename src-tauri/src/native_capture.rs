@@ -54,26 +54,35 @@ mod imp {
             }
         };
         let endpoint = format!("http://127.0.0.1:{port}");
+        eprintln!("[orca] native capture bridge listening at {endpoint}");
         let expected_token = token.clone();
 
         thread::spawn(move || {
+            // tiny_http closes connections after each response; tell HTTP clients
+            // (Node's keep-alive pool) not to reuse the socket, which would error
+            // on the next request.
+            let conn_close = tiny_http::Header::from_bytes(&b"Connection"[..], &b"close"[..])
+                .expect("valid Connection header");
+            let respond = |request: tiny_http::Request, status: u16| {
+                let _ = request.respond(tiny_http::Response::empty(status).with_header(conn_close.clone()));
+            };
             for mut request in server.incoming_requests() {
                 let authorized = request
                     .headers()
                     .iter()
                     .any(|h| h.field.equiv("x-orca-native-token") && h.value.as_str() == expected_token);
                 if !authorized || request.url() != "/capture" {
-                    let _ = request.respond(tiny_http::Response::empty(403));
+                    respond(request, 403);
                     continue;
                 }
                 let mut body = String::new();
                 if request.as_reader().read_to_string(&mut body).is_err() {
-                    let _ = request.respond(tiny_http::Response::empty(400));
+                    respond(request, 400);
                     continue;
                 }
                 let parsed: Result<CaptureRequest, _> = serde_json::from_str(&body);
                 let Ok(req) = parsed else {
-                    let _ = request.respond(tiny_http::Response::empty(400));
+                    respond(request, 400);
                     continue;
                 };
                 let timeout = req.timeout_ms.unwrap_or(15000);
@@ -85,7 +94,7 @@ mod imp {
                     let _ = tx.send(result);
                 });
                 if dispatch.is_err() {
-                    let _ = request.respond(tiny_http::Response::empty(500));
+                    respond(request, 500);
                     continue;
                 }
                 // Wait a little longer than the page timeout for the main-thread work.
@@ -93,12 +102,10 @@ mod imp {
                     .recv_timeout(std::time::Duration::from_millis(timeout + 8000))
                     .unwrap_or_else(|_| Err("native capture timed out".to_string()));
                 match outcome {
-                    Ok(()) => {
-                        let _ = request.respond(tiny_http::Response::empty(200));
-                    }
+                    Ok(()) => respond(request, 200),
                     Err(error) => {
                         log::warn!("native capture failed: {error}");
-                        let _ = request.respond(tiny_http::Response::empty(502));
+                        respond(request, 502);
                     }
                 }
             }

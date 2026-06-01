@@ -140,6 +140,13 @@ impl DesktopHost {
         if let Some(token) = &self.token {
             return Ok(token.clone());
         }
+        // Allow a provided token (CI/tests/headless) to avoid an OS credential prompt.
+        if let Ok(token) = env::var("ORCA_API_TOKEN") {
+            if !token.trim().is_empty() {
+                self.token = Some(token.clone());
+                return Ok(token);
+            }
+        }
         let entry = Self::credential_entry()?;
         match entry.get_password() {
             Ok(token) if !token.trim().is_empty() => {
@@ -675,8 +682,13 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_updater::Builder::new().build())
+    let mut builder = tauri::Builder::default();
+    // The updater plugin requires release updater config; allow disabling it for
+    // dev/test runs (ORCA_DISABLE_UPDATER=1) so the app can boot without it.
+    if env::var("ORCA_DISABLE_UPDATER").map(|v| v != "1").unwrap_or(true) {
+        builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    }
+    builder
         .manage(DesktopHostState {
             host: Mutex::new(DesktopHost::new()),
         })
