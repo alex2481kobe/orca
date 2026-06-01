@@ -1,0 +1,16 @@
+{
+  "bundle": {
+    "createUpdaterArtifacts": true,
+    "targets": [
+      "app"
+    ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYxOEY1NEJCRjY3RTI2MkEKUldRcUpuNzJ1MVNQOFJPVEMwODEyNzlFZStCS21XT3JPYzQreFNWeXc2MmY3U1ZGWVE0MmVWa0QK",
+      "endpoints": [
+        "https://github.com/alex2481kobe/orca/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}

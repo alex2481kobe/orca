@@ -27,3 +27,6 @@ keyring = "3.6.3"
 rand = "0.9.4"
 arboard = "3.6.1"
 anyhow = "1.0.102"
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-updater = "2"

@@ -17,6 +17,9 @@
     "tauri:server": "node scripts/tauri-dev-server.mjs",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
+    "tauri:build:release": "node scripts/tauri-release-build.mjs",
+    "tauri:build:dmg": "node scripts/tauri-release-build.mjs --bundles dmg",
+    "tauri:release-manifest": "node scripts/tauri-release-manifest.mjs",
     "tauri:check": "cargo check --manifest-path src-tauri/Cargo.toml",
     "test": "node --test ./test/**/*.test.js",
     "smoke": "node scripts/smoke.mjs",
@@ -54,5 +57,8 @@
     "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/cli": "^2.11.2",
     "playwright": "^1.60.0"
+  },
+  "dependencies": {
+    "@tauri-apps/plugin-updater": "^2.10.1"
   }
 }

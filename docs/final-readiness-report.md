@@ -117,8 +117,9 @@ The two external rows are:
   phone reachability remains a user-device check.
 - `native-packaging-tauri`: Tauri v2 scaffold exists and compiles with native
   server lifecycle, OS credential storage, menu/tray actions, and bundled
-  macOS package-path resources. Signing/notarization, release updater, and
-  native mobile adapters remain later-phase work.
+  macOS package-path resources. Release updater scaffolding is present with a
+  committed public key and ignored private-key/CI-secret path. Signed/notarized
+  DMG validation and native mobile adapters remain later-phase work.
 
 ## UI evidence
 

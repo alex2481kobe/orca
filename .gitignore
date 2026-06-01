@@ -10,6 +10,7 @@ pnpm-debug.log*
 .DS_Store
 .env
 .env.*
+.tauri/
 coverage/
 dist/
 build/

@@ -125,9 +125,10 @@ smoke gates before being listed.
   scripts, a dedicated Tauri dev server on `127.0.0.1:34125`, native
   start/stop/restart/health commands, OS credential-backed
   `COMMAND_DECK_API_TOKEN` creation, menu/tray actions for dashboard URL and
-  pairing-code creation, bundled server/static resources for the macOS package
-  path, static frontend build verification, Cargo lockfile, Rust unit tests,
-  and Rust compile check.
+  pairing-code creation, updater check/install commands, bundled server/static
+  resources for the macOS package path, release updater artifact config, static
+  frontend build verification, Cargo lockfile, Rust unit tests, and Rust
+  compile check.
 - Cleanup scheduler with dry-run default, confirmed destructive runs,
   active-lane protection, monotonic `nextRunAt`, audit events.
 - Mobile manifest covers projects, sessions, lanes, detail/stop/retry/
@@ -199,9 +200,10 @@ operator/device setup, not missing local code:
   shutdown commands, and phone reachability checks.
 - Tauri v2 desktop scaffolding is in place and compiles locally. Native server
   lifecycle, OS credential storage, menu/tray actions, and macOS package-path
-  resources are implemented. Signed/notarized packages, release updater, and
-  native iOS/Android preview adapters remain later product phases requiring
-  platform packaging or SDK/device setup.
+  resources are implemented. Release updater scaffolding is configured with a
+  committed public key and ignored private-key/CI-secret path. Signed/notarized
+  DMG validation and native iOS/Android preview adapters remain later product
+  phases requiring platform packaging credentials or SDK/device setup.
 
 Playwright + Chromium are installed locally and exercised end-to-end, Claude is
 executable, and the broken Homebrew Codex symlink was repaired with

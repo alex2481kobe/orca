@@ -15,6 +15,7 @@ use tauri::{
     tray::TrayIconBuilder,
     AppHandle, Manager, State,
 };
+use tauri_plugin_updater::UpdaterExt;
 
 const SERVICE_NAME: &str = "app.commanddeck.desktop";
 const TOKEN_ACCOUNT: &str = "command-deck-api-token";
@@ -43,6 +44,16 @@ struct PairingCodeResponse {
     expires_at: Option<String>,
     ttl_seconds: Option<u64>,
     copied_to_clipboard: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateCheckResponse {
+    available: bool,
+    current_version: String,
+    version: Option<String>,
+    date: Option<String>,
+    body: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -482,6 +493,61 @@ fn create_pairing_code(
     with_host(&state, |host| host.create_pairing_code(label))
 }
 
+async fn check_for_updates_for_app(app: AppHandle) -> Result<UpdateCheckResponse, String> {
+    let current_version = app.package_info().version.to_string();
+    let update = app
+        .updater()
+        .map_err(|error| format!("Could not create updater: {error}"))?
+        .check()
+        .await
+        .map_err(|error| format!("Could not check for updates: {error}"))?;
+    Ok(match update {
+        Some(update) => UpdateCheckResponse {
+            available: true,
+            current_version: update.current_version,
+            version: Some(update.version),
+            date: update.date.as_ref().map(ToString::to_string),
+            body: update.body,
+        },
+        None => UpdateCheckResponse {
+            available: false,
+            current_version,
+            version: None,
+            date: None,
+            body: None,
+        },
+    })
+}
+
+async fn install_update_for_app(app: AppHandle) -> Result<(), String> {
+    let update = app
+        .updater()
+        .map_err(|error| format!("Could not create updater: {error}"))?
+        .check()
+        .await
+        .map_err(|error| format!("Could not check for updates: {error}"))?;
+    let Some(update) = update else {
+        return Ok(());
+    };
+    let state = app.state::<DesktopHostState>();
+    let _ = with_host(&state, |host| host.stop());
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|error| format!("Could not download and install update: {error}"))?;
+    app.restart();
+}
+
+#[tauri::command]
+async fn check_for_updates(app: AppHandle) -> Result<UpdateCheckResponse, String> {
+    check_for_updates_for_app(app).await
+}
+
+#[tauri::command]
+async fn install_update(app: AppHandle) -> Result<(), String> {
+    install_update_for_app(app).await
+}
+
 fn install_menu(app: &tauri::App) -> tauri::Result<()> {
     let open_dashboard =
         MenuItem::with_id(app, "open_dashboard", "Open Dashboard", true, None::<&str>)?;
@@ -502,6 +568,15 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
     let restart_server =
         MenuItem::with_id(app, "restart_server", "Restart Server", true, None::<&str>)?;
     let stop_server = MenuItem::with_id(app, "stop_server", "Stop Server", true, None::<&str>)?;
+    let check_for_updates = MenuItem::with_id(
+        app,
+        "check_for_updates",
+        "Check for Updates",
+        true,
+        None::<&str>,
+    )?;
+    let install_update =
+        MenuItem::with_id(app, "install_update", "Install Update", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Command Deck", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
@@ -511,6 +586,8 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
             &create_pairing_code,
             &restart_server,
             &stop_server,
+            &check_for_updates,
+            &install_update,
             &quit,
         ],
     )?;
@@ -545,6 +622,30 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
         "stop_server" => {
             let _ = with_host(&state, |host| host.stop());
         }
+        "check_for_updates" => {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                match check_for_updates_for_app(app).await {
+                    Ok(response) if response.available => {
+                        log::info!("Command Deck update available: {:?}", response.version);
+                    }
+                    Ok(_) => {
+                        log::info!("Command Deck is up to date.");
+                    }
+                    Err(error) => {
+                        log::error!("Command Deck update check failed: {error}");
+                    }
+                }
+            });
+        }
+        "install_update" => {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = install_update_for_app(app).await {
+                    log::error!("Command Deck update install failed: {error}");
+                }
+            });
+        }
         "quit" => {
             let _ = with_host(&state, |host| host.stop());
             app.exit(0);
@@ -556,6 +657,7 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(DesktopHostState {
             host: Mutex::new(DesktopHost::new()),
         })
@@ -565,7 +667,9 @@ pub fn run() {
             server_stop,
             server_restart,
             copy_phone_url,
-            create_pairing_code
+            create_pairing_code,
+            check_for_updates,
+            install_update
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {

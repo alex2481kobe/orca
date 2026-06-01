@@ -30,6 +30,8 @@ second product.
   bundle; signed DMG/notarized installer output belongs to the release
   packaging phase. Tauri-specific files, Rust commands, icons, capabilities,
   and packaging metadata stay under `src-tauri/`.
+- Keep release packaging documented in `docs/tauri-release.md`. The updater
+  private key and Apple signing/notarization credentials are never committed.
 - Split into a second repo only if release channels, licensing, update
   infrastructure, or platform-specific packaging begins forcing separate
   version lifecycles. Until then, one repo keeps security policy and route
@@ -62,7 +64,8 @@ second product.
   Credential Manager, or Secret Service depending on OS support.
 - Reuse the stored token for server startup on later launches. Implemented.
 - Provide menu/tray actions for Open Dashboard, Copy Dashboard URL, Create
-  Pairing Code, Restart Server, Stop Server, and Quit. Implemented.
+  Pairing Code, Restart Server, Stop Server, Check for Updates, Install Update,
+  and Quit. Implemented.
 - Surface server health, local URL, tailnet HTTP URL, HTTPS Serve URL, and
   active paired sessions. Server health and local URL are exposed through
   Tauri commands now; tailnet URL and paired-session display remain web UI/API
@@ -102,6 +105,9 @@ second product.
   tool surface. Something already running must own startup.
 - In the packaged app, the Tauri host owns startup, restart, shutdown, health
   wait, and dashboard opening.
+- The Tauri updater plugin owns in-app update checks and install/restart. It
+  verifies update artifacts with the compiled public updater key before
+  installing them.
 - In direct/package runtime, Tauri stores mutable Command Deck state under the
   OS app data directory while loading server/static resources from the bundled
   app resources. This avoids writing registry or artifact state into the signed
@@ -162,7 +168,8 @@ second product.
   renderer localStorage/sessionStorage.
 - Renderer requests privileged native actions through narrow Tauri commands:
   `server_status`, `server_start`, `server_stop`, `server_restart`,
-  `copy_phone_url`, and `create_pairing_code`.
+  `copy_phone_url`, `create_pairing_code`, `check_for_updates`, and
+  `install_update`.
 - Tauri commands stay app-local and narrow. Audit events for destructive native
   host actions are a follow-up when the renderer starts exposing those controls.
 - Destructive or broad actions remain confirmation-gated.
@@ -171,6 +178,8 @@ second product.
 ## Phase 4: platform expansion
 
 - Validate macOS app bundle first.
+- Validate Developer ID signing, notarization, DMG output, and updater artifacts
+  with Apple credentials in CI.
 - Add Windows Credential Manager validation for Windows.
 - Add Secret Service/libsecret validation for Linux.
 - Keep iOS/Android native packaging as a later decision; phone-first PWA and

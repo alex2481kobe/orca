@@ -124,10 +124,13 @@ These are not missing local app code:
 - Tauri v2 desktop scaffolding is present under `src-tauri/`. It owns native
   server start/stop/restart/health commands, OS credential storage for the
   generated `COMMAND_DECK_API_TOKEN`, dashboard URL copy, pairing-code
-  creation, and menu/tray actions. Check it with `npm run tauri:check`, launch
-  development mode with `npm run tauri:dev`, and build the macOS package path
-  with `npm run tauri:build`. Signing/notarization, release updater, and native
-  iOS/Android preview adapters remain later-phase work.
+  creation, menu/tray actions, and release-updater scaffolding. Check it with
+  `npm run tauri:check`, launch development mode with `npm run tauri:dev`,
+  build the macOS package path with `npm run tauri:build`, and build signed
+  updater artifacts with `npm run tauri:build:release`. Developer ID
+  signing/notarization credentials are operator/CI secrets; see
+  [`docs/tauri-release.md`](docs/tauri-release.md). Native iOS/Android preview
+  adapters remain later-phase work.
 
 ## Public agent docs
 
