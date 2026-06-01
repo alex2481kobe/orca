@@ -195,6 +195,11 @@ function normalizeAllowedBinaries(value) {
 // Cap total forwarded child output (stdout+stderr) to bound memory use.
 const MAX_EXECUTOR_OUTPUT_BYTES = 10 * 1024 * 1024;
 
+function displayArg(value) {
+  const text = String(value ?? '');
+  return /^[A-Za-z0-9_./:=@+-]+$/.test(text) ? text : JSON.stringify(text);
+}
+
 // Server-managed env keys a lane may never set or override.
 const RESERVED_EXECUTOR_ENV_KEYS = new Set([
   'COMMAND_DECK_LANE_ID',
@@ -653,6 +658,16 @@ class CliExecutorAdapter {
         platform: process.platform,
         processGroupSupported: process.platform !== 'win32',
       };
+      runtime.terminalLogPath = path.join(runtimeDir, 'terminal.log');
+      runtime.stdoutLogPath = path.join(runtimeDir, 'stdout.log');
+      runtime.stderrLogPath = path.join(runtimeDir, 'stderr.log');
+      const commandLine = [safeBinary, ...args].map(displayArg).join(' ');
+      await fs.writeFile(
+        runtime.terminalLogPath,
+        `Command: ${commandLine}\nCwd: ${safeWorkdir}\nStarted: ${lane.processMeta.startedAt}\n\n`,
+      );
+      await fs.writeFile(runtime.stdoutLogPath, '');
+      await fs.writeFile(runtime.stderrLogPath, '');
 
       child.stdout?.setEncoding('utf8');
       child.stderr?.setEncoding('utf8');
@@ -660,21 +675,32 @@ class CliExecutorAdapter {
       // through queued data events feeding an async onLog callback.
       runtime.outputBytes = 0;
       runtime.outputCapped = false;
-      const forward = (prefix, chunk) => {
+      const forward = (prefix, chunk, streamPath) => {
         if (runtime.outputCapped) return;
         const text = String(chunk);
-        runtime.outputBytes += Buffer.byteLength(text, 'utf8');
-        if (runtime.outputBytes > MAX_EXECUTOR_OUTPUT_BYTES) {
+        const nextBytes = runtime.outputBytes + Buffer.byteLength(text, 'utf8');
+        if (nextBytes > MAX_EXECUTOR_OUTPUT_BYTES) {
+          const remainingBytes = Math.max(0, MAX_EXECUTOR_OUTPUT_BYTES - runtime.outputBytes);
+          const cappedText = Buffer.from(text, 'utf8').subarray(0, remainingBytes).toString('utf8');
+          if (cappedText) {
+            fs.appendFile(streamPath, cappedText).catch(() => {});
+            fs.appendFile(runtime.terminalLogPath, cappedText).catch(() => {});
+          }
+          runtime.outputBytes = MAX_EXECUTOR_OUTPUT_BYTES;
           runtime.outputCapped = true;
           child.stdout?.destroy();
           child.stderr?.destroy();
+          fs.appendFile(runtime.terminalLogPath, `\n[command-deck] output truncated after ${MAX_EXECUTOR_OUTPUT_BYTES} bytes.\n`).catch(() => {});
           safeFire(this.onLog, lane, `[${this.label}] output truncated after ${MAX_EXECUTOR_OUTPUT_BYTES} bytes.`);
           return;
         }
+        runtime.outputBytes = nextBytes;
+        fs.appendFile(streamPath, text).catch(() => {});
+        fs.appendFile(runtime.terminalLogPath, text).catch(() => {});
         safeFire(this.onLog, lane, `${prefix} ${text.trim()}`);
       };
-      child.stdout?.on('data', (chunk) => forward(`[${this.label}]`, chunk));
-      child.stderr?.on('data', (chunk) => forward(`[${this.label} err]`, chunk));
+      child.stdout?.on('data', (chunk) => forward(`[${this.label}]`, chunk, runtime.stdoutLogPath));
+      child.stderr?.on('data', (chunk) => forward(`[${this.label} err]`, chunk, runtime.stderrLogPath));
 
       child.on('error', (error) => {
         if (runtime.status !== 'active') return;
@@ -683,11 +709,13 @@ class CliExecutorAdapter {
         // lane whose runtime was already reaped.
         child.stdout?.destroy();
         child.stderr?.destroy();
+        fs.appendFile(runtime.terminalLogPath, `\n[command-deck] process failed to launch: ${error.message} (${error.code || 'ERR'})\n`).catch(() => {});
         this.runtimes.delete(String(lane.id));
         safeFire(this.onFail, lane, `Executor process failed to launch: ${error.message} (${error.code || 'ERR'})`, 'scheduler');
       });
 
       child.on('exit', (code, signal) => {
+        fs.appendFile(runtime.terminalLogPath, `\n[command-deck] process exited code=${code} signal=${signal || ''}\n`).catch(() => {});
         if (lane.processMeta) {
           lane.processMeta.endedAt = new Date().toISOString();
           lane.processMeta.exitCode = code;

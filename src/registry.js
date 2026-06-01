@@ -4791,6 +4791,7 @@ Changed files: ${changedFiles.length}
       laneId: lane.id,
       title: lane.title,
       logs: lane.logs,
+      terminalArtifacts: ['terminal.log', 'stdout.log', 'stderr.log'],
       completedAt: lane.completedAt,
       status,
       taskDescription: lane.taskDescription,

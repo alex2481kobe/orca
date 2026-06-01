@@ -1593,6 +1593,66 @@ test('MCP config is generated per-lane with safe path and executor-specific shap
   }
 });
 
+test('CLI executor writes raw terminal stdout and stderr artifacts', async () => {
+  const previous = {
+    COMMAND_DECK_ENABLE_CUSTOM_CLI: process.env.COMMAND_DECK_ENABLE_CUSTOM_CLI,
+    COMMAND_DECK_CLI_BINARY: process.env.COMMAND_DECK_CLI_BINARY,
+    COMMAND_DECK_CLI_ALLOWED_BINARIES: process.env.COMMAND_DECK_CLI_ALLOWED_BINARIES,
+    COMMAND_DECK_CLI_WORKDIR_ROOTS: process.env.COMMAND_DECK_CLI_WORKDIR_ROOTS,
+  };
+  const restore = restoreEnv(previous);
+  process.env.COMMAND_DECK_ENABLE_CUSTOM_CLI = 'true';
+  process.env.COMMAND_DECK_CLI_BINARY = process.execPath;
+  process.env.COMMAND_DECK_CLI_ALLOWED_BINARIES = process.execPath;
+  process.env.COMMAND_DECK_CLI_WORKDIR_ROOTS = process.cwd();
+
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const { createExecutorAdapter } = await import('../src/executor-factory.js');
+    const adapter = createExecutorAdapter('cli', {
+      onLog: (lane, message) => registry.appendLaneLog(lane, message),
+      onComplete: () => {},
+      onFail: () => {},
+      onStop: () => {},
+      defaultWorkingDir: process.cwd(),
+    });
+    adapter.enforceAllowedBinary = false;
+    adapter.allowedBinaries = [process.execPath];
+    adapter.defaultBinary = process.execPath;
+    adapter.workdirRoots = [process.cwd()];
+
+    const project = registry.createProject({ name: 'Terminal Artifacts' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Terminal Session' }, { actor: 'test', approved: true });
+    const lane = registry.createLane(session.id, {
+      title: 'terminal artifact lane',
+      executorType: 'mock',
+    }, { actor: 'test', approved: true });
+    const target = registry.getLane(lane.id);
+    target.workdir = process.cwd();
+    target.executorBinary = process.execPath;
+    target.commandArgs = ['-e', 'process.stdout.write("stdout-line\\n");process.stderr.write("stderr-line\\n")'];
+
+    const result = await adapter.start(target);
+    assert.equal(result.accepted, true, `start rejected: ${result.reason}`);
+    await new Promise((resolve) => result.runtime.process.once('exit', resolve));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const laneDir = path.join(process.cwd(), 'artifacts', session.id, lane.id);
+    const terminal = await fs.readFile(path.join(laneDir, 'terminal.log'), 'utf8');
+    const stdout = await fs.readFile(path.join(laneDir, 'stdout.log'), 'utf8');
+    const stderr = await fs.readFile(path.join(laneDir, 'stderr.log'), 'utf8');
+    assert.equal(stdout, 'stdout-line\n');
+    assert.equal(stderr, 'stderr-line\n');
+    assert.equal(terminal.includes('Command:'), true);
+    assert.equal(terminal.includes('stdout-line\n'), true);
+    assert.equal(terminal.includes('stderr-line\n'), true);
+    assert.equal(terminal.includes('process exited code=0'), true);
+  } finally {
+    restore();
+    await cleanup();
+  }
+});
+
 test('buildExecutorCommandArgs derives safe argv from lane task prompt', async () => {
   const { buildExecutorCommandArgs } = await import('../src/executor-factory.js');
   const codexArgs = buildExecutorCommandArgs('codex', {
