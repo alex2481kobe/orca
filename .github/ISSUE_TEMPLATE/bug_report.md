@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a reproducible Command Deck bug
+about: Report a reproducible Orca bug
 title: "[Bug]: "
 labels: bug
 assignees: ""
@@ -12,7 +12,7 @@ What happened?
 
 ## Environment
 
-- Command Deck version or commit:
+- Orca version or commit:
 - OS and architecture:
 - Mode: web/PWA or Tauri desktop:
 - Node version:

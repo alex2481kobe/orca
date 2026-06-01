@@ -3,7 +3,7 @@ import fsSync from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
-const STATE_STORE_CONTRACT_VERSION = 'command-deck.state-store.v1';
+const STATE_STORE_CONTRACT_VERSION = 'orca.state-store.v1';
 
 function nowStamp() {
   return new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);

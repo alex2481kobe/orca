@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { CommandDeckRegistry } from './registry.js';
+import { OrcaRegistry } from './registry.js';
 import { PrivateAccessStore } from './private-access.js';
 import { ProviderProfileStore } from './provider-profiles.js';
 import {
@@ -32,22 +32,22 @@ import {
 import { fileURLToPath } from 'node:url';
 
 const PORT = Number(process.env.PORT || 3000);
-const HOST = process.env.COMMAND_DECK_HOST || '127.0.0.1';
+const HOST = process.env.ORCA_HOST || '127.0.0.1';
 const PUBLIC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const providerProfiles = new ProviderProfileStore();
-const registry = new CommandDeckRegistry({
+const registry = new OrcaRegistry({
   credentialStore: providerProfiles.credentialStore,
   providerProfileStore: providerProfiles,
 });
 const privateAccess = new PrivateAccessStore();
 const authSessions = new AuthSessionStore();
 const rateLimiter = createRateLimiter({
-  disabled: process.env.COMMAND_DECK_RATE_LIMIT_DISABLED === 'true',
+  disabled: process.env.ORCA_RATE_LIMIT_DISABLED === 'true',
 });
-const API_TOKEN = process.env.COMMAND_DECK_API_TOKEN || '';
-const WORKER_TOKEN = process.env.COMMAND_DECK_WORKER_TOKEN || '';
+const API_TOKEN = process.env.ORCA_API_TOKEN || '';
+const WORKER_TOKEN = process.env.ORCA_WORKER_TOKEN || '';
 const MAX_JSON_BODY_BYTES = (() => {
-  const raw = Number.parseInt(process.env.COMMAND_DECK_MAX_JSON_BYTES || '', 10);
+  const raw = Number.parseInt(process.env.ORCA_MAX_JSON_BYTES || '', 10);
   if (Number.isFinite(raw) && raw > 0) return raw;
   return 256 * 1024;
 })();
@@ -127,7 +127,7 @@ function staticCachePolicy(filePath) {
 }
 
 function getRequestToken(req) {
-  const headerToken = req.headers['x-commanddeck-token'];
+  const headerToken = req.headers['x-orca-token'];
   const authHeader = req.headers.authorization || req.headers.Authorization;
   if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
     return authHeader.slice(7);
@@ -217,7 +217,7 @@ function hasOperatorAuth(req) {
 }
 
 function getToolLeaseToken(req) {
-  const token = req.headers['x-commanddeck-tool-lease'];
+  const token = req.headers['x-orca-tool-lease'];
   return Array.isArray(token) ? token[0] : token;
 }
 
@@ -351,8 +351,8 @@ function hasDashboardAuth(req) {
   return hasOperatorAuth(req);
 }
 
-const UNAUTHORIZED_MESSAGE = 'Unauthorized. Pair this device from the Command Deck workstation, or supply a valid COMMAND_DECK_API_TOKEN.';
-const ADMIN_ONLY_MESSAGE = 'This action is restricted to the Command Deck workstation (API token or local host). Paired devices have workflow access only.';
+const UNAUTHORIZED_MESSAGE = 'Unauthorized. Pair this device from the Orca workstation, or supply a valid ORCA_API_TOKEN.';
+const ADMIN_ONLY_MESSAGE = 'This action is restricted to the Orca workstation (API token or local host). Paired devices have workflow access only.';
 
 function requireOperatorAuth(req, res) {
   if (hasOperatorAuth(req)) return true;
@@ -505,7 +505,7 @@ function sendText(res, status, text, type = 'text/plain; charset=utf-8') {
 function handleEventStream(req, res) {
   if (!hasStreamAuth(req)) {
     return sendJson(res, 401, {
-      error: 'Unauthorized stream. Supply a valid COMMAND_DECK_API_TOKEN header or pair this browser session.',
+      error: 'Unauthorized stream. Supply a valid ORCA_API_TOKEN header or pair this browser session.',
     });
   }
   const searchParams = getSearchParams(req.url || '/');
@@ -518,9 +518,9 @@ function handleEventStream(req, res) {
   setCacheHeaders(res);
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
-  res.setHeader('X-CommandDeck-Stream', 'events');
+  res.setHeader('X-Orca-Stream', 'events');
   writeSse(res, 'stream_open', {
-    contractVersion: 'command-deck.streams.v1',
+    contractVersion: 'orca.streams.v1',
     startedAt,
     heartbeatMs: streamHeartbeatMs(),
   });
@@ -1402,7 +1402,7 @@ async function handleApi(req, res, pathname, method, parts) {
   if (parts[1] === 'executors' && parts[2] === 'profiles' && method === 'GET') {
     return sendJson(res, 200, {
       profiles: registry.getExecutorProfiles(),
-      commandDeckApiEndpoint: '/api/executors/profiles',
+      orcaApiEndpoint: '/api/executors/profiles',
     });
   }
 
@@ -2168,10 +2168,10 @@ async function handleApi(req, res, pathname, method, parts) {
     if (parts.length === 4 && parts[3] === 'heartbeat' && method === 'POST') {
       const heartbeatLease = hasSpecificToolLeaseAuth(req, { toolId: 'lane.heartbeat', laneId: lane.id });
       if (WORKER_TOKEN && !heartbeatLease) {
-        const workerToken = req.headers['x-commanddeck-worker-token'];
+        const workerToken = req.headers['x-orca-worker-token'];
         if (!workerToken || !constantTimeEqual(workerToken, WORKER_TOKEN)) {
           return sendJson(res, 401, {
-            error: 'Heartbeat requires the worker token (set COMMAND_DECK_WORKER_TOKEN and pass x-commanddeck-worker-token).',
+            error: 'Heartbeat requires the worker token (set ORCA_WORKER_TOKEN and pass x-orca-worker-token).',
           });
         }
       }
@@ -2382,7 +2382,7 @@ function startServer(port = PORT, host = HOST) {
       server.off('error', onError);
       const address = server.address();
       const effectivePort = typeof address === 'string' ? address : (address?.port || port);
-      console.log(`Command Deck prototype listening at http://${host}:${effectivePort}`);
+      console.log(`Orca prototype listening at http://${host}:${effectivePort}`);
       console.log(`Dashboard route root: /`);
       console.log(`Health: /api/health`);
       resolve(server);

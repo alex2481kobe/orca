@@ -7,7 +7,7 @@ import {
 } from './state-store.js';
 
 const nowIso = () => new Date().toISOString();
-const SESSION_COOKIE_NAME = 'command_deck_session';
+const SESSION_COOKIE_NAME = 'orca_session';
 const DEFAULT_PAIRING_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -62,9 +62,9 @@ function parseCookies(cookieHeader) {
 
 class AuthSessionStore {
   constructor({
-    stateFile = path.join(process.cwd(), '.command-deck', 'auth-sessions.json'),
-    pairingTtlMs = parsePositiveMs(process.env.COMMAND_DECK_PAIRING_CODE_TTL_MS, DEFAULT_PAIRING_TTL_MS),
-    sessionTtlMs = parsePositiveMs(process.env.COMMAND_DECK_BROWSER_SESSION_TTL_MS, DEFAULT_SESSION_TTL_MS),
+    stateFile = path.join(process.cwd(), '.orca', 'auth-sessions.json'),
+    pairingTtlMs = parsePositiveMs(process.env.ORCA_PAIRING_CODE_TTL_MS, DEFAULT_PAIRING_TTL_MS),
+    sessionTtlMs = parsePositiveMs(process.env.ORCA_BROWSER_SESSION_TTL_MS, DEFAULT_SESSION_TTL_MS),
   } = {}) {
     this.stateFile = stateFile;
     this.pairingTtlMs = pairingTtlMs;

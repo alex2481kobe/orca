@@ -13,15 +13,15 @@ function hasFlag(name) {
 }
 
 if (hasFlag('--help') || hasFlag('-h')) {
-  console.log(`Usage: npm run operator:pair -- [--base http://127.0.0.1:3000] [--label phone] [--ttl-seconds 1800]\n\nRequires COMMAND_DECK_API_TOKEN in the environment. Prints only the one-time pairing code and expiry; it never prints the API token.`);
+  console.log(`Usage: npm run operator:pair -- [--base http://127.0.0.1:3000] [--label phone] [--ttl-seconds 1800]\n\nRequires ORCA_API_TOKEN in the environment. Prints only the one-time pairing code and expiry; it never prints the API token.`);
   process.exit(0);
 }
 
-const base = (argValue('--base') || process.env.COMMAND_DECK_LOCAL_URL || DEFAULT_BASE).replace(/\/$/, '');
-const label = argValue('--label') || process.env.COMMAND_DECK_PAIRING_LABEL || 'phone-handoff';
-const ttlSecondsRaw = argValue('--ttl-seconds') || process.env.COMMAND_DECK_PAIRING_TTL_SECONDS || String(DEFAULT_TTL_SECONDS);
+const base = (argValue('--base') || process.env.ORCA_LOCAL_URL || DEFAULT_BASE).replace(/\/$/, '');
+const label = argValue('--label') || process.env.ORCA_PAIRING_LABEL || 'phone-handoff';
+const ttlSecondsRaw = argValue('--ttl-seconds') || process.env.ORCA_PAIRING_TTL_SECONDS || String(DEFAULT_TTL_SECONDS);
 const ttlSeconds = Number.parseInt(ttlSecondsRaw, 10);
-const token = process.env.COMMAND_DECK_API_TOKEN || '';
+const token = process.env.ORCA_API_TOKEN || '';
 
 function fail(message) {
   console.error(`[operator-pair] fail — ${message}`);
@@ -29,7 +29,7 @@ function fail(message) {
 }
 
 if (!token) {
-  fail('COMMAND_DECK_API_TOKEN is required in the environment. Do not pass tokens in URLs or commit them.');
+  fail('ORCA_API_TOKEN is required in the environment. Do not pass tokens in URLs or commit them.');
 }
 
 if (!Number.isFinite(ttlSeconds) || ttlSeconds < 30 || ttlSeconds > 1800) {
@@ -44,7 +44,7 @@ try {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      'x-commanddeck-token': token,
+      'x-orca-token': token,
     },
     body: JSON.stringify({ label: safeLabel, ttlMs: ttlSeconds * 1000 }),
   });

@@ -1,7 +1,7 @@
 import net from 'node:net';
 
 const MAX_URL_LENGTH = 2048;
-const CONTRACT_VERSION = 'command-deck.url-policy.v1';
+const CONTRACT_VERSION = 'orca.url-policy.v1';
 const FORBIDDEN_HOSTNAMES = new Set([
   'metadata',
   'metadata.google.internal',
@@ -119,7 +119,7 @@ function classifySensitivity(parsed) {
   if (matched) {
     return {
       sensitive: true,
-      reason: 'URL targets a sensitive Command Deck control surface.',
+      reason: 'URL targets a sensitive Orca control surface.',
     };
   }
   return {

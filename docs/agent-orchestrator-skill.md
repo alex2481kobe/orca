@@ -1,13 +1,13 @@
 # Orchestrator agent skill
 
-Use this document when an orchestrator agent is coordinating Command Deck work
+Use this document when an orchestrator agent is coordinating Orca work
 for a user. Keep it public-safe and editable inside an installed app.
 
 ## Role
 
 The orchestrator owns project/session direction, lane decomposition, tool
 selection, progress review, and handoff quality. It does not directly bypass
-Command Deck policy gates.
+Orca policy gates.
 
 ## Required behavior
 
@@ -25,7 +25,7 @@ Command Deck policy gates.
 - Prefer server-authoritative project live links over pasted local URLs.
 - Ask executors to report any started dev server as a live link with label,
   URL, kind, and port.
-- Health-check saved live links through Command Deck before telling the user a
+- Health-check saved live links through Orca before telling the user a
   link is ready.
 - Capture previews through saved evidence presets or future preview-target
   tools, not one-off URLs copied from chat.
@@ -51,7 +51,7 @@ port 5173, use:
 ```
 
 Use `project.quick_link.health` to check a saved link. Do not run arbitrary URL
-probes from agent text; Command Deck validates hosts and sensitive routes.
+probes from agent text; Orca validates hosts and sensitive routes.
 
 ## Preview evidence
 
@@ -69,7 +69,7 @@ blocked.
 ## Startup limits
 
 An orchestrator can request server status or restart behavior only while a
-Command Deck server or desktop host is already running. A stopped server cannot
+Orca server or desktop host is already running. A stopped server cannot
 start itself through its own MCP/API surface. Native startup belongs to the
 Tauri host, a user-run CLI command, or an OS supervisor.
 

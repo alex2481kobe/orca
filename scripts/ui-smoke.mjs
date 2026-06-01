@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Command Deck dashboard UI smoke.
+ * Orca dashboard UI smoke.
  *
  * Two modes:
  *
@@ -20,7 +20,7 @@
  *
  * Usage:
  *   node scripts/ui-smoke.mjs
- *   COMMAND_DECK_API_TOKEN=<token> node scripts/ui-smoke.mjs --base http://127.0.0.1:3000
+ *   ORCA_API_TOKEN=<token> node scripts/ui-smoke.mjs --base http://127.0.0.1:3000
  */
 import process from 'node:process';
 import fs from 'node:fs/promises';
@@ -30,16 +30,16 @@ import path from 'node:path';
 const args = process.argv.slice(2);
 const previousCwd = process.cwd();
 const previousEnv = { ...process.env };
-let explicitBase = Boolean(process.env.COMMAND_DECK_BASE_URL);
-let base = process.env.COMMAND_DECK_BASE_URL || 'http://127.0.0.1:3000';
+let explicitBase = Boolean(process.env.ORCA_BASE_URL);
+let base = process.env.ORCA_BASE_URL || 'http://127.0.0.1:3000';
 for (let i = 0; i < args.length; i += 1) {
   if (args[i] === '--base' && args[i + 1]) {
     base = args[i + 1];
     explicitBase = true;
   }
 }
-let token = process.env.COMMAND_DECK_API_TOKEN || '';
-const tempDir = explicitBase ? null : await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-ui-smoke-'));
+let token = process.env.ORCA_API_TOKEN || '';
+const tempDir = explicitBase ? null : await fs.mkdtemp(path.join(os.tmpdir(), 'orca-ui-smoke-'));
 let server = null;
 let stopServer = null;
 const log = (label, info = '') => console.log(`[ui-smoke] ${label}${info ? ' — ' + info : ''}`);
@@ -51,7 +51,7 @@ const fail = (label, info) => {
 
 async function http(reqPath) {
   const res = await fetch(`${base}${reqPath}`, {
-    headers: token ? { 'x-commanddeck-token': token } : {},
+    headers: token ? { 'x-orca-token': token } : {},
   });
   const text = await res.text();
   return { status: res.status, text };
@@ -61,11 +61,11 @@ async function startIsolatedServerIfNeeded() {
   if (explicitBase) return;
   process.chdir(tempDir);
   process.env.PORT = '0';
-  process.env.COMMAND_DECK_HOST = '127.0.0.1';
-  process.env.COMMAND_DECK_API_TOKEN = 'ui-smoke-token';
-  process.env.COMMAND_DECK_CREDENTIAL_BACKEND = 'memory';
-  process.env.COMMAND_DECK_RATE_LIMIT_DISABLED = 'true';
-  token = process.env.COMMAND_DECK_API_TOKEN;
+  process.env.ORCA_HOST = '127.0.0.1';
+  process.env.ORCA_API_TOKEN = 'ui-smoke-token';
+  process.env.ORCA_CREDENTIAL_BACKEND = 'memory';
+  process.env.ORCA_RATE_LIMIT_DISABLED = 'true';
+  token = process.env.ORCA_API_TOKEN;
   const serverModule = await import('../src/server.js');
   server = await serverModule.startServer(0, '127.0.0.1');
   stopServer = serverModule.stopServer;
@@ -94,7 +94,7 @@ async function requestJson(reqPath, options = {}) {
     method: options.method || 'GET',
     headers: {
       'content-type': 'application/json',
-      ...(token ? { 'x-commanddeck-token': token } : {}),
+      ...(token ? { 'x-orca-token': token } : {}),
       ...(options.headers || {}),
     },
     body: options.body === undefined ? undefined : JSON.stringify(options.body),

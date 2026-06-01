@@ -1,5 +1,5 @@
 artifacts/
-.command-deck/
+.orca/
 node_modules/
 *.log
 *.log.*

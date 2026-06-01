@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Command Deck process lifecycle smoke.
+ * Orca process lifecycle smoke.
  *
  * Safe local process test for custom CLI provider execution: no shell,
  * validated binary/argv/workdir, stdout/stderr capture, process metadata,
@@ -16,7 +16,7 @@ import { createExecutorAdapter } from '../src/executor-factory.js';
 const log = (label, info = '') => console.log(`[process-lifecycle] ${label}${info ? ' — ' + info : ''}`);
 
 const previousEnv = { ...process.env };
-const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-process-smoke-'));
+const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-process-smoke-'));
 
 function restoreEnv() {
   Object.keys(process.env).forEach((key) => {
@@ -45,12 +45,12 @@ async function waitForProcessExit(child, timeoutMs = 5000) {
 }
 
 try {
-  process.env.COMMAND_DECK_ENABLE_CUSTOM_CLI = 'true';
-  process.env.COMMAND_DECK_CLI_BINARY = process.execPath;
-  process.env.COMMAND_DECK_CLI_ALLOWED_BINARIES = `${process.execPath},node`;
-  process.env.COMMAND_DECK_CLI_WORKDIR_ROOTS = tempDir;
-  process.env.COMMAND_DECK_CLI_ENV_WHITELIST = 'PATH,HOME,TMPDIR,LANG,LC_ALL,LC_CTYPE,USER,SHELL,TERM';
-  process.env.COMMAND_DECK_STOP_ESCALATE_MS = '100';
+  process.env.ORCA_ENABLE_CUSTOM_CLI = 'true';
+  process.env.ORCA_CLI_BINARY = process.execPath;
+  process.env.ORCA_CLI_ALLOWED_BINARIES = `${process.execPath},node`;
+  process.env.ORCA_CLI_WORKDIR_ROOTS = tempDir;
+  process.env.ORCA_CLI_ENV_WHITELIST = 'PATH,HOME,TMPDIR,LANG,LC_ALL,LC_CTYPE,USER,SHELL,TERM';
+  process.env.ORCA_STOP_ESCALATE_MS = '100';
 
   const logs = [];
   const completed = [];
@@ -72,7 +72,7 @@ try {
     executorBinary: process.execPath,
     commandArgs: ['--version'],
     env: {
-      COMMAND_DECK_SAFE_SMOKE: '1',
+      ORCA_SAFE_SMOKE: '1',
       SHOULD_NOT_PASS: 'no',
     },
   };

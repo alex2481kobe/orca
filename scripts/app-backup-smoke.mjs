@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 
 const previousCwd = process.cwd();
 const previousEnv = { ...process.env };
-const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-app-backup-'));
+const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-app-backup-'));
 const token = 'app-backup-smoke-token';
 const secret = 'sk-app-backup-secret-value';
 
@@ -46,8 +46,8 @@ function responseState() {
 
 try {
   process.chdir(tempDir);
-  process.env.COMMAND_DECK_API_TOKEN = token;
-  process.env.COMMAND_DECK_CREDENTIAL_BACKEND = 'memory';
+  process.env.ORCA_API_TOKEN = token;
+  process.env.ORCA_CREDENTIAL_BACKEND = 'memory';
   process.env.PORT = '0';
 
   const moduleUrl = `${pathToFileURL(path.join(previousCwd, 'src', 'server.js')).href}?app-backup-smoke=${Date.now()}`;
@@ -60,7 +60,7 @@ try {
     req.url = url;
     req.headers = {
       'content-type': 'application/json',
-      ...(options.token === false ? {} : { 'x-commanddeck-token': token }),
+      ...(options.token === false ? {} : { 'x-orca-token': token }),
       ...(options.headers || {}),
     };
     const pending = routeRequest(req, state.res);
@@ -117,7 +117,7 @@ try {
 
   const exported = await reqJson('/api/app/export');
   assert.equal(exported.status, 200);
-  assert.equal(exported.body.kind, 'command-deck.app-export');
+  assert.equal(exported.body.kind, 'orca.app-export');
   assert.equal(exported.body.excludesSecrets, true);
   assert.equal(exported.body.includesAuthSessions, false);
   assert.equal(exported.body.includesArtifacts, false);
@@ -168,7 +168,7 @@ try {
 
   const support = await reqJson('/api/app/support-bundle');
   assert.equal(support.status, 200);
-  assert.equal(support.body.kind, 'command-deck.support-bundle');
+  assert.equal(support.body.kind, 'orca.support-bundle');
   assert.equal(support.body.shareableByDefault, true);
   assert.equal(JSON.stringify(support.body).includes(secret), false);
   assert.equal(JSON.stringify(support.body).includes(tempDir), false);

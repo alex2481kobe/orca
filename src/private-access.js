@@ -304,16 +304,16 @@ function fakeTailnetState(state = 'missing') {
     return { ...base, binaryAvailable: true, nextStep: 'Sign in to Tailscale.' };
   }
   if (normalized === 'logged-in') {
-    return { ...base, binaryAvailable: true, loggedIn: true, hostname: 'command-deck.test-tailnet.ts.net', nextStep: 'Configure Tailscale Serve.' };
+    return { ...base, binaryAvailable: true, loggedIn: true, hostname: 'orca.test-tailnet.ts.net', nextStep: 'Configure Tailscale Serve.' };
   }
   if (normalized === 'serve-http') {
-    return { ...base, binaryAvailable: true, loggedIn: true, hostname: 'command-deck.test-tailnet.ts.net', serveConfigured: true, serveMode: 'tailnet-http', setupStatus: 'configured_unchecked', nextStep: 'Open the HTTP tailnet URL from another device and mark external verification.' };
+    return { ...base, binaryAvailable: true, loggedIn: true, hostname: 'orca.test-tailnet.ts.net', serveConfigured: true, serveMode: 'tailnet-http', setupStatus: 'configured_unchecked', nextStep: 'Open the HTTP tailnet URL from another device and mark external verification.' };
   }
   if (normalized === 'serve-https') {
-    return { ...base, binaryAvailable: true, loggedIn: true, hostname: 'command-deck.test-tailnet.ts.net', serveConfigured: true, serveMode: 'tailnet-https-serve', setupStatus: 'configured_unchecked', nextStep: 'Open the HTTPS Serve URL from another device and verify PWA behavior.' };
+    return { ...base, binaryAvailable: true, loggedIn: true, hostname: 'orca.test-tailnet.ts.net', serveConfigured: true, serveMode: 'tailnet-https-serve', setupStatus: 'configured_unchecked', nextStep: 'Open the HTTPS Serve URL from another device and verify PWA behavior.' };
   }
   if (normalized === 'funnel') {
-    return { ...base, binaryAvailable: true, loggedIn: true, hostname: 'command-deck.test-tailnet.ts.net', serveConfigured: false, serveMode: 'funnel', setupStatus: 'unreachable', blockers: ['Funnel detected and rejected. Use private Tailscale Serve only.'], nextStep: 'Disable Funnel and configure private Serve.' };
+    return { ...base, binaryAvailable: true, loggedIn: true, hostname: 'orca.test-tailnet.ts.net', serveConfigured: false, serveMode: 'funnel', setupStatus: 'unreachable', blockers: ['Funnel detected and rejected. Use private Tailscale Serve only.'], nextStep: 'Disable Funnel and configure private Serve.' };
   }
   return { ...base, blockers: ['Tailscale binary missing or not detected.'] };
 }
@@ -391,7 +391,7 @@ async function boundedHealthCheck(url) {
 
 class PrivateAccessStore {
   constructor({ stateFile = null, runner = spawnSync } = {}) {
-    this.stateFile = stateFile || path.join(process.cwd(), '.command-deck', 'private-access.json');
+    this.stateFile = stateFile || path.join(process.cwd(), '.orca', 'private-access.json');
     this.runner = runner;
     this.loaded = false;
     this.loadStatus = null;

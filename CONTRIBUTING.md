@@ -1,6 +1,6 @@
 # Contributing
 
-Command Deck is a local-first desktop/web app with security-sensitive surfaces:
+Orca is a local-first desktop/web app with security-sensitive surfaces:
 local files, shells, provider credentials, agent sessions, private network
 access, screenshots, logs, and update artifacts. Keep changes scoped and prove
 security-sensitive behavior with tests or smoke gates.
@@ -9,7 +9,7 @@ security-sensitive behavior with tests or smoke gates.
 
 ```sh
 npm install
-COMMAND_DECK_API_TOKEN="$(openssl rand -hex 32)" npm run dev
+ORCA_API_TOKEN="$(openssl rand -hex 32)" npm run dev
 ```
 
 Open <http://127.0.0.1:3000/>.

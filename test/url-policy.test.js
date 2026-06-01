@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { CommandDeckRegistry } from '../src/registry.js';
+import { OrcaRegistry } from '../src/registry.js';
 import {
   classifyHost,
   validateEvidenceUrl,
@@ -12,11 +12,11 @@ import {
 
 async function withRegistry(callback) {
   const previousCwd = process.cwd();
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-url-policy-'));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-url-policy-'));
   let registry = null;
   process.chdir(tempDir);
   try {
-    registry = new CommandDeckRegistry();
+    registry = new OrcaRegistry();
     await callback(registry);
   } finally {
     if (registry && typeof registry.stopScheduler === 'function') registry.stopScheduler();
@@ -28,11 +28,11 @@ async function withRegistry(callback) {
 test('network URL policy allows loopback and tailnet while rejecting SSRF targets', () => {
   assert.equal(classifyHost('127.0.0.1'), 'loopback');
   assert.equal(classifyHost('localhost'), 'loopback');
-  assert.equal(classifyHost('command-deck.example.ts.net'), 'tailnet');
+  assert.equal(classifyHost('orca.example.ts.net'), 'tailnet');
   assert.equal(classifyHost('100.64.1.2'), 'tailnet');
 
   assert.equal(validateNetworkUrl('http://127.0.0.1:3000').hostClass, 'loopback');
-  assert.equal(validateNetworkUrl('https://command-deck.example.ts.net').hostClass, 'tailnet');
+  assert.equal(validateNetworkUrl('https://orca.example.ts.net').hostClass, 'tailnet');
   assert.equal(validateNetworkUrl('http://100.64.1.2:3000').hostClass, 'tailnet');
 
   assert.throws(
@@ -40,7 +40,7 @@ test('network URL policy allows loopback and tailnet while rejecting SSRF target
     (error) => error.status === 422 && /http or https/.test(error.message),
   );
   assert.throws(
-    () => validateNetworkUrl('https://user:pass@command-deck.example.ts.net'),
+    () => validateNetworkUrl('https://user:pass@orca.example.ts.net'),
     (error) => error.status === 422 && /credentials/.test(error.message),
   );
   assert.throws(
@@ -60,7 +60,7 @@ test('network URL policy allows loopback and tailnet while rejecting SSRF target
     (error) => error.status === 422 && /localhost/.test(error.message),
   );
   assert.throws(
-    () => validateNetworkUrl('https://command-deck.funnel.ts.net'),
+    () => validateNetworkUrl('https://orca.funnel.ts.net'),
     (error) => error.status === 422 && /Funnel/.test(error.message),
   );
 });

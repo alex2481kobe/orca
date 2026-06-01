@@ -43,9 +43,9 @@ function createResponseState() {
 async function startServer({ token }) {
   const previousCwd = process.cwd();
   const previousEnv = { ...process.env };
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-critique-api-'));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-critique-api-'));
   process.chdir(tempDir);
-  process.env.COMMAND_DECK_API_TOKEN = token;
+  process.env.ORCA_API_TOKEN = token;
   process.env.PORT = '0';
   const moduleUrl = `${pathToFileURL(SERVER_ENTRYPOINT).href}?critique-api-test=${Date.now()}-${++harnessCounter}`;
   const { routeRequest, stopServer } = await import(moduleUrl);
@@ -96,19 +96,19 @@ async function createProjectSessionLane(server, token, laneBody = {}) {
   const suffix = ++entityCounter;
   const project = await server.requestJson('/api/projects', {
     method: 'POST',
-    headers: { 'x-commanddeck-token': token },
+    headers: { 'x-orca-token': token },
     body: { name: `Critique API Project ${suffix}`, approved: true },
   });
   assert.equal(project.status, 201);
   const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
     method: 'POST',
-    headers: { 'x-commanddeck-token': token },
+    headers: { 'x-orca-token': token },
     body: { name: `Critique API Session ${suffix}`, approved: true },
   });
   assert.equal(session.status, 201);
   const lane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
     method: 'POST',
-    headers: { 'x-commanddeck-token': token },
+    headers: { 'x-orca-token': token },
     body: {
       title: `Critique API Lane ${suffix}`,
       executorType: 'mock',
@@ -137,7 +137,7 @@ test('critique and audit outcome routes are wired and token-gated', async () => 
 
     const bundle = await server.requestJson(`/api/lanes/${lane.id}/critique/bundle`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: { actor: 'dashboard' },
     });
     assert.equal(bundle.status, 201);
@@ -145,7 +145,7 @@ test('critique and audit outcome routes are wired and token-gated', async () => 
 
     const findings = await server.requestJson(`/api/lanes/${lane.id}/critique/findings`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         critiqueNonce: bundle.body.critiqueNonce,
@@ -158,7 +158,7 @@ test('critique and audit outcome routes are wired and token-gated', async () => 
 
     const accepted = await server.requestJson(`/api/lanes/${lane.id}/audit/accept`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         verdict: 'accepted',
@@ -179,7 +179,7 @@ test('audit findings route dispatches fix and block verdicts', async () => {
     const first = await createProjectSessionLane(server, token);
     const fix = await server.requestJson(`/api/lanes/${first.lane.id}/audit/findings`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         verdict: 'fix_requested',
@@ -192,7 +192,7 @@ test('audit findings route dispatches fix and block verdicts', async () => {
 
     const retry = await server.requestJson(`/api/lanes/${first.lane.id}/retry`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: { actor: 'dashboard' },
     });
     assert.equal(retry.status, 200);
@@ -201,14 +201,14 @@ test('audit findings route dispatches fix and block verdicts', async () => {
     const second = await createProjectSessionLane(server, token);
     const missingReason = await server.requestJson(`/api/lanes/${second.lane.id}/audit/block`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: { actor: 'dashboard' },
     });
     assert.equal(missingReason.status, 422);
 
     const blocked = await server.requestJson(`/api/lanes/${second.lane.id}/audit/findings`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         verdict: 'blocked',
@@ -231,13 +231,13 @@ test('visual critique route refuses ready findings without fresh screenshot evid
     });
     const bundle = await server.requestJson(`/api/lanes/${lane.id}/critique/bundle`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: { actor: 'dashboard' },
     });
     assert.equal(bundle.status, 201);
     const findings = await server.requestJson(`/api/lanes/${lane.id}/critique/findings`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         critiqueNonce: bundle.body.critiqueNonce,

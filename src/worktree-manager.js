@@ -3,7 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 
 const MAX_BRANCH_LEN = 200;
-const BRANCH_PREFIX = 'command-deck/lane/';
+const BRANCH_PREFIX = 'orca/lane/';
 
 function runGit(args, options = {}) {
   return spawnSync('git', args, {

@@ -1,11 +1,11 @@
 # Agent run modes
 
-Command Deck chooses how an agent runs at lane creation time. The dashboard,
+Orca chooses how an agent runs at lane creation time. The dashboard,
 orchestrator tools, and direct API calls all write the same lane fields; the
 server then derives safe argv, workdir, env, MCP config, and audit state.
 
 Every supported executor can be selected for an orchestrator lane or an
-executor lane. Command Deck records a capability snapshot on each lane so the
+executor lane. Orca records a capability snapshot on each lane so the
 dashboard, read-only executor monitor, and orchestrator chat all show what the
 selected agent could support at launch time.
 
@@ -19,7 +19,7 @@ selected agent could support at launch time.
 | `permissionsProfile` | Codex, Claude | Per-lane run mode, such as plan/restricted/auto-edit/bypass, interpreted by the underlying CLI. |
 | `intelligenceProfile` | Claude, dashboard/orchestrator metadata for others | Per-lane effort/intelligence request. Claude maps supported values to `--effort`; other executors keep it visible in lane metadata and prompts until their CLI exposes a stable equivalent. |
 | `mcpToolIds` | Codex, Claude, custom CLI | Attaches approved MCP tools scoped to the selected executor. |
-| `targetUrl` | Codex, Claude, evidence | Saved preview or app target; validated by Command Deck URL policy. |
+| `targetUrl` | Codex, Claude, evidence | Saved preview or app target; validated by Orca URL policy. |
 | `commandArgs` | CLI-backed lanes | Explicit argv tokens. Use for known-safe commands such as `--version`. |
 | `executorBinary` | CLI-backed lanes | Optional binary override. Must target the selected executor and pass allowlists. |
 | `workdir` | CLI-backed lanes | Execution directory. Must stay inside approved roots or the session workspace. |
@@ -27,7 +27,7 @@ selected agent could support at launch time.
 
 ## Capability discovery
 
-Command Deck exposes a public-safe capability matrix through agent tool
+Orca exposes a public-safe capability matrix through agent tool
 discovery and next-action envelopes. Orchestrators should consult that matrix
 before spawning executors instead of assuming a fixed flag set.
 
@@ -37,7 +37,7 @@ The matrix includes:
   or critique agent.
 - controls: model, permissions/run modes, intelligence/effort support,
   structured output formats, MCP config support, and background-agent support.
-- invocation: whether Command Deck derives argv from lane fields, whether
+- invocation: whether Orca derives argv from lane fields, whether
   custom argv is supported, and whether raw terminal artifacts or structured
   agent events are available.
 - MCP scopes: which configured MCP tools are valid for that executor.
@@ -45,12 +45,12 @@ The matrix includes:
 CLI capabilities are detected from the configured binary's version/help output
 when possible and fall back to conservative static metadata. This means new
 Claude, Codex, Gemini, Composer, or custom CLI features become visible when the
-installed CLI exposes them, while Command Deck still preserves server-side
+installed CLI exposes them, while Orca still preserves server-side
 allowlists and safe argv derivation.
 
 ## Current adapter mapping
 
-When `commandArgs` are not explicitly supplied, Command Deck derives argv from
+When `commandArgs` are not explicitly supplied, Orca derives argv from
 lane fields:
 
 | Executor | Derived argv |
@@ -83,7 +83,7 @@ The release posture is: tested adapters are listed as supported; untested CLIs
 are documented as experimental host configuration, not selectable defaults.
 
 The exact meaning of `permissionsProfile` and `intelligenceProfile` is owned by
-the selected CLI. Command Deck stores and passes supported values where the
+the selected CLI. Orca stores and passes supported values where the
 adapter has a stable mapping, but the installed CLI version decides whether
 values such as `plan`, `auto`, `acceptEdits`, `bypassPermissions`, `high`, or
 `max` are valid.
@@ -94,12 +94,12 @@ Host operators can set executor defaults with environment variables:
 
 | Variable family | Purpose |
 | --- | --- |
-| `COMMAND_DECK_CODEX_BINARY`, `COMMAND_DECK_CLAUDE_BINARY`, `COMMAND_DECK_GEMINI_CLI_BINARY`, `COMMAND_DECK_COMPOSER_CLI_BINARY`, `COMMAND_DECK_CLI_BINARY` | Default executable path or name. Composer CLI defaults to `cursor-agent`. |
-| `COMMAND_DECK_CODEX_ALLOWED_BINARIES`, `COMMAND_DECK_CLAUDE_ALLOWED_BINARIES`, `COMMAND_DECK_GEMINI_CLI_ALLOWED_BINARIES`, `COMMAND_DECK_COMPOSER_CLI_ALLOWED_BINARIES`, `COMMAND_DECK_CLI_ALLOWED_BINARIES` | Binary allowlists. |
-| `COMMAND_DECK_CODEX_DEFAULT_ARGS`, `COMMAND_DECK_CLAUDE_DEFAULT_ARGS`, `COMMAND_DECK_GEMINI_CLI_DEFAULT_ARGS`, `COMMAND_DECK_COMPOSER_CLI_DEFAULT_ARGS`, `COMMAND_DECK_CLI_DEFAULT_ARGS` | Default argv when the lane does not provide task-derived args. |
-| `COMMAND_DECK_CODEX_WORKDIR_ROOTS`, `COMMAND_DECK_CLAUDE_WORKDIR_ROOTS`, `COMMAND_DECK_GEMINI_CLI_WORKDIR_ROOTS`, `COMMAND_DECK_COMPOSER_CLI_WORKDIR_ROOTS`, `COMMAND_DECK_CLI_WORKDIR_ROOTS` | Approved execution roots. |
-| `COMMAND_DECK_CODEX_ENV_WHITELIST`, `COMMAND_DECK_CLAUDE_ENV_WHITELIST`, `COMMAND_DECK_GEMINI_CLI_ENV_WHITELIST`, `COMMAND_DECK_COMPOSER_CLI_ENV_WHITELIST`, `COMMAND_DECK_CLI_ENV_WHITELIST` | Extra env keys allowed into child processes. |
-| `COMMAND_DECK_CODEX_MODEL`, `COMMAND_DECK_CLAUDE_MODEL`, `COMMAND_DECK_GEMINI_CLI_MODEL`, `COMMAND_DECK_COMPOSER_CLI_MODEL` | Default model metadata for provider/profile surfaces. |
+| `ORCA_CODEX_BINARY`, `ORCA_CLAUDE_BINARY`, `ORCA_GEMINI_CLI_BINARY`, `ORCA_COMPOSER_CLI_BINARY`, `ORCA_CLI_BINARY` | Default executable path or name. Composer CLI defaults to `cursor-agent`. |
+| `ORCA_CODEX_ALLOWED_BINARIES`, `ORCA_CLAUDE_ALLOWED_BINARIES`, `ORCA_GEMINI_CLI_ALLOWED_BINARIES`, `ORCA_COMPOSER_CLI_ALLOWED_BINARIES`, `ORCA_CLI_ALLOWED_BINARIES` | Binary allowlists. |
+| `ORCA_CODEX_DEFAULT_ARGS`, `ORCA_CLAUDE_DEFAULT_ARGS`, `ORCA_GEMINI_CLI_DEFAULT_ARGS`, `ORCA_COMPOSER_CLI_DEFAULT_ARGS`, `ORCA_CLI_DEFAULT_ARGS` | Default argv when the lane does not provide task-derived args. |
+| `ORCA_CODEX_WORKDIR_ROOTS`, `ORCA_CLAUDE_WORKDIR_ROOTS`, `ORCA_GEMINI_CLI_WORKDIR_ROOTS`, `ORCA_COMPOSER_CLI_WORKDIR_ROOTS`, `ORCA_CLI_WORKDIR_ROOTS` | Approved execution roots. |
+| `ORCA_CODEX_ENV_WHITELIST`, `ORCA_CLAUDE_ENV_WHITELIST`, `ORCA_GEMINI_CLI_ENV_WHITELIST`, `ORCA_COMPOSER_CLI_ENV_WHITELIST`, `ORCA_CLI_ENV_WHITELIST` | Extra env keys allowed into child processes. |
+| `ORCA_CODEX_MODEL`, `ORCA_CLAUDE_MODEL`, `ORCA_GEMINI_CLI_MODEL`, `ORCA_COMPOSER_CLI_MODEL` | Default model metadata for provider/profile surfaces. |
 
 ## MCP tools
 
@@ -108,9 +108,9 @@ MCP tools are configured separately from run mode:
 - Tools have executor scopes such as `codex`, `claude`, `gemini-cli`,
   `composer-cli`, `cli`, or `all`.
 - Lane creation rejects unknown, disabled, or scope-mismatched tools.
-- Command Deck writes a per-lane `mcp-tools.json` containing both `tools` and
+- Orca writes a per-lane `mcp-tools.json` containing both `tools` and
   `mcpServers` shapes.
-- CLI-backed executors receive `COMMAND_DECK_MCP_CONFIG=<path>` in env and,
+- CLI-backed executors receive `ORCA_MCP_CONFIG=<path>` in env and,
   for Codex/Claude, `--mcp-config <path>` in derived argv.
 - Tool leases are scoped by role/project/session/lane and are hashed at rest.
 
@@ -121,7 +121,7 @@ permissions should be treated as high risk:
 
 - They must be explicit per lane or host profile, not hidden defaults.
 - They should be visible in lane details and audit history.
-- They must not bypass Command Deck's server-side controls: auth, same-origin
+- They must not bypass Orca's server-side controls: auth, same-origin
   checks, workdir roots, binary allowlists, MCP scope checks, provider-secret
   redaction, cleanup approval, and CLI install approval.
 - Paired phones can operate lanes, but they are not workstation admins and

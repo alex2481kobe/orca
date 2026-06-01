@@ -4,7 +4,7 @@ Canonical project guide for coding agents and contributors working in this repo.
 
 ## Project
 
-Command Deck is a local-first control plane for coordinating AI coding agents, project sessions, worker lanes, browser evidence, logs, artifacts, and review actions from one dashboard.
+Orca is a local-first control plane for coordinating AI coding agents, project sessions, worker lanes, browser evidence, logs, artifacts, and review actions from one dashboard.
 
 This repo now contains the Node HTTP server, browser dashboard, provider profile system, credential abstraction, MCP tool contract, evidence runner, PWA assets, route inventory, public agent skill docs, tests, and smoke gates. Do not treat it as scaffold-only. Before changing behavior, inspect the current source, `docs/implementation-plan.md`, `docs/full-buildout-ledger.md`, `docs/live-project-links.md`, and the relevant tests/smokes.
 
@@ -24,7 +24,7 @@ Private planning belongs in the non-git parent workspace.
 
 ## Security Posture
 
-Command Deck will eventually touch sensitive surfaces: local files, git repos, shells, browsers, agent sessions, logs, screenshots, videos, and private network access.
+Orca will eventually touch sensitive surfaces: local files, git repos, shells, browsers, agent sessions, logs, screenshots, videos, and private network access.
 
 - Bind local services privately by default.
 - Do not expose dashboard controls publicly by default.

@@ -1,14 +1,14 @@
-# Command Deck vX.Y.Z
+# Orca vX.Y.Z
 
 ## Install
 
-Download the macOS DMG from this release, open it, and drag Command Deck to
+Download the macOS DMG from this release, open it, and drag Orca to
 Applications.
 
 ## macOS verification
 
 - Signed and notarized DMG was built with Developer ID.
-- `spctl --assess --type execute --verbose "/Applications/Command Deck.app"`
+- `spctl --assess --type execute --verbose "/Applications/Orca.app"`
   passed after installing from the release DMG.
 - The installed app launched, started the local server, opened the dashboard,
   and created a one-time pairing code.
@@ -18,9 +18,9 @@ Applications.
 
 This release includes:
 
-- `Command Deck_<version>_<arch>.dmg`
-- `Command Deck.app.tar.gz`
-- `Command Deck.app.tar.gz.sig`
+- `Orca_<version>_<arch>.dmg`
+- `Orca.app.tar.gz`
+- `Orca.app.tar.gz.sig`
 - `latest.json`
 
 The installed app reads

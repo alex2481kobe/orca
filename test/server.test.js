@@ -44,7 +44,7 @@ function createResponseState() {
 async function isolateEnvironment(token, env = {}) {
   const previousCwd = process.cwd();
   const previousEnv = { ...process.env };
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-server-'));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-server-'));
 
   process.chdir(tempDir);
 
@@ -67,9 +67,9 @@ async function isolateEnvironment(token, env = {}) {
   };
 
   if (typeof token === 'string') {
-    process.env.COMMAND_DECK_API_TOKEN = token;
+    process.env.ORCA_API_TOKEN = token;
   } else {
-    delete process.env.COMMAND_DECK_API_TOKEN;
+    delete process.env.ORCA_API_TOKEN;
   }
 
   for (const [key, value] of Object.entries(env)) {
@@ -176,7 +176,7 @@ async function startDummyWebTarget() {
 }
 
 async function waitForServerLane(server, laneId, token) {
-  const headers = token ? { 'x-commanddeck-token': token } : {};
+  const headers = token ? { 'x-orca-token': token } : {};
   for (let i = 0; i < 80; i += 1) {
     const lane = await server.requestJson(`/api/lanes/${laneId}`, { method: 'GET', headers });
     if (['done', 'failed'].includes(lane.body?.state)) return lane;
@@ -201,7 +201,7 @@ test('server API requires token for mutating actions while allowing read actions
 
     const created = await server.requestJson('/api/projects', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'Authorized project',
         approved: true,
@@ -235,7 +235,7 @@ test('auth pairing codes create revocable browser sessions for mutating routes',
 
     const pairing = await server.requestJson('/api/auth/pairing-codes', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         label: 'phone',
@@ -331,7 +331,7 @@ test('an unpaired client with only the URL receives no workspace or host data', 
     // to leak if auth were broken.
     const project = await server.requestJson('/api/projects', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'Secret Project',
         approved: true,
@@ -446,16 +446,16 @@ test('paired devices get operator access but are denied host administration', as
   const server = await startServer({
     token,
     env: {
-      COMMAND_DECK_CODEX_BINARY: '/usr/bin/codex',
-      COMMAND_DECK_CODEX_REINSTALL_COMMAND: 'npm install --yes @openai/codex',
-      COMMAND_DECK_CREDENTIAL_BACKEND: 'memory',
+      ORCA_CODEX_BINARY: '/usr/bin/codex',
+      ORCA_CODEX_REINSTALL_COMMAND: 'npm install --yes @openai/codex',
+      ORCA_CREDENTIAL_BACKEND: 'memory',
     },
   });
 
   try {
     const pairing = await server.requestJson('/api/auth/pairing-codes', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: { actor: 'dashboard', label: 'phone' },
     });
     assert.equal(pairing.status, 201);
@@ -495,7 +495,7 @@ test('paired devices get operator access but are denied host administration', as
     // they pass the auth gate and fail later on policy/validation, never 401/403.
     const tokenReinstall = await server.requestJson('/api/executors/codex/cli/reinstall', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: { actor: 'dashboard', approved: true, execute: false },
     });
     assert.notEqual(tokenReinstall.status, 401);
@@ -503,7 +503,7 @@ test('paired devices get operator access but are denied host administration', as
 
     const tokenExport = await server.requestJson('/api/providers/export', {
       method: 'GET',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
     });
     assert.equal(tokenExport.status, 200);
   } finally {
@@ -527,7 +527,7 @@ test('notifications expose secret-free state with token-gated settings and read 
 
     const approvalRequired = await server.requestJson('/api/notifications/settings', {
       method: 'PATCH',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         inAppEnabled: true,
@@ -540,7 +540,7 @@ test('notifications expose secret-free state with token-gated settings and read 
 
     const settings = await server.requestJson('/api/notifications/settings', {
       method: 'PATCH',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -554,7 +554,7 @@ test('notifications expose secret-free state with token-gated settings and read 
 
     const project = await server.requestJson('/api/projects', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -565,7 +565,7 @@ test('notifications expose secret-free state with token-gated settings and read 
 
     const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -576,7 +576,7 @@ test('notifications expose secret-free state with token-gated settings and read 
 
     const lane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -588,7 +588,7 @@ test('notifications expose secret-free state with token-gated settings and read 
 
     const stopped = await server.requestJson(`/api/lanes/${lane.body.id}/stop`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -599,7 +599,7 @@ test('notifications expose secret-free state with token-gated settings and read 
 
     const notifications = await server.requestJson('/api/notifications?limit=20', {
       method: 'GET',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
     });
     assert.equal(notifications.status, 200);
     assert.equal(JSON.stringify(notifications.body).includes('sk-route-notification-secret'), false);
@@ -616,7 +616,7 @@ test('notifications expose secret-free state with token-gated settings and read 
 
     const read = await server.requestJson(`/api/notifications/${terminal.id}/read`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: { actor: 'dashboard' },
     });
     assert.equal(read.status, 200);
@@ -624,7 +624,7 @@ test('notifications expose secret-free state with token-gated settings and read 
 
     const readAll = await server.requestJson('/api/notifications/read-all', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: { actor: 'dashboard' },
     });
     assert.equal(readAll.status, 200);
@@ -641,7 +641,7 @@ test('project and session API endpoints require explicit approval', async () => 
   try {
     const deniedProject = await server.requestJson('/api/projects', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: { name: 'Needs approval' },
     });
     assert.equal(deniedProject.status, 409);
@@ -649,7 +649,7 @@ test('project and session API endpoints require explicit approval', async () => 
 
     const project = await server.requestJson('/api/projects', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'Approval project',
         approved: true,
@@ -659,7 +659,7 @@ test('project and session API endpoints require explicit approval', async () => 
 
     const deniedSession = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: { name: 'Needs session approval' },
     });
     assert.equal(deniedSession.status, 409);
@@ -667,7 +667,7 @@ test('project and session API endpoints require explicit approval', async () => 
 
     const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'Approval session',
         approved: true,
@@ -686,7 +686,7 @@ test('project updates and lane creations require explicit approval', async () =>
   try {
     const project = await server.requestJson('/api/projects', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'Approval Baseline Project',
         approved: true,
@@ -696,7 +696,7 @@ test('project updates and lane creations require explicit approval', async () =>
 
     const deniedUpdate = await server.requestJson(`/api/projects/${project.body.id}`, {
       method: 'PATCH',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         quickLinks: [],
       },
@@ -706,7 +706,7 @@ test('project updates and lane creations require explicit approval', async () =>
 
     const updated = await server.requestJson(`/api/projects/${project.body.id}`, {
       method: 'PATCH',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         quickLinks: [{ label: 'Project Home', url: 'http://localhost:4173' }],
         approved: true,
@@ -718,7 +718,7 @@ test('project updates and lane creations require explicit approval', async () =>
 
     const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'Approval Baseline Session',
         approved: true,
@@ -728,7 +728,7 @@ test('project updates and lane creations require explicit approval', async () =>
 
     const deniedLane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         title: 'No approval lane',
         executorType: 'mock',
@@ -740,7 +740,7 @@ test('project updates and lane creations require explicit approval', async () =>
 
     const allowedLane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         title: 'Approved lane',
         executorType: 'mock',
@@ -753,7 +753,7 @@ test('project updates and lane creations require explicit approval', async () =>
 
     const deniedControls = await server.requestJson(`/api/lanes/${allowedLane.body.id}/controls`, {
       method: 'PATCH',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         model: 'gpt-5',
         permissionsProfile: 'plan',
@@ -765,7 +765,7 @@ test('project updates and lane creations require explicit approval', async () =>
 
     const updatedControls = await server.requestJson(`/api/lanes/${allowedLane.body.id}/controls`, {
       method: 'PATCH',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         approved: true,
         model: 'gpt-5',
@@ -789,7 +789,7 @@ test('session updates require explicit approval', async () => {
   try {
     const project = await server.requestJson('/api/projects', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'Session Patch Baseline Project',
         approved: true,
@@ -799,7 +799,7 @@ test('session updates require explicit approval', async () => {
 
     const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'Session Patch Baseline',
         approved: true,
@@ -809,7 +809,7 @@ test('session updates require explicit approval', async () => {
 
     const deniedArchive = await server.requestJson(`/api/sessions/${session.body.id}`, {
       method: 'PATCH',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         state: 'archived',
       },
@@ -819,7 +819,7 @@ test('session updates require explicit approval', async () => {
 
     const allowedArchive = await server.requestJson(`/api/sessions/${session.body.id}`, {
       method: 'PATCH',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         state: 'archived',
         approved: true,
@@ -830,7 +830,7 @@ test('session updates require explicit approval', async () => {
 
     const badState = await server.requestJson(`/api/sessions/${session.body.id}`, {
       method: 'PATCH',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         state: 'bad-state',
         approved: true,
@@ -860,31 +860,31 @@ test('server rejects malformed query strings on query-based endpoints', async ()
   const server = await startServer({ token });
 
   try {
-    const malformedAuditQuery = await server.requestJson('/api/audit/events?status=%E0%A4', { method: 'GET', headers: { 'x-commanddeck-token': token } });
+    const malformedAuditQuery = await server.requestJson('/api/audit/events?status=%E0%A4', { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(malformedAuditQuery.status, 400);
     assert.equal(String(malformedAuditQuery.body?.error || '').includes('Invalid request query string.'), true);
 
-    const malformedMcpQuery = await server.requestJson('/api/mcp/tools?scope=%E0%A4', { method: 'GET', headers: { 'x-commanddeck-token': token } });
+    const malformedMcpQuery = await server.requestJson('/api/mcp/tools?scope=%E0%A4', { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(malformedMcpQuery.status, 400);
     assert.equal(String(malformedMcpQuery.body?.error || '').includes('Invalid request query string.'), true);
 
     const project = await server.requestJson('/api/projects', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: { name: 'Query project', approved: true },
     });
     assert.equal(project.status, 201);
 
     const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: { name: 'Query session', approved: true },
     });
     assert.equal(session.status, 201);
 
     const lane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         title: 'Query lane',
         executorType: 'mock',
@@ -895,7 +895,7 @@ test('server rejects malformed query strings on query-based endpoints', async ()
     });
     assert.equal(lane.status, 201);
 
-    const malformedEvidenceQuery = await server.requestJson(`/api/lanes/${lane.body.id}/evidence/latest?mode=%E0%A4`, { method: 'GET', headers: { 'x-commanddeck-token': token } });
+    const malformedEvidenceQuery = await server.requestJson(`/api/lanes/${lane.body.id}/evidence/latest?mode=%E0%A4`, { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(malformedEvidenceQuery.status, 400);
     assert.equal(String(malformedEvidenceQuery.body?.error || '').includes('Invalid request query string.'), true);
   } finally {
@@ -910,7 +910,7 @@ test('server blocks destructive artifact cleanup without explicit confirmation',
   try {
     const destructiveDenied = await server.requestJson('/api/artifacts/cleanup', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -923,7 +923,7 @@ test('server blocks destructive artifact cleanup without explicit confirmation',
 
     const dryRunResult = await server.requestJson('/api/artifacts/cleanup', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -942,20 +942,20 @@ test('executor CLI reinstall endpoints require explicit confirmation before exec
   const server = await startServer({
     token,
     env: {
-      COMMAND_DECK_CODEX_BINARY: '/usr/bin/codex',
-      COMMAND_DECK_CODEX_REINSTALL_COMMAND: 'npm install --yes @openai/codex',
+      ORCA_CODEX_BINARY: '/usr/bin/codex',
+      ORCA_CODEX_REINSTALL_COMMAND: 'npm install --yes @openai/codex',
     },
   });
 
   try {
-    const info = await server.requestJson('/api/executors/codex/cli', { method: 'GET', headers: { 'x-commanddeck-token': token } });
+    const info = await server.requestJson('/api/executors/codex/cli', { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(info.status, 200);
     assert.equal(info.body.type, 'codex');
     assert.equal(info.body.reinstall?.available, true);
 
     const dryRun = await server.requestJson('/api/executors/codex/cli/reinstall', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -968,7 +968,7 @@ test('executor CLI reinstall endpoints require explicit confirmation before exec
 
     const executeDenied = await server.requestJson('/api/executors/codex/cli/reinstall', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -990,15 +990,15 @@ test('executor CLI reinstall requires approval for planning requests', async () 
   const server = await startServer({
     token,
     env: {
-      COMMAND_DECK_CODEX_BINARY: '/usr/bin/codex',
-      COMMAND_DECK_CODEX_REINSTALL_COMMAND: 'npm install --yes @openai/codex',
+      ORCA_CODEX_BINARY: '/usr/bin/codex',
+      ORCA_CODEX_REINSTALL_COMMAND: 'npm install --yes @openai/codex',
     },
   });
 
   try {
     const denied = await server.requestJson('/api/executors/codex/cli/reinstall', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: false,
@@ -1017,15 +1017,15 @@ test('executor CLI reinstall endpoint rejects unsafe override commands', async (
   const server = await startServer({
     token,
     env: {
-      COMMAND_DECK_CODEX_BINARY: '/usr/bin/codex',
-      COMMAND_DECK_CODEX_REINSTALL_COMMAND: 'npm install --yes @openai/codex',
+      ORCA_CODEX_BINARY: '/usr/bin/codex',
+      ORCA_CODEX_REINSTALL_COMMAND: 'npm install --yes @openai/codex',
     },
   });
 
   try {
     const badOverride = await server.requestJson('/api/executors/codex/cli/reinstall', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -1045,17 +1045,17 @@ test('executor CLI reinstall supports forcing source-based reinstall commands', 
   const server = await startServer({
     token,
     env: {
-      COMMAND_DECK_CODEX_BINARY: '/usr/bin/codex',
-      COMMAND_DECK_CODEX_REINSTALL_COMMAND: 'npm install --yes @openai/codex',
-      COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS: 'my-org/codex-fork,openai/codex',
-      COMMAND_DECK_CODEX_REINSTALL_PREFER_SOURCE: 'false',
+      ORCA_CODEX_BINARY: '/usr/bin/codex',
+      ORCA_CODEX_REINSTALL_COMMAND: 'npm install --yes @openai/codex',
+      ORCA_CODEX_REINSTALL_SOURCE_REPOS: 'my-org/codex-fork,openai/codex',
+      ORCA_CODEX_REINSTALL_PREFER_SOURCE: 'false',
     },
   });
 
   try {
     const sourceMode = await server.requestJson('/api/executors/codex/cli/reinstall', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -1079,16 +1079,16 @@ test('executor CLI reinstall rejects source mode with custom override command', 
   const server = await startServer({
     token,
     env: {
-      COMMAND_DECK_CODEX_BINARY: '/usr/bin/codex',
-      COMMAND_DECK_CODEX_REINSTALL_COMMAND: 'npm install --yes @openai/codex',
-      COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS: 'my-org/codex-fork,openai/codex',
+      ORCA_CODEX_BINARY: '/usr/bin/codex',
+      ORCA_CODEX_REINSTALL_COMMAND: 'npm install --yes @openai/codex',
+      ORCA_CODEX_REINSTALL_SOURCE_REPOS: 'my-org/codex-fork,openai/codex',
     },
   });
 
   try {
     const rejected = await server.requestJson('/api/executors/codex/cli/reinstall', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -1109,12 +1109,12 @@ test('executor CLI APIs reject unsupported executor types', async () => {
   const server = await startServer({ token });
 
   try {
-    const missingInfo = await server.requestJson('/api/executors/unknown/cli', { method: 'GET', headers: { 'x-commanddeck-token': token } });
+    const missingInfo = await server.requestJson('/api/executors/unknown/cli', { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(missingInfo.status, 404);
 
     const missingReinstall = await server.requestJson('/api/executors/unknown/cli/reinstall', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -1133,7 +1133,7 @@ test('API lane creation validates MCP tool IDs and executor constraints', async 
   try {
     const project = await server.requestJson('/api/projects', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'Lane MCP project',
         approved: true,
@@ -1143,7 +1143,7 @@ test('API lane creation validates MCP tool IDs and executor constraints', async 
 
     const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'Lane MCP session',
         approved: true,
@@ -1153,7 +1153,7 @@ test('API lane creation validates MCP tool IDs and executor constraints', async 
 
     const codexTool = await server.requestJson('/api/mcp/tools', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'route-codex-tool',
         command: 'node',
@@ -1165,7 +1165,7 @@ test('API lane creation validates MCP tool IDs and executor constraints', async 
 
     const claudeTool = await server.requestJson('/api/mcp/tools', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'route-claude-tool',
         command: 'node',
@@ -1177,7 +1177,7 @@ test('API lane creation validates MCP tool IDs and executor constraints', async 
 
     const badScopeLane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         title: 'Bad scope lane',
         executorType: 'codex',
@@ -1192,7 +1192,7 @@ test('API lane creation validates MCP tool IDs and executor constraints', async 
 
     const badMissingLane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         title: 'Missing tool lane',
         executorType: 'codex',
@@ -1207,7 +1207,7 @@ test('API lane creation validates MCP tool IDs and executor constraints', async 
 
     const badCommand = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         title: 'Bad command lane',
         executorType: 'codex',
@@ -1222,7 +1222,7 @@ test('API lane creation validates MCP tool IDs and executor constraints', async 
 
     const validLane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         title: 'Good codex lane',
         executorType: 'codex',
@@ -1247,7 +1247,7 @@ test('dashboard orchestrator messages create server-owned turns and scoped tool 
   try {
     const project = await server.requestJson('/api/projects', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'Orchestrator Chat Project',
         approved: true,
@@ -1257,7 +1257,7 @@ test('dashboard orchestrator messages create server-owned turns and scoped tool 
 
     const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'Orchestrator Chat Session',
         leader: 'mock',
@@ -1268,7 +1268,7 @@ test('dashboard orchestrator messages create server-owned turns and scoped tool 
 
     const turn = await server.requestJson(`/api/sessions/${session.body.id}/orchestrator/messages`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -1288,12 +1288,12 @@ test('dashboard orchestrator messages create server-owned turns and scoped tool 
     assert.equal(turn.body?.thread?.messages?.length, 2);
     assert.equal(JSON.stringify(turn.body).includes('leaseToken'), false);
     assert.equal(JSON.stringify(turn.body).includes(token), false);
-    assert.equal(String(turn.body?.lane?.taskPrompt || '').includes('COMMAND_DECK_TOOL_LEASE_TOKEN'), true);
+    assert.equal(String(turn.body?.lane?.taskPrompt || '').includes('ORCA_TOOL_LEASE_TOKEN'), true);
     assert.equal(String(turn.body?.lane?.taskPrompt || '').includes('Build the project plan'), true);
 
     const thread = await server.requestJson(`/api/sessions/${session.body.id}/orchestrator`, {
       method: 'GET',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
     });
     assert.equal(thread.status, 200);
     assert.equal(thread.body?.activeLaneId, turn.body.lane.id);
@@ -1301,7 +1301,7 @@ test('dashboard orchestrator messages create server-owned turns and scoped tool 
 
     const lease = await server.requestJson('/api/agent-tools/leases', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         role: 'orchestrator',
         projectId: project.body.id,
@@ -1314,7 +1314,7 @@ test('dashboard orchestrator messages create server-owned turns and scoped tool 
 
     const leaseLane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
       method: 'POST',
-      headers: { 'x-commanddeck-tool-lease': lease.body.leaseToken },
+      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
       body: {
         actor: 'orchestrator',
         approved: true,
@@ -1327,7 +1327,7 @@ test('dashboard orchestrator messages create server-owned turns and scoped tool 
 
     const forbidden = await server.requestJson('/api/projects', {
       method: 'POST',
-      headers: { 'x-commanddeck-tool-lease': lease.body.leaseToken },
+      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
       body: {
         name: 'Forbidden by lease',
         approved: true,
@@ -1344,15 +1344,15 @@ test('executor CLI reinstall supports claude with source-mode and command valida
   const server = await startServer({
     token,
     env: {
-      COMMAND_DECK_CLAUDE_BINARY: '/usr/bin/claude',
-      COMMAND_DECK_CLAUDE_REINSTALL_COMMAND: 'npm install --yes @anthropic/claude-code',
-      COMMAND_DECK_CLAUDE_REINSTALL_SOURCE_REPOS: 'anthropic/claude-code,my-org/claude-fork',
-      COMMAND_DECK_CLAUDE_REINSTALL_PREFER_SOURCE: 'false',
+      ORCA_CLAUDE_BINARY: '/usr/bin/claude',
+      ORCA_CLAUDE_REINSTALL_COMMAND: 'npm install --yes @anthropic/claude-code',
+      ORCA_CLAUDE_REINSTALL_SOURCE_REPOS: 'anthropic/claude-code,my-org/claude-fork',
+      ORCA_CLAUDE_REINSTALL_PREFER_SOURCE: 'false',
     },
   });
 
   try {
-    const info = await server.requestJson('/api/executors/claude/cli', { method: 'GET', headers: { 'x-commanddeck-token': token } });
+    const info = await server.requestJson('/api/executors/claude/cli', { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(info.status, 200);
     assert.equal(info.body.type, 'claude');
     assert.equal(info.body.reinstall?.available, true);
@@ -1360,7 +1360,7 @@ test('executor CLI reinstall supports claude with source-mode and command valida
 
     const sourceMode = await server.requestJson('/api/executors/claude/cli/reinstall', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -1377,7 +1377,7 @@ test('executor CLI reinstall supports claude with source-mode and command valida
 
     const executeDenied = await server.requestJson('/api/executors/claude/cli/reinstall', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -1414,7 +1414,7 @@ test('server MCP tooling routes require token and support CRUD workflow', async 
 
     const created = await server.requestJson('/api/mcp/tools', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'route-tool',
         command: 'node',
@@ -1427,18 +1427,18 @@ test('server MCP tooling routes require token and support CRUD workflow', async 
     assert.equal(created.status, 201);
     assert.equal(created.body.name, 'route-tool');
 
-    const listed = await server.requestJson('/api/mcp/tools', { method: 'GET', headers: { 'x-commanddeck-token': token } });
+    const listed = await server.requestJson('/api/mcp/tools', { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(listed.status, 200);
     assert.equal(Array.isArray(listed.body), true);
     assert.equal(listed.body.length, 1);
 
-    const fetched = await server.requestJson(`/api/mcp/tools/${created.body.id}`, { method: 'GET', headers: { 'x-commanddeck-token': token } });
+    const fetched = await server.requestJson(`/api/mcp/tools/${created.body.id}`, { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(fetched.status, 200);
     assert.equal(fetched.body.id, created.body.id);
 
     const updated = await server.requestJson(`/api/mcp/tools/${created.body.id}`, {
       method: 'PATCH',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         enabled: false,
         approved: true,
@@ -1449,14 +1449,14 @@ test('server MCP tooling routes require token and support CRUD workflow', async 
 
     const deleted = await server.requestJson(`/api/mcp/tools/${created.body.id}`, {
       method: 'DELETE',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         approved: true,
       },
     });
     assert.equal(deleted.status, 200);
 
-    const afterDelete = await server.requestJson(`/api/mcp/tools/${created.body.id}`, { method: 'GET', headers: { 'x-commanddeck-token': token } });
+    const afterDelete = await server.requestJson(`/api/mcp/tools/${created.body.id}`, { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(afterDelete.status, 404);
   } finally {
     await server.stop();
@@ -1470,7 +1470,7 @@ test('server MCP tooling sanitizes blocked argument tokens', async () => {
   try {
     const blockedArg = await server.requestJson('/api/mcp/tools', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'blocked-arg-tool',
         command: 'node',
@@ -1491,14 +1491,14 @@ test('server MCP tooling rejects unsupported scope values and blocked commands',
   const server = await startServer({
     token,
     env: {
-      COMMAND_DECK_MCP_TOOL_COMMAND_ALLOWLIST: 'node,npx',
+      ORCA_MCP_TOOL_COMMAND_ALLOWLIST: 'node,npx',
     },
   });
 
   try {
     const invalidScope = await server.requestJson('/api/mcp/tools', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'bad-scope-tool',
         command: 'node',
@@ -1511,7 +1511,7 @@ test('server MCP tooling rejects unsupported scope values and blocked commands',
 
     const blockedCommand = await server.requestJson('/api/mcp/tools', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'blocked-command-tool',
         command: 'python',
@@ -1524,7 +1524,7 @@ test('server MCP tooling rejects unsupported scope values and blocked commands',
 
     const created = await server.requestJson('/api/mcp/tools', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'all-tool',
         command: 'node',
@@ -1535,12 +1535,12 @@ test('server MCP tooling rejects unsupported scope values and blocked commands',
     });
     assert.equal(created.status, 201);
 
-    const codexScope = await server.requestJson('/api/mcp/tools?scope=codex', { method: 'GET', headers: { 'x-commanddeck-token': token } });
+    const codexScope = await server.requestJson('/api/mcp/tools?scope=codex', { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(codexScope.status, 200);
     assert.equal(Array.isArray(codexScope.body), true);
     assert.equal(codexScope.body.length, 0);
 
-    const allScope = await server.requestJson('/api/mcp/tools?scope=all', { method: 'GET', headers: { 'x-commanddeck-token': token } });
+    const allScope = await server.requestJson('/api/mcp/tools?scope=all', { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(allScope.status, 200);
     assert.equal(Array.isArray(allScope.body), true);
     assert.equal(allScope.body.length, 1);
@@ -1557,7 +1557,7 @@ test('run-now cleanup endpoint enforces approval and supports dry-run mode', asy
   try {
     const denied = await server.requestJson('/api/artifacts/cleanup/run-now', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         dryRun: false,
@@ -1569,7 +1569,7 @@ test('run-now cleanup endpoint enforces approval and supports dry-run mode', asy
 
     const dryRunResult = await server.requestJson('/api/artifacts/cleanup/run-now', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -1582,7 +1582,7 @@ test('run-now cleanup endpoint enforces approval and supports dry-run mode', asy
 
     const invalidRunNowSession = await server.requestJson('/api/artifacts/cleanup/run-now', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -1595,7 +1595,7 @@ test('run-now cleanup endpoint enforces approval and supports dry-run mode', asy
 
     const missingCleanupConfirmation = await server.requestJson('/api/artifacts/cleanup/run-now', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -1620,7 +1620,7 @@ test('cleanup schedule endpoint enforces approval and persists updated schedule'
   try {
     const denied = await server.requestJson('/api/artifacts/cleanup/schedule', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         enabled: true,
         intervalHours: 12,
@@ -1631,7 +1631,7 @@ test('cleanup schedule endpoint enforces approval and persists updated schedule'
 
     const saved = await server.requestJson('/api/artifacts/cleanup/schedule', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         enabled: true,
@@ -1649,7 +1649,7 @@ test('cleanup schedule endpoint enforces approval and persists updated schedule'
 
     const listed = await server.requestJson('/api/artifacts/cleanup/schedule', {
       method: 'GET',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
     });
     assert.equal(listed.status, 200);
     assert.equal(listed.body?.schedule?.enabled, true);
@@ -1666,7 +1666,7 @@ test('cleanup schedule endpoint validates interval, session id, and retention', 
   try {
     const badInterval = await server.requestJson('/api/artifacts/cleanup/schedule', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -1678,7 +1678,7 @@ test('cleanup schedule endpoint validates interval, session id, and retention', 
 
     const badSession = await server.requestJson('/api/artifacts/cleanup/schedule', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -1691,7 +1691,7 @@ test('cleanup schedule endpoint validates interval, session id, and retention', 
 
     const badRetention = await server.requestJson('/api/artifacts/cleanup/schedule', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -1712,7 +1712,7 @@ test('mobile manifest exposes deep links for projects, sessions, and lane artifa
   try {
     const project = await server.requestJson('/api/projects', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'Manifest Project',
         approved: true,
@@ -1722,7 +1722,7 @@ test('mobile manifest exposes deep links for projects, sessions, and lane artifa
 
     const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'Manifest Session',
         approved: true,
@@ -1732,7 +1732,7 @@ test('mobile manifest exposes deep links for projects, sessions, and lane artifa
 
     const lane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         title: 'Manifest Lane',
         executorType: 'mock',
@@ -1742,7 +1742,7 @@ test('mobile manifest exposes deep links for projects, sessions, and lane artifa
     });
     assert.equal(lane.status, 201);
 
-    const manifest = await server.requestJson('/api/mobile/manifest', { method: 'GET', headers: { 'x-commanddeck-token': token } });
+    const manifest = await server.requestJson('/api/mobile/manifest', { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(manifest.status, 200);
     assert.equal(Boolean(manifest.body?.apiTokenRequired), true);
     assert.equal(Array.isArray(manifest.body?.projects), true);
@@ -1796,7 +1796,7 @@ test('agent tool routes expose discovery, nextAction, and token-gated leases', a
   try {
     const project = await server.requestJson('/api/projects', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'Agent Route Project',
         approved: true,
@@ -1806,7 +1806,7 @@ test('agent tool routes expose discovery, nextAction, and token-gated leases', a
 
     const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'Agent Route Session',
         approved: true,
@@ -1814,15 +1814,15 @@ test('agent tool routes expose discovery, nextAction, and token-gated leases', a
     });
     assert.equal(session.status, 201);
 
-    const discovery = await server.requestJson('/api/agent-tools/discovery', { method: 'GET', headers: { 'x-commanddeck-token': token } });
+    const discovery = await server.requestJson('/api/agent-tools/discovery', { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(discovery.status, 200);
-    assert.equal(discovery.body?.contractVersion, 'command-deck.agent-tools.v1');
+    assert.equal(discovery.body?.contractVersion, 'orca.agent-tools.v1');
     assert.equal(discovery.body?.publicSafe, true);
     assert.equal(discovery.body.tools.some((tool) => tool.id === 'session.next_action'), true);
     assert.equal(discovery.body.tools.some((tool) => tool.id === 'executor.capabilities'), true);
     assert.equal(discovery.body.executorCapabilities?.codex?.invocation?.canRunAsOrchestrator, true);
 
-    const next = await server.requestJson(`/api/agent-tools/next-action?role=orchestrator&projectId=${project.body.id}&sessionId=${session.body.id}`, { method: 'GET', headers: { 'x-commanddeck-token': token } });
+    const next = await server.requestJson(`/api/agent-tools/next-action?role=orchestrator&projectId=${project.body.id}&sessionId=${session.body.id}`, { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(next.status, 200);
     assert.equal(next.body?.nextRequiredTool, 'lane.create');
     assert.equal(next.body?.allowedTools.includes('lane.create'), true);
@@ -1841,7 +1841,7 @@ test('agent tool routes expose discovery, nextAction, and token-gated leases', a
 
     const lease = await server.requestJson('/api/agent-tools/leases', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         role: 'orchestrator',
@@ -1858,7 +1858,7 @@ test('agent tool routes expose discovery, nextAction, and token-gated leases', a
 
     const createdByLease = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
       method: 'POST',
-      headers: { 'x-commanddeck-tool-lease': lease.body.leaseToken },
+      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
       body: {
         actor: 'orchestrator',
         approved: true,
@@ -1871,7 +1871,7 @@ test('agent tool routes expose discovery, nextAction, and token-gated leases', a
 
     const controlsByLease = await server.requestJson(`/api/lanes/${createdByLease.body.id}/controls`, {
       method: 'PATCH',
-      headers: { 'x-commanddeck-tool-lease': lease.body.leaseToken },
+      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
       body: {
         actor: 'orchestrator',
         approved: true,
@@ -1885,7 +1885,7 @@ test('agent tool routes expose discovery, nextAction, and token-gated leases', a
 
     const stoppedByLease = await server.requestJson(`/api/lanes/${createdByLease.body.id}/stop`, {
       method: 'POST',
-      headers: { 'x-commanddeck-tool-lease': lease.body.leaseToken },
+      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
       body: {
         actor: 'orchestrator',
         approved: true,
@@ -1896,7 +1896,7 @@ test('agent tool routes expose discovery, nextAction, and token-gated leases', a
 
     const retriedByLease = await server.requestJson(`/api/lanes/${createdByLease.body.id}/retry`, {
       method: 'POST',
-      headers: { 'x-commanddeck-tool-lease': lease.body.leaseToken },
+      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
       body: {
         actor: 'orchestrator',
         approved: true,
@@ -1916,7 +1916,7 @@ test('session capacity API supports request, approval, rejection, and policy upd
   try {
     const project = await server.requestJson('/api/projects', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'Capacity API Project',
         approved: true,
@@ -1926,7 +1926,7 @@ test('session capacity API supports request, approval, rejection, and policy upd
 
     const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'Capacity API Session',
         approved: true,
@@ -1934,14 +1934,14 @@ test('session capacity API supports request, approval, rejection, and policy upd
     });
     assert.equal(session.status, 201);
 
-    const capacity = await server.requestJson(`/api/sessions/${session.body.id}/capacity`, { method: 'GET', headers: { 'x-commanddeck-token': token } });
+    const capacity = await server.requestJson(`/api/sessions/${session.body.id}/capacity`, { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(capacity.status, 200);
     assert.equal(capacity.body?.approvedCapacity, 2);
     assert.equal(capacity.body?.spawnPolicy, 'within_capacity');
 
     const request = await server.requestJson(`/api/sessions/${session.body.id}/capacity/request`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'orchestrator',
         requestedCapacity: 5,
@@ -1955,7 +1955,7 @@ test('session capacity API supports request, approval, rejection, and policy upd
 
     const deniedPolicy = await server.requestJson(`/api/sessions/${session.body.id}/capacity/policy`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: false,
@@ -1966,7 +1966,7 @@ test('session capacity API supports request, approval, rejection, and policy upd
 
     const updatedPolicy = await server.requestJson(`/api/sessions/${session.body.id}/capacity/policy`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -1982,7 +1982,7 @@ test('session capacity API supports request, approval, rejection, and policy upd
 
     const deniedApprove = await server.requestJson(`/api/sessions/${session.body.id}/capacity/requests/${request.body.request.id}/approve`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: false,
@@ -1992,7 +1992,7 @@ test('session capacity API supports request, approval, rejection, and policy upd
 
     const approved = await server.requestJson(`/api/sessions/${session.body.id}/capacity/requests/${request.body.request.id}/approve`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -2005,7 +2005,7 @@ test('session capacity API supports request, approval, rejection, and policy upd
 
     const secondRequest = await server.requestJson(`/api/sessions/${session.body.id}/capacity/request`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'orchestrator',
         requestedCapacity: 6,
@@ -2015,7 +2015,7 @@ test('session capacity API supports request, approval, rejection, and policy upd
     assert.equal(secondRequest.status, 201);
     const rejected = await server.requestJson(`/api/sessions/${session.body.id}/capacity/requests/${secondRequest.body.request.id}/reject`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -2036,7 +2036,7 @@ test('projects can be patched to manage quick links from the dashboard', async (
   try {
     const project = await server.requestJson('/api/projects', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'Quick Link Project',
         approved: true,
@@ -2046,7 +2046,7 @@ test('projects can be patched to manage quick links from the dashboard', async (
 
     const added = await server.requestJson(`/api/projects/${project.body.id}`, {
       method: 'PATCH',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -2063,7 +2063,7 @@ test('projects can be patched to manage quick links from the dashboard', async (
 
     const cleared = await server.requestJson(`/api/projects/${project.body.id}`, {
       method: 'PATCH',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -2085,7 +2085,7 @@ test('project live links are server-authoritative, SSRF-checked, health-checked,
   try {
     const project = await server.requestJson('/api/projects', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'Live Link Project',
         approved: true,
@@ -2095,7 +2095,7 @@ test('project live links are server-authoritative, SSRF-checked, health-checked,
 
     const approvalRequired = await server.requestJson(`/api/projects/${project.body.id}/quick-links`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         label: 'Realm Shaper',
@@ -2108,7 +2108,7 @@ test('project live links are server-authoritative, SSRF-checked, health-checked,
 
     const badSsr = await server.requestJson(`/api/projects/${project.body.id}/quick-links`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -2121,7 +2121,7 @@ test('project live links are server-authoritative, SSRF-checked, health-checked,
 
     const added = await server.requestJson(`/api/projects/${project.body.id}/quick-links`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -2142,7 +2142,7 @@ test('project live links are server-authoritative, SSRF-checked, health-checked,
 
     const checked = await server.requestJson(`/api/projects/${project.body.id}/quick-links/${added.body.link.id}/check`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         prefer: 'local',
@@ -2156,7 +2156,7 @@ test('project live links are server-authoritative, SSRF-checked, health-checked,
 
     const removed = await server.requestJson(`/api/projects/${project.body.id}/quick-links/${added.body.link.id}`, {
       method: 'DELETE',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -2178,7 +2178,7 @@ test('lane-level and session-level audit-event listing supports filtering by sco
   try {
     const project = await server.requestJson('/api/projects', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'Audit Scope Project',
         approved: true,
@@ -2188,7 +2188,7 @@ test('lane-level and session-level audit-event listing supports filtering by sco
 
     const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'Audit Scope Session',
         approved: true,
@@ -2198,7 +2198,7 @@ test('lane-level and session-level audit-event listing supports filtering by sco
 
     const lane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         title: 'Audit Scope Lane',
         executorType: 'mock',
@@ -2210,7 +2210,7 @@ test('lane-level and session-level audit-event listing supports filtering by sco
 
     const auditQueued = await server.requestJson(`/api/lanes/${lane.body.id}/audit`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -2220,29 +2220,29 @@ test('lane-level and session-level audit-event listing supports filtering by sco
     const queuedAuditEventId = auditQueued.body?.event?.id || auditQueued.body?.id;
     assert.equal(typeof queuedAuditEventId, 'string');
 
-    const lanePending = await server.requestJson(`/api/lanes/${lane.body.id}/audit-events?status=pending`, { method: 'GET', headers: { 'x-commanddeck-token': token } });
+    const lanePending = await server.requestJson(`/api/lanes/${lane.body.id}/audit-events?status=pending`, { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(lanePending.status, 200);
     assert.equal(Array.isArray(lanePending.body), true);
     assert.equal(lanePending.body.some((event) => event.id === queuedAuditEventId), true);
 
-    const sessionPending = await server.requestJson(`/api/sessions/${session.body.id}/audit-events?status=pending`, { method: 'GET', headers: { 'x-commanddeck-token': token } });
+    const sessionPending = await server.requestJson(`/api/sessions/${session.body.id}/audit-events?status=pending`, { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(sessionPending.status, 200);
     assert.equal(Array.isArray(sessionPending.body), true);
     assert.equal(sessionPending.body.some((event) => event.id === queuedAuditEventId), true);
 
     const laneAck = await server.requestJson(`/api/audit/events/${queuedAuditEventId}/ack`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: { actor: 'dashboard' },
     });
     assert.equal(laneAck.status, 200);
 
-    const lanePendingAfterAck = await server.requestJson(`/api/lanes/${lane.body.id}/audit-events?status=pending`, { method: 'GET', headers: { 'x-commanddeck-token': token } });
+    const lanePendingAfterAck = await server.requestJson(`/api/lanes/${lane.body.id}/audit-events?status=pending`, { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(lanePendingAfterAck.status, 200);
     assert.equal(Array.isArray(lanePendingAfterAck.body), true);
     assert.equal(lanePendingAfterAck.body.some((event) => event.id === queuedAuditEventId), false);
 
-    const lanePassed = await server.requestJson(`/api/lanes/${lane.body.id}/audit-events?status=passed`, { method: 'GET', headers: { 'x-commanddeck-token': token } });
+    const lanePassed = await server.requestJson(`/api/lanes/${lane.body.id}/audit-events?status=passed`, { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(lanePassed.status, 200);
     assert.equal(Array.isArray(lanePassed.body), true);
     assert.equal(lanePassed.body.some((event) => event.id === queuedAuditEventId), true);
@@ -2258,7 +2258,7 @@ test('high-risk lane stop action requires explicit approval', async () => {
   try {
     const project = await server.requestJson('/api/projects', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'Lane Stop Project',
         approved: true,
@@ -2268,7 +2268,7 @@ test('high-risk lane stop action requires explicit approval', async () => {
 
     const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'Lane Stop Session',
         approved: true,
@@ -2278,7 +2278,7 @@ test('high-risk lane stop action requires explicit approval', async () => {
 
     const lane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         title: 'Lane Stop Lane',
         executorType: 'mock',
@@ -2290,7 +2290,7 @@ test('high-risk lane stop action requires explicit approval', async () => {
 
     const deniedStop = await server.requestJson(`/api/lanes/${lane.body.id}/stop`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: false,
@@ -2301,7 +2301,7 @@ test('high-risk lane stop action requires explicit approval', async () => {
 
     const approvedStop = await server.requestJson(`/api/lanes/${lane.body.id}/stop`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -2316,7 +2316,7 @@ test('high-risk lane stop action requires explicit approval', async () => {
 
 test('server rejects oversized JSON bodies with 413 and small limit override', async () => {
   const token = 'route-token-11';
-  const server = await startServer({ token, env: { COMMAND_DECK_MAX_JSON_BYTES: '256' } });
+  const server = await startServer({ token, env: { ORCA_MAX_JSON_BYTES: '256' } });
 
   try {
     const oversize = {
@@ -2326,7 +2326,7 @@ test('server rejects oversized JSON bodies with 413 and small limit override', a
     };
     const over = await server.requestJson('/api/projects', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: oversize,
     });
     assert.equal(over.status, 413);
@@ -2334,7 +2334,7 @@ test('server rejects oversized JSON bodies with 413 and small limit override', a
 
     const malformed = await server.requestJson('/api/projects', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token, 'content-type': 'application/json' },
+      headers: { 'x-orca-token': token, 'content-type': 'application/json' },
       body: undefined,
     });
     // Empty body is treated as {} not malformed; check that legitimate malformed JSON returns 400 instead.
@@ -2351,7 +2351,7 @@ test('server rejects dashboard requests that try to spoof the scheduler actor', 
   try {
     const spoofed = await server.requestJson('/api/projects', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: { name: 'Spoofed Actor', approved: true, actor: 'scheduler' },
     });
     assert.equal(spoofed.status, 403);
@@ -2359,7 +2359,7 @@ test('server rejects dashboard requests that try to spoof the scheduler actor', 
 
     const systemSpoof = await server.requestJson('/api/artifacts/cleanup', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: { actor: 'system', approved: true, dryRun: true, sessionId: null },
     });
     assert.equal(systemSpoof.status, 403);
@@ -2375,18 +2375,18 @@ test('artifact serving rejects traversal, absolute, encoded, and symlink paths',
   try {
     const project = await server.requestJson('/api/projects', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: { name: 'Artifact Path Project', approved: true },
     });
     assert.equal(project.status, 201);
     const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: { name: 'Artifact Path Session', approved: true },
     });
     const lane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: { title: 'Artifact Lane', executorType: 'mock', owner: 'dashboard', approved: true },
     });
     assert.equal(lane.status, 201);
@@ -2422,34 +2422,34 @@ test('artifact serving rejects traversal, absolute, encoded, and symlink paths',
   }
 });
 
-test('lane heartbeat endpoint can be gated by COMMAND_DECK_WORKER_TOKEN', async () => {
+test('lane heartbeat endpoint can be gated by ORCA_WORKER_TOKEN', async () => {
   const token = 'route-token-13';
   const workerToken = 'worker-token-aa';
-  const server = await startServer({ token, env: { COMMAND_DECK_WORKER_TOKEN: workerToken } });
+  const server = await startServer({ token, env: { ORCA_WORKER_TOKEN: workerToken } });
 
   try {
     const project = await server.requestJson('/api/projects', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: { name: 'Heartbeat Project', approved: true },
     });
     assert.equal(project.status, 201);
     const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: { name: 'Heartbeat Session', approved: true },
     });
     assert.equal(session.status, 201);
     const lane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: { title: 'Heartbeat Lane', executorType: 'mock', owner: 'dashboard', approved: true },
     });
     assert.equal(lane.status, 201);
 
     const denied = await server.requestJson(`/api/lanes/${lane.body.id}/heartbeat`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {},
     });
     assert.equal(denied.status, 401);
@@ -2457,14 +2457,14 @@ test('lane heartbeat endpoint can be gated by COMMAND_DECK_WORKER_TOKEN', async 
 
     const allowed = await server.requestJson(`/api/lanes/${lane.body.id}/heartbeat`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token, 'x-commanddeck-worker-token': workerToken },
+      headers: { 'x-orca-token': token, 'x-orca-worker-token': workerToken },
       body: {},
     });
     assert.equal(allowed.status, 200);
 
     const lease = await server.requestJson('/api/agent-tools/leases', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         role: 'executor',
@@ -2479,7 +2479,7 @@ test('lane heartbeat endpoint can be gated by COMMAND_DECK_WORKER_TOKEN', async 
 
     const leaseHeartbeat = await server.requestJson(`/api/lanes/${lane.body.id}/heartbeat`, {
       method: 'POST',
-      headers: { 'x-commanddeck-tool-lease': lease.body.leaseToken },
+      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
       body: {
         actor: 'executor',
       },
@@ -2495,13 +2495,13 @@ test('private access API exposes mocked tailnet state, dry-run setup plans, and 
   const server = await startServer({ token });
 
   try {
-    const state = await server.requestJson('/api/private-access?fakeTailnetState=serve-https', { method: 'GET', headers: { 'x-commanddeck-token': token } });
+    const state = await server.requestJson('/api/private-access?fakeTailnetState=serve-https', { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(state.status, 200);
     assert.equal(state.body?.tailnet?.provider, 'fake');
     assert.equal(state.body?.tailnet?.serveMode, 'tailnet-https-serve');
     assert.equal(state.body?.pwa?.staticOnlyCache, true);
 
-    const plan = await server.requestJson('/api/private-access/setup-plan?localUrl=http%3A%2F%2F127.0.0.1%3A3000', { method: 'GET', headers: { 'x-commanddeck-token': token } });
+    const plan = await server.requestJson('/api/private-access/setup-plan?localUrl=http%3A%2F%2F127.0.0.1%3A3000', { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(plan.status, 200);
     assert.equal(Array.isArray(plan.body?.commands), true);
     assert.equal(plan.body.commands.some((command) => String(command.copyText || '').includes('tailscale serve')), true);
@@ -2509,7 +2509,7 @@ test('private access API exposes mocked tailnet state, dry-run setup plans, and 
 
     const target = await server.requestJson('/api/private-access/targets', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         label: 'Local target',
@@ -2522,13 +2522,13 @@ test('private access API exposes mocked tailnet state, dry-run setup plans, and 
 
     const badFunnel = await server.requestJson('/api/private-access/targets', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         label: 'Bad Funnel',
         mode: 'tailnet-https-serve',
         localUrl: 'http://127.0.0.1:3000',
-        httpsServeUrl: 'https://command-deck.funnel.ts.net',
+        httpsServeUrl: 'https://orca.funnel.ts.net',
       },
     });
     assert.equal(badFunnel.status, 422);
@@ -2540,10 +2540,10 @@ test('private access API exposes mocked tailnet state, dry-run setup plans, and 
 
 test('provider profile API exposes first-class providers and memory-backed secret references without echoing values', async () => {
   const token = 'route-token-providers';
-  const server = await startServer({ token, env: { COMMAND_DECK_CREDENTIAL_BACKEND: 'memory' } });
+  const server = await startServer({ token, env: { ORCA_CREDENTIAL_BACKEND: 'memory' } });
 
   try {
-    const list = await server.requestJson('/api/providers', { method: 'GET', headers: { 'x-commanddeck-token': token } });
+    const list = await server.requestJson('/api/providers', { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(list.status, 200);
     assert.equal(list.body?.credentialBackend, 'memory');
     const ids = new Set((list.body?.profiles || []).map((profile) => profile.id));
@@ -2553,7 +2553,7 @@ test('provider profile API exposes first-class providers and memory-backed secre
 
     const deniedSecret = await server.requestJson('/api/providers/openai-compatible/secret', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: false,
@@ -2564,7 +2564,7 @@ test('provider profile API exposes first-class providers and memory-backed secre
 
     const setSecret = await server.requestJson('/api/providers/openai-compatible/secret', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -2574,12 +2574,12 @@ test('provider profile API exposes first-class providers and memory-backed secre
     assert.equal(setSecret.status, 200);
     assert.equal(JSON.stringify(setSecret.body).includes('sk-test-secret'), false);
 
-    const health = await server.requestJson('/api/providers/openai-compatible/health', { method: 'GET', headers: { 'x-commanddeck-token': token } });
+    const health = await server.requestJson('/api/providers/openai-compatible/health', { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(health.status, 200);
     assert.equal(health.body?.status, 'configured');
     assert.equal(JSON.stringify(health.body).includes('sk-test-secret'), false);
 
-    const exported = await server.requestJson('/api/providers/export', { method: 'GET', headers: { 'x-commanddeck-token': token } });
+    const exported = await server.requestJson('/api/providers/export', { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(exported.status, 200);
     assert.equal(exported.body?.excludesSecrets, true);
     assert.equal(JSON.stringify(exported.body).includes('sk-test-secret'), false);
@@ -2595,15 +2595,15 @@ test('server API provider lanes use dashboard-stored credential references witho
   const server = await startServer({
     token,
     env: {
-      COMMAND_DECK_CREDENTIAL_BACKEND: 'memory',
-      COMMAND_DECK_OPENAI_COMPATIBLE_BASE_URL: dummy.baseUrl,
+      ORCA_CREDENTIAL_BACKEND: 'memory',
+      ORCA_OPENAI_COMPATIBLE_BASE_URL: dummy.baseUrl,
     },
   });
 
   try {
     const setSecret = await server.requestJson('/api/providers/openai-compatible/secret', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -2615,19 +2615,19 @@ test('server API provider lanes use dashboard-stored credential references witho
 
     const project = await server.requestJson('/api/projects', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: { name: 'API Provider Route Project', approved: true },
     });
     assert.equal(project.status, 201);
     const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: { name: 'API Provider Route Session', approved: true },
     });
     assert.equal(session.status, 201);
     const lane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         title: 'Dashboard credential API lane',
         executorType: 'openai-compatible',

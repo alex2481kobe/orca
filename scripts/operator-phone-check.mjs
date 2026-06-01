@@ -21,17 +21,17 @@ if (hasFlag('--help') || hasFlag('-h')) {
   process.exit(0);
 }
 
-const localBase = (argValue('--local-url') || process.env.COMMAND_DECK_LOCAL_URL || DEFAULT_LOCAL).replace(/\/$/, '');
-const configuredPrivateBase = (argValue('--private-url') || process.env.COMMAND_DECK_PRIVATE_URL || '').replace(/\/$/, '');
-const createPairingCode = hasFlag('--create-pairing-code') || process.env.COMMAND_DECK_CREATE_PAIRING_CODE === '1';
-const ttlSeconds = Number.parseInt(argValue('--ttl-seconds') || process.env.COMMAND_DECK_PAIRING_TTL_SECONDS || String(DEFAULT_TTL_SECONDS), 10);
-const token = process.env.COMMAND_DECK_API_TOKEN || '';
+const localBase = (argValue('--local-url') || process.env.ORCA_LOCAL_URL || DEFAULT_LOCAL).replace(/\/$/, '');
+const configuredPrivateBase = (argValue('--private-url') || process.env.ORCA_PRIVATE_URL || '').replace(/\/$/, '');
+const createPairingCode = hasFlag('--create-pairing-code') || process.env.ORCA_CREATE_PAIRING_CODE === '1';
+const ttlSeconds = Number.parseInt(argValue('--ttl-seconds') || process.env.ORCA_PAIRING_TTL_SECONDS || String(DEFAULT_TTL_SECONDS), 10);
+const token = process.env.ORCA_API_TOKEN || '';
 const root = process.cwd();
 const artifactDir = path.join(root, 'artifacts', 'operator-phone-check');
 const artifactPath = path.join(artifactDir, 'phone-check-summary.json');
 
 const summary = {
-  kind: 'command-deck.operator-phone-check',
+  kind: 'orca.operator-phone-check',
   generatedAt: new Date().toISOString(),
   status: 'passed',
   localBase: redactUrl(localBase),
@@ -156,7 +156,7 @@ const privateBase = configuredPrivateBase || discoveredPrivateBase;
 summary.privateBase = privateBase || null;
 summary.privateBase = privateBase ? redactUrl(privateBase) : null;
 if (!privateBase) {
-  record('private-url', 'failed', { message: 'set COMMAND_DECK_PRIVATE_URL or configure Tailscale Serve' });
+  record('private-url', 'failed', { message: 'set ORCA_PRIVATE_URL or configure Tailscale Serve' });
 }
 
 const localHealth = await fetchJson('local-health', `${localBase}/api/health`);
@@ -176,7 +176,7 @@ if (privateBase) {
 
 if (createPairingCode) {
   if (!token) {
-    record('pairing-code', 'failed', { message: 'COMMAND_DECK_API_TOKEN is required to create a pairing code' });
+    record('pairing-code', 'failed', { message: 'ORCA_API_TOKEN is required to create a pairing code' });
   } else if (!Number.isFinite(ttlSeconds) || ttlSeconds < 30 || ttlSeconds > 1800) {
     record('pairing-code', 'failed', { message: '--ttl-seconds must be between 30 and 1800' });
   } else {
@@ -185,7 +185,7 @@ if (createPairingCode) {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          'x-commanddeck-token': token,
+          'x-orca-token': token,
         },
         body: JSON.stringify({ label: 'phone-check', ttlMs: ttlSeconds * 1000 }),
       });

@@ -1,4 +1,4 @@
-# Command Deck Implementation Plan
+# Orca Implementation Plan
 
 Public-safe view of what the client package actually does today and what
 remains as an external blocker. Claims here must be exercised by tests or
@@ -95,16 +95,16 @@ smoke gates before being listed.
   install anthropic-ai/tap/claude`.
 - Per-session worktreeRoot + per-lane git worktree under
   `<workspacesRoot>/<sessionId>/worktrees/<laneId>`. Branch defaults to
-  `command-deck/lane/<shortid>` and is sanitized.
+  `orca/lane/<shortid>` and is sanitized.
 - Worktree boundary: relative workdirs stay inside the session
   worktreeRoot; absolute workdirs stay inside the session worktreeRoot
-  or an approved repo root (`COMMAND_DECK_REPO_ROOTS`,
+  or an approved repo root (`ORCA_REPO_ROOTS`,
   default `process.cwd()`).
 - First-class lane fields plus `processMeta` (PID, args, cwd, env
   policy, start/end, exit code, signal, stopRequestedBy, stopResult,
   platform).
 - SIGTERM to the process group on POSIX + SIGKILL escalation after
-  `COMMAND_DECK_STOP_ESCALATE_MS` (default 4000ms).
+  `ORCA_STOP_ESCALATE_MS` (default 4000ms).
 - Recovery flips orphaned `running` lanes to `failed` on boot.
 - Codex/Claude command derivation from `taskPrompt` (+ model,
   permissions, targetUrl, mcpConfigPath).
@@ -124,7 +124,7 @@ smoke gates before being listed.
 - Tauri v2 desktop scaffold under `src-tauri/`, with local `@tauri-apps/cli`
   scripts, a dedicated Tauri dev server on `127.0.0.1:34125`, native
   start/stop/restart/health commands, OS credential-backed
-  `COMMAND_DECK_API_TOKEN` creation, menu/tray actions for dashboard URL and
+  `ORCA_API_TOKEN` creation, menu/tray actions for dashboard URL and
   pairing-code creation, updater check/install commands, bundled server/static
   resources for the macOS package path, release updater artifact config, static
   frontend build verification, Cargo lockfile, Rust unit tests, and Rust
@@ -235,7 +235,7 @@ npm run smoke:api-provider
 npm run smoke:notifications
 npm run smoke:app-backup
 npm run operator:status
-COMMAND_DECK_PRIVATE_URL=<tailnet-url> npm run operator:phone-check
+ORCA_PRIVATE_URL=<tailnet-url> npm run operator:phone-check
 ```
 
 ## Work rules (still apply)

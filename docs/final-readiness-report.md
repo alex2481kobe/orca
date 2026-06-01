@@ -1,6 +1,6 @@
 # Final readiness report
 
-This report records the current full-buildout evidence for Command Deck. It is
+This report records the current full-buildout evidence for Orca. It is
 public-safe: it does not include API tokens, pairing codes, provider secrets,
 local private prompts, machine-specific Tailscale hostnames, or raw credential
 values.
@@ -65,7 +65,7 @@ Latest recorded acceptance result:
 
 Additional live operator preflight:
 
-- `COMMAND_DECK_PRIVATE_URL=<tailnet-url> npm run operator:phone-check`
+- `ORCA_PRIVATE_URL=<tailnet-url> npm run operator:phone-check`
 - Status: `passed`
 - Artifact: `artifacts/operator-phone-check/phone-check-summary.json`
 - Artifact redaction: API tokens, cookies, pairing codes, and private hostnames
@@ -177,8 +177,8 @@ UI contract result:
 Live Tailscale UI proof can be rerun on a configured host with:
 
 ```bash
-COMMAND_DECK_PRIVATE_URL=<tailnet-url> npm run operator:status
-COMMAND_DECK_BASE_URL=<tailnet-url> COMMAND_DECK_API_TOKEN=... npm run smoke:ui
+ORCA_PRIVATE_URL=<tailnet-url> npm run operator:status
+ORCA_BASE_URL=<tailnet-url> ORCA_API_TOKEN=... npm run smoke:ui
 ```
 
 ## Provider support
@@ -297,10 +297,10 @@ tailscale serve status
 Live operator status check:
 
 ```bash
-COMMAND_DECK_PRIVATE_URL=<tailnet-url> npm run operator:status
+ORCA_PRIVATE_URL=<tailnet-url> npm run operator:status
 ```
 
-If `COMMAND_DECK_PRIVATE_URL` is omitted, `operator:status` attempts to
+If `ORCA_PRIVATE_URL` is omitted, `operator:status` attempts to
 discover a tailnet-only URL from `tailscale serve status`.
 
 This command is read-only. It checks local health, private Tailscale health,
@@ -310,7 +310,7 @@ Funnel, auth sessions, provider credentials, or project state.
 Fresh one-time pairing code helper:
 
 ```bash
-COMMAND_DECK_API_TOKEN=... npm run operator:pair
+ORCA_API_TOKEN=... npm run operator:pair
 ```
 
 The helper creates a phone/browser pairing code through the local authenticated
@@ -320,13 +320,13 @@ prints the API token.
 Phone-readiness preflight:
 
 ```bash
-COMMAND_DECK_PRIVATE_URL=<tailnet-url> npm run operator:phone-check
+ORCA_PRIVATE_URL=<tailnet-url> npm run operator:phone-check
 ```
 
 Pairing-code-enabled preflight:
 
 ```bash
-COMMAND_DECK_PRIVATE_URL=<tailnet-url> COMMAND_DECK_API_TOKEN=... npm run operator:phone-check -- --create-pairing-code
+ORCA_PRIVATE_URL=<tailnet-url> ORCA_API_TOKEN=... npm run operator:phone-check -- --create-pairing-code
 ```
 
 This writes `artifacts/operator-phone-check/phone-check-summary.json` with
@@ -350,9 +350,9 @@ Use one-time browser pairing from the dashboard. Do not put tokens in URLs.
 Pairing codes are one-time secrets and should not be stored in docs, logs,
 screenshots, or issue comments.
 
-If Command Deck needs to stay available after the active terminal session exits,
+If Orca needs to stay available after the active terminal session exits,
 use `docs/macos-launchd-runbook.md` to install a user LaunchAgent. The runbook
-keeps the API token in `~/.command-deck.env` with mode `600` and keeps the
+keeps the API token in `~/.orca.env` with mode `600` and keeps the
 plist secret-free.
 
 Phone check:

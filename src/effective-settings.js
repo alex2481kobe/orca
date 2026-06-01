@@ -1,4 +1,4 @@
-const CONTRACT_VERSION = 'command-deck.effective-settings.v1';
+const CONTRACT_VERSION = 'orca.effective-settings.v1';
 
 const PROVIDER_IDS = [
   'codex',

@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { CommandDeckRegistry } from '../src/registry.js';
+import { OrcaRegistry } from '../src/registry.js';
 import {
   buildEffectiveSettings,
   sanitizeSettingsOverrides,
@@ -11,11 +11,11 @@ import {
 
 async function withTempRegistry(callback) {
   const previousCwd = process.cwd();
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-effective-settings-'));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-effective-settings-'));
   let registry = null;
   process.chdir(tempDir);
   try {
-    registry = new CommandDeckRegistry();
+    registry = new OrcaRegistry();
     await callback(registry);
   } finally {
     if (registry && typeof registry.stopScheduler === 'function') {
@@ -29,7 +29,7 @@ async function withTempRegistry(callback) {
 test('effective settings expose locked product defaults without secrets', () => {
   const effective = buildEffectiveSettings();
 
-  assert.equal(effective.contractVersion, 'command-deck.effective-settings.v1');
+  assert.equal(effective.contractVersion, 'orca.effective-settings.v1');
   assert.equal(effective.settings.spawn.spawnPolicy, 'within_capacity');
   assert.equal(effective.settings.spawn.approvedCapacity, 2);
   assert.equal(effective.settings.spawn.soloMode, true);

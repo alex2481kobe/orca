@@ -17,8 +17,8 @@ use tauri::{
 };
 use tauri_plugin_updater::UpdaterExt;
 
-const SERVICE_NAME: &str = "app.commanddeck.desktop";
-const TOKEN_ACCOUNT: &str = "command-deck-api-token";
+const SERVICE_NAME: &str = "app.orca.desktop";
+const TOKEN_ACCOUNT: &str = "orca-api-token";
 const DEFAULT_HOST: &str = "127.0.0.1";
 const DEFAULT_PORT: u16 = 34125;
 
@@ -87,8 +87,8 @@ struct DesktopHostState {
 impl DesktopHost {
     fn new() -> Self {
         let host =
-            env::var("COMMAND_DECK_DESKTOP_HOST").unwrap_or_else(|_| DEFAULT_HOST.to_string());
-        let port = env::var("COMMAND_DECK_DESKTOP_PORT")
+            env::var("ORCA_DESKTOP_HOST").unwrap_or_else(|_| DEFAULT_HOST.to_string());
+        let port = env::var("ORCA_DESKTOP_PORT")
             .ok()
             .and_then(|value| value.parse::<u16>().ok())
             .unwrap_or(DEFAULT_PORT);
@@ -212,22 +212,22 @@ impl DesktopHost {
         let entry = self.server_entry()?;
         let workdir = self.server_workdir(&entry)?;
         let mut command = Command::new(
-            env::var("COMMAND_DECK_NODE_BINARY").unwrap_or_else(|_| "node".to_string()),
+            env::var("ORCA_NODE_BINARY").unwrap_or_else(|_| "node".to_string()),
         );
         command
             .arg(entry)
             .current_dir(workdir)
-            .env("COMMAND_DECK_HOST", &self.host)
+            .env("ORCA_HOST", &self.host)
             .env("PORT", self.port.to_string())
-            .env("COMMAND_DECK_API_TOKEN", &token)
-            .env("COMMAND_DECK_DESKTOP_HOSTED", "true")
+            .env("ORCA_API_TOKEN", &token)
+            .env("ORCA_DESKTOP_HOSTED", "true")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
 
         let child = command
             .spawn()
-            .map_err(|error| format!("Could not start Command Deck server: {error}"))?;
+            .map_err(|error| format!("Could not start Orca server: {error}"))?;
         self.child = Some(child);
         if let Err(error) = wait_for_health(&self.host, self.port, &token) {
             if let Some(mut child) = self.child.take() {
@@ -246,7 +246,7 @@ impl DesktopHost {
         if let Some(mut child) = self.child.take() {
             child
                 .kill()
-                .map_err(|error| format!("Could not stop Command Deck server: {error}"))?;
+                .map_err(|error| format!("Could not stop Orca server: {error}"))?;
             let _ = child.wait();
         }
         self.last_error = None;
@@ -298,7 +298,7 @@ impl DesktopHost {
 
     fn server_roots(&self) -> Vec<PathBuf> {
         let mut roots = Vec::new();
-        if let Ok(cwd) = env::var("COMMAND_DECK_SERVER_CWD") {
+        if let Ok(cwd) = env::var("ORCA_SERVER_CWD") {
             roots.push(PathBuf::from(cwd));
         }
         if let Ok(current_dir) = env::current_dir() {
@@ -312,20 +312,20 @@ impl DesktopHost {
     }
 
     fn server_entry(&self) -> Result<PathBuf, String> {
-        if let Ok(entry) = env::var("COMMAND_DECK_SERVER_ENTRY") {
+        if let Ok(entry) = env::var("ORCA_SERVER_ENTRY") {
             return Ok(PathBuf::from(entry));
         }
         server_entry_from_roots(&self.server_roots())
     }
 
     fn server_workdir(&self, entry: &PathBuf) -> Result<PathBuf, String> {
-        if let Ok(workdir) = env::var("COMMAND_DECK_SERVER_WORKDIR") {
+        if let Ok(workdir) = env::var("ORCA_SERVER_WORKDIR") {
             return Ok(PathBuf::from(workdir));
         }
         if let Some(data_dir) = &self.data_dir {
             fs::create_dir_all(data_dir).map_err(|error| {
                 format!(
-                    "Could not create Command Deck desktop data directory {}: {error}",
+                    "Could not create Orca desktop data directory {}: {error}",
                     data_dir.display()
                 )
             })?;
@@ -335,7 +335,7 @@ impl DesktopHost {
             .parent()
             .and_then(|src_dir| src_dir.parent())
             .map(PathBuf::from)
-            .ok_or_else(|| "Could not resolve Command Deck server working directory.".to_string())
+            .ok_or_else(|| "Could not resolve Orca server working directory.".to_string())
     }
 }
 
@@ -361,7 +361,7 @@ fn server_entry_from_roots(roots: &[PathBuf]) -> Result<PathBuf, String> {
         }
     }
     Err(format!(
-        "Command Deck server entry was not found. Checked {}. Set COMMAND_DECK_SERVER_ENTRY for custom packaged server builds.",
+        "Orca server entry was not found. Checked {}. Set ORCA_SERVER_ENTRY for custom packaged server builds.",
         checked.join(", ")
     ))
 }
@@ -373,7 +373,7 @@ fn wait_for_health(host: &str, port: u16, token: &str) -> Result<(), String> {
         }
         std::thread::sleep(Duration::from_millis(100));
     }
-    Err("Command Deck server did not become healthy in time.".to_string())
+    Err("Orca server did not become healthy in time.".to_string())
 }
 
 fn auth_status_ready(host: &str, port: u16, token: &str) -> bool {
@@ -398,7 +398,7 @@ fn http_request(
     body: Option<&str>,
 ) -> Result<HttpResponse, String> {
     let mut stream = TcpStream::connect((host, port))
-        .map_err(|error| format!("Could not connect to Command Deck server: {error}"))?;
+        .map_err(|error| format!("Could not connect to Orca server: {error}"))?;
     stream
         .set_read_timeout(Some(Duration::from_secs(5)))
         .map_err(|error| format!("Could not set HTTP read timeout: {error}"))?;
@@ -408,7 +408,7 @@ fn http_request(
         "{method} {path} HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\nAccept: application/json\r\n"
     );
     if let Some(token) = token {
-        request.push_str(&format!("x-commanddeck-token: {token}\r\n"));
+        request.push_str(&format!("x-orca-token: {token}\r\n"));
     }
     if !body.is_empty() {
         request.push_str("Content-Type: application/json\r\n");
@@ -429,7 +429,7 @@ fn http_request(
         .next()
         .and_then(|line| line.split_whitespace().nth(1))
         .and_then(|value| value.parse::<u16>().ok())
-        .ok_or_else(|| "Command Deck server returned an invalid HTTP response.".to_string())?;
+        .ok_or_else(|| "Orca server returned an invalid HTTP response.".to_string())?;
     let body = response
         .split_once("\r\n\r\n")
         .map(|(_, body)| body.to_string())
@@ -577,7 +577,7 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
     )?;
     let install_update =
         MenuItem::with_id(app, "install_update", "Install Update", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit Command Deck", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit Orca", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
         &[
@@ -627,13 +627,13 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             tauri::async_runtime::spawn(async move {
                 match check_for_updates_for_app(app).await {
                     Ok(response) if response.available => {
-                        log::info!("Command Deck update available: {:?}", response.version);
+                        log::info!("Orca update available: {:?}", response.version);
                     }
                     Ok(_) => {
-                        log::info!("Command Deck is up to date.");
+                        log::info!("Orca is up to date.");
                     }
                     Err(error) => {
-                        log::error!("Command Deck update check failed: {error}");
+                        log::error!("Orca update check failed: {error}");
                     }
                 }
             });
@@ -642,7 +642,7 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(error) = install_update_for_app(app).await {
-                    log::error!("Command Deck update install failed: {error}");
+                    log::error!("Orca update install failed: {error}");
                 }
             });
         }
@@ -688,7 +688,7 @@ pub fn run() {
                 host.start()
             })
             .map_err(|error| {
-                log::error!("Command Deck desktop startup degraded: {error}");
+                log::error!("Orca desktop startup degraded: {error}");
                 tauri::Error::Anyhow(anyhow::anyhow!(error))
             })?;
             Ok(())
@@ -724,7 +724,7 @@ mod tests {
 
     #[test]
     fn server_entry_resolution_checks_packaged_resource_roots() {
-        let root = env::temp_dir().join(format!("command-deck-tauri-test-{}", std::process::id()));
+        let root = env::temp_dir().join(format!("orca-tauri-test-{}", std::process::id()));
         let src_dir = root.join("src");
         fs::create_dir_all(&src_dir).expect("create temp server src dir");
         let server_file = src_dir.join("server.js");

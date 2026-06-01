@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Command Deck credential backend smoke.
+ * Orca credential backend smoke.
  *
  * Proves env fallback, macOS Keychain command wiring through an injected fake
  * runner, and explicit fail-closed blocked states for unsupported OS stores.
@@ -17,7 +17,7 @@ import {
 
 const log = (label, info = '') => console.log(`[credential-backends] ${label}${info ? ' — ' + info : ''}`);
 
-const SECRET = 'sk-command-deck-backend-smoke-secret';
+const SECRET = 'sk-orca-backend-smoke-secret';
 const REF = 'provider:credential-backend-smoke';
 
 function createFakeSecurityRunner() {
@@ -53,13 +53,13 @@ function createFakeSecurityRunner() {
 const envStore = new CredentialStore({
   backend: 'env',
   platform: 'linux',
-  env: { COMMAND_DECK_BACKEND_SMOKE_API_KEY: SECRET },
+  env: { ORCA_BACKEND_SMOKE_API_KEY: SECRET },
 });
-const envDescription = await envStore.describe(REF, 'COMMAND_DECK_BACKEND_SMOKE_API_KEY');
+const envDescription = await envStore.describe(REF, 'ORCA_BACKEND_SMOKE_API_KEY');
 assert.equal(envDescription.present, true);
 assert.equal(envDescription.backend, 'env');
 assert.equal(JSON.stringify(envDescription).includes(SECRET), false);
-assert.equal(await envStore.get(REF, 'COMMAND_DECK_BACKEND_SMOKE_API_KEY'), SECRET);
+assert.equal(await envStore.get(REF, 'ORCA_BACKEND_SMOKE_API_KEY'), SECRET);
 
 const { runner, commands } = createFakeSecurityRunner();
 const keychainStore = new CredentialStore({
@@ -92,14 +92,14 @@ const unsupportedStatuses = unsupportedStore.backendStatuses();
 assert.equal(unsupportedStatuses.some((status) => status.id === 'windows-credential-manager' && /blocked/.test(status.status)), true);
 assert.equal(unsupportedStatuses.some((status) => status.id === 'linux-secret-service' && /blocked/.test(status.status)), true);
 
-const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-credential-backends-'));
+const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-credential-backends-'));
 try {
   const profileStore = new ProviderProfileStore({
     stateFile: path.join(tempDir, 'providers.json'),
     credentialStore: new CredentialStore({
       backend: 'env',
       platform: 'darwin',
-      env: { COMMAND_DECK_OPENAI_COMPATIBLE_API_KEY: SECRET },
+      env: { ORCA_OPENAI_COMPATIBLE_API_KEY: SECRET },
     }),
   });
   const providerList = await profileStore.listProfiles();

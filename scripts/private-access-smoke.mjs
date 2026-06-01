@@ -13,25 +13,25 @@ import process from 'node:process';
 const args = process.argv.slice(2);
 const previousCwd = process.cwd();
 const previousEnv = { ...process.env };
-let explicitBase = Boolean(process.env.COMMAND_DECK_BASE_URL);
-let base = process.env.COMMAND_DECK_BASE_URL || 'http://127.0.0.1:3000';
+let explicitBase = Boolean(process.env.ORCA_BASE_URL);
+let base = process.env.ORCA_BASE_URL || 'http://127.0.0.1:3000';
 for (let i = 0; i < args.length; i += 1) {
   if (args[i] === '--base' && args[i + 1]) {
     base = args[i + 1];
     explicitBase = true;
   }
 }
-let token = process.env.COMMAND_DECK_API_TOKEN || '';
+let token = process.env.ORCA_API_TOKEN || '';
 let headers = {};
 function refreshHeaders() {
   headers = {
     'content-type': 'application/json',
-    ...(token ? { 'x-commanddeck-token': token } : {}),
+    ...(token ? { 'x-orca-token': token } : {}),
   };
 }
 refreshHeaders();
 
-const tempDir = explicitBase ? null : await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-private-access-'));
+const tempDir = explicitBase ? null : await fs.mkdtemp(path.join(os.tmpdir(), 'orca-private-access-'));
 let server = null;
 let stopServer = null;
 
@@ -73,9 +73,9 @@ async function main() {
 if (!explicitBase) {
   process.chdir(tempDir);
   process.env.PORT = '0';
-  process.env.COMMAND_DECK_HOST = '127.0.0.1';
-  process.env.COMMAND_DECK_API_TOKEN = 'private-access-smoke-token';
-  token = process.env.COMMAND_DECK_API_TOKEN;
+  process.env.ORCA_HOST = '127.0.0.1';
+  process.env.ORCA_API_TOKEN = 'private-access-smoke-token';
+  token = process.env.ORCA_API_TOKEN;
   refreshHeaders();
   const serverModule = await import('../src/server.js');
   server = await serverModule.startServer(0, '127.0.0.1');
@@ -122,7 +122,7 @@ const funnel = await req('POST', '/api/private-access/targets', {
   label: 'Bad Funnel',
   mode: 'tailnet-https-serve',
   localUrl: base,
-  httpsServeUrl: 'https://command-deck.funnel.ts.net',
+  httpsServeUrl: 'https://orca.funnel.ts.net',
 });
 if (funnel.status !== 422) fail('Funnel URL should be rejected', JSON.stringify(funnel.data));
 log('funnel rejection', 'ok');

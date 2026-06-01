@@ -1,13 +1,13 @@
 # Tauri desktop app scope
 
-Command Deck v1 remains PWA-first for phone use. The Tauri desktop app is the
+Orca v1 remains PWA-first for phone use. The Tauri desktop app is the
 packaged workstation shell for the same local server and security model, not a
 second product.
 
 ## Web-only and desktop editions
 
 - The web/PWA edition remains the portable operator UI. It works when a local
-  Command Deck server already exists and can open saved project live links,
+  Orca server already exists and can open saved project live links,
   pair phones, capture browser evidence, and run responsive/mobile-browser
   previews.
 - The Tauri edition wraps the same web UI and local API. It owns workstation
@@ -39,7 +39,7 @@ second product.
 
 ## Product goals
 
-- Start and stop the local Command Deck server from a native desktop app.
+- Start and stop the local Orca server from a native desktop app.
 - Show the private phone URL, QR code, pairing code, and Tailscale status on
   first launch.
 - Store the generated server API token in the OS credential store instead of
@@ -57,7 +57,7 @@ second product.
   and macOS package-path smoke: dev mode uses the Tauri before-dev server, and
   direct/package runtime resolves bundled `src/`, `public/`, and `package.json`
   resources before starting `src/server.js`.
-- Generate a random `COMMAND_DECK_API_TOKEN` on first launch. Implemented with
+- Generate a random `ORCA_API_TOKEN` on first launch. Implemented with
   a 32-byte random hex token.
 - Store that token in macOS Keychain through the Tauri backend. Implemented
   through the cross-platform `keyring` crate, which maps to Keychain,
@@ -87,7 +87,7 @@ second product.
   token-ready, process-starting, health-ready, dashboard-opened, degraded,
   restarting, and stopped.
 - Use `127.0.0.1:34125` by default, configurable with
-  `COMMAND_DECK_DESKTOP_HOST` and `COMMAND_DECK_DESKTOP_PORT`. The host waits
+  `ORCA_DESKTOP_HOST` and `ORCA_DESKTOP_PORT`. The host waits
   for authenticated `/api/auth/status` readiness so an unrelated process or
   wrong-token server does not count as ready.
 - Keep startup logs local and redacted; never print the generated API token,
@@ -101,14 +101,14 @@ second product.
 
 ## Server startup and MCP boundary
 
-- A stopped Command Deck server cannot start itself through its own API or MCP
+- A stopped Orca server cannot start itself through its own API or MCP
   tool surface. Something already running must own startup.
 - In the packaged app, the Tauri host owns startup, restart, shutdown, health
   wait, and dashboard opening.
 - The Tauri updater plugin owns in-app update checks and install/restart. It
   verifies update artifacts with the compiled public updater key before
   installing them.
-- In direct/package runtime, Tauri stores mutable Command Deck state under the
+- In direct/package runtime, Tauri stores mutable Orca state under the
   OS app data directory while loading server/static resources from the bundled
   app resources. This avoids writing registry or artifact state into the signed
   app bundle.
@@ -162,7 +162,7 @@ second product.
 
 ## Phase 3: credential and security hardening
 
-- Use OS credential storage for the Command Deck API token. Implemented in the
+- Use OS credential storage for the Orca API token. Implemented in the
   Tauri host with `keyring`.
 - Keep the token out of logs, screenshots, exports, support bundles, URLs, and
   renderer localStorage/sessionStorage.

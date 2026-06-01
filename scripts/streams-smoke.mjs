@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Command Deck stream smoke.
+ * Orca stream smoke.
  *
  * Validates the SSE event stream contract against a running local server:
  * compact payloads, heartbeat/snapshot events, no token leakage, and no API
@@ -14,16 +14,16 @@ import process from 'node:process';
 const previousCwd = process.cwd();
 const previousEnv = { ...process.env };
 const args = process.argv.slice(2);
-let explicitBase = Boolean(process.env.COMMAND_DECK_BASE_URL);
-let base = process.env.COMMAND_DECK_BASE_URL || 'http://127.0.0.1:3000';
+let explicitBase = Boolean(process.env.ORCA_BASE_URL);
+let base = process.env.ORCA_BASE_URL || 'http://127.0.0.1:3000';
 for (let i = 0; i < args.length; i += 1) {
   if (args[i] === '--base' && args[i + 1]) {
     base = args[i + 1];
     explicitBase = true;
   }
 }
-let token = process.env.COMMAND_DECK_API_TOKEN || '';
-const tempDir = explicitBase ? null : await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-streams-smoke-'));
+let token = process.env.ORCA_API_TOKEN || '';
+const tempDir = explicitBase ? null : await fs.mkdtemp(path.join(os.tmpdir(), 'orca-streams-smoke-'));
 let server = null;
 let stopServer = null;
 const log = (label, info = '') => console.log(`[streams] ${label}${info ? ' — ' + info : ''}`);
@@ -37,10 +37,10 @@ async function startIsolatedServerIfNeeded() {
   if (explicitBase) return;
   process.chdir(tempDir);
   process.env.PORT = '0';
-  process.env.COMMAND_DECK_HOST = '127.0.0.1';
-  process.env.COMMAND_DECK_API_TOKEN = 'streams-smoke-token';
-  process.env.COMMAND_DECK_RATE_LIMIT_DISABLED = 'true';
-  token = process.env.COMMAND_DECK_API_TOKEN;
+  process.env.ORCA_HOST = '127.0.0.1';
+  process.env.ORCA_API_TOKEN = 'streams-smoke-token';
+  process.env.ORCA_RATE_LIMIT_DISABLED = 'true';
+  token = process.env.ORCA_API_TOKEN;
   const serverModule = await import('../src/server.js');
   server = await serverModule.startServer(0, '127.0.0.1');
   stopServer = serverModule.stopServer;
@@ -89,14 +89,14 @@ async function fetchOnceStream() {
     fail('stream URL must not include token parameters', url.toString());
   }
   const response = await fetch(url, {
-    headers: token ? { 'x-commanddeck-token': token } : {},
+    headers: token ? { 'x-orca-token': token } : {},
   });
   if (!response.ok) fail('stream request failed', `${response.status}`);
   const contentType = response.headers.get('content-type') || '';
   if (!contentType.includes('text/event-stream')) fail('stream content-type is not SSE', contentType);
   const text = await response.text();
   if (token && text.includes(token)) fail('stream payload leaked API token');
-  for (const forbidden of ['COMMAND_DECK_API_TOKEN', 'COMMAND_DECK_WORKER_TOKEN', 'secret', 'apiKey', 'sessionToken']) {
+  for (const forbidden of ['ORCA_API_TOKEN', 'ORCA_WORKER_TOKEN', 'secret', 'apiKey', 'sessionToken']) {
     if (text.includes(forbidden)) fail('stream payload leaked forbidden marker', forbidden);
   }
   const events = parseSseEvents(text);
@@ -105,7 +105,7 @@ async function fetchOnceStream() {
     if (!eventNames.includes(expected)) fail('stream missing event', expected);
   }
   const snapshot = events.find((event) => event.event === 'snapshot')?.json;
-  if (!snapshot || snapshot.contractVersion !== 'command-deck.streams.v1') {
+  if (!snapshot || snapshot.contractVersion !== 'orca.streams.v1') {
     fail('snapshot contract missing');
   }
   if (!snapshot.counts || typeof snapshot.counts.projects !== 'number') fail('snapshot counts missing');

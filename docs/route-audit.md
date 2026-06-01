@@ -86,10 +86,10 @@ the inventory covers 102 routes across these route groups:
 
 ## Global route behavior
 
-- `COMMAND_DECK_MAX_JSON_BYTES` controls JSON body size. Oversize requests
+- `ORCA_MAX_JSON_BYTES` controls JSON body size. Oversize requests
   return `413`; malformed JSON returns `400`.
 - Non-GET dashboard/API mutations are protected by the API token or a paired
-  browser session when `COMMAND_DECK_API_TOKEN` is configured.
+  browser session when `ORCA_API_TOKEN` is configured.
 - Browser-session mutations require same-origin protection.
 - Dashboard requests may not spoof reserved actors: `scheduler`, `system`,
   `cron`, or `worker`.

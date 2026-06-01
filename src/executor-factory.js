@@ -203,11 +203,11 @@ function displayArg(value) {
 
 // Server-managed env keys a lane may never set or override.
 const RESERVED_EXECUTOR_ENV_KEYS = new Set([
-  'COMMAND_DECK_LANE_ID',
-  'COMMAND_DECK_SESSION_ID',
-  'COMMAND_DECK_PROJECT_ID',
-  'COMMAND_DECK_ARTIFACT_DIR',
-  'COMMAND_DECK_MCP_CONFIG',
+  'ORCA_LANE_ID',
+  'ORCA_SESSION_ID',
+  'ORCA_PROJECT_ID',
+  'ORCA_ARTIFACT_DIR',
+  'ORCA_MCP_CONFIG',
 ]);
 
 function buildExecutorCommandArgs(label, lane) {
@@ -342,14 +342,14 @@ function trimForLog(value, max = 4000) {
 }
 
 function buildOpenAiCompatibleBody(lane, profile) {
-  const prompt = String(lane.taskPrompt || lane.taskDescription || lane.title || 'Run Command Deck lane.').trim().slice(0, 8000);
-  const model = String(lane.model || profile.defaultModel || process.env[`COMMAND_DECK_${providerEnvPrefix(profile.id)}_MODEL`] || 'command-deck-default').trim();
+  const prompt = String(lane.taskPrompt || lane.taskDescription || lane.title || 'Run Orca lane.').trim().slice(0, 8000);
+  const model = String(lane.model || profile.defaultModel || process.env[`ORCA_${providerEnvPrefix(profile.id)}_MODEL`] || 'orca-default').trim();
   return {
     model,
     messages: [
       {
         role: 'system',
-        content: 'You are an API provider lane running inside Command Deck. Return concise progress or completion output.',
+        content: 'You are an API provider lane running inside Orca. Return concise progress or completion output.',
       },
       {
         role: 'user',
@@ -361,11 +361,11 @@ function buildOpenAiCompatibleBody(lane, profile) {
 }
 
 function modelForProfile(lane, profile) {
-  return String(lane.model || profile.defaultModel || process.env[`COMMAND_DECK_${providerEnvPrefix(profile.id)}_MODEL`] || 'command-deck-default').trim();
+  return String(lane.model || profile.defaultModel || process.env[`ORCA_${providerEnvPrefix(profile.id)}_MODEL`] || 'orca-default').trim();
 }
 
 function safeGeminiModel(lane, profile) {
-  const raw = String(lane.model || profile.defaultModel || process.env[`COMMAND_DECK_${providerEnvPrefix(profile.id)}_MODEL`] || 'gemini-1.5-flash').trim();
+  const raw = String(lane.model || profile.defaultModel || process.env[`ORCA_${providerEnvPrefix(profile.id)}_MODEL`] || 'gemini-1.5-flash').trim();
   const withoutPrefix = raw.replace(/^models\//, '').trim();
   if (!/^[A-Za-z0-9._-]{1,120}$/.test(withoutPrefix)) {
     throw new Error('Gemini model contains unsupported characters.');
@@ -374,7 +374,7 @@ function safeGeminiModel(lane, profile) {
 }
 
 function buildGeminiBody(lane) {
-  const prompt = String(lane.taskPrompt || lane.taskDescription || lane.title || 'Run Command Deck lane.').trim().slice(0, 8000);
+  const prompt = String(lane.taskPrompt || lane.taskDescription || lane.title || 'Run Orca lane.').trim().slice(0, 8000);
   return {
     contents: [
       {
@@ -416,17 +416,17 @@ function applyApiProviderEnvOverrides(profile, requestedType = profile?.type || 
   if (!profile || profile.kind !== 'api') return null;
   const providerId = profile.id;
   const prefix = providerEnvPrefix(providerId);
-  const baseUrl = process.env[`COMMAND_DECK_${prefix}_BASE_URL`] || profile.baseUrl;
-  const apiKeyEnv = process.env[`COMMAND_DECK_${prefix}_API_KEY_ENV`] || profile.apiKeyEnv || `COMMAND_DECK_${prefix}_API_KEY`;
+  const baseUrl = process.env[`ORCA_${prefix}_BASE_URL`] || profile.baseUrl;
+  const apiKeyEnv = process.env[`ORCA_${prefix}_API_KEY_ENV`] || profile.apiKeyEnv || `ORCA_${prefix}_API_KEY`;
   return {
     ...profile,
     type: requestedType,
     id: providerId,
     baseUrl,
     apiKeyEnv,
-    timeoutMs: parsePositiveInteger(process.env[`COMMAND_DECK_${prefix}_TIMEOUT_MS`], profile.timeoutMs || 30000, { min: 1000, max: 180000 }),
-    maxResponseBytes: parsePositiveInteger(process.env[`COMMAND_DECK_${prefix}_MAX_RESPONSE_BYTES`], API_RESPONSE_BYTES, { min: 1024, max: 2 * 1024 * 1024 }),
-    defaultModel: process.env[`COMMAND_DECK_${prefix}_MODEL`] || profile.defaultModel || '',
+    timeoutMs: parsePositiveInteger(process.env[`ORCA_${prefix}_TIMEOUT_MS`], profile.timeoutMs || 30000, { min: 1000, max: 180000 }),
+    maxResponseBytes: parsePositiveInteger(process.env[`ORCA_${prefix}_MAX_RESPONSE_BYTES`], API_RESPONSE_BYTES, { min: 1024, max: 2 * 1024 * 1024 }),
+    defaultModel: process.env[`ORCA_${prefix}_MODEL`] || profile.defaultModel || '',
   };
 }
 
@@ -532,7 +532,7 @@ class CliExecutorAdapter {
     const laneEnv = parseEnv(lane.env);
     for (const [key, value] of Object.entries(laneEnv)) {
       if (RESERVED_EXECUTOR_ENV_KEYS.has(key)) continue;
-      if (this.envAllowlist.has(key) || String(key).startsWith('COMMAND_DECK_')) {
+      if (this.envAllowlist.has(key) || String(key).startsWith('ORCA_')) {
         baseEnv[key] = value;
       }
     }
@@ -541,19 +541,19 @@ class CliExecutorAdapter {
       const runtimeEnv = parseEnv(this.runtimeEnvForLane(lane));
       for (const [key, value] of Object.entries(runtimeEnv)) {
         if (RESERVED_EXECUTOR_ENV_KEYS.has(key)) continue;
-        if (this.envAllowlist.has(key) || String(key).startsWith('COMMAND_DECK_')) {
+        if (this.envAllowlist.has(key) || String(key).startsWith('ORCA_')) {
           baseEnv[key] = value;
         }
       }
     }
 
     // Server-controlled values always win.
-    baseEnv.COMMAND_DECK_LANE_ID = String(lane.id);
-    baseEnv.COMMAND_DECK_SESSION_ID = String(lane.sessionId || '');
-    baseEnv.COMMAND_DECK_PROJECT_ID = String(lane.projectId || '');
-    baseEnv.COMMAND_DECK_ARTIFACT_DIR = lane.artifactPath || '';
+    baseEnv.ORCA_LANE_ID = String(lane.id);
+    baseEnv.ORCA_SESSION_ID = String(lane.sessionId || '');
+    baseEnv.ORCA_PROJECT_ID = String(lane.projectId || '');
+    baseEnv.ORCA_ARTIFACT_DIR = lane.artifactPath || '';
     if (lane.mcpConfigPath) {
-      baseEnv.COMMAND_DECK_MCP_CONFIG = lane.mcpConfigPath;
+      baseEnv.ORCA_MCP_CONFIG = lane.mcpConfigPath;
     }
     return baseEnv;
   }
@@ -716,7 +716,7 @@ class CliExecutorAdapter {
           runtime.outputCapped = true;
           child.stdout?.destroy();
           child.stderr?.destroy();
-          fs.appendFile(runtime.terminalLogPath, `\n[command-deck] output truncated after ${MAX_EXECUTOR_OUTPUT_BYTES} bytes.\n`).catch(() => {});
+          fs.appendFile(runtime.terminalLogPath, `\n[orca] output truncated after ${MAX_EXECUTOR_OUTPUT_BYTES} bytes.\n`).catch(() => {});
           safeFire(this.onLog, lane, `[${this.label}] output truncated after ${MAX_EXECUTOR_OUTPUT_BYTES} bytes.`);
           return;
         }
@@ -738,13 +738,13 @@ class CliExecutorAdapter {
         // lane whose runtime was already reaped.
         child.stdout?.destroy();
         child.stderr?.destroy();
-        fs.appendFile(runtime.terminalLogPath, `\n[command-deck] process failed to launch: ${error.message} (${error.code || 'ERR'})\n`).catch(() => {});
+        fs.appendFile(runtime.terminalLogPath, `\n[orca] process failed to launch: ${error.message} (${error.code || 'ERR'})\n`).catch(() => {});
         this.runtimes.delete(String(lane.id));
         safeFire(this.onFail, lane, `Executor process failed to launch: ${error.message} (${error.code || 'ERR'})`, 'scheduler');
       });
 
       child.on('exit', (code, signal) => {
-        fs.appendFile(runtime.terminalLogPath, `\n[command-deck] process exited code=${code} signal=${signal || ''}\n`).catch(() => {});
+        fs.appendFile(runtime.terminalLogPath, `\n[orca] process exited code=${code} signal=${signal || ''}\n`).catch(() => {});
         for (const agentEvent of runtime.eventNormalizer.flush()) {
           safeFire(this.onAgentEvent, lane, agentEvent);
         }
@@ -813,7 +813,7 @@ class CliExecutorAdapter {
 
     const killedTerm = tryKillTree('SIGTERM');
     // Graceful timeout before escalating to SIGKILL.
-    const escalateAfterMs = Number.parseInt(process.env.COMMAND_DECK_STOP_ESCALATE_MS || '', 10) || 4000;
+    const escalateAfterMs = Number.parseInt(process.env.ORCA_STOP_ESCALATE_MS || '', 10) || 4000;
     const escalation = new Promise((resolve) => {
       const timer = setTimeout(() => {
         let escalated = false;
@@ -1203,18 +1203,18 @@ export function getExecutorProfile(type, callbacks = {}) {
   if (!CLI_EXECUTOR_TYPES.includes(executorType)) {
     return null;
   }
-  if (executorType === 'cli' && process.env.COMMAND_DECK_ENABLE_CUSTOM_CLI !== 'true' && !process.env.COMMAND_DECK_CLI_BINARY) {
+  if (executorType === 'cli' && process.env.ORCA_ENABLE_CUSTOM_CLI !== 'true' && !process.env.ORCA_CLI_BINARY) {
     return null;
   }
   const defaults = CLI_EXECUTOR_DEFAULTS[executorType] || CLI_EXECUTOR_DEFAULTS.cli;
   const upper = defaults.envPrefix;
-  const binary = process.env[`COMMAND_DECK_${upper}_BINARY`] || defaults.binary || executorType;
-  const allowedBinaries = parseEnvList(process.env[`COMMAND_DECK_${upper}_ALLOWED_BINARIES`], [
+  const binary = process.env[`ORCA_${upper}_BINARY`] || defaults.binary || executorType;
+  const allowedBinaries = parseEnvList(process.env[`ORCA_${upper}_ALLOWED_BINARIES`], [
     binary,
     ...(defaults.allowedBinaries || []),
   ]);
-  const defaultArgs = parseEnvList(process.env[`COMMAND_DECK_${upper}_DEFAULT_ARGS`], []);
-  const workdirRoots = parseEnvList(process.env[`COMMAND_DECK_${upper}_WORKDIR_ROOTS`], [process.cwd()]);
+  const defaultArgs = parseEnvList(process.env[`ORCA_${upper}_DEFAULT_ARGS`], []);
+  const workdirRoots = parseEnvList(process.env[`ORCA_${upper}_WORKDIR_ROOTS`], [process.cwd()]);
   const defaultWorkingDir = callbacks.defaultWorkingDir || process.cwd();
 
   return {
@@ -1224,7 +1224,7 @@ export function getExecutorProfile(type, callbacks = {}) {
     defaultArgs,
     defaultWorkingDir,
     workdirRoots,
-    envWhitelist: parseEnvList(process.env[`COMMAND_DECK_${upper}_ENV_WHITELIST`], undefined),
+    envWhitelist: parseEnvList(process.env[`ORCA_${upper}_ENV_WHITELIST`], undefined),
   };
 }
 

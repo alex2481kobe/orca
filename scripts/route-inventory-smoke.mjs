@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Command Deck route inventory smoke.
+ * Orca route inventory smoke.
  *
  * Fails if route metadata is incomplete, unsafe, inconsistent with the server
  * source, or missing the security/testing fields required by the full buildout
@@ -12,7 +12,7 @@ import process from 'node:process';
 import { pathToFileURL } from 'node:url';
 
 const root = process.cwd();
-const base = process.env.COMMAND_DECK_BASE_URL || '';
+const base = process.env.ORCA_BASE_URL || '';
 const routeInventoryModule = path.resolve(root, 'src', 'route-inventory.js');
 const serverPath = path.resolve(root, 'src', 'server.js');
 const publicDir = path.resolve(root, 'public');
@@ -76,8 +76,8 @@ function assertNoPrivateData(payload) {
     process.cwd(),
     process.env.HOME,
     '/Users/',
-    'COMMAND_DECK_API_TOKEN=',
-    'COMMAND_DECK_WORKER_TOKEN=',
+    'ORCA_API_TOKEN=',
+    'ORCA_WORKER_TOKEN=',
     'sk-',
   ].filter(Boolean);
   for (const needle of privateNeedles) {

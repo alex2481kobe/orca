@@ -43,7 +43,7 @@ function createResponseState() {
 async function isolateEnvironment(token, env = {}) {
   const previousCwd = process.cwd();
   const previousEnv = { ...process.env };
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-settings-api-'));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-settings-api-'));
 
   process.chdir(tempDir);
 
@@ -63,9 +63,9 @@ async function isolateEnvironment(token, env = {}) {
   };
 
   if (typeof token === 'string') {
-    process.env.COMMAND_DECK_API_TOKEN = token;
+    process.env.ORCA_API_TOKEN = token;
   } else {
-    delete process.env.COMMAND_DECK_API_TOKEN;
+    delete process.env.ORCA_API_TOKEN;
   }
 
   for (const [key, value] of Object.entries(env)) {
@@ -127,7 +127,7 @@ test('effective settings API exposes defaults, scoped overrides, and mobile link
   const server = await startServer({ token });
 
   try {
-    const defaults = await server.requestJson('/api/settings/effective', { method: 'GET', headers: { 'x-commanddeck-token': token } });
+    const defaults = await server.requestJson('/api/settings/effective', { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(defaults.status, 200);
     assert.equal(defaults.body?.settings?.spawn?.spawnPolicy, 'within_capacity');
     assert.equal(defaults.body?.settings?.privateAccess?.funnelAllowed, false);
@@ -135,7 +135,7 @@ test('effective settings API exposes defaults, scoped overrides, and mobile link
 
     const project = await server.requestJson('/api/projects', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'Settings API Project',
         approved: true,
@@ -145,7 +145,7 @@ test('effective settings API exposes defaults, scoped overrides, and mobile link
 
     const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         name: 'Settings API Session',
         approved: true,
@@ -167,7 +167,7 @@ test('effective settings API exposes defaults, scoped overrides, and mobile link
 
     const deniedApproval = await server.requestJson(`/api/settings/project/${project.body.id}`, {
       method: 'PATCH',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         settingsOverrides: {
@@ -180,7 +180,7 @@ test('effective settings API exposes defaults, scoped overrides, and mobile link
 
     const updated = await server.requestJson(`/api/settings/project/${project.body.id}`, {
       method: 'PATCH',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -196,7 +196,7 @@ test('effective settings API exposes defaults, scoped overrides, and mobile link
 
     const invalid = await server.requestJson(`/api/settings/session/${session.body.id}`, {
       method: 'PATCH',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         approved: true,
@@ -208,7 +208,7 @@ test('effective settings API exposes defaults, scoped overrides, and mobile link
     assert.equal(invalid.status, 422);
     assert.equal(String(invalid.body?.error || '').includes('not supported'), true);
 
-    const manifest = await server.requestJson('/api/mobile/manifest', { method: 'GET', headers: { 'x-commanddeck-token': token } });
+    const manifest = await server.requestJson('/api/mobile/manifest', { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(manifest.status, 200);
     assert.equal(typeof manifest.body?.effectiveSettingsUrl, 'string');
     assert.equal(typeof manifest.body?.projects?.[0]?.effectiveSettingsUrl, 'string');

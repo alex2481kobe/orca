@@ -486,7 +486,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "command-deck-desktop"
+name = "orca-desktop"
 version = "0.1.0"
 dependencies = [
  "anyhow",

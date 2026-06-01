@@ -1,8 +1,8 @@
 [package]
-name = "command-deck-desktop"
+name = "orca-desktop"
 version = "0.1.0"
-description = "Command Deck desktop shell"
-authors = ["Command Deck contributors"]
+description = "Orca desktop shell"
+authors = ["Orca contributors"]
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/alex2481kobe/orca"
 edition = "2021"
@@ -11,7 +11,7 @@ rust-version = "1.77.2"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
-name = "command_deck_desktop_lib"
+name = "orca_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

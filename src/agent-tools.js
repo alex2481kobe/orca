@@ -1,4 +1,4 @@
-const CONTRACT_VERSION = 'command-deck.agent-tools.v1';
+const CONTRACT_VERSION = 'orca.agent-tools.v1';
 
 const ROLES = new Set(['orchestrator', 'executor', 'auditor', 'critique', 'dashboard']);
 

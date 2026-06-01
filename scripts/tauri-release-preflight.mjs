@@ -57,7 +57,7 @@ record(
   'Set plugins.updater.endpoints to the HTTPS latest.json location.',
 );
 
-const localUpdaterKey = exists('.tauri/command-deck-updater.key');
+const localUpdaterKey = exists('.tauri/orca-updater.key');
 const updaterKeyReady = envPresent('TAURI_SIGNING_PRIVATE_KEY')
   || fileEnvPresent('TAURI_SIGNING_PRIVATE_KEY_PATH')
   || (mode === 'local' && localUpdaterKey);
@@ -68,7 +68,7 @@ record(
   mode === 'local'
     ? 'Updater private key is available from env or local ignored .tauri key'
     : 'Updater private key is available from CI secrets',
-  'Set TAURI_SIGNING_PRIVATE_KEY or TAURI_SIGNING_PRIVATE_KEY_PATH. For local dry runs, use --local after generating .tauri/command-deck-updater.key.',
+  'Set TAURI_SIGNING_PRIVATE_KEY or TAURI_SIGNING_PRIVATE_KEY_PATH. For local dry runs, use --local after generating .tauri/orca-updater.key.',
 );
 
 const appleCertificateReady = envPresent('APPLE_CERTIFICATE') && envPresent('APPLE_CERTIFICATE_PASSWORD');

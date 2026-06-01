@@ -2,7 +2,7 @@
 
 Live project links are saved project URLs for dev servers, previews, docs,
 artifacts, or dashboard-relative pages. They are server-authoritative: agents
-and the dashboard should write them through Command Deck instead of relying on
+and the dashboard should write them through Orca instead of relying on
 chat history.
 
 Saved project links also feed lane evidence presets. Normal dashboard evidence
@@ -71,7 +71,7 @@ server-resolved target.
 - Loopback, localhost, configured tailnet hosts, and public HTTP(S) URLs are
   accepted where policy allows them.
 - Metadata, link-local, private LAN, multicast, obfuscated numeric IPs,
-  credential-bearing URLs, sensitive Command Deck routes, and Funnel URLs are
+  credential-bearing URLs, sensitive Orca routes, and Funnel URLs are
   blocked.
 - Unpaired devices cannot list projects, read live links, check links, or mutate
   links. Pairing creates a revocable browser session; it does not reveal the API
@@ -79,7 +79,7 @@ server-resolved target.
 
 ## Desktop/Tauri direction
 
-The future Tauri app should launch the local Command Deck server, wait for
+The future Tauri app should launch the local Orca server, wait for
 health, open the dashboard, and surface saved live links in its menu or project
 view. A stopped server cannot be started through its own MCP/API routes, so
 startup belongs to the native Tauri host, a user-run CLI command, or an OS

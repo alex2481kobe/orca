@@ -8,11 +8,11 @@ import {
 test('rate limiter enforces a fixed-window policy without leaking actor keys', () => {
   let now = 1_000;
   const limiter = new MemoryRateLimiter({ now: () => now });
-  const previousLimit = process.env.COMMAND_DECK_RATE_LIMIT_AUTH_PAIR_LIMIT;
-  const previousWindow = process.env.COMMAND_DECK_RATE_LIMIT_AUTH_PAIR_WINDOW_MS;
+  const previousLimit = process.env.ORCA_RATE_LIMIT_AUTH_PAIR_LIMIT;
+  const previousWindow = process.env.ORCA_RATE_LIMIT_AUTH_PAIR_WINDOW_MS;
   try {
-    process.env.COMMAND_DECK_RATE_LIMIT_AUTH_PAIR_LIMIT = '2';
-    process.env.COMMAND_DECK_RATE_LIMIT_AUTH_PAIR_WINDOW_MS = '1000';
+    process.env.ORCA_RATE_LIMIT_AUTH_PAIR_LIMIT = '2';
+    process.env.ORCA_RATE_LIMIT_AUTH_PAIR_WINDOW_MS = '1000';
 
     const first = limiter.check({ key: 'ip:test', policyName: 'authPair' });
     const second = limiter.check({ key: 'ip:test', policyName: 'authPair' });
@@ -30,10 +30,10 @@ test('rate limiter enforces a fixed-window policy without leaking actor keys', (
     assert.equal(reset.allowed, true);
     assert.equal(reset.remaining, 1);
   } finally {
-    if (previousLimit === undefined) delete process.env.COMMAND_DECK_RATE_LIMIT_AUTH_PAIR_LIMIT;
-    else process.env.COMMAND_DECK_RATE_LIMIT_AUTH_PAIR_LIMIT = previousLimit;
-    if (previousWindow === undefined) delete process.env.COMMAND_DECK_RATE_LIMIT_AUTH_PAIR_WINDOW_MS;
-    else process.env.COMMAND_DECK_RATE_LIMIT_AUTH_PAIR_WINDOW_MS = previousWindow;
+    if (previousLimit === undefined) delete process.env.ORCA_RATE_LIMIT_AUTH_PAIR_LIMIT;
+    else process.env.ORCA_RATE_LIMIT_AUTH_PAIR_LIMIT = previousLimit;
+    if (previousWindow === undefined) delete process.env.ORCA_RATE_LIMIT_AUTH_PAIR_WINDOW_MS;
+    else process.env.ORCA_RATE_LIMIT_AUTH_PAIR_WINDOW_MS = previousWindow;
   }
 });
 

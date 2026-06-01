@@ -1,7 +1,7 @@
-const ROUTE_INVENTORY_VERSION = 'command-deck.route-inventory.v1';
+const ROUTE_INVENTORY_VERSION = 'orca.route-inventory.v1';
 
-const jsonBodyLimit = 'COMMAND_DECK_MAX_JSON_BYTES default 262144';
-const corsDefault = 'same-origin/browser session or x-commanddeck-token; CORS denied by default';
+const jsonBodyLimit = 'ORCA_MAX_JSON_BYTES default 262144';
+const corsDefault = 'same-origin/browser session or x-orca-token; CORS denied by default';
 const centralRateLimit = 'central in-memory policy via src/rate-limiter.js; emits 429 with Retry-After and X-RateLimit-* headers';
 
 // Auth contract vocabulary (single source of truth, mirrored in server.js):
@@ -61,7 +61,7 @@ function resolveAuthContract(method, routePath, declared) {
 function route(entry) {
   return {
     contractVersion: ROUTE_INVENTORY_VERSION,
-    owner: 'command-deck-server',
+    owner: 'orca-server',
     bodyLimit: entry.method === 'GET' ? 'none' : jsonBodyLimit,
     rateLimit: entry.rateLimit || centralRateLimit,
     mobileBehavior: entry.mobileBehavior || 'available through dashboard/mobile manifest where relevant',
@@ -1286,7 +1286,7 @@ const ROUTE_INVENTORY = [
     auth: 'api_token_or_paired_browser_session_plus_optional_worker_token',
     mutationRisk: 'high_frequency_medium',
     approval: 'worker token if configured',
-    validation: 'lane exists; optional COMMAND_DECK_WORKER_TOKEN; actor spoofing rejected',
+    validation: 'lane exists; optional ORCA_WORKER_TOKEN; actor spoofing rejected',
     auditEvent: 'none_high_frequency_state_update',
     uiSurface: 'lane detail',
     smokeCoverage: ['test/server.test.js'],

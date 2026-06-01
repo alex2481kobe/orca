@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Command Deck credential redaction smoke.
+ * Orca credential redaction smoke.
  *
  * Uses only the in-memory credential backend. Verifies that dashboard-facing
  * provider APIs and persisted provider state contain credential references and
@@ -17,8 +17,8 @@ import {
 
 const log = (label, info = '') => console.log(`[credential-redaction] ${label}${info ? ' — ' + info : ''}`);
 
-const SECRET = 'sk-command-deck-redaction-smoke-secret';
-const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-credential-smoke-'));
+const SECRET = 'sk-orca-redaction-smoke-secret';
+const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-credential-smoke-'));
 try {
   const stateFile = path.join(tempDir, 'providers.json');
   const store = new ProviderProfileStore({

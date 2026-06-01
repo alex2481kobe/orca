@@ -12,7 +12,7 @@ const getArgValue = (name) => {
 
 const skipTests = args.has('--skip-tests');
 const buildDmg = args.has('--dmg');
-const manifestUrl = getArgValue('--manifest-url') || process.env.COMMAND_DECK_UPDATE_ARTIFACT_URL || '';
+const manifestUrl = getArgValue('--manifest-url') || process.env.ORCA_UPDATE_ARTIFACT_URL || '';
 
 function run(command, commandArgs, options = {}) {
   return new Promise((resolve, reject) => {
@@ -49,7 +49,7 @@ try {
   }
   if (manifestUrl) {
     await run('npm', ['run', 'tauri:release-manifest'], {
-      env: { COMMAND_DECK_UPDATE_ARTIFACT_URL: manifestUrl },
+      env: { ORCA_UPDATE_ARTIFACT_URL: manifestUrl },
     });
   } else {
     console.log('[tauri-local-release-prep] skip — latest.json not generated because --manifest-url was not provided');

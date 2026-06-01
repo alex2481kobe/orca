@@ -9,7 +9,7 @@ import {
   ProviderProfileStore,
   defaultProfiles,
 } from '../src/provider-profiles.js';
-import { CommandDeckRegistry } from '../src/registry.js';
+import { OrcaRegistry } from '../src/registry.js';
 import {
   backupPathFor,
   readJsonFileWithRecovery,
@@ -97,7 +97,7 @@ async function verifyAuthStore(dir) {
 async function verifyRegistryStore(dir) {
   const previousCwd = process.cwd();
   process.chdir(dir);
-  const stateFile = path.join(dir, '.command-deck', 'state.json');
+  const stateFile = path.join(dir, '.orca', 'state.json');
   try {
     await writeJsonFileAtomic(stateFile, {
       version: 1,
@@ -119,7 +119,7 @@ async function verifyRegistryStore(dir) {
       toolLeases: [],
     });
     await corruptPrimary(stateFile);
-    const registry = new CommandDeckRegistry({ heartbeatIntervalMs: 5 });
+    const registry = new OrcaRegistry({ heartbeatIntervalMs: 5 });
     try {
       assert.equal(registry.stateLoadStatus.source, 'backup');
       assert.equal(registry.projects.length, 1);
@@ -133,7 +133,7 @@ async function verifyRegistryStore(dir) {
   }
 }
 
-await withTempDir('command-deck-state-smoke-', async (dir) => {
+await withTempDir('orca-state-smoke-', async (dir) => {
   await verifySharedStore(dir);
   await verifyProviderStore(dir);
   await verifyPrivateAccessStore(dir);

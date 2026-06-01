@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Command Deck end-to-end smoke.
+ * Orca end-to-end smoke.
  *
  * Walks the full operator path against a running local server and proves
  * both the happy path AND that the security guards reject the bad path:
@@ -20,7 +20,7 @@
  *
  * Usage:
  *   node scripts/smoke.mjs
- *   COMMAND_DECK_API_TOKEN=<token> node scripts/smoke.mjs --base http://127.0.0.1:3000
+ *   ORCA_API_TOKEN=<token> node scripts/smoke.mjs --base http://127.0.0.1:3000
  *
  * Exits non-zero on the first failing step so it can gate startup.
  */
@@ -35,27 +35,27 @@ const args = process.argv.slice(2);
 const previousCwd = process.cwd();
 const previousEnv = { ...process.env };
 const repoRoot = previousCwd;
-let explicitBase = Boolean(process.env.COMMAND_DECK_BASE_URL);
-let base = process.env.COMMAND_DECK_BASE_URL || 'http://127.0.0.1:3000';
+let explicitBase = Boolean(process.env.ORCA_BASE_URL);
+let base = process.env.ORCA_BASE_URL || 'http://127.0.0.1:3000';
 for (let i = 0; i < args.length; i += 1) {
   if (args[i] === '--base' && args[i + 1]) {
     base = args[i + 1];
     explicitBase = true;
   }
 }
-let token = process.env.COMMAND_DECK_API_TOKEN || '';
+let token = process.env.ORCA_API_TOKEN || '';
 
 let tokenHeaders = {};
 const noTokenHeaders = { 'content-type': 'application/json' };
 function refreshTokenHeaders() {
   tokenHeaders = {
     'content-type': 'application/json',
-    ...(token ? { 'x-commanddeck-token': token } : {}),
+    ...(token ? { 'x-orca-token': token } : {}),
   };
 }
 refreshTokenHeaders();
 
-const tempDir = explicitBase ? null : await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-full-flow-'));
+const tempDir = explicitBase ? null : await fs.mkdtemp(path.join(os.tmpdir(), 'orca-full-flow-'));
 let server = null;
 let stopServer = null;
 
@@ -238,10 +238,10 @@ async function main() {
 if (!explicitBase) {
   process.chdir(tempDir);
   process.env.PORT = '0';
-  process.env.COMMAND_DECK_HOST = '127.0.0.1';
-  process.env.COMMAND_DECK_CREDENTIAL_BACKEND = 'memory';
-  process.env.COMMAND_DECK_API_TOKEN = 'full-flow-smoke-token';
-  token = process.env.COMMAND_DECK_API_TOKEN;
+  process.env.ORCA_HOST = '127.0.0.1';
+  process.env.ORCA_CREDENTIAL_BACKEND = 'memory';
+  process.env.ORCA_API_TOKEN = 'full-flow-smoke-token';
+  token = process.env.ORCA_API_TOKEN;
   refreshTokenHeaders();
   const serverModule = await import('../src/server.js');
   server = await serverModule.startServer(0, '127.0.0.1');
@@ -369,7 +369,7 @@ if (pauseCodexExecution.status !== 200) fail('pauseCodexExecution', JSON.stringi
 const codexLane = await req('POST', `/api/sessions/${session.body.id}/lanes`, {
   title: 'smoke codex lane',
   executorType: 'codex',
-  executorBinary: process.env.COMMAND_DECK_CODEX_BINARY || 'codex',
+  executorBinary: process.env.ORCA_CODEX_BINARY || 'codex',
   mcpToolIds: [tool.body.id],
   approved: true,
   taskPrompt: 'Plan only',
@@ -403,7 +403,7 @@ if (providers.status !== 200) fail('provider catalog', JSON.stringify(providers)
 if (providers.body?.credentialBackend !== 'memory') {
   fail(
     'full-flow API provider smoke requires memory credential backend',
-    `Restart Command Deck with COMMAND_DECK_CREDENTIAL_BACKEND=memory for safe local provider-secret proof. Current backend=${providers.body?.credentialBackend}`,
+    `Restart Orca with ORCA_CREDENTIAL_BACKEND=memory for safe local provider-secret proof. Current backend=${providers.body?.credentialBackend}`,
   );
 }
 const apiSecret = `full-flow-api-secret-${slugSuffix}`;
@@ -418,7 +418,7 @@ try {
     baseUrl: dummyProvider.baseUrl,
     apiStyle: 'openai-compatible',
     secretRef: 'provider:openai-compatible',
-    apiKeyEnv: 'COMMAND_DECK_OPENAI_COMPATIBLE_API_KEY',
+    apiKeyEnv: 'ORCA_OPENAI_COMPATIBLE_API_KEY',
   });
   if (profileUpdate.status !== 200) fail('provider profile update', JSON.stringify(profileUpdate));
   const setSecret = await req('POST', '/api/providers/openai-compatible/secret', {
@@ -453,7 +453,7 @@ try {
     baseUrl: dummyGeminiProvider.baseUrl,
     apiStyle: 'gemini',
     secretRef: 'provider:gemini',
-    apiKeyEnv: 'COMMAND_DECK_GEMINI_API_KEY',
+    apiKeyEnv: 'ORCA_GEMINI_API_KEY',
   });
   if (geminiProfileUpdate.status !== 200) fail('Gemini provider profile update', JSON.stringify(geminiProfileUpdate));
   const setGeminiSecret = await req('POST', '/api/providers/gemini/secret', {
@@ -558,7 +558,7 @@ const funnelTarget = await req('POST', '/api/private-access/targets', {
   label: 'Blocked Funnel',
   mode: 'tailnet-https-serve',
   localUrl: base,
-  httpsServeUrl: 'https://command-deck.funnel.ts.net',
+  httpsServeUrl: 'https://orca.funnel.ts.net',
 });
 if (funnelTarget.status !== 422) fail('Funnel private access target should be rejected', JSON.stringify(funnelTarget));
 const privateCheck = await req('POST', `/api/private-access/targets/${privateTarget.body.id}/check`, { actor: 'dashboard' });

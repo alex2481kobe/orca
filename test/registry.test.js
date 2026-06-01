@@ -3,14 +3,14 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { CommandDeckRegistry } from '../src/registry.js';
+import { OrcaRegistry } from '../src/registry.js';
 
 async function withIsolatedRegistry() {
   const previousCwd = process.cwd();
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-registry-test-'));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-registry-test-'));
   process.chdir(tempDir);
 
-  const registry = new CommandDeckRegistry();
+  const registry = new OrcaRegistry();
   const cleanup = async () => {
     registry.stopScheduler();
     if (typeof registry.drainPendingWrites === 'function') {
@@ -761,11 +761,11 @@ test('Creating lanes rejects unknown or unauthorized MCP tool IDs', async () => 
 
 test('MCP tool command allowlist can be enforced via env override', async () => {
   const restore = restoreEnv({
-    COMMAND_DECK_MCP_TOOL_COMMAND_ALLOWLIST: process.env.COMMAND_DECK_MCP_TOOL_COMMAND_ALLOWLIST,
+    ORCA_MCP_TOOL_COMMAND_ALLOWLIST: process.env.ORCA_MCP_TOOL_COMMAND_ALLOWLIST,
   });
 
   try {
-    process.env.COMMAND_DECK_MCP_TOOL_COMMAND_ALLOWLIST = 'node,python';
+    process.env.ORCA_MCP_TOOL_COMMAND_ALLOWLIST = 'node,python';
     const { registry, cleanup } = await withIsolatedRegistry();
     try {
       assert.throws(() => registry.createMcpTool({
@@ -1015,17 +1015,17 @@ test('Unknown executor adapters report unsupported errors', async () => {
 
 test('executor CLI info and managed reinstall require approval', async () => {
   const restore = restoreEnv({
-    COMMAND_DECK_CODEX_BINARY: process.env.COMMAND_DECK_CODEX_BINARY,
-    COMMAND_DECK_CLAUDE_BINARY: process.env.COMMAND_DECK_CLAUDE_BINARY,
-    COMMAND_DECK_CODEX_REINSTALL_COMMAND: process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND,
-    COMMAND_DECK_CLAUDE_REINSTALL_COMMAND: process.env.COMMAND_DECK_CLAUDE_REINSTALL_COMMAND,
+    ORCA_CODEX_BINARY: process.env.ORCA_CODEX_BINARY,
+    ORCA_CLAUDE_BINARY: process.env.ORCA_CLAUDE_BINARY,
+    ORCA_CODEX_REINSTALL_COMMAND: process.env.ORCA_CODEX_REINSTALL_COMMAND,
+    ORCA_CLAUDE_REINSTALL_COMMAND: process.env.ORCA_CLAUDE_REINSTALL_COMMAND,
   });
 
   try {
-    process.env.COMMAND_DECK_CODEX_BINARY = '/usr/bin/codex';
-    process.env.COMMAND_DECK_CLAUDE_BINARY = '/usr/bin/claude';
-    process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND = '["npm","install","-g","--yes","codex-cli"]';
-    process.env.COMMAND_DECK_CLAUDE_REINSTALL_COMMAND = '["npm","install","-g","--yes","claude-cli"]';
+    process.env.ORCA_CODEX_BINARY = '/usr/bin/codex';
+    process.env.ORCA_CLAUDE_BINARY = '/usr/bin/claude';
+    process.env.ORCA_CODEX_REINSTALL_COMMAND = '["npm","install","-g","--yes","codex-cli"]';
+    process.env.ORCA_CLAUDE_REINSTALL_COMMAND = '["npm","install","-g","--yes","claude-cli"]';
 
     const { registry, cleanup } = await withIsolatedRegistry();
     try {
@@ -1209,14 +1209,14 @@ test('orchestrator thread messages are capped when restored or appended', async 
 
 test('executor CLI reinstall execute mode requires confirmation', async () => {
   const restore = restoreEnv({
-    COMMAND_DECK_CODEX_BINARY: process.env.COMMAND_DECK_CODEX_BINARY,
-    COMMAND_DECK_CODEX_REINSTALL_COMMAND: process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND,
-    COMMAND_DECK_CODEX_REINSTALL_PACKAGES: process.env.COMMAND_DECK_CODEX_REINSTALL_PACKAGES,
+    ORCA_CODEX_BINARY: process.env.ORCA_CODEX_BINARY,
+    ORCA_CODEX_REINSTALL_COMMAND: process.env.ORCA_CODEX_REINSTALL_COMMAND,
+    ORCA_CODEX_REINSTALL_PACKAGES: process.env.ORCA_CODEX_REINSTALL_PACKAGES,
   });
 
   try {
-    process.env.COMMAND_DECK_CODEX_BINARY = '/usr/bin/codex';
-    process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND = 'npm install --yes codex-cli';
+    process.env.ORCA_CODEX_BINARY = '/usr/bin/codex';
+    process.env.ORCA_CODEX_REINSTALL_COMMAND = 'npm install --yes codex-cli';
 
     const { registry, cleanup } = await withIsolatedRegistry();
     try {
@@ -1246,17 +1246,17 @@ test('executor CLI reinstall execute mode requires confirmation', async () => {
 
 test('executor CLI reinstall has secure official-package defaults when no override is provided', async () => {
   const restore = restoreEnv({
-    COMMAND_DECK_CODEX_BINARY: process.env.COMMAND_DECK_CODEX_BINARY,
-    COMMAND_DECK_CLAUDE_BINARY: process.env.COMMAND_DECK_CLAUDE_BINARY,
-    COMMAND_DECK_CODEX_REINSTALL_COMMAND: process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND,
-    COMMAND_DECK_CLAUDE_REINSTALL_COMMAND: process.env.COMMAND_DECK_CLAUDE_REINSTALL_COMMAND,
+    ORCA_CODEX_BINARY: process.env.ORCA_CODEX_BINARY,
+    ORCA_CLAUDE_BINARY: process.env.ORCA_CLAUDE_BINARY,
+    ORCA_CODEX_REINSTALL_COMMAND: process.env.ORCA_CODEX_REINSTALL_COMMAND,
+    ORCA_CLAUDE_REINSTALL_COMMAND: process.env.ORCA_CLAUDE_REINSTALL_COMMAND,
   });
 
   try {
-    process.env.COMMAND_DECK_CODEX_BINARY = '/usr/bin/codex';
-    process.env.COMMAND_DECK_CLAUDE_BINARY = '/usr/bin/claude';
-    delete process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND;
-    delete process.env.COMMAND_DECK_CLAUDE_REINSTALL_COMMAND;
+    process.env.ORCA_CODEX_BINARY = '/usr/bin/codex';
+    process.env.ORCA_CLAUDE_BINARY = '/usr/bin/claude';
+    delete process.env.ORCA_CODEX_REINSTALL_COMMAND;
+    delete process.env.ORCA_CLAUDE_REINSTALL_COMMAND;
 
     const { registry, cleanup } = await withIsolatedRegistry();
     try {
@@ -1278,17 +1278,17 @@ test('executor CLI reinstall has secure official-package defaults when no overri
 
 test('executor CLI reinstall command validation is executor-specific and safe', async () => {
   const restore = restoreEnv({
-    COMMAND_DECK_CODEX_BINARY: process.env.COMMAND_DECK_CODEX_BINARY,
-    COMMAND_DECK_CLAUDE_BINARY: process.env.COMMAND_DECK_CLAUDE_BINARY,
-    COMMAND_DECK_CODEX_REINSTALL_COMMAND: process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND,
-    COMMAND_DECK_CLAUDE_REINSTALL_COMMAND: process.env.COMMAND_DECK_CLAUDE_REINSTALL_COMMAND,
-    COMMAND_DECK_CODEX_REINSTALL_PACKAGES: process.env.COMMAND_DECK_CODEX_REINSTALL_PACKAGES,
+    ORCA_CODEX_BINARY: process.env.ORCA_CODEX_BINARY,
+    ORCA_CLAUDE_BINARY: process.env.ORCA_CLAUDE_BINARY,
+    ORCA_CODEX_REINSTALL_COMMAND: process.env.ORCA_CODEX_REINSTALL_COMMAND,
+    ORCA_CLAUDE_REINSTALL_COMMAND: process.env.ORCA_CLAUDE_REINSTALL_COMMAND,
+    ORCA_CODEX_REINSTALL_PACKAGES: process.env.ORCA_CODEX_REINSTALL_PACKAGES,
   });
 
   try {
-    process.env.COMMAND_DECK_CODEX_BINARY = '/usr/bin/codex';
-    process.env.COMMAND_DECK_CLAUDE_BINARY = '/usr/bin/claude';
-    process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND = 'npm install --yes codex-cli';
+    process.env.ORCA_CODEX_BINARY = '/usr/bin/codex';
+    process.env.ORCA_CLAUDE_BINARY = '/usr/bin/claude';
+    process.env.ORCA_CODEX_REINSTALL_COMMAND = 'npm install --yes codex-cli';
 
     const { registry, cleanup } = await withIsolatedRegistry();
     try {
@@ -1305,7 +1305,7 @@ test('executor CLI reinstall command validation is executor-specific and safe', 
       assert.equal(planned.command[0], 'npm');
       assert.equal(planned.command.includes('codex-cli'), true);
 
-      process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND = 'npm install codex-fake';
+      process.env.ORCA_CODEX_REINSTALL_COMMAND = 'npm install codex-fake';
       const blocked = await withIsolatedRegistry();
       try {
         const blockedInfo = blocked.registry.getExecutorCliInfo('codex');
@@ -1322,7 +1322,7 @@ test('executor CLI reinstall command validation is executor-specific and safe', 
         await blocked.cleanup();
       }
 
-      process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND = 'npm install --yes codex-cli';
+      process.env.ORCA_CODEX_REINSTALL_COMMAND = 'npm install --yes codex-cli';
       const info = registry.getExecutorCliInfo('codex');
       assert.equal(info.reinstall.available, true);
 
@@ -1343,21 +1343,21 @@ test('executor CLI reinstall command validation is executor-specific and safe', 
 
 test('executor CLI reinstall package allowlist can be overridden per executor', async () => {
   const restore = restoreEnv({
-    COMMAND_DECK_CODEX_BINARY: process.env.COMMAND_DECK_CODEX_BINARY,
-    COMMAND_DECK_CODEX_REINSTALL_COMMAND: process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND,
-    COMMAND_DECK_CODEX_REINSTALL_PACKAGES: process.env.COMMAND_DECK_CODEX_REINSTALL_PACKAGES,
+    ORCA_CODEX_BINARY: process.env.ORCA_CODEX_BINARY,
+    ORCA_CODEX_REINSTALL_COMMAND: process.env.ORCA_CODEX_REINSTALL_COMMAND,
+    ORCA_CODEX_REINSTALL_PACKAGES: process.env.ORCA_CODEX_REINSTALL_PACKAGES,
   });
 
   try {
-    process.env.COMMAND_DECK_CODEX_BINARY = '/usr/bin/codex';
-    process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND = 'npm install --yes codex-cli';
+    process.env.ORCA_CODEX_BINARY = '/usr/bin/codex';
+    process.env.ORCA_CODEX_REINSTALL_COMMAND = 'npm install --yes codex-cli';
 
     const { registry, cleanup } = await withIsolatedRegistry();
     try {
       const defaultInfo = registry.getExecutorCliInfo('codex');
       assert.equal(defaultInfo.reinstall.available, true);
 
-      process.env.COMMAND_DECK_CODEX_REINSTALL_PACKAGES = '@openai/codex';
+      process.env.ORCA_CODEX_REINSTALL_PACKAGES = '@openai/codex';
       const customBlocked = await withIsolatedRegistry();
       try {
         const customBlockedInfo = customBlocked.registry.getExecutorCliInfo('codex');
@@ -1374,8 +1374,8 @@ test('executor CLI reinstall package allowlist can be overridden per executor', 
         await customBlocked.cleanup();
       }
 
-      process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND = 'npm install --yes @openai/codex';
-      process.env.COMMAND_DECK_CODEX_REINSTALL_PACKAGES = '@openai/codex';
+      process.env.ORCA_CODEX_REINSTALL_COMMAND = 'npm install --yes @openai/codex';
+      process.env.ORCA_CODEX_REINSTALL_PACKAGES = '@openai/codex';
       const scopedAllowed = await withIsolatedRegistry();
       try {
         const scopedInfo = scopedAllowed.registry.getExecutorCliInfo('codex');
@@ -1400,15 +1400,15 @@ test('executor CLI reinstall package allowlist can be overridden per executor', 
 
 test('executor CLI reinstall rejects URL-based package spec spoofing', async () => {
   const restore = restoreEnv({
-    COMMAND_DECK_CODEX_BINARY: process.env.COMMAND_DECK_CODEX_BINARY,
-    COMMAND_DECK_CODEX_REINSTALL_COMMAND: process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND,
-    COMMAND_DECK_CODEX_REINSTALL_PACKAGES: process.env.COMMAND_DECK_CODEX_REINSTALL_PACKAGES,
+    ORCA_CODEX_BINARY: process.env.ORCA_CODEX_BINARY,
+    ORCA_CODEX_REINSTALL_COMMAND: process.env.ORCA_CODEX_REINSTALL_COMMAND,
+    ORCA_CODEX_REINSTALL_PACKAGES: process.env.ORCA_CODEX_REINSTALL_PACKAGES,
   });
 
   try {
-    process.env.COMMAND_DECK_CODEX_BINARY = '/usr/bin/codex';
-    process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND = 'npm install --yes https://example.com/@openai/codex';
-    process.env.COMMAND_DECK_CODEX_REINSTALL_PACKAGES = '@openai/codex';
+    process.env.ORCA_CODEX_BINARY = '/usr/bin/codex';
+    process.env.ORCA_CODEX_REINSTALL_COMMAND = 'npm install --yes https://example.com/@openai/codex';
+    process.env.ORCA_CODEX_REINSTALL_PACKAGES = '@openai/codex';
 
     const { registry, cleanup } = await withIsolatedRegistry();
     try {
@@ -1432,13 +1432,13 @@ test('executor CLI reinstall rejects URL-based package spec spoofing', async () 
 
 test('executor CLI reinstall supports safe override command profiles and manager verbs', async () => {
   const restore = restoreEnv({
-    COMMAND_DECK_CODEX_BINARY: process.env.COMMAND_DECK_CODEX_BINARY,
-    COMMAND_DECK_CODEX_REINSTALL_COMMAND: process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND,
+    ORCA_CODEX_BINARY: process.env.ORCA_CODEX_BINARY,
+    ORCA_CODEX_REINSTALL_COMMAND: process.env.ORCA_CODEX_REINSTALL_COMMAND,
   });
 
   try {
-    process.env.COMMAND_DECK_CODEX_BINARY = '/usr/bin/codex';
-    process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND = 'npm install --yes codex-cli';
+    process.env.ORCA_CODEX_BINARY = '/usr/bin/codex';
+    process.env.ORCA_CODEX_REINSTALL_COMMAND = 'npm install --yes codex-cli';
 
     const { registry, cleanup } = await withIsolatedRegistry();
     try {
@@ -1516,14 +1516,14 @@ test('executor CLI reinstall supports safe override command profiles and manager
 
 test('executor CLI reinstall supports trusted source-based reinstall commands', async () => {
   const restore = restoreEnv({
-    COMMAND_DECK_CODEX_BINARY: process.env.COMMAND_DECK_CODEX_BINARY,
-    COMMAND_DECK_CODEX_REINSTALL_COMMAND: process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND,
-    COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS: process.env.COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS,
+    ORCA_CODEX_BINARY: process.env.ORCA_CODEX_BINARY,
+    ORCA_CODEX_REINSTALL_COMMAND: process.env.ORCA_CODEX_REINSTALL_COMMAND,
+    ORCA_CODEX_REINSTALL_SOURCE_REPOS: process.env.ORCA_CODEX_REINSTALL_SOURCE_REPOS,
   });
 
   try {
-    process.env.COMMAND_DECK_CODEX_BINARY = '/usr/bin/codex';
-    process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND = 'npm install --yes git+https://github.com/openai/codex.git';
+    process.env.ORCA_CODEX_BINARY = '/usr/bin/codex';
+    process.env.ORCA_CODEX_REINSTALL_COMMAND = 'npm install --yes git+https://github.com/openai/codex.git';
 
     const { registry, cleanup } = await withIsolatedRegistry();
     try {
@@ -1544,14 +1544,14 @@ test('executor CLI reinstall supports trusted source-based reinstall commands', 
 
 test('executor CLI reinstall rejects untrusted source-based reinstall commands', async () => {
   const restore = restoreEnv({
-    COMMAND_DECK_CODEX_BINARY: process.env.COMMAND_DECK_CODEX_BINARY,
-    COMMAND_DECK_CODEX_REINSTALL_COMMAND: process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND,
-    COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS: process.env.COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS,
+    ORCA_CODEX_BINARY: process.env.ORCA_CODEX_BINARY,
+    ORCA_CODEX_REINSTALL_COMMAND: process.env.ORCA_CODEX_REINSTALL_COMMAND,
+    ORCA_CODEX_REINSTALL_SOURCE_REPOS: process.env.ORCA_CODEX_REINSTALL_SOURCE_REPOS,
   });
 
   try {
-    process.env.COMMAND_DECK_CODEX_BINARY = '/usr/bin/codex';
-    process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND = 'npm install --yes git+https://github.com/untrusted/source.git';
+    process.env.ORCA_CODEX_BINARY = '/usr/bin/codex';
+    process.env.ORCA_CODEX_REINSTALL_COMMAND = 'npm install --yes git+https://github.com/untrusted/source.git';
     const { registry, cleanup } = await withIsolatedRegistry();
     try {
       await assert.rejects(
@@ -1572,15 +1572,15 @@ test('executor CLI reinstall rejects untrusted source-based reinstall commands',
 
 test('executor CLI reinstall can use a configured source repo allowlist override', async () => {
   const restore = restoreEnv({
-    COMMAND_DECK_CODEX_BINARY: process.env.COMMAND_DECK_CODEX_BINARY,
-    COMMAND_DECK_CODEX_REINSTALL_COMMAND: process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND,
-    COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS: process.env.COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS,
+    ORCA_CODEX_BINARY: process.env.ORCA_CODEX_BINARY,
+    ORCA_CODEX_REINSTALL_COMMAND: process.env.ORCA_CODEX_REINSTALL_COMMAND,
+    ORCA_CODEX_REINSTALL_SOURCE_REPOS: process.env.ORCA_CODEX_REINSTALL_SOURCE_REPOS,
   });
 
   try {
-    process.env.COMMAND_DECK_CODEX_BINARY = '/usr/bin/codex';
-    process.env.COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS = 'my-org/codex-fork,openai/codex';
-    process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND = 'npm install --yes git+https://github.com/my-org/codex-fork.git';
+    process.env.ORCA_CODEX_BINARY = '/usr/bin/codex';
+    process.env.ORCA_CODEX_REINSTALL_SOURCE_REPOS = 'my-org/codex-fork,openai/codex';
+    process.env.ORCA_CODEX_REINSTALL_COMMAND = 'npm install --yes git+https://github.com/my-org/codex-fork.git';
 
     const { registry, cleanup } = await withIsolatedRegistry();
     try {
@@ -1601,17 +1601,17 @@ test('executor CLI reinstall can use a configured source repo allowlist override
 
 test('executor CLI reinstall preference for source commands is respected and surfaced', async () => {
   const restore = restoreEnv({
-    COMMAND_DECK_CODEX_BINARY: process.env.COMMAND_DECK_CODEX_BINARY,
-    COMMAND_DECK_CODEX_REINSTALL_COMMAND: process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND,
-    COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS: process.env.COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS,
-    COMMAND_DECK_CODEX_REINSTALL_PREFER_SOURCE: process.env.COMMAND_DECK_CODEX_REINSTALL_PREFER_SOURCE,
+    ORCA_CODEX_BINARY: process.env.ORCA_CODEX_BINARY,
+    ORCA_CODEX_REINSTALL_COMMAND: process.env.ORCA_CODEX_REINSTALL_COMMAND,
+    ORCA_CODEX_REINSTALL_SOURCE_REPOS: process.env.ORCA_CODEX_REINSTALL_SOURCE_REPOS,
+    ORCA_CODEX_REINSTALL_PREFER_SOURCE: process.env.ORCA_CODEX_REINSTALL_PREFER_SOURCE,
   });
 
   try {
-    process.env.COMMAND_DECK_CODEX_BINARY = '/usr/bin/codex';
-    delete process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND;
-    process.env.COMMAND_DECK_CODEX_REINSTALL_SOURCE_REPOS = 'my-org/codex-fork,openai/codex';
-    process.env.COMMAND_DECK_CODEX_REINSTALL_PREFER_SOURCE = 'true';
+    process.env.ORCA_CODEX_BINARY = '/usr/bin/codex';
+    delete process.env.ORCA_CODEX_REINSTALL_COMMAND;
+    process.env.ORCA_CODEX_REINSTALL_SOURCE_REPOS = 'my-org/codex-fork,openai/codex';
+    process.env.ORCA_CODEX_REINSTALL_PREFER_SOURCE = 'true';
 
     const preferred = await withIsolatedRegistry();
     try {
@@ -1636,8 +1636,8 @@ test('executor CLI reinstall preference for source commands is respected and sur
       await preferred.cleanup();
     }
 
-    process.env.COMMAND_DECK_CODEX_REINSTALL_PREFER_SOURCE = 'false';
-    process.env.COMMAND_DECK_CODEX_REINSTALL_COMMAND = 'npm install --yes @openai/codex';
+    process.env.ORCA_CODEX_REINSTALL_PREFER_SOURCE = 'false';
+    process.env.ORCA_CODEX_REINSTALL_COMMAND = 'npm install --yes @openai/codex';
     const fallback = await withIsolatedRegistry();
     try {
       const fallbackInfo = fallback.registry.getExecutorCliInfo('codex');
@@ -1732,16 +1732,16 @@ test('MCP config is generated per-lane with safe path and executor-specific shap
 
 test('CLI executor writes raw terminal stdout and stderr artifacts', async () => {
   const previous = {
-    COMMAND_DECK_ENABLE_CUSTOM_CLI: process.env.COMMAND_DECK_ENABLE_CUSTOM_CLI,
-    COMMAND_DECK_CLI_BINARY: process.env.COMMAND_DECK_CLI_BINARY,
-    COMMAND_DECK_CLI_ALLOWED_BINARIES: process.env.COMMAND_DECK_CLI_ALLOWED_BINARIES,
-    COMMAND_DECK_CLI_WORKDIR_ROOTS: process.env.COMMAND_DECK_CLI_WORKDIR_ROOTS,
+    ORCA_ENABLE_CUSTOM_CLI: process.env.ORCA_ENABLE_CUSTOM_CLI,
+    ORCA_CLI_BINARY: process.env.ORCA_CLI_BINARY,
+    ORCA_CLI_ALLOWED_BINARIES: process.env.ORCA_CLI_ALLOWED_BINARIES,
+    ORCA_CLI_WORKDIR_ROOTS: process.env.ORCA_CLI_WORKDIR_ROOTS,
   };
   const restore = restoreEnv(previous);
-  process.env.COMMAND_DECK_ENABLE_CUSTOM_CLI = 'true';
-  process.env.COMMAND_DECK_CLI_BINARY = process.execPath;
-  process.env.COMMAND_DECK_CLI_ALLOWED_BINARIES = process.execPath;
-  process.env.COMMAND_DECK_CLI_WORKDIR_ROOTS = process.cwd();
+  process.env.ORCA_ENABLE_CUSTOM_CLI = 'true';
+  process.env.ORCA_CLI_BINARY = process.execPath;
+  process.env.ORCA_CLI_ALLOWED_BINARIES = process.execPath;
+  process.env.ORCA_CLI_WORKDIR_ROOTS = process.cwd();
 
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
@@ -2213,9 +2213,9 @@ test('Custom CLI lanes require explicit custom CLI enablement and configured bin
   const previousEnv = { ...process.env };
   const restore = restoreEnv(previousEnv);
   try {
-    delete process.env.COMMAND_DECK_ENABLE_CUSTOM_CLI;
-    delete process.env.COMMAND_DECK_CLI_BINARY;
-    delete process.env.COMMAND_DECK_CLI_ALLOWED_BINARIES;
+    delete process.env.ORCA_ENABLE_CUSTOM_CLI;
+    delete process.env.ORCA_CLI_BINARY;
+    delete process.env.ORCA_CLI_ALLOWED_BINARIES;
     const disabled = await withIsolatedRegistry();
     try {
       const project = disabled.registry.createProject({ name: 'CLI Disabled Project' }, { actor: 'test', approved: true });
@@ -2229,9 +2229,9 @@ test('Custom CLI lanes require explicit custom CLI enablement and configured bin
       await disabled.cleanup();
     }
 
-    process.env.COMMAND_DECK_ENABLE_CUSTOM_CLI = 'true';
-    process.env.COMMAND_DECK_CLI_BINARY = 'node';
-    process.env.COMMAND_DECK_CLI_ALLOWED_BINARIES = 'node';
+    process.env.ORCA_ENABLE_CUSTOM_CLI = 'true';
+    process.env.ORCA_CLI_BINARY = 'node';
+    process.env.ORCA_CLI_ALLOWED_BINARIES = 'node';
     const enabled = await withIsolatedRegistry();
     try {
       const project = enabled.registry.createProject({ name: 'CLI Enabled Project' }, { actor: 'test', approved: true });
@@ -2253,14 +2253,14 @@ test('Custom CLI lanes require explicit custom CLI enablement and configured bin
 
 test('CLI executor receives transient runtime env without storing it on the lane', async () => {
   const restore = restoreEnv({
-    COMMAND_DECK_ENABLE_CUSTOM_CLI: process.env.COMMAND_DECK_ENABLE_CUSTOM_CLI,
-    COMMAND_DECK_CLI_BINARY: process.env.COMMAND_DECK_CLI_BINARY,
-    COMMAND_DECK_CLI_ALLOWED_BINARIES: process.env.COMMAND_DECK_CLI_ALLOWED_BINARIES,
+    ORCA_ENABLE_CUSTOM_CLI: process.env.ORCA_ENABLE_CUSTOM_CLI,
+    ORCA_CLI_BINARY: process.env.ORCA_CLI_BINARY,
+    ORCA_CLI_ALLOWED_BINARIES: process.env.ORCA_CLI_ALLOWED_BINARIES,
   });
   try {
-    process.env.COMMAND_DECK_ENABLE_CUSTOM_CLI = 'true';
-    process.env.COMMAND_DECK_CLI_BINARY = 'node';
-    process.env.COMMAND_DECK_CLI_ALLOWED_BINARIES = 'node';
+    process.env.ORCA_ENABLE_CUSTOM_CLI = 'true';
+    process.env.ORCA_CLI_BINARY = 'node';
+    process.env.ORCA_CLI_ALLOWED_BINARIES = 'node';
     const { createExecutorAdapter } = await import('../src/executor-factory.js');
     const adapter = createExecutorAdapter('cli', {
       onLog: async () => {},
@@ -2268,7 +2268,7 @@ test('CLI executor receives transient runtime env without storing it on the lane
       onFail: async () => {},
       onStop: async () => {},
       runtimeEnvForLane: (lane) => lane.id === 'runtime-env-lane'
-        ? { COMMAND_DECK_TOOL_LEASE_TOKEN: 'scoped-lease-token' }
+        ? { ORCA_TOOL_LEASE_TOKEN: 'scoped-lease-token' }
         : {},
       defaultWorkingDir: process.cwd(),
     });
@@ -2279,8 +2279,8 @@ test('CLI executor receives transient runtime env without storing it on the lane
       workdir: process.cwd(),
     };
     const env = adapter._buildEnv(lane);
-    assert.equal(env.COMMAND_DECK_TOOL_LEASE_TOKEN, 'scoped-lease-token');
-    assert.equal(env.COMMAND_DECK_LANE_ID, 'runtime-env-lane');
+    assert.equal(env.ORCA_TOOL_LEASE_TOKEN, 'scoped-lease-token');
+    assert.equal(env.ORCA_LANE_ID, 'runtime-env-lane');
     assert.equal(Object.hasOwn(lane, 'env'), false);
   } finally {
     restore();
@@ -2288,7 +2288,7 @@ test('CLI executor receives transient runtime env without storing it on the lane
 });
 
 test('Real Claude CLI launches through the executor adapter and reports PID + exit', async () => {
-  const claudeBinary = process.env.COMMAND_DECK_CLAUDE_BINARY || '/opt/homebrew/bin/claude';
+  const claudeBinary = process.env.ORCA_CLAUDE_BINARY || '/opt/homebrew/bin/claude';
   let canExec = false;
   try {
     const { spawnSync } = await import('node:child_process');

@@ -27,8 +27,8 @@ function policyFromEnv(policyName) {
   const upper = policyName.replace(/[A-Z]/g, (char) => `_${char}`).toUpperCase();
   const base = DEFAULT_LIMITS[policyName] || DEFAULT_LIMITS.defaultMutation;
   return {
-    limit: envNumber(`COMMAND_DECK_RATE_LIMIT_${upper}_LIMIT`, base.limit),
-    windowMs: envNumber(`COMMAND_DECK_RATE_LIMIT_${upper}_WINDOW_MS`, base.windowMs),
+    limit: envNumber(`ORCA_RATE_LIMIT_${upper}_LIMIT`, base.limit),
+    windowMs: envNumber(`ORCA_RATE_LIMIT_${upper}_WINDOW_MS`, base.windowMs),
   };
 }
 
@@ -44,8 +44,8 @@ function headerValue(headers, key) {
 
 function requestActorKey(req) {
   const authHeader = headerValue(req.headers, 'authorization');
-  const commandToken = headerValue(req.headers, 'x-commanddeck-token');
-  const workerToken = headerValue(req.headers, 'x-commanddeck-worker-token');
+  const commandToken = headerValue(req.headers, 'x-orca-token');
+  const workerToken = headerValue(req.headers, 'x-orca-worker-token');
   const cookie = headerValue(req.headers, 'cookie');
   const forwardedFor = headerValue(req.headers, 'x-forwarded-for').split(',')[0].trim();
   const remote = req.socket?.remoteAddress || req.connection?.remoteAddress || 'unknown';
@@ -55,7 +55,7 @@ function requestActorKey(req) {
   if (cookie) {
     // Key on the session cookie value only — not the whole header — so unrelated
     // cookies (or attacker-rotated throwaway cookies) can't reset/evade the bucket.
-    const match = /(?:^|;\s*)command_deck_session=([^;]*)/.exec(cookie);
+    const match = /(?:^|;\s*)orca_session=([^;]*)/.exec(cookie);
     const sessionValue = match ? match[1] : '';
     if (sessionValue) return `cookie:${hashToken(sessionValue)}`;
   }

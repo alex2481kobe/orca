@@ -1,6 +1,6 @@
-# Command Deck
+# Orca
 
-Command Deck is a local-first, phone-first control plane for coordinating
+Orca is a local-first, phone-first control plane for coordinating
 Codex, Claude, custom CLI, and API-backed agent lanes across projects. It
 ships a private operator dashboard, governed backend routes, provider
 profiles, credential references, MCP tooling, audit/critique gates,
@@ -130,7 +130,7 @@ front-end:
 - Approval gates cannot be bypassed: persisted policy state can never weaken a
   default gate, and `skipApproval` is rejected from request bodies.
 - MCP tool env rejects loader-hijack keys (PATH/LD_PRELOAD/NODE_OPTIONS-class);
-  lanes cannot override server-managed `COMMAND_DECK_*` env; executor argv is
+  lanes cannot override server-managed `ORCA_*` env; executor argv is
   flag-injection-safe; git `baseRef`/worktree removal are path/ref validated.
 - Recursive prototype-pollution rejection on imports; CR/LF stripped from SSE
   event names; crash-safe cookie parsing; broader secret redaction patterns.
@@ -151,7 +151,7 @@ These are not missing local app code:
   [`docs/tailscale-mobile-access.md`](docs/tailscale-mobile-access.md).
 - Tauri v2 desktop scaffolding is present under `src-tauri/`. It owns native
   server start/stop/restart/health commands, OS credential storage for the
-  generated `COMMAND_DECK_API_TOKEN`, dashboard URL copy, pairing-code
+  generated `ORCA_API_TOKEN`, dashboard URL copy, pairing-code
   creation, menu/tray actions, and release-updater scaffolding. Check it with
   `npm run tauri:check`, launch development mode with `npm run tauri:dev`,
   build the macOS package path with `npm run tauri:build`, and build signed
@@ -182,7 +182,7 @@ These are not missing local app code:
 ```bash
 cd command-deck-client
 npm install
-COMMAND_DECK_API_TOKEN="$(openssl rand -hex 32)" npm run dev
+ORCA_API_TOKEN="$(openssl rand -hex 32)" npm run dev
 ```
 
 The dashboard starts at <http://127.0.0.1:3000/>.
@@ -235,7 +235,7 @@ To create a fresh one-time phone/browser pairing code without putting a token
 in a URL:
 
 ```bash
-COMMAND_DECK_API_TOKEN=... npm run operator:pair
+ORCA_API_TOKEN=... npm run operator:pair
 ```
 
 The helper prints only the one-time code and expiry. It never prints the API
@@ -246,14 +246,14 @@ To run the full live phone-readiness preflight and write a redacted local
 summary artifact:
 
 ```bash
-COMMAND_DECK_PRIVATE_URL=<tailnet-url> npm run operator:phone-check
+ORCA_PRIVATE_URL=<tailnet-url> npm run operator:phone-check
 ```
 
 To also create a fresh one-time pairing code during that preflight:
 
 ```bash
-COMMAND_DECK_PRIVATE_URL=<tailnet-url> \
-COMMAND_DECK_API_TOKEN=... \
+ORCA_PRIVATE_URL=<tailnet-url> \
+ORCA_API_TOKEN=... \
   npm run operator:phone-check -- --create-pairing-code
 ```
 
@@ -274,16 +274,16 @@ summary, and git status, then writes
 
 | Variable | Purpose |
 | --- | --- |
-| `COMMAND_DECK_API_TOKEN` | Required token for non-GET API calls when set. |
-| `COMMAND_DECK_WORKER_TOKEN` | Optional heartbeat token for worker callers. |
-| `COMMAND_DECK_HOST` | Bind interface. Defaults to `127.0.0.1`. |
+| `ORCA_API_TOKEN` | Required token for non-GET API calls when set. |
+| `ORCA_WORKER_TOKEN` | Optional heartbeat token for worker callers. |
+| `ORCA_HOST` | Bind interface. Defaults to `127.0.0.1`. |
 | `PORT` | HTTP port. Defaults to `3000`. |
-| `COMMAND_DECK_MAX_JSON_BYTES` | JSON body limit. Defaults to `262144`. |
-| `COMMAND_DECK_REPO_ROOTS` | Comma-separated approved repo/workdir roots. |
-| `COMMAND_DECK_STOP_ESCALATE_MS` | Stop grace period before escalation. |
-| `COMMAND_DECK_CODEX_*` | Codex binary, allowlist, args, workdir, and install policy. |
-| `COMMAND_DECK_CLAUDE_*` | Claude binary, allowlist, args, workdir, and install policy. |
-| `COMMAND_DECK_MCP_TOOL_COMMAND_ALLOWLIST` | Allowed MCP executable names. |
+| `ORCA_MAX_JSON_BYTES` | JSON body limit. Defaults to `262144`. |
+| `ORCA_REPO_ROOTS` | Comma-separated approved repo/workdir roots. |
+| `ORCA_STOP_ESCALATE_MS` | Stop grace period before escalation. |
+| `ORCA_CODEX_*` | Codex binary, allowlist, args, workdir, and install policy. |
+| `ORCA_CLAUDE_*` | Claude binary, allowlist, args, workdir, and install policy. |
+| `ORCA_MCP_TOOL_COMMAND_ALLOWLIST` | Allowed MCP executable names. |
 
 Provider API keys should use OS credential references where available or
 server-side env vars as fallback. Secret values must not be stored in browser

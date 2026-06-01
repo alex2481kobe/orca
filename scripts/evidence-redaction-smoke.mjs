@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /*
- * Command Deck evidence redaction smoke.
+ * Orca evidence redaction smoke.
  *
- * Verifies that evidence capture refuses sensitive Command Deck control URLs,
+ * Verifies that evidence capture refuses sensitive Orca control URLs,
  * token-bearing URLs, credentialed URLs, and unsafe private targets before
  * browser automation can run. Also proves safe degraded evidence metadata does
  * not contain auth/provider secret markers.
@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { CommandDeckRegistry } from '../src/registry.js';
+import { OrcaRegistry } from '../src/registry.js';
 import { validateEvidenceUrl } from '../src/url-policy.js';
 
 const log = (label, info = '') => console.log(`[evidence-redaction] ${label}${info ? ' — ' + info : ''}`);
@@ -45,10 +45,10 @@ assert.throws(
 );
 
 const previousCwd = process.cwd();
-const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-evidence-smoke-'));
+const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-evidence-smoke-'));
 process.chdir(tempDir);
 try {
-  const registry = new CommandDeckRegistry({ heartbeatIntervalMs: 5 });
+  const registry = new OrcaRegistry({ heartbeatIntervalMs: 5 });
   try {
     const project = registry.createProject({
       name: 'Evidence Redaction',
@@ -80,12 +80,12 @@ try {
     });
     const serialized = JSON.stringify(result);
     for (const forbidden of [
-      'COMMAND_DECK_API_TOKEN',
-      'COMMAND_DECK_WORKER_TOKEN',
+      'ORCA_API_TOKEN',
+      'ORCA_WORKER_TOKEN',
       'apiKey',
       'sessionToken',
       'manual-test-token',
-      'sk-command-deck',
+      'sk-orca',
     ]) {
       assert.equal(serialized.includes(forbidden), false, `evidence response leaked ${forbidden}`);
     }

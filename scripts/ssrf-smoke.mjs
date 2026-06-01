@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Command Deck SSRF/private URL smoke.
+ * Orca SSRF/private URL smoke.
  *
  * Deterministically verifies local/tailnet-only URL policy for private access,
  * lane targets, and evidence capture without opening browsers or touching
@@ -95,12 +95,12 @@ function assertThrowsPolicy(label, callback, messagePattern) {
 
 async function main() {
   validateNetworkUrl('http://127.0.0.1:3000');
-  validateNetworkUrl('https://command-deck.example.ts.net');
+  validateNetworkUrl('https://orca.example.ts.net');
   validateNetworkUrl('http://100.64.1.2:3000');
   assertThrowsPolicy('metadata IP rejected', () => validateNetworkUrl('http://169.254.169.254/latest/meta-data'), /blocked private/);
   assertThrowsPolicy('rfc1918 IP rejected', () => validateNetworkUrl('http://192.168.1.12:3000'), /blocked private/);
-  assertThrowsPolicy('credential URL rejected', () => validateNetworkUrl('https://user:pass@command-deck.example.ts.net'), /credentials/);
-  assertThrowsPolicy('funnel URL rejected', () => validateNetworkUrl('https://command-deck.funnel.ts.net'), /Funnel/);
+  assertThrowsPolicy('credential URL rejected', () => validateNetworkUrl('https://user:pass@orca.example.ts.net'), /credentials/);
+  assertThrowsPolicy('funnel URL rejected', () => validateNetworkUrl('https://orca.funnel.ts.net'), /Funnel/);
   assertThrowsPolicy('unsaved evidence URL rejected', () => validateEvidenceUrl('http://127.0.0.1:5173', {
     allowedUrls: ['http://127.0.0.1:4173'],
   }), /one-time/);
@@ -108,11 +108,11 @@ async function main() {
 
   const previousCwd = process.cwd();
   const previousEnv = { ...process.env };
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-ssrf-smoke-'));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-ssrf-smoke-'));
   process.chdir(tempDir);
   process.env.PORT = '0';
-  process.env.COMMAND_DECK_API_TOKEN = token;
-  process.env.COMMAND_DECK_RATE_LIMIT_DISABLED = 'true';
+  process.env.ORCA_API_TOKEN = token;
+  process.env.ORCA_RATE_LIMIT_DISABLED = 'true';
   let stopServer = null;
   try {
     const moduleUrl = `${pathToFileURL(serverPath).href}?ssrf-smoke=${Date.now()}`;
@@ -122,7 +122,7 @@ async function main() {
 
     const project = await request(routeRequest, '/api/projects', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'ssrf-smoke',
         approved: true,
@@ -133,7 +133,7 @@ async function main() {
     if (project.status !== 201) fail('project create', JSON.stringify(project.body));
     const session = await request(routeRequest, `/api/projects/${project.body.id}/sessions`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'ssrf-smoke',
         approved: true,
@@ -144,7 +144,7 @@ async function main() {
 
     const badTargetLane = await request(routeRequest, `/api/sessions/${session.body.id}/lanes`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'ssrf-smoke',
         approved: true,
@@ -157,7 +157,7 @@ async function main() {
 
     const lane = await request(routeRequest, `/api/sessions/${session.body.id}/lanes`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'ssrf-smoke',
         approved: true,
@@ -170,7 +170,7 @@ async function main() {
 
     const badEvidence = await request(routeRequest, `/api/lanes/${lane.body.id}/evidence`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'ssrf-smoke',
         approved: true,
@@ -181,7 +181,7 @@ async function main() {
 
     const unsavedEvidence = await request(routeRequest, `/api/lanes/${lane.body.id}/evidence`, {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'ssrf-smoke',
         approved: true,
@@ -192,7 +192,7 @@ async function main() {
 
     const badPrivateTarget = await request(routeRequest, '/api/private-access/targets', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'ssrf-smoke',
         label: 'Bad private target',

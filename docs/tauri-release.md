@@ -1,6 +1,6 @@
 # Tauri release, signing, notarization, and updates
 
-Command Deck has two desktop build modes:
+Orca has two desktop build modes:
 
 - `npm run tauri:build` creates a local unsigned macOS `.app` bundle for
   workstation testing.
@@ -39,7 +39,7 @@ ignored by git. In CI, provide it as one of:
 If a fresh local key is needed:
 
 ```sh
-npm run tauri signer generate -- --ci --write-keys .tauri/command-deck-updater.key
+npm run tauri signer generate -- --ci --write-keys .tauri/orca-updater.key
 ```
 
 Losing the updater private key means previously installed apps cannot trust new
@@ -98,7 +98,7 @@ ID app-specific password in the workflow.
 7. Generate `latest.json` after setting the final download URL:
 
    ```sh
-   COMMAND_DECK_UPDATE_ARTIFACT_URL="https://github.com/alex2481kobe/orca/releases/download/v0.1.0/Command%20Deck.app.tar.gz" \
+   ORCA_UPDATE_ARTIFACT_URL="https://github.com/alex2481kobe/orca/releases/download/v0.1.0/Command%20Deck.app.tar.gz" \
      npm run tauri:release-manifest
    ```
 

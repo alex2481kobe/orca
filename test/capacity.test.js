@@ -3,14 +3,14 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { CommandDeckRegistry } from '../src/registry.js';
+import { OrcaRegistry } from '../src/registry.js';
 import { buildNextActionEnvelope } from '../src/agent-tools.js';
 
 async function withRegistry(callback) {
   const previousCwd = process.cwd();
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-capacity-'));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-capacity-'));
   process.chdir(tempDir);
-  const registry = new CommandDeckRegistry({ autoCompleteMs: 60 * 60 * 1000 });
+  const registry = new OrcaRegistry({ autoCompleteMs: 60 * 60 * 1000 });
   registry.stopScheduler();
   try {
     return await callback(registry);

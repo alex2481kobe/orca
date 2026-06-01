@@ -1,6 +1,6 @@
 # Executor agent skill
 
-Use this document when an executor agent is assigned a Command Deck lane. Keep
+Use this document when an executor agent is assigned a Orca lane. Keep
 it public-safe and editable inside an installed app.
 
 ## Role
@@ -45,7 +45,7 @@ tailnet: http://device.tailnet.ts.net:5173
 https serve: https://device.tailnet.ts.net
 ```
 
-The orchestrator or dashboard should save those values through Command Deck so
+The orchestrator or dashboard should save those values through Orca so
 future agents use the server-authoritative link instead of stale chat text.
 
 ## Preview evidence handoff
@@ -64,7 +64,7 @@ preview as blocked by host setup.
 - Do not install or update CLIs, package managers, browsers, Tailscale, native
   runtimes, or credential helpers unless the lane explicitly requests it and the
   dashboard policy approves it.
-- Do not expose Command Deck through public tunnels. Use private tailnet access
+- Do not expose Orca through public tunnels. Use private tailnet access
   only.
 - Do not weaken tests, route inventory, auth, URL validation, or approval gates
   to make a lane pass.

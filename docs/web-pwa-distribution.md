@@ -1,6 +1,6 @@
 # Web/PWA distribution
 
-Command Deck can run without the Tauri desktop wrapper on macOS, Windows, and
+Orca can run without the Tauri desktop wrapper on macOS, Windows, and
 Linux. In this mode the user runs the Node server locally and opens the
 dashboard in a browser.
 
@@ -18,7 +18,7 @@ dashboard in a browser.
 - No native app bundle or installer.
 - No native menu/tray controls.
 - No automatic server lifecycle on app launch.
-- No OS credential storage for `COMMAND_DECK_API_TOKEN`; use a local env var or
+- No OS credential storage for `ORCA_API_TOKEN`; use a local env var or
   a user-managed service wrapper.
 - No Tauri updater.
 
@@ -38,7 +38,7 @@ Run:
 git clone https://github.com/alex2481kobe/orca.git
 cd orca
 npm install
-COMMAND_DECK_API_TOKEN="$(openssl rand -hex 32)" npm run dev
+ORCA_API_TOKEN="$(openssl rand -hex 32)" npm run dev
 ```
 
 Open <http://127.0.0.1:3000/>.
@@ -48,7 +48,7 @@ Windows PowerShell token setup:
 ```powershell
 $bytes = [byte[]]::new(32)
 [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
-$env:COMMAND_DECK_API_TOKEN = -join ($bytes | ForEach-Object { $_.ToString('x2') })
+$env:ORCA_API_TOKEN = -join ($bytes | ForEach-Object { $_.ToString('x2') })
 npm run dev
 ```
 

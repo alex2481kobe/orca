@@ -40,7 +40,7 @@ test('provider profile validation rejects unsafe base URLs and managed policies'
 });
 
 test('provider store import/export excludes secrets and validates schema', async () => {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-providers-'));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-providers-'));
   const store = new ProviderProfileStore({
     stateFile: path.join(tempDir, 'providers.json'),
     credentialStore: new CredentialStore({ backend: 'memory' }),
@@ -60,7 +60,7 @@ test('provider store import/export excludes secrets and validates schema', async
         baseUrl: 'https://api.openai.com/v1',
         apiStyle: 'openai-compatible',
         secretRef: 'provider:openai-compatible',
-        apiKeyEnv: 'COMMAND_DECK_OPENAI_COMPATIBLE_API_KEY',
+        apiKeyEnv: 'ORCA_OPENAI_COMPATIBLE_API_KEY',
       }],
     });
     assert.equal(dryRun.acceptedCount, 1);
@@ -87,7 +87,7 @@ test('provider store import/export excludes secrets and validates schema', async
 });
 
 test('memory credential store never echoes secret values through provider APIs', async () => {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-provider-secrets-'));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-provider-secrets-'));
   const store = new ProviderProfileStore({
     stateFile: path.join(tempDir, 'providers.json'),
     credentialStore: new CredentialStore({ backend: 'memory' }),
@@ -111,9 +111,9 @@ test('memory credential store never echoes secret values through provider APIs',
 });
 
 test('credential store reports env fallback and blocked OS backend states without values', async () => {
-  const env = { COMMAND_DECK_TEST_API_KEY: 'sk-env-secret' };
+  const env = { ORCA_TEST_API_KEY: 'sk-env-secret' };
   const credentialStore = new CredentialStore({ backend: 'env', platform: 'linux', env });
-  const description = await credentialStore.describe('provider:test', 'COMMAND_DECK_TEST_API_KEY');
+  const description = await credentialStore.describe('provider:test', 'ORCA_TEST_API_KEY');
   assert.equal(description.present, true);
   assert.equal(description.backend, 'env');
   assert.equal(description.envFallbackPresent, true);
@@ -126,13 +126,13 @@ test('credential store reports env fallback and blocked OS backend states withou
 });
 
 test('provider list exposes credential backend status metadata without secret values', async () => {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-provider-backends-'));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-provider-backends-'));
   const store = new ProviderProfileStore({
     stateFile: path.join(tempDir, 'providers.json'),
     credentialStore: new CredentialStore({
       backend: 'env',
       platform: 'darwin',
-      env: { COMMAND_DECK_OPENAI_COMPATIBLE_API_KEY: 'sk-env-provider-secret' },
+      env: { ORCA_OPENAI_COMPATIBLE_API_KEY: 'sk-env-provider-secret' },
     }),
   });
   try {
@@ -209,9 +209,9 @@ test('unsupported writable OS credential backends fail closed with env fallback 
   const credentialStore = new CredentialStore({
     backend: 'linux-secret-service',
     platform: 'darwin',
-    env: { COMMAND_DECK_TEST_API_KEY: 'sk-env-fallback-secret' },
+    env: { ORCA_TEST_API_KEY: 'sk-env-fallback-secret' },
   });
-  const description = await credentialStore.describe('provider:test', 'COMMAND_DECK_TEST_API_KEY');
+  const description = await credentialStore.describe('provider:test', 'ORCA_TEST_API_KEY');
   assert.equal(description.present, true);
   assert.equal(description.backend, 'env');
   assert.equal(JSON.stringify(description).includes('sk-env-fallback-secret'), false);

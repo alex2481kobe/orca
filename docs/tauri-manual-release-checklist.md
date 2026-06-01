@@ -1,6 +1,6 @@
 # Manual macOS release checklist
 
-Use this when making the first real signed/notarized Command Deck release from
+Use this when making the first real signed/notarized Orca release from
 the Mac workstation. This checklist intentionally keeps Apple and updater
 secrets local.
 
@@ -15,7 +15,7 @@ secrets local.
 2. Generate or restore the Tauri updater private key under ignored local state:
 
    ```sh
-   npm run tauri signer generate -- --ci --write-keys .tauri/command-deck-updater.key
+   npm run tauri signer generate -- --ci --write-keys .tauri/orca-updater.key
    ```
 
    Do not regenerate this key after users install the app unless you are willing
@@ -85,9 +85,9 @@ secrets local.
 7. Create a GitHub Release for the tag and upload:
 
    ```text
-   src-tauri/target/release/bundle/dmg/Command Deck_0.2.0_aarch64.dmg
-   src-tauri/target/release/bundle/macos/Command Deck.app.tar.gz
-   src-tauri/target/release/bundle/macos/Command Deck.app.tar.gz.sig
+   src-tauri/target/release/bundle/dmg/Orca_0.2.0_aarch64.dmg
+   src-tauri/target/release/bundle/macos/Orca.app.tar.gz
+   src-tauri/target/release/bundle/macos/Orca.app.tar.gz.sig
    ```
 
 8. Generate the update manifest using the final GitHub asset URL.
@@ -101,7 +101,7 @@ secrets local.
 10. Download the DMG from GitHub Releases on the Mac, install it, and confirm:
 
     ```sh
-    spctl --assess --type execute --verbose "/Applications/Command Deck.app"
+    spctl --assess --type execute --verbose "/Applications/Orca.app"
     ```
 
 11. Launch the installed app and confirm:

@@ -1,6 +1,6 @@
 const APP_BACKUP_SCHEMA_VERSION = 1;
-const APP_EXPORT_KIND = 'command-deck.app-export';
-const SUPPORT_BUNDLE_KIND = 'command-deck.support-bundle';
+const APP_EXPORT_KIND = 'orca.app-export';
+const SUPPORT_BUNDLE_KIND = 'orca.support-bundle';
 
 const ACTIVE_LANE_STATES = new Set(['queued', 'starting', 'running', 'auditing']);
 const BLOCKED_IMPORT_KEYS = new Set([

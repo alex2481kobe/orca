@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /*
  * Proves the live orchestrator-to-executor lane flow against an isolated
- * Command Deck server.
+ * Orca server.
  */
 
 import fs from 'node:fs/promises';
@@ -12,7 +12,7 @@ import { spawnSync } from 'node:child_process';
 
 const previousCwd = process.cwd();
 const previousEnv = { ...process.env };
-const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-orch-exec-'));
+const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-orch-exec-'));
 const token = 'orchestrator-executor-smoke-token';
 let server = null;
 let stopServer = null;
@@ -26,7 +26,7 @@ const fail = (label, info = '') => {
 
 function detectClaudeBinary() {
   const candidates = [
-    process.env.COMMAND_DECK_CLAUDE_BINARY,
+    process.env.ORCA_CLAUDE_BINARY,
     '/opt/homebrew/bin/claude',
     '/usr/local/bin/claude',
     'claude',
@@ -44,7 +44,7 @@ async function req(method, route, body) {
     method,
     headers: {
       'content-type': 'application/json',
-      'x-commanddeck-token': token,
+      'x-orca-token': token,
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -90,14 +90,14 @@ try {
   const claudeBinary = detectClaudeBinary();
   process.chdir(tempDir);
   process.env.PORT = '0';
-  process.env.COMMAND_DECK_HOST = '127.0.0.1';
-  process.env.COMMAND_DECK_API_TOKEN = token;
-  process.env.COMMAND_DECK_CREDENTIAL_BACKEND = 'memory';
+  process.env.ORCA_HOST = '127.0.0.1';
+  process.env.ORCA_API_TOKEN = token;
+  process.env.ORCA_CREDENTIAL_BACKEND = 'memory';
   if (claudeBinary) {
     const realTempDir = await fs.realpath(tempDir);
-    process.env.COMMAND_DECK_CLAUDE_BINARY = claudeBinary;
-    process.env.COMMAND_DECK_CLAUDE_ALLOWED_BINARIES = claudeBinary;
-    process.env.COMMAND_DECK_CLAUDE_WORKDIR_ROOTS = [tempDir, realTempDir].join(',');
+    process.env.ORCA_CLAUDE_BINARY = claudeBinary;
+    process.env.ORCA_CLAUDE_ALLOWED_BINARIES = claudeBinary;
+    process.env.ORCA_CLAUDE_WORKDIR_ROOTS = [tempDir, realTempDir].join(',');
   }
 
   const serverModule = await import('../src/server.js');

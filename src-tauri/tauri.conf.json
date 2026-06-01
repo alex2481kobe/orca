@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Command Deck",
+  "productName": "Orca",
   "version": "0.1.0",
-  "identifier": "app.commanddeck.desktop",
+  "identifier": "app.orca.desktop",
   "build": {
     "frontendDist": "../public",
     "devUrl": "http://127.0.0.1:34125",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Command Deck",
+        "title": "Orca",
         "width": 1280,
         "height": 820,
         "minWidth": 960,

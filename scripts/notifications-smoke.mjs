@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { CommandDeckRegistry } from '../src/registry.js';
+import { OrcaRegistry } from '../src/registry.js';
 
 const previousCwd = process.cwd();
-const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-notifications-'));
+const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-notifications-'));
 
 async function waitForLane(registry, laneId) {
   for (let i = 0; i < 80; i += 1) {
@@ -18,7 +18,7 @@ async function waitForLane(registry, laneId) {
 
 try {
   process.chdir(tempDir);
-  const registry = new CommandDeckRegistry({
+  const registry = new OrcaRegistry({
     heartbeatIntervalMs: 25,
     autoCompleteMs: 50,
   });

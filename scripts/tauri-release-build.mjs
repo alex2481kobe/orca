@@ -4,12 +4,12 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const localUpdaterKey = path.join(root, '.tauri', 'command-deck-updater.key');
+const localUpdaterKey = path.join(root, '.tauri', 'orca-updater.key');
 const releaseConfig = path.join(root, 'src-tauri', 'tauri.release.conf.json');
 const bundleArgIndex = process.argv.indexOf('--bundles');
 const bundles = bundleArgIndex >= 0
   ? process.argv[bundleArgIndex + 1]
-  : process.env.COMMAND_DECK_TAURI_BUNDLES || 'app';
+  : process.env.ORCA_TAURI_BUNDLES || 'app';
 
 if (!bundles) {
   console.error('[tauri-release-build] --bundles requires a value');

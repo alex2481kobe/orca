@@ -42,7 +42,7 @@ function createResponseState() {
 async function startServerWithEnv(env = {}) {
   const previousCwd = process.cwd();
   const previousEnv = { ...process.env };
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-rate-limit-api-'));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-rate-limit-api-'));
   process.chdir(tempDir);
   for (const [key, value] of Object.entries(env)) {
     if (value === undefined) delete process.env[key];
@@ -94,8 +94,8 @@ async function startServerWithEnv(env = {}) {
 
 test('API rate limiter returns 429 with retry metadata for pairing attempts', async () => {
   const server = await startServerWithEnv({
-    COMMAND_DECK_RATE_LIMIT_AUTH_PAIR_LIMIT: '1',
-    COMMAND_DECK_RATE_LIMIT_AUTH_PAIR_WINDOW_MS: '60000',
+    ORCA_RATE_LIMIT_AUTH_PAIR_LIMIT: '1',
+    ORCA_RATE_LIMIT_AUTH_PAIR_WINDOW_MS: '60000',
   });
   try {
     const first = await server.requestJson('/api/auth/pair', {
@@ -130,21 +130,21 @@ test('API rate limiter returns 429 with retry metadata for pairing attempts', as
 test('rate limiter keys authenticated requests without echoing raw token values', async () => {
   const token = 'rate-limit-token-secret';
   const server = await startServerWithEnv({
-    COMMAND_DECK_API_TOKEN: token,
-    COMMAND_DECK_RATE_LIMIT_PROVIDER_HEALTH_LIMIT: '1',
-    COMMAND_DECK_RATE_LIMIT_PROVIDER_HEALTH_WINDOW_MS: '60000',
+    ORCA_API_TOKEN: token,
+    ORCA_RATE_LIMIT_PROVIDER_HEALTH_LIMIT: '1',
+    ORCA_RATE_LIMIT_PROVIDER_HEALTH_WINDOW_MS: '60000',
   });
   try {
     const first = await server.requestJson('/api/providers/openai-compatible/health', {
       method: 'GET',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
     });
     assert.equal(first.status, 200);
     assert.equal(first.headers['x-ratelimit-policy'], 'providerHealth');
 
     const second = await server.requestJson('/api/providers/openai-compatible/health', {
       method: 'GET',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
     });
     assert.equal(second.status, 429);
     assert.equal(second.body?.rateLimit?.policy, 'providerHealth');

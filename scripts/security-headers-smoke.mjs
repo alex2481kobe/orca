@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Command Deck security-header smoke.
+ * Orca security-header smoke.
  *
  * Verifies centralized response headers for browser remote-control safety:
  * CSP/frame/permissions headers on all surfaces, no-store on sensitive API,
@@ -132,11 +132,11 @@ function assertStaticCache(label, headers) {
 async function main() {
   const previousCwd = process.cwd();
   const previousEnv = { ...process.env };
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-security-headers-'));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-security-headers-'));
   process.chdir(tempDir);
   process.env.PORT = '0';
-  process.env.COMMAND_DECK_API_TOKEN = token;
-  process.env.COMMAND_DECK_RATE_LIMIT_DISABLED = 'true';
+  process.env.ORCA_API_TOKEN = token;
+  process.env.ORCA_RATE_LIMIT_DISABLED = 'true';
 
   let stopServer = null;
   try {
@@ -152,7 +152,7 @@ async function main() {
       ['service worker', await request(routeRequest, '/service-worker.js')],
       ['health API', await request(routeRequest, '/api/health')],
       ['auth status API', await request(routeRequest, '/api/auth/status')],
-      ['mobile manifest API', await request(routeRequest, '/api/mobile/manifest', { headers: { 'x-commanddeck-token': token } })],
+      ['mobile manifest API', await request(routeRequest, '/api/mobile/manifest', { headers: { 'x-orca-token': token } })],
     ];
 
     for (const [label, response] of checks) {
@@ -168,7 +168,7 @@ async function main() {
 
     const pairing = await request(routeRequest, '/api/auth/pairing-codes', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'security-smoke',
         label: 'header smoke browser',
@@ -212,7 +212,7 @@ async function main() {
     assertSensitiveCache('cross-origin refusal', crossOrigin.headers);
 
     const stream = await request(routeRequest, '/api/streams/events?once=true', {
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
     });
     if (stream.status !== 200) fail('event stream once expected 200', String(stream.status));
     assertSecurityHeaders('event stream', stream.headers);

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Command Deck PWA cache smoke.
+ * Orca PWA cache smoke.
  *
  * Verifies that the service worker keeps the phone app installable while
  * caching only static assets. Sensitive API, artifact, evidence, logs, and
@@ -76,7 +76,7 @@ async function buildServiceWorkerHarness() {
         return cacheApi;
       },
       async keys() {
-        return ['command-deck-static-old', 'command-deck-static-v1'];
+        return ['orca-static-old', 'orca-static-v1'];
       },
       async delete(name) {
         deletedCaches.push(name);
@@ -154,7 +154,7 @@ async function assertManifest() {
   if (manifest.scope !== '/') fail('manifest scope must be root');
   if (manifest.start_url !== '/') fail('manifest start_url must not contain tokens or query params');
   if (!Array.isArray(manifest.icons) || !manifest.icons.length) fail('manifest must define an icon');
-  if (raw.includes('apiToken') || raw.includes('COMMAND_DECK_API_TOKEN')) {
+  if (raw.includes('apiToken') || raw.includes('ORCA_API_TOKEN')) {
     fail('manifest must not reference token fields');
   }
   log('manifest', `${manifest.name || manifest.short_name} scope=${manifest.scope}`);
@@ -227,7 +227,7 @@ async function main() {
     const rootWrites = harness.cachePuts.filter((item) => item.key === '/');
     if (rootWrites.length > 0) fail('token-bearing root document must not write root cache entry after install');
   }
-  if (!harness.deletedCaches.includes('command-deck-static-old')) fail('activate should delete old static caches');
+  if (!harness.deletedCaches.includes('orca-static-old')) fail('activate should delete old static caches');
   log('fetch', `cacheWrites=${JSON.stringify(harness.cachePuts.map((item) => item.key))}`);
   log('done', 'static-only service-worker cache verified');
 }

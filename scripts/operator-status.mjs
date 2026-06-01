@@ -3,8 +3,8 @@ import { execFileSync } from 'node:child_process';
 
 const DEFAULT_LOCAL = 'http://127.0.0.1:3000';
 
-const localBase = (process.env.COMMAND_DECK_LOCAL_URL || DEFAULT_LOCAL).replace(/\/$/, '');
-const configuredPrivateBase = (process.env.COMMAND_DECK_PRIVATE_URL || '').replace(/\/$/, '');
+const localBase = (process.env.ORCA_LOCAL_URL || DEFAULT_LOCAL).replace(/\/$/, '');
+const configuredPrivateBase = (process.env.ORCA_PRIVATE_URL || '').replace(/\/$/, '');
 
 function ok(label, detail) {
   console.log(`[operator-status] ok — ${label}${detail ? `: ${detail}` : ''}`);
@@ -68,7 +68,7 @@ const privateBase = configuredPrivateBase || discoveredPrivateBase;
 if (privateBase) {
   await fetchJson('private health', `${privateBase}/api/health`);
 } else {
-  warn('private health', 'COMMAND_DECK_PRIVATE_URL not set and no URL discovered from tailscale serve status');
+  warn('private health', 'ORCA_PRIVATE_URL not set and no URL discovered from tailscale serve status');
 }
 
 const funnel = runTailscale(['funnel', 'status']);
@@ -85,5 +85,5 @@ if (funnel) {
 if (!process.exitCode && privateBase) {
   console.log(`[operator-status] ready — open ${privateBase}/ on a phone in the same tailnet and pair with a fresh one-time code.`);
 } else if (!process.exitCode) {
-  console.log('[operator-status] ready — set COMMAND_DECK_PRIVATE_URL or configure Tailscale Serve, then open the private URL on a phone in the same tailnet.');
+  console.log('[operator-status] ready — set ORCA_PRIVATE_URL or configure Tailscale Serve, then open the private URL on a phone in the same tailnet.');
 }

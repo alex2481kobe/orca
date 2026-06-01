@@ -1,6 +1,6 @@
 # Security Policy
 
-Command Deck controls local automation and private operator access, so security
+Orca controls local automation and private operator access, so security
 reports should avoid public disclosure of exploitable details until a fix is
 available.
 

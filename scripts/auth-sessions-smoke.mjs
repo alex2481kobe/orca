@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Command Deck auth session smoke.
+ * Orca auth session smoke.
  *
  * Safe local gate for phone/browser pairing: high-entropy one-time codes,
  * raw-token-at-rest protection, HttpOnly-cookie-compatible session handling,
@@ -14,7 +14,7 @@ import { AuthSessionStore, SESSION_COOKIE_NAME } from '../src/auth-sessions.js';
 
 const log = (label, info = '') => console.log(`[auth-sessions] ${label}${info ? ' — ' + info : ''}`);
 
-const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-auth-smoke-'));
+const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-auth-smoke-'));
 try {
   const stateFile = path.join(tempDir, 'auth-sessions.json');
   const store = new AuthSessionStore({

@@ -94,7 +94,7 @@ requirements.push(requirement(
 const hasMissingOrFailed = requirements.some((item) => ['missing_or_failed', 'incomplete', 'dirty'].includes(item.status));
 const externalBlockers = ledger.incomplete.filter((row) => row.status === 'externally_blocked').map((row) => row.area);
 const summary = {
-  kind: 'command-deck.completion-audit-summary',
+  kind: 'orca.completion-audit-summary',
   generatedAt: new Date().toISOString(),
   status: hasMissingOrFailed ? 'local_requirements_incomplete' : externalBlockers.length ? 'local_ready_external_manual_required' : 'complete',
   requirements,

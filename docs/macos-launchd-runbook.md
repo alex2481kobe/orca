@@ -1,8 +1,8 @@
 # macOS launchd runbook
 
-This runbook keeps Command Deck available after the terminal session that
+This runbook keeps Orca available after the terminal session that
 started it exits. It is optional, but recommended for phone-first operation
-when the Mac is expected to keep serving Command Deck over Tailscale.
+when the Mac is expected to keep serving Orca over Tailscale.
 
 The app still binds to `127.0.0.1` by default. Tailscale Serve should proxy to
 that local port. Do not use public Funnel for v1.
@@ -21,7 +21,7 @@ that local port. Do not use public Funnel for v1.
 Set the repo path for your machine:
 
 ```bash
-export COMMAND_DECK_REPO="$HOME/Documents/Projects/web/command-deck/command-deck-client"
+export ORCA_REPO="$HOME/Documents/Projects/web/command-deck/command-deck-client"
 ```
 
 If your checkout lives elsewhere, use that absolute path instead.
@@ -29,13 +29,13 @@ If your checkout lives elsewhere, use that absolute path instead.
 ## 1. Create a local env file
 
 ```bash
-cat > ~/.command-deck.env <<'EOF_ENV'
-export COMMAND_DECK_API_TOKEN="replace-with-a-long-random-token"
-export COMMAND_DECK_HOST="127.0.0.1"
+cat > ~/.orca.env <<'EOF_ENV'
+export ORCA_API_TOKEN="replace-with-a-long-random-token"
+export ORCA_HOST="127.0.0.1"
 export PORT="3000"
 EOF_ENV
 
-chmod 600 ~/.command-deck.env
+chmod 600 ~/.orca.env
 ```
 
 Generate a token with:
@@ -49,16 +49,16 @@ openssl rand -hex 32
 ```bash
 mkdir -p ~/.local/bin
 
-cat > ~/.local/bin/command-deck-start <<'EOF_WRAPPER'
+cat > ~/.local/bin/orca-start <<'EOF_WRAPPER'
 #!/bin/zsh
 set -euo pipefail
 
-source "$HOME/.command-deck.env"
-cd "${COMMAND_DECK_REPO:?set COMMAND_DECK_REPO in the LaunchAgent environment}"
+source "$HOME/.orca.env"
+cd "${ORCA_REPO:?set ORCA_REPO in the LaunchAgent environment}"
 exec npm run start
 EOF_WRAPPER
 
-chmod 700 ~/.local/bin/command-deck-start
+chmod 700 ~/.local/bin/orca-start
 ```
 
 The wrapper is intentionally outside the repo so local secrets do not enter
@@ -67,26 +67,26 @@ git.
 ## 3. Create the launchd plist
 
 ```bash
-mkdir -p ~/Library/LaunchAgents ~/Library/Logs/command-deck
+mkdir -p ~/Library/LaunchAgents ~/Library/Logs/orca
 
-cat > ~/Library/LaunchAgents/com.command-deck.local.plist <<EOF_PLIST
+cat > ~/Library/LaunchAgents/com.orca.local.plist <<EOF_PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.command-deck.local</string>
+  <string>com.orca.local</string>
 
   <key>ProgramArguments</key>
   <array>
-    <string>$HOME/.local/bin/command-deck-start</string>
+    <string>$HOME/.local/bin/orca-start</string>
   </array>
 
   <key>EnvironmentVariables</key>
   <dict>
-    <key>COMMAND_DECK_REPO</key>
-    <string>$COMMAND_DECK_REPO</string>
+    <key>ORCA_REPO</key>
+    <string>$ORCA_REPO</string>
   </dict>
 
   <key>RunAtLoad</key>
@@ -96,13 +96,13 @@ cat > ~/Library/LaunchAgents/com.command-deck.local.plist <<EOF_PLIST
   <true/>
 
   <key>StandardOutPath</key>
-  <string>$HOME/Library/Logs/command-deck/stdout.log</string>
+  <string>$HOME/Library/Logs/orca/stdout.log</string>
 
   <key>StandardErrorPath</key>
-  <string>$HOME/Library/Logs/command-deck/stderr.log</string>
+  <string>$HOME/Library/Logs/orca/stderr.log</string>
 
   <key>WorkingDirectory</key>
-  <string>$COMMAND_DECK_REPO</string>
+  <string>$ORCA_REPO</string>
 </dict>
 </plist>
 EOF_PLIST
@@ -110,27 +110,27 @@ EOF_PLIST
 
 The generated plist contains local absolute paths because launchd requires
 them. The plist remains secret-free because the API token stays in
-`~/.command-deck.env`.
+`~/.orca.env`.
 
 ## 4. Load and start
 
 ```bash
-launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.command-deck.local.plist
-launchctl kickstart -k "gui/$(id -u)/com.command-deck.local"
+launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.orca.local.plist
+launchctl kickstart -k "gui/$(id -u)/com.orca.local"
 ```
 
 Verify:
 
 ```bash
-cd "$COMMAND_DECK_REPO"
+cd "$ORCA_REPO"
 npm run operator:status
 ```
 
 ## 5. Pair a phone
 
 ```bash
-source ~/.command-deck.env
-cd "$COMMAND_DECK_REPO"
+source ~/.orca.env
+cd "$ORCA_REPO"
 npm run operator:pair
 ```
 
@@ -148,23 +148,23 @@ logs, docs, or issue comments.
 Stop the current service process:
 
 ```bash
-launchctl kill TERM "gui/$(id -u)/com.command-deck.local"
+launchctl kill TERM "gui/$(id -u)/com.orca.local"
 ```
 
 Unload the LaunchAgent:
 
 ```bash
-launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/com.command-deck.local.plist
+launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/com.orca.local.plist
 ```
 
 Remove local launch files only after unloading:
 
 ```bash
-rm ~/Library/LaunchAgents/com.command-deck.local.plist
-rm ~/.local/bin/command-deck-start
+rm ~/Library/LaunchAgents/com.orca.local.plist
+rm ~/.local/bin/orca-start
 ```
 
-Do not remove `~/.command-deck.env` unless you intend to rotate or delete the
+Do not remove `~/.orca.env` unless you intend to rotate or delete the
 local API token.
 
 ## 7. Tailscale Serve reminder

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'command-deck-static-v7';
+const CACHE_NAME = 'orca-static-v7';
 const STATIC_ASSETS = [
   '/',
   '/styles.css',

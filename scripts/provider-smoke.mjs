@@ -10,8 +10,8 @@ import path from 'node:path';
 import process from 'node:process';
 
 const args = process.argv.slice(2);
-let explicitBase = Boolean(process.env.COMMAND_DECK_BASE_URL);
-let base = process.env.COMMAND_DECK_BASE_URL || 'http://127.0.0.1:3000';
+let explicitBase = Boolean(process.env.ORCA_BASE_URL);
+let base = process.env.ORCA_BASE_URL || 'http://127.0.0.1:3000';
 for (let i = 0; i < args.length; i += 1) {
   if (args[i] === '--base' && args[i + 1]) {
     base = args[i + 1];
@@ -28,16 +28,16 @@ const fail = (label, info = '') => {
 
 const previousCwd = process.cwd();
 const previousEnv = { ...process.env };
-const tempDir = explicitBase ? null : await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-provider-smoke-'));
+const tempDir = explicitBase ? null : await fs.mkdtemp(path.join(os.tmpdir(), 'orca-provider-smoke-'));
 let server = null;
 let stopServer = null;
 
 if (!explicitBase) {
   process.chdir(tempDir);
   process.env.PORT = '0';
-  process.env.COMMAND_DECK_HOST = '127.0.0.1';
-  process.env.COMMAND_DECK_CREDENTIAL_BACKEND = 'memory';
-  delete process.env.COMMAND_DECK_API_TOKEN;
+  process.env.ORCA_HOST = '127.0.0.1';
+  process.env.ORCA_CREDENTIAL_BACKEND = 'memory';
+  delete process.env.ORCA_API_TOKEN;
   const serverModule = await import('../src/server.js');
   server = await serverModule.startServer(0, '127.0.0.1');
   stopServer = serverModule.stopServer;
@@ -46,10 +46,10 @@ if (!explicitBase) {
   log('server', `started isolated local server at ${base}`);
 }
 
-const token = process.env.COMMAND_DECK_API_TOKEN || '';
+const token = process.env.ORCA_API_TOKEN || '';
 const headers = {
   'content-type': 'application/json',
-  ...(token ? { 'x-commanddeck-token': token } : {}),
+  ...(token ? { 'x-orca-token': token } : {}),
 };
 
 async function req(method, pathname, body) {
@@ -98,7 +98,7 @@ try {
         baseUrl: 'https://api.openai.com/v1',
         apiStyle: 'openai-compatible',
         secretRef: 'provider:openai-compatible',
-        apiKeyEnv: 'COMMAND_DECK_OPENAI_COMPATIBLE_API_KEY',
+        apiKeyEnv: 'ORCA_OPENAI_COMPATIBLE_API_KEY',
       },
     ],
   });

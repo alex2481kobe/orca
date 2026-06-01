@@ -48,7 +48,7 @@ function createResponseState() {
 async function startServer(env = {}) {
   const previousCwd = process.cwd();
   const previousEnv = { ...process.env };
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-streams-'));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-streams-'));
   process.chdir(tempDir);
   for (const [key, value] of Object.entries(env)) {
     if (value === undefined) delete process.env[key];
@@ -116,7 +116,7 @@ function parseSseEvents(text) {
 test('stream endpoint requires auth when API token is configured and returns compact once payload', async () => {
   const token = 'stream-test-token';
   const server = await startServer({
-    COMMAND_DECK_API_TOKEN: token,
+    ORCA_API_TOKEN: token,
   });
   try {
     const denied = await server.request('/api/streams/events?once=true');
@@ -124,18 +124,18 @@ test('stream endpoint requires auth when API token is configured and returns com
     assert.equal(String(denied.body?.error || '').includes('Unauthorized stream'), true);
 
     const allowed = await server.request('/api/streams/events?once=true', {
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
     });
     assert.equal(allowed.status, 200);
     assert.equal(allowed.headers['content-type'].includes('text/event-stream'), true);
     assert.equal(allowed.headers['cache-control'].includes('no-store'), true);
     assert.equal(allowed.headers['x-ratelimit-policy'], 'stream');
     assert.equal(allowed.bodyText().includes(token), false);
-    assert.equal(allowed.bodyText().includes('COMMAND_DECK_API_TOKEN'), false);
+    assert.equal(allowed.bodyText().includes('ORCA_API_TOKEN'), false);
     const events = parseSseEvents(allowed.bodyText());
     assert.deepEqual(events.map((event) => event.event), ['stream_open', 'snapshot', 'stream_close']);
     const snapshot = events.find((event) => event.event === 'snapshot').data;
-    assert.equal(snapshot.contractVersion, 'command-deck.streams.v1');
+    assert.equal(snapshot.contractVersion, 'orca.streams.v1');
     assert.equal(typeof snapshot.counts.projects, 'number');
     assert.equal(Array.isArray(snapshot.activeLanes), true);
     assert.equal(Array.isArray(snapshot.pendingAudits), true);
@@ -147,13 +147,13 @@ test('stream endpoint requires auth when API token is configured and returns com
 test('browser-session stream closes after the paired session is revoked', async () => {
   const token = 'stream-test-token-revoke';
   const server = await startServer({
-    COMMAND_DECK_API_TOKEN: token,
-    COMMAND_DECK_STREAM_HEARTBEAT_MS: '20',
+    ORCA_API_TOKEN: token,
+    ORCA_STREAM_HEARTBEAT_MS: '20',
   });
   try {
     const pairing = await server.request('/api/auth/pairing-codes', {
       method: 'POST',
-      headers: { 'x-commanddeck-token': token },
+      headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
         label: 'stream test',

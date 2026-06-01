@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Command Deck UI contract smoke.
+ * Orca UI contract smoke.
  *
  * This is a stricter Codex-style design-system gate than the screenshot
  * inventory. It checks that visible controls are styled/wired, advanced debug
@@ -15,18 +15,18 @@ import process from 'node:process';
 const previousCwd = process.cwd();
 const previousEnv = { ...process.env };
 const args = process.argv.slice(2);
-let explicitBase = Boolean(process.env.COMMAND_DECK_BASE_URL);
-let base = process.env.COMMAND_DECK_BASE_URL || 'http://127.0.0.1:3000';
+let explicitBase = Boolean(process.env.ORCA_BASE_URL);
+let base = process.env.ORCA_BASE_URL || 'http://127.0.0.1:3000';
 for (let i = 0; i < args.length; i += 1) {
   if (args[i] === '--base' && args[i + 1]) {
     base = args[i + 1];
     explicitBase = true;
   }
 }
-let token = process.env.COMMAND_DECK_API_TOKEN || '';
+let token = process.env.ORCA_API_TOKEN || '';
 const artifactDir = path.resolve('artifacts', 'ui-contract');
 const runSuffix = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
-const tempDir = explicitBase ? null : await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-ui-contract-'));
+const tempDir = explicitBase ? null : await fs.mkdtemp(path.join(os.tmpdir(), 'orca-ui-contract-'));
 let server = null;
 let stopServer = null;
 
@@ -107,7 +107,7 @@ async function requestJson(reqPath, options = {}) {
     method: options.method || 'GET',
     headers: {
       'content-type': 'application/json',
-      ...(token ? { 'x-commanddeck-token': token } : {}),
+      ...(token ? { 'x-orca-token': token } : {}),
       ...(options.headers || {}),
     },
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
@@ -125,11 +125,11 @@ async function startIsolatedServerIfNeeded() {
   if (explicitBase) return;
   process.chdir(tempDir);
   process.env.PORT = '0';
-  process.env.COMMAND_DECK_HOST = '127.0.0.1';
-  process.env.COMMAND_DECK_API_TOKEN = 'ui-contract-token';
-  process.env.COMMAND_DECK_CREDENTIAL_BACKEND = 'memory';
-  process.env.COMMAND_DECK_RATE_LIMIT_DISABLED = 'true';
-  token = process.env.COMMAND_DECK_API_TOKEN;
+  process.env.ORCA_HOST = '127.0.0.1';
+  process.env.ORCA_API_TOKEN = 'ui-contract-token';
+  process.env.ORCA_CREDENTIAL_BACKEND = 'memory';
+  process.env.ORCA_RATE_LIMIT_DISABLED = 'true';
+  token = process.env.ORCA_API_TOKEN;
   const serverModule = await import('../src/server.js');
   server = await serverModule.startServer(0, '127.0.0.1');
   stopServer = serverModule.stopServer;
@@ -158,7 +158,7 @@ async function requestJsonWithHeaders(reqPath, options = {}) {
     method: options.method || 'GET',
     headers: {
       'content-type': 'application/json',
-      ...(token ? { 'x-commanddeck-token': token } : {}),
+      ...(token ? { 'x-orca-token': token } : {}),
       ...(options.headers || {}),
     },
     body: options.body === undefined ? undefined : JSON.stringify(options.body),

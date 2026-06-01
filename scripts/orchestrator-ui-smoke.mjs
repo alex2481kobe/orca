@@ -10,7 +10,7 @@ import process from 'node:process';
 
 const previousCwd = process.cwd();
 const previousEnv = { ...process.env };
-const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-orch-ui-'));
+const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-orch-ui-'));
 const token = 'orchestrator-ui-smoke-token';
 let server = null;
 let stopServer = null;
@@ -27,7 +27,7 @@ async function req(method, route, body, headers = {}) {
     method,
     headers: {
       'content-type': 'application/json',
-      'x-commanddeck-token': token,
+      'x-orca-token': token,
       ...headers,
     },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -80,10 +80,10 @@ async function cleanup() {
 try {
   process.chdir(tempDir);
   process.env.PORT = '0';
-  process.env.COMMAND_DECK_HOST = '127.0.0.1';
-  process.env.COMMAND_DECK_API_TOKEN = token;
-  process.env.COMMAND_DECK_CREDENTIAL_BACKEND = 'memory';
-  process.env.COMMAND_DECK_RATE_LIMIT_DISABLED = 'true';
+  process.env.ORCA_HOST = '127.0.0.1';
+  process.env.ORCA_API_TOKEN = token;
+  process.env.ORCA_CREDENTIAL_BACKEND = 'memory';
+  process.env.ORCA_RATE_LIMIT_DISABLED = 'true';
 
   const [{ chromium }, serverModule] = await Promise.all([
     import('playwright'),

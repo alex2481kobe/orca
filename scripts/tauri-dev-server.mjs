@@ -1,6 +1,6 @@
-process.env.COMMAND_DECK_HOST ||= '127.0.0.1';
+process.env.ORCA_HOST ||= '127.0.0.1';
 process.env.PORT ||= '34125';
-process.env.COMMAND_DECK_TAURI_DEV ||= 'true';
+process.env.ORCA_TAURI_DEV ||= 'true';
 
 const { startServer, stopServer } = await import('../src/server.js');
 
@@ -10,7 +10,7 @@ const server = await startServer();
 async function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log(`[tauri-dev-server] ${signal} received, stopping Command Deck server`);
+  console.log(`[tauri-dev-server] ${signal} received, stopping Orca server`);
   try {
     await stopServer();
   } finally {

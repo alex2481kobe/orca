@@ -10,7 +10,7 @@ import {
   ProviderProfileStore,
   defaultProfiles,
 } from '../src/provider-profiles.js';
-import { CommandDeckRegistry } from '../src/registry.js';
+import { OrcaRegistry } from '../src/registry.js';
 import {
   backupPathFor,
   readJsonFileWithRecovery,
@@ -29,7 +29,7 @@ async function withTempDir(prefix, fn) {
 }
 
 test('async state store writes atomically, backs up, restores corrupt primary, and migrates', async () => {
-  await withTempDir('command-deck-state-async-', async (dir) => {
+  await withTempDir('orca-state-async-', async (dir) => {
     const stateFile = path.join(dir, 'state.json');
     await writeJsonFileAtomic(stateFile, { schemaVersion: 1, value: 'safe' });
     assert.equal(JSON.parse(await fs.readFile(stateFile, 'utf8')).value, 'safe');
@@ -62,7 +62,7 @@ test('async state store writes atomically, backs up, restores corrupt primary, a
 });
 
 test('sync state store writes atomically and recovers corrupt primary from backup', async () => {
-  await withTempDir('command-deck-state-sync-', async (dir) => {
+  await withTempDir('orca-state-sync-', async (dir) => {
     const stateFile = path.join(dir, 'state.json');
     writeJsonFileAtomicSync(stateFile, { schemaVersion: 1, value: 'sync-safe' });
     await fs.writeFile(stateFile, '{ bad json');
@@ -80,7 +80,7 @@ test('sync state store writes atomically and recovers corrupt primary from backu
 });
 
 test('provider profile store recovers from backup and audits recovery', async () => {
-  await withTempDir('command-deck-provider-recovery-', async (dir) => {
+  await withTempDir('orca-provider-recovery-', async (dir) => {
     const stateFile = path.join(dir, 'providers.json');
     const profiles = defaultProfiles();
     profiles['openai-compatible'] = {
@@ -106,7 +106,7 @@ test('provider profile store recovers from backup and audits recovery', async ()
 });
 
 test('private access store recovers targets from backup and audits recovery', async () => {
-  await withTempDir('command-deck-private-recovery-', async (dir) => {
+  await withTempDir('orca-private-recovery-', async (dir) => {
     const stateFile = path.join(dir, 'private-access.json');
     const seed = new PrivateAccessStore({ stateFile });
     await seed.createTarget({
@@ -126,7 +126,7 @@ test('private access store recovers targets from backup and audits recovery', as
 });
 
 test('auth session store recovers sessions from backup and audits recovery', async () => {
-  await withTempDir('command-deck-auth-recovery-', async (dir) => {
+  await withTempDir('orca-auth-recovery-', async (dir) => {
     const stateFile = path.join(dir, 'auth-sessions.json');
     const seed = new AuthSessionStore({
       stateFile,
@@ -149,10 +149,10 @@ test('auth session store recovers sessions from backup and audits recovery', asy
 });
 
 test('registry recovers persisted projects from backup and audits recovery', async () => {
-  await withTempDir('command-deck-registry-recovery-', async (dir) => {
+  await withTempDir('orca-registry-recovery-', async (dir) => {
     const previousCwd = process.cwd();
     process.chdir(dir);
-    const stateFile = path.join(dir, '.command-deck', 'state.json');
+    const stateFile = path.join(dir, '.orca', 'state.json');
     try {
       await writeJsonFileAtomic(stateFile, {
         version: 1,
@@ -175,7 +175,7 @@ test('registry recovers persisted projects from backup and audits recovery', asy
       });
       await fs.writeFile(stateFile, '{ broken registry json');
 
-      const registry = new CommandDeckRegistry({ heartbeatIntervalMs: 5 });
+      const registry = new OrcaRegistry({ heartbeatIntervalMs: 5 });
       try {
         assert.equal(registry.stateLoadStatus.source, 'backup');
         assert.equal(registry.stateLoadStatus.recovered, true);

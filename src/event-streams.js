@@ -1,4 +1,4 @@
-const STREAM_CONTRACT_VERSION = 'command-deck.streams.v1';
+const STREAM_CONTRACT_VERSION = 'orca.streams.v1';
 const DEFAULT_STREAM_HEARTBEAT_MS = 15_000;
 
 function parsePositiveInteger(value, fallback) {
@@ -82,7 +82,7 @@ function writeSse(res, event, data) {
 }
 
 function streamHeartbeatMs() {
-  return parsePositiveInteger(process.env.COMMAND_DECK_STREAM_HEARTBEAT_MS, DEFAULT_STREAM_HEARTBEAT_MS);
+  return parsePositiveInteger(process.env.ORCA_STREAM_HEARTBEAT_MS, DEFAULT_STREAM_HEARTBEAT_MS);
 }
 
 export {

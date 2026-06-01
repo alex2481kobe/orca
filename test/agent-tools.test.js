@@ -8,13 +8,13 @@ import {
   buildNextActionEnvelope,
   findTool,
 } from '../src/agent-tools.js';
-import { CommandDeckRegistry } from '../src/registry.js';
+import { OrcaRegistry } from '../src/registry.js';
 
 async function withIsolatedRegistry(callback) {
   const previousCwd = process.cwd();
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-agent-tools-'));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-agent-tools-'));
   process.chdir(tempDir);
-  const registry = new CommandDeckRegistry({ autoCompleteMs: 60 * 60 * 1000 });
+  const registry = new OrcaRegistry({ autoCompleteMs: 60 * 60 * 1000 });
   try {
     return await callback(registry, tempDir);
   } finally {
@@ -29,7 +29,7 @@ async function withIsolatedRegistry(callback) {
 
 test('agent tool discovery is public-safe and includes stable required tool ids', () => {
   const discovery = buildAgentToolDiscovery();
-  assert.equal(discovery.contractVersion, 'command-deck.agent-tools.v1');
+  assert.equal(discovery.contractVersion, 'orca.agent-tools.v1');
   assert.equal(discovery.publicSafe, true);
   const ids = new Set(discovery.tools.map((tool) => tool.id));
   for (const id of [

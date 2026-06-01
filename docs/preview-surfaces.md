@@ -1,6 +1,6 @@
 # Preview surfaces
 
-Command Deck previews are server-authoritative targets that can be opened,
+Orca previews are server-authoritative targets that can be opened,
 health-checked, or captured as evidence. The dashboard should send a saved
 preview or evidence preset id, not an arbitrary client-supplied URL, for normal
 operator flows.

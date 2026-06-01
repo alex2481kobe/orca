@@ -225,7 +225,7 @@ function sanitizeWorkdirInput(raw) {
 }
 
 function getMcpCommandAllowlist() {
-  const override = process.env.COMMAND_DECK_MCP_TOOL_COMMAND_ALLOWLIST;
+  const override = process.env.ORCA_MCP_TOOL_COMMAND_ALLOWLIST;
   if (!override) return null;
   return String(override)
     .split(',')
@@ -243,7 +243,7 @@ function normalizeReinstallToken(raw) {
 
 function getReinstallPackageAllowlist(type) {
   const normalizedType = normalizeExecutorType(type);
-  const envKey = `COMMAND_DECK_${normalizedType.toUpperCase()}_REINSTALL_PACKAGES`;
+  const envKey = `ORCA_${normalizedType.toUpperCase()}_REINSTALL_PACKAGES`;
   const override = process.env[envKey];
   if (!override) {
     return REINSTALL_PACKAGE_ALLOWLIST[normalizedType] || [];
@@ -256,7 +256,7 @@ function getReinstallPackageAllowlist(type) {
 
 function getReinstallSourceRepos(type) {
   const normalizedType = normalizeExecutorType(type);
-  const envKey = `COMMAND_DECK_${normalizedType.toUpperCase()}_REINSTALL_SOURCE_REPOS`;
+  const envKey = `ORCA_${normalizedType.toUpperCase()}_REINSTALL_SOURCE_REPOS`;
   const override = process.env[envKey];
   if (!override) {
     return DEFAULT_REINSTALL_SOURCE_REPOS[normalizedType] || [];
@@ -270,7 +270,7 @@ function getReinstallSourceRepos(type) {
 
 function shouldPreferSourceReinstall(type) {
   const normalizedType = normalizeExecutorType(type);
-  const envKey = `COMMAND_DECK_${normalizedType.toUpperCase()}_REINSTALL_PREFER_SOURCE`;
+  const envKey = `ORCA_${normalizedType.toUpperCase()}_REINSTALL_PREFER_SOURCE`;
   return parseBooleanEnv(process.env[envKey], false);
 }
 
@@ -428,8 +428,8 @@ function normalizeReinstallCommand(raw, expectedType = null) {
 function getReinstallCommand(type) {
   const executorType = normalizeExecutorType(type);
   const config = {
-    codex: 'COMMAND_DECK_CODEX_REINSTALL_COMMAND',
-    claude: 'COMMAND_DECK_CLAUDE_REINSTALL_COMMAND',
+    codex: 'ORCA_CODEX_REINSTALL_COMMAND',
+    claude: 'ORCA_CLAUDE_REINSTALL_COMMAND',
   };
   const envVar = config[executorType];
   if (!envVar) return null;
@@ -734,7 +734,7 @@ function normalizeQuickLink(raw = {}, existing = null) {
     const rawPort = Number.parseInt(raw.port ?? existing?.port ?? '', 10);
     if (Number.isFinite(rawPort) && rawPort >= 1 && rawPort <= 65535) return rawPort;
     try {
-      const parsed = new URL(url, 'http://command-deck.local');
+      const parsed = new URL(url, 'http://orca.local');
       const urlPort = Number.parseInt(parsed.port || '', 10);
       if (Number.isFinite(urlPort) && urlPort >= 1 && urlPort <= 65535) return urlPort;
     } catch {
@@ -1063,14 +1063,14 @@ function buildOrchestratorPrompt({
     .join('\n\n');
   const apiBase = String(baseUrl || '').replace(/\/+$/, '');
   return [
-    'You are the Command Deck orchestration agent for this project/session.',
+    'You are the Orca orchestration agent for this project/session.',
     'Own decomposition, planning, lane creation, executor assignment, and audit handoff.',
-    'Do not ask the human to manually create executor lanes when you can create them through Command Deck tools.',
-    'Use the scoped tool lease from COMMAND_DECK_TOOL_LEASE_TOKEN, never the full API token.',
-    apiBase ? `Command Deck base URL: ${apiBase}` : '',
+    'Do not ask the human to manually create executor lanes when you can create them through Orca tools.',
+    'Use the scoped tool lease from ORCA_TOOL_LEASE_TOKEN, never the full API token.',
+    apiBase ? `Orca base URL: ${apiBase}` : '',
     discoveryUrl ? `Tool discovery URL: ${discoveryUrl}` : '',
     nextActionUrl ? `Next-action URL: ${nextActionUrl}` : '',
-    'For HTTP tool calls, send header x-commanddeck-tool-lease: $COMMAND_DECK_TOOL_LEASE_TOKEN.',
+    'For HTTP tool calls, send header x-orca-tool-lease: $ORCA_TOOL_LEASE_TOKEN.',
     executorCapabilities ? `Executor capability matrix available to you:\n${safeChatText(JSON.stringify(executorCapabilities, null, 2), 6000)}` : '',
     `Project: ${project?.name || project?.id || 'unknown'}`,
     `Session: ${session?.name || session?.id || 'unknown'}`,
@@ -1083,7 +1083,7 @@ function buildOrchestratorPrompt({
   ].filter(Boolean).join('\n\n');
 }
 
-export class CommandDeckRegistry {
+export class OrcaRegistry {
   constructor({
     heartbeatIntervalMs = 2000,
     autoCompleteMs = 12000,
@@ -1100,8 +1100,8 @@ export class CommandDeckRegistry {
     this.notifications = [];
     this.notificationSettings = { ...DEFAULT_NOTIFICATION_SETTINGS };
     this.artifactRoot = path.join(process.cwd(), 'artifacts');
-    this.workspacesRoot = path.join(process.cwd(), '.command-deck', 'workspaces');
-    this.storageDir = path.join(process.cwd(), '.command-deck');
+    this.workspacesRoot = path.join(process.cwd(), '.orca', 'workspaces');
+    this.storageDir = path.join(process.cwd(), '.orca');
     this.stateFile = path.join(this.storageDir, 'state.json');
 
     this.heartbeatIntervalMs = heartbeatIntervalMs;
@@ -1165,7 +1165,7 @@ export class CommandDeckRegistry {
     fs.mkdir(this.artifactRoot, { recursive: true }).catch(() => {});
     fs.mkdir(this.workspacesRoot, { recursive: true }).catch(() => {});
     this.restoreFromDisk();
-    if (!this.projects.length && parseBooleanEnv(process.env.COMMAND_DECK_SEED, false)) {
+    if (!this.projects.length && parseBooleanEnv(process.env.ORCA_SEED, false)) {
       this.seed();
     }
     this.startScheduler();
@@ -1265,7 +1265,7 @@ export class CommandDeckRegistry {
       }
     } catch (error) {
       if (error.code !== 'ENOENT') {
-        console.error('Failed to restore persisted Command Deck state:', error);
+        console.error('Failed to restore persisted Orca state:', error);
       }
       return;
     } finally {
@@ -1365,7 +1365,7 @@ export class CommandDeckRegistry {
   }
 
   getApprovedRepoRoots() {
-    const env = process.env.COMMAND_DECK_REPO_ROOTS;
+    const env = process.env.ORCA_REPO_ROOTS;
     const fromEnv = String(env || '')
       .split(/[,\n]/)
       .map((value) => String(value || '').trim())
@@ -1497,7 +1497,7 @@ export class CommandDeckRegistry {
     });
 
     this.createLane(session.id, {
-      title: 'Initialize command deck lane',
+      title: 'Initialize orca lane',
       taskDescription: 'Validate routing model and action approvals.',
       executorType: 'mock',
       owner: 'seed',
@@ -2215,7 +2215,7 @@ export class CommandDeckRegistry {
       if (!within) {
         throw {
           status: 422,
-          message: `Session repoRoot ${candidate} is outside the approved repo roots. Add it to COMMAND_DECK_REPO_ROOTS or run the server from its parent.`,
+          message: `Session repoRoot ${candidate} is outside the approved repo roots. Add it to ORCA_REPO_ROOTS or run the server from its parent.`,
         };
       }
       validatedRepoRoot = candidate;
@@ -2433,10 +2433,10 @@ export class CommandDeckRegistry {
         actor: 'orchestrator-bootstrap',
       });
       this.laneRuntimeEnv.set(String(lane.id), {
-        COMMAND_DECK_TOOL_LEASE_TOKEN: lease.leaseToken,
-        COMMAND_DECK_AGENT_TOOLS_BASE_URL: String(baseUrl || ''),
-        COMMAND_DECK_AGENT_TOOLS_DISCOVERY_URL: String(discoveryUrl || ''),
-        COMMAND_DECK_AGENT_TOOLS_NEXT_ACTION_URL: String(nextActionUrl || ''),
+        ORCA_TOOL_LEASE_TOKEN: lease.leaseToken,
+        ORCA_AGENT_TOOLS_BASE_URL: String(baseUrl || ''),
+        ORCA_AGENT_TOOLS_DISCOVERY_URL: String(discoveryUrl || ''),
+        ORCA_AGENT_TOOLS_NEXT_ACTION_URL: String(nextActionUrl || ''),
       });
     }
 
@@ -4447,8 +4447,8 @@ export class CommandDeckRegistry {
             summary: `${executorType.toUpperCase()} CLI not executable`,
             detail: `Configured binary ${info.binary} could not be invoked (exitCode=${info.binaryExitCode || 'n/a'}).`,
             remediation: executorType === 'codex'
-              ? 'Reinstall the Codex CLI: `brew reinstall --cask codex` OR `npm install -g @openai/codex`. Then restart Command Deck.'
-              : 'Reinstall Claude Code: `brew install anthropic-ai/tap/claude` or follow the official installer. Then restart Command Deck.',
+              ? 'Reinstall the Codex CLI: `brew reinstall --cask codex` OR `npm install -g @openai/codex`. Then restart Orca.'
+              : 'Reinstall Claude Code: `brew install anthropic-ai/tap/claude` or follow the official installer. Then restart Orca.',
             approvalRequired: true,
           });
         } else if (!info.version) {
@@ -4469,7 +4469,7 @@ export class CommandDeckRegistry {
           area: 'executor',
           summary: `${executorType.toUpperCase()} CLI inspection failed`,
           detail: error?.message || 'unknown',
-          remediation: 'Check Command Deck logs for the underlying error.',
+          remediation: 'Check Orca logs for the underlying error.',
           approvalRequired: false,
         });
       }
@@ -4580,7 +4580,7 @@ export class CommandDeckRegistry {
           model: {
             supported: supportsModel || safeArray(profile.allowedModels).length > 0,
             values: safeArray(profile.allowedModels),
-            defaultValue: String(process.env[`COMMAND_DECK_${String(type).toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_MODEL`] || '').slice(0, 120) || null,
+            defaultValue: String(process.env[`ORCA_${String(type).toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_MODEL`] || '').slice(0, 120) || null,
           },
           permissions: {
             supported: true,
@@ -4960,7 +4960,7 @@ export class CommandDeckRegistry {
 
   enqueueNotification({
     type = 'system',
-    title = 'Command Deck update',
+    title = 'Orca update',
     body = '',
     severity = 'info',
     actor = 'system',
@@ -4984,7 +4984,7 @@ export class CommandDeckRegistry {
       readAt: null,
       type: sanitizeNotificationText(type, 'system', 80),
       severity: normalizedSeverity,
-      title: sanitizeNotificationText(title, 'Command Deck update', 120),
+      title: sanitizeNotificationText(title, 'Orca update', 120),
       body: sanitizeNotificationText(body, '', 220),
       actor: sanitizeNotificationText(actor, 'system', 80),
       projectId: projectId || null,

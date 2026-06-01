@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Command Deck acceptance smoke.
+ * Orca acceptance smoke.
  *
  * Runs the deterministic local acceptance matrix in one command. It avoids
  * real installs, real OS credential writes, real Tailscale mutations, public
@@ -89,7 +89,7 @@ for (const step of steps) {
     cwd: process.cwd(),
     env: {
       ...process.env,
-      COMMAND_DECK_ACCEPTANCE: 'true',
+      ORCA_ACCEPTANCE: 'true',
     },
     stdio: 'inherit',
   });
@@ -114,7 +114,7 @@ for (const step of steps) {
 
 const endedAt = new Date();
 const summary = {
-  kind: 'command-deck.acceptance-summary',
+  kind: 'orca.acceptance-summary',
   startedAt: startedAt.toISOString(),
   endedAt: endedAt.toISOString(),
   elapsedMs: endedAt.getTime() - startedAt.getTime(),

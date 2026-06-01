@@ -9,7 +9,7 @@ import {
 } from '../src/auth-sessions.js';
 
 test('pairing codes create HttpOnly-session-compatible browser sessions without storing raw secrets', async () => {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-auth-'));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-auth-'));
   const stateFile = path.join(tempDir, 'auth.json');
   try {
     const store = new AuthSessionStore({
@@ -42,7 +42,7 @@ test('pairing codes create HttpOnly-session-compatible browser sessions without 
 });
 
 test('pairing codes expire and reject malformed values', async () => {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-auth-expiry-'));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-auth-expiry-'));
   try {
     const store = new AuthSessionStore({
       stateFile: path.join(tempDir, 'auth.json'),

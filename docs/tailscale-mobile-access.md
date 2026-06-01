@@ -1,6 +1,6 @@
-# Tonight Runbook: Command Deck on Mac + Phone via Tailscale Serve
+# Tonight Runbook: Orca on Mac + Phone via Tailscale Serve
 
-Goal: bring Command Deck up locally on the Mac and use it from a phone over
+Goal: bring Orca up locally on the Mac and use it from a phone over
 private Tailscale Serve. No public Funnel.
 
 ## 0. Prereqs (once)
@@ -13,20 +13,20 @@ private Tailscale Serve. No public Funnel.
 ## 1. Generate a strong API token
 
 ```bash
-export COMMAND_DECK_API_TOKEN="$(openssl rand -hex 32)"
+export ORCA_API_TOKEN="$(openssl rand -hex 32)"
 # Optional: a separate worker token for heartbeat callers.
-export COMMAND_DECK_WORKER_TOKEN="$(openssl rand -hex 32)"
+export ORCA_WORKER_TOKEN="$(openssl rand -hex 32)"
 ```
 
-Keep the token in a password manager or in `~/.command-deck.env` (chmod 600).
+Keep the token in a password manager or in `~/.orca.env` (chmod 600).
 Do not paste it into chat, screenshots, or commit it.
 
 ## 2. Start the server (binds locally by default)
 
 ```bash
 cd command-deck-client
-PORT=3000 COMMAND_DECK_HOST=127.0.0.1 \
-  COMMAND_DECK_API_TOKEN=$COMMAND_DECK_API_TOKEN \
+PORT=3000 ORCA_HOST=127.0.0.1 \
+  ORCA_API_TOKEN=$ORCA_API_TOKEN \
   npm run dev
 ```
 
@@ -37,8 +37,8 @@ For durable Mac operation after the current terminal exits, use
 in a local `chmod 600` env file and keeps the launchd plist secret-free.
 
 If you want stricter per-binary, per-workdir, or per-env settings, set
-`COMMAND_DECK_CODEX_BINARY`, `COMMAND_DECK_CODEX_WORKDIR_ROOTS`,
-`COMMAND_DECK_REPO_ROOTS` (comma-separated absolute paths used to validate
+`ORCA_CODEX_BINARY`, `ORCA_CODEX_WORKDIR_ROOTS`,
+`ORCA_REPO_ROOTS` (comma-separated absolute paths used to validate
 lane workdirs), etc. before `npm run dev`.
 
 ## 3. Smoke the API + UI from the Mac
@@ -149,8 +149,8 @@ succeed.
 ## 7a. Browser UI smoke
 
 ```bash
-COMMAND_DECK_API_TOKEN=$COMMAND_DECK_API_TOKEN \
-COMMAND_DECK_BASE_URL=http://127.0.0.1:3000 \
+ORCA_API_TOKEN=$ORCA_API_TOKEN \
+ORCA_BASE_URL=http://127.0.0.1:3000 \
   npm run smoke:ui
 ```
 
@@ -183,7 +183,7 @@ tailscale serve reset
 ## 9. Things that must stay off
 
 - Public Tailscale Funnel.
-- Auto-seed of demo data (set `COMMAND_DECK_SEED=1` only if you want a
+- Auto-seed of demo data (set `ORCA_SEED=1` only if you want a
   starter Realm Shaper project).
 - Sweep destructive commands. Cleanup defaults to dry-run; live deletion
   requires `confirmed: true` plus approval.

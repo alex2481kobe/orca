@@ -23,13 +23,13 @@ if (!target) {
 }
 
 const bundleDir = path.join(root, 'src-tauri', 'target', 'release', 'bundle', 'macos');
-const artifactName = process.env.COMMAND_DECK_UPDATE_ARTIFACT || `${config.productName}.app.tar.gz`;
-const signaturePath = process.env.COMMAND_DECK_UPDATE_SIGNATURE || path.join(bundleDir, `${artifactName}.sig`);
-const artifactUrl = process.env.COMMAND_DECK_UPDATE_ARTIFACT_URL;
+const artifactName = process.env.ORCA_UPDATE_ARTIFACT || `${config.productName}.app.tar.gz`;
+const signaturePath = process.env.ORCA_UPDATE_SIGNATURE || path.join(bundleDir, `${artifactName}.sig`);
+const artifactUrl = process.env.ORCA_UPDATE_ARTIFACT_URL;
 
 if (!artifactUrl) {
-  console.error('[tauri-release-manifest] missing COMMAND_DECK_UPDATE_ARTIFACT_URL');
-  console.error('Example: COMMAND_DECK_UPDATE_ARTIFACT_URL=https://github.com/alex2481kobe/orca/releases/download/v0.1.0/Command%20Deck.app.tar.gz npm run tauri:release-manifest');
+  console.error('[tauri-release-manifest] missing ORCA_UPDATE_ARTIFACT_URL');
+  console.error('Example: ORCA_UPDATE_ARTIFACT_URL=https://github.com/alex2481kobe/orca/releases/download/v0.1.0/Command%20Deck.app.tar.gz npm run tauri:release-manifest');
   process.exit(1);
 }
 
@@ -42,8 +42,8 @@ const signature = (await fs.readFile(signaturePath, 'utf8')).trim();
 const now = new Date().toISOString();
 const manifest = {
   version: config.version,
-  notes: process.env.COMMAND_DECK_UPDATE_NOTES || `Command Deck ${config.version}`,
-  pub_date: process.env.COMMAND_DECK_UPDATE_PUB_DATE || now,
+  notes: process.env.ORCA_UPDATE_NOTES || `Orca ${config.version}`,
+  pub_date: process.env.ORCA_UPDATE_PUB_DATE || now,
   platforms: {
     [`${target}-${arch}`]: {
       signature,
@@ -52,7 +52,7 @@ const manifest = {
   },
 };
 
-const output = process.env.COMMAND_DECK_UPDATE_MANIFEST || path.join(root, 'artifacts', 'tauri', 'latest.json');
+const output = process.env.ORCA_UPDATE_MANIFEST || path.join(root, 'artifacts', 'tauri', 'latest.json');
 await fs.mkdir(path.dirname(output), { recursive: true });
 await fs.writeFile(output, `${JSON.stringify(manifest, null, 2)}\n`);
 console.log(`[tauri-release-manifest] wrote ${output}`);
