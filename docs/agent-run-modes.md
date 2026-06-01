@@ -31,6 +31,26 @@ lane fields:
 | API providers | JSON request body with `model` and prompt content; secrets resolved server-side. |
 | Custom CLI | Uses explicit `commandArgs`, default args, or the task prompt as argv. Custom CLI is disabled unless explicitly configured. |
 
+## Provider support matrix
+
+Do not expose unverified provider-specific CLIs as first-class supported
+executors. Until each CLI has argv mapping, MCP behavior, binary allowlists,
+install policy, and redaction tests, use either the tested API executor or the
+advanced Custom CLI adapter.
+
+| Provider | Tested CLI executor | Tested API executor | Untested CLI path |
+| --- | --- | --- | --- |
+| Codex | yes, `executorType: "codex"` | no | n/a |
+| Claude | yes, `executorType: "claude"` | no | n/a |
+| Gemini | no | yes, `executorType: "gemini"` | Custom CLI only, disabled until configured and proven |
+| Kimi | no | yes, `executorType: "kimi"` | Custom CLI only, disabled until configured and proven |
+| DeepSeek | no | yes, `executorType: "deepseek"` | Custom CLI only, disabled until configured and proven |
+| OpenRouter | no | yes, `executorType: "openrouter"` | Custom CLI only, disabled until configured and proven |
+| Composer | no | yes, `executorType: "composer"` | Custom CLI only, disabled until configured and proven |
+
+The release posture is: tested adapters are listed as supported; untested CLIs
+are documented as experimental host configuration, not selectable defaults.
+
 The exact meaning of `permissionsProfile` is owned by the selected CLI. Command
 Deck stores and passes the string, but the CLI decides whether values such as
 `plan`, `restricted`, `auto-edit`, or `bypass` are valid for that installed

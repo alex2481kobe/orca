@@ -75,6 +75,10 @@ see [`docs/web-pwa-distribution.md`](docs/web-pwa-distribution.md).
   docs.
 - Provider profiles for Codex, Claude, Custom CLI, OpenAI-compatible API,
   Gemini API, Kimi, DeepSeek, OpenRouter, and Composer.
+- First-class CLI executors are Codex and Claude. Gemini, Kimi, DeepSeek,
+  OpenRouter, and Composer are tested as API executors; provider-specific CLIs
+  can be experimented with through the disabled-by-default Custom CLI adapter
+  after host allowlists and tests are added.
 - API-provider execution through local dummy OpenAI-compatible and native
   Gemini adapters, including credential lookup and redaction.
 - Credential abstraction with memory/test backend, env fallback, injectable
