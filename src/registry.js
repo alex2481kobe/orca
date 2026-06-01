@@ -1474,11 +1474,11 @@ export class OrcaRegistry {
 
   seed() {
     const project = this.createProject({
-      name: 'Realm Shaper',
-      slug: 'realm-shaper',
+      name: 'Example Project',
+      slug: 'example-project',
       quickLinks: [
         { label: 'Local dev server', url: 'http://localhost:4173', localUrl: 'http://localhost:4173', port: 4173, kind: 'vite', favorite: true },
-        { label: 'Artifacts', url: '/projects/realm-shaper/sessions/overview?section=artifacts', kind: 'dashboard' },
+        { label: 'Artifacts', url: '/projects/example-project/sessions/overview?section=artifacts', kind: 'dashboard' },
       ],
       owner: 'seed',
     }, {

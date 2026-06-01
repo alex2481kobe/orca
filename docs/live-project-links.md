@@ -13,7 +13,7 @@ link before running URL policy and Playwright capture.
 
 When an executor starts a project server, the user needs a stable place to click
 the current link later from desktop, phone, or a future desktop app. For
-example, Realm Shaper on Vite port 5173 should be saved once as a project live
+example, Example App on Vite port 5173 should be saved once as a project live
 link, then health-checked by the server.
 
 ## Data shape
@@ -23,7 +23,7 @@ Each link is normalized by the server:
 ```json
 {
   "id": "generated-or-stable-id",
-  "label": "Realm Shaper",
+  "label": "Example App",
   "url": "http://localhost:5173/",
   "localUrl": "http://127.0.0.1:5173/",
   "tailnetHttpUrl": "http://device.tailnet.ts.net:5173/",

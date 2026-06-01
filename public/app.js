@@ -1463,7 +1463,7 @@ function renderHome() {
               <input id="pairing-code-input" placeholder="ABCD-1234-EF56" autocomplete="one-time-code" />
             </label>
             <label>Device label
-              <input id="pairing-label-input" placeholder="Alex phone" />
+              <input id="pairing-label-input" placeholder="My phone" />
             </label>
             <button class="secondary" data-action="pairBrowserSession" type="button">Pair browser</button>
           </div>
@@ -2407,7 +2407,7 @@ function renderProject(project) {
               </div>
               <form id="update-project-links-form" data-project-id="${project.id}">
                 <label>Quick link label
-                  <input name="quickLinkLabel" placeholder="Realm Shaper" required />
+                  <input name="quickLinkLabel" placeholder="My web app" required />
                 </label>
                 <label>Quick link URL
                   <input name="quickLinkUrl" placeholder="http://localhost:5173" required />

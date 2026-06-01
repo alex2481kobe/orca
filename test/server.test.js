@@ -2098,7 +2098,7 @@ test('project live links are server-authoritative, SSRF-checked, health-checked,
       headers: { 'x-orca-token': token },
       body: {
         actor: 'dashboard',
-        label: 'Realm Shaper',
+        label: 'Example App',
         url: target.url,
         kind: 'vite',
       },
@@ -2125,7 +2125,7 @@ test('project live links are server-authoritative, SSRF-checked, health-checked,
       body: {
         actor: 'dashboard',
         approved: true,
-        label: 'Realm Shaper',
+        label: 'Example App',
         url: target.url,
         localUrl: target.url,
         port: target.port,
@@ -2134,7 +2134,7 @@ test('project live links are server-authoritative, SSRF-checked, health-checked,
       },
     });
     assert.equal(added.status, 201);
-    assert.equal(added.body?.link?.label, 'Realm Shaper');
+    assert.equal(added.body?.link?.label, 'Example App');
     assert.equal(added.body?.link?.kind, 'vite');
     assert.equal(added.body?.link?.port, target.port);
     assert.equal(added.body?.link?.favorite, true);

@@ -41,7 +41,7 @@ port 5173, use:
 
 ```json
 {
-  "label": "Realm Shaper",
+  "label": "Example App",
   "url": "http://localhost:5173",
   "localUrl": "http://127.0.0.1:5173",
   "port": 5173,

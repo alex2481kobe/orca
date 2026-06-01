@@ -1,4 +1,4 @@
-# Tonight Runbook: Orca on Mac + Phone via Tailscale Serve
+# Runbook: Orca on Mac + Phone via Tailscale Serve
 
 Goal: bring Orca up locally on the Mac and use it from a phone over
 private Tailscale Serve. No public Funnel.
@@ -184,7 +184,7 @@ tailscale serve reset
 
 - Public Tailscale Funnel.
 - Auto-seed of demo data (set `ORCA_SEED=1` only if you want a
-  starter Realm Shaper project).
+  starter example project).
 - Sweep destructive commands. Cleanup defaults to dry-run; live deletion
   requires `confirmed: true` plus approval.
 - Hand-edited tokens in shell history; prefer `read -s`.

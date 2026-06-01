@@ -369,7 +369,7 @@ async function inspectAccessGate(page, viewport, expectedRole) {
       hasPairInput: Boolean(document.getElementById('pairing-code-input')),
       hasTokenInput: Boolean(document.getElementById('api-token-input')),
       hasCreatePairing: actions.includes('createPairingCode'),
-      hasProjectData: /UI Contract|Contract session|Exercise UI contract|Realm Shaper/.test(text),
+      hasProjectData: /UI Contract|Contract session|Exercise UI contract|Example Project/.test(text),
       hasWorkstationInstructions: /workstation/i.test(text),
       hasOneTimeCodeInstructions: /one-time/i.test(text),
     };

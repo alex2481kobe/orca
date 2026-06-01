@@ -1933,7 +1933,7 @@ test('evidence capture resolves saved preview presets server-side', async () => 
     const project = registry.createProject({
       name: 'Preset Evidence Project',
       quickLinks: [{
-        label: 'Realm Shaper',
+        label: 'Example App',
         url: 'http://127.0.0.1:5173',
         kind: 'vite',
       }],

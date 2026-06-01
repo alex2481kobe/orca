@@ -35,7 +35,7 @@ blocked.
 When a server is running, include a compact handoff like:
 
 ```text
-live link: label=Realm Shaper url=http://localhost:5173 port=5173 kind=vite
+live link: label=Example App url=http://localhost:5173 port=5173 kind=vite
 ```
 
 If a remote/tailnet URL is known, include it separately:

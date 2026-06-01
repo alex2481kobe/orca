@@ -1,7 +1,7 @@
 name: ci
 
-# Manual-only while GitHub Actions billing is disabled and while third-party
-# contribution policy is intentionally conservative. Do not add automatic
+# Manual-only by policy: the contribution model is intentionally conservative,
+# so workflows run only when a maintainer dispatches them. Do not add automatic
 # `push`, `pull_request`, `pull_request_target`, or scheduled triggers without
 # owner review.
 on:

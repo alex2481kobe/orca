@@ -47,8 +47,8 @@ Older prerelease builds may be asked to upgrade before a fix is validated.
 
 ## Repository hardening
 
-- GitHub Actions are manual-only by default while billing is disabled and while
-  third-party contribution policy is intentionally conservative.
+- GitHub Actions are manual-only by default, dispatched by a maintainer, because
+  the third-party contribution policy is intentionally conservative.
 - Pull requests from forks should be reviewed before workflows are run,
   especially when they change `.github/workflows/`, dependency manifests,
   scripts, Tauri config, or service-worker files.
