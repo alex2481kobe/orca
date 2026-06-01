@@ -261,8 +261,12 @@ function buildExecutorCommandArgs(label, lane) {
     case 'codex': {
       out.push('exec', '--json');
       if (model) out.push('--model', model);
+      // codex exec is non-interactive; governance is by sandbox policy.
+      // force -> full-auto, plan/ask -> read-only, other governed modes ->
+      // workspace-write (edit the workspace, no network/system escape).
       if (isForceMode(permissions)) out.push('--full-auto');
-      if (isPlanMode(permissions)) out.push('--sandbox', 'read-only');
+      else if (isPlanMode(permissions)) out.push('--sandbox', 'read-only');
+      else if (permissions) out.push('--sandbox', 'workspace-write');
       if (lane.mcpConfigPath) out.push('--mcp-config', lane.mcpConfigPath);
       if (targetUrl) out.push('--target', targetUrl);
       out.push(targetUrl ? `Target: ${targetUrl}\n${safePrompt}` : safePrompt);

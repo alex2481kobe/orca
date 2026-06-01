@@ -170,3 +170,24 @@ Custom CLI lane with explicit argv:
   "approved": true
 }
 ```
+
+## Permission handling per CLI
+
+Orca relays agent permission decisions to the orchestrator/user through the
+built-in MCP server and the lane approval subsystem, but the mechanism differs
+by CLI because each agent governs permissions differently:
+
+- **Claude** uses an interactive permission gateway. Governed (non-bypass) lanes
+  launch with `--permission-prompt-tool mcp__orca__permission_prompt`. When Claude
+  needs approval it calls that MCP tool, which records a pending approval on the
+  lane and **blocks** until the orchestrator/user approves or denies, then returns
+  `{behavior: "allow"|"deny"}`. This is the full Codex-app-style approval loop.
+- **Codex (`exec`)** is non-interactive: it governs by sandbox policy, not an
+  external blocking prompt. Lane permissions map to the sandbox:
+  - plan/ask -> `--sandbox read-only`
+  - governed/edit -> `--sandbox workspace-write`
+  - force/bypass -> `--full-auto`
+  Interactive per-action Codex approvals would require the Codex app-server
+  protocol and are a future enhancement; today Codex governance is sandbox-based.
+- **Any CLI** can also explicitly request approval via the `approval.request`
+  MCP tool, and orchestrators decide with `approval.respond`.
