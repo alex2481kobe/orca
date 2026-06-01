@@ -9,9 +9,11 @@ Command Deck has two desktop build modes:
   macOS `.app`.
 - `npm run tauri:build:dmg` produces the DMG bundle path.
 - `npm run tauri:release-preflight` checks whether the release environment has
-  the required updater, Apple signing/notarization, and GitHub upload secrets
+  the required updater, Apple signing/notarization, and CI upload secrets
   without printing secret values. Add `-- --local` to allow the ignored local
-  `.tauri/` updater key and a local `APPLE_SIGNING_IDENTITY`.
+  `.tauri/` updater key, a local `APPLE_SIGNING_IDENTITY`, and manual GitHub
+  Release uploads. Add `-- --require-upload-token` when local automation should
+  also require `GITHUB_TOKEN` or `GH_TOKEN`.
 - `npm run tauri:version -- 0.2.0` updates `package.json`,
   `package-lock.json`, and `src-tauri/tauri.conf.json` together.
 - `npm run tauri:release-local` runs the local release prep sequence after

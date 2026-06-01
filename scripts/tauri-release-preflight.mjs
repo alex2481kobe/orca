@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const mode = process.argv.includes('--local') ? 'local' : 'ci';
+const requireUploadToken = mode === 'ci' || process.argv.includes('--require-upload-token');
 const env = process.env;
 
 function readJson(relativePath) {
@@ -94,12 +95,16 @@ record(
   'Prefer APPLE_API_ISSUER, APPLE_API_KEY, and APPLE_API_KEY_PATH/APPLE_API_PRIVATE_KEY. Apple ID fallback requires APPLE_ID, APPLE_PASSWORD, and APPLE_TEAM_ID.',
 );
 
-record(
-  checks,
-  envPresent('GITHUB_TOKEN') || envPresent('GH_TOKEN'),
-  'GitHub release token is available',
-  'Set GITHUB_TOKEN or GH_TOKEN so CI can upload release assets and latest.json.',
-);
+if (requireUploadToken) {
+  record(
+    checks,
+    envPresent('GITHUB_TOKEN') || envPresent('GH_TOKEN'),
+    'GitHub release token is available',
+    'Set GITHUB_TOKEN or GH_TOKEN so CI can upload release assets and latest.json.',
+  );
+} else {
+  console.log('[tauri-release-preflight] skip — GitHub release token not required for local/manual upload');
+}
 
 const missing = checks.filter((check) => !check.ok);
 for (const check of checks) {

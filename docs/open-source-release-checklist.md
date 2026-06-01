@@ -33,8 +33,10 @@ git diff --check
 ```
 
 Expected local-only caveat: `tauri:release-preflight -- --local` must find the
-ignored updater private key and Apple release environment. If Apple variables
-are missing, that is a manual release blocker, not an app-code blocker.
+ignored updater private key and Apple release environment. It intentionally
+does not require a GitHub token because release assets can be uploaded manually.
+If Apple variables are missing, that is a manual release blocker, not an
+app-code blocker.
 
 ## macOS distribution gate
 
