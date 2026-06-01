@@ -2348,3 +2348,49 @@ test('Real Claude CLI launches through the executor adapter and reports PID + ex
     await cleanup();
   }
 });
+
+test('submitLane records summary + changed files and marks the lane ready for audit', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const project = registry.createProject({ name: 'Submit Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Submit Session' }, { actor: 'test', approved: true });
+    const lane = registry.createLane(session.id, { title: 'work', executorType: 'mock' }, { approved: true, actor: 'test' });
+    const target = registry.getLane(lane.id);
+    target.state = 'running';
+
+    const result = registry.submitLane(lane.id, {
+      actor: 'executor',
+      summary: 'Implemented the feature',
+      changedFiles: ['src/a.js', 'src/b.js'],
+    });
+    assert.equal(result.needsCritique, false);
+    assert.equal(result.lane.state, 'ready_for_audit');
+    assert.equal(result.lane.summary, 'Implemented the feature');
+    assert.deepEqual(result.lane.changedFiles, ['src/a.js', 'src/b.js']);
+
+    // Re-submitting from a terminal/non-running state is refused.
+    assert.throws(
+      () => registry.submitLane(lane.id, { actor: 'executor' }),
+      (err) => err.status === 409 && /cannot be submitted/.test(err.message),
+    );
+  } finally {
+    await cleanup();
+  }
+});
+
+test('submitLane routes to self-verification when critique is required', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const project = registry.createProject({ name: 'Critique Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Critique Session' }, { actor: 'test', approved: true });
+    const lane = registry.createLane(session.id, { title: 'visual', executorType: 'mock', critiqueMode: 'required' }, { approved: true, actor: 'test' });
+    const target = registry.getLane(lane.id);
+    target.state = 'running';
+
+    const result = registry.submitLane(lane.id, { actor: 'executor', summary: 'done' });
+    assert.equal(result.needsCritique, true);
+    assert.equal(result.lane.state, 'needs_critique');
+  } finally {
+    await cleanup();
+  }
+});

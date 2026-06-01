@@ -9,6 +9,7 @@ import {
   runCaptureInstall,
   describeCaptureStatus,
 } from './capture-setup.js';
+import { availableToolIdsForRole } from './agent-tools.js';
 import {
   createExecutorAdapter,
   FIRST_CLASS_CLI_EXECUTOR_TYPES,
@@ -3123,6 +3124,43 @@ export class OrcaRegistry {
     return clonePayload(this.lanes.filter((lane) => lane.sessionId === session.id));
   }
 
+  // Executor handoff: marks a running lane ready for audit (or self-verification
+  // if critique is required), recording the executor's summary and changed files.
+  submitLane(laneLocator, { actor = 'executor', summary = '', changedFiles = [], handoff = '' } = {}) {
+    const lane = this.getLane(laneLocator);
+    if (!lane) throw { status: 404, message: 'Lane not found.' };
+    const submittable = new Set([STARTING_STATE, RUNNING_STATE, NEEDS_CRITIQUE_STATE]);
+    if (!submittable.has(lane.state)) {
+      throw { status: 409, message: `Lane cannot be submitted from state "${lane.state}".` };
+    }
+    if (summary) lane.summary = String(summary).slice(0, 4000);
+    if (Array.isArray(changedFiles) && changedFiles.length) {
+      lane.changedFiles = changedFiles.map((file) => String(file).slice(0, 400)).slice(0, 500);
+    }
+    if (handoff) lane.handoff = String(handoff).slice(0, 4000);
+    const needsCritique = this.critiqueRequiredForLane(lane) && !this.critiqueSatisfiedForLane(lane);
+    lane.state = needsCritique ? NEEDS_CRITIQUE_STATE : READY_FOR_AUDIT_STATE;
+    lane.submittedAt = nowIso();
+    lane.updatedAt = nowIso();
+    this.appendLaneAgentEvent(lane, {
+      type: 'agent.submitted',
+      title: 'Lane submitted for review',
+      content: lane.summary || '',
+    }, { persist: false });
+    this.recordAudit({
+      type: 'lane_submitted',
+      actor,
+      projectId: lane.projectId,
+      sessionId: lane.sessionId,
+      laneId: lane.id,
+      summary: `Lane ${lane.title} submitted (${needsCritique ? 'needs self-verification' : 'ready for audit'})`,
+      status: needsCritique ? 'pending' : 'passed',
+      evidence: { summary: lane.summary || '', changedFiles: lane.changedFiles || [] },
+    });
+    this.persistState();
+    return { lane: clonePayload(lane), needsCritique };
+  }
+
   updateLaneControls(laneLocator, {
     model,
     permissionsProfile,
@@ -4736,6 +4774,43 @@ export class OrcaRegistry {
     };
   }
 
+  serverBaseUrl() {
+    const host = process.env.ORCA_HOST && process.env.ORCA_HOST !== '0.0.0.0'
+      ? process.env.ORCA_HOST
+      : '127.0.0.1';
+    const port = process.env.PORT || '3000';
+    return `http://${host}:${port}`;
+  }
+
+  // Ensure a lane has a scoped tool lease + runtime env so the built-in Orca
+  // MCP server (auto-injected into the lane's MCP config) can call workflow
+  // tools on the agent's behalf. Orchestrator lanes are already leased.
+  ensureLaneToolLease(lane) {
+    const key = String(lane.id);
+    const existing = this.laneRuntimeEnv.get(key) || {};
+    if (existing.ORCA_TOOL_LEASE_TOKEN) return existing;
+    const role = lane.owner === 'orchestrator' ? 'orchestrator' : 'executor';
+    const allowedTools = availableToolIdsForRole(role);
+    if (!allowedTools.length) return existing;
+    const lease = this.createToolLease({
+      role,
+      projectId: lane.projectId,
+      sessionId: lane.sessionId,
+      laneId: lane.id,
+      allowedTools,
+      ttlMs: 24 * 60 * 60 * 1000,
+      actor: 'lane-bootstrap',
+    });
+    const next = {
+      ...existing,
+      ORCA_TOOL_LEASE_TOKEN: lease.leaseToken,
+      ORCA_AGENT_TOOLS_BASE_URL: this.serverBaseUrl(),
+      ORCA_ROLE: role,
+    };
+    this.laneRuntimeEnv.set(key, next);
+    return next;
+  }
+
   // Governed on-demand setup of the evidence-capture browser backend.
   // Dry-run by default; executes only with approval + explicit confirmation.
   async setupCaptureBackend({
@@ -5479,6 +5554,7 @@ Changed files: ${changedFiles.length}
           status: 'passed',
         });
 
+        this.ensureLaneToolLease(lane);
         const executor = this.getExecutorForLane(lane);
         try {
           const workerResult = await executor.start(lane);

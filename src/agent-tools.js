@@ -78,10 +78,10 @@ const TOOL_DEFINITIONS = [
     group: 'lane',
     roles: ['executor', 'orchestrator'],
     method: 'POST',
-    route: null,
-    implemented: false,
+    route: '/api/lanes/{laneId}/submit',
+    implemented: true,
     mutating: true,
-    summary: 'Submit lane handoff and mark ready for audit.',
+    summary: 'Submit lane handoff (summary + changed files) and mark ready for audit.',
   },
   {
     id: 'lane.block',

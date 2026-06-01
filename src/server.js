@@ -275,6 +275,9 @@ function toolLeaseRequirementForRoute(method, parts) {
   if (parts[1] === 'lanes' && parts[2] && parts[3] === 'heartbeat' && method === 'POST') {
     return { toolId: 'lane.heartbeat', laneId: parts[2] };
   }
+  if (parts[1] === 'lanes' && parts[2] && parts[3] === 'submit' && method === 'POST') {
+    return { toolId: 'lane.submit', laneId: parts[2] };
+  }
   if (parts[1] === 'lanes' && parts[2] && parts[3] === 'stop' && method === 'POST') {
     return { toolId: 'lane.shutdown', laneId: parts[2] };
   }
@@ -2212,6 +2215,23 @@ async function handleApi(req, res, pathname, method, parts) {
         return sendJson(res, 200, updated);
       } catch (error) {
         return sendJson(res, error.status || 500, { error: error.message || 'Could not touch heartbeat.' });
+      }
+    }
+
+    if (parts.length === 4 && parts[3] === 'submit' && method === 'POST') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+      if (rejectSpoofedActor(body, res)) return;
+      try {
+        const result = registry.submitLane(lane.id, {
+          actor: String(body.actor || 'executor').trim() || 'executor',
+          summary: body.summary,
+          changedFiles: body.changedFiles,
+          handoff: body.handoff,
+        });
+        return sendJson(res, 200, result);
+      } catch (error) {
+        return sendJson(res, error.status || 500, { error: error.message || 'Could not submit lane.' });
       }
     }
 
