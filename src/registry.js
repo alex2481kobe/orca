@@ -960,6 +960,9 @@ function buildOrchestratorPrompt({
   session,
   message,
   messages = [],
+  model = '',
+  permissionsProfile = '',
+  intelligenceProfile = '',
   baseUrl = '',
   nextActionUrl = '',
   discoveryUrl = '',
@@ -980,6 +983,9 @@ function buildOrchestratorPrompt({
     'For HTTP tool calls, send header x-commanddeck-tool-lease: $COMMAND_DECK_TOOL_LEASE_TOKEN.',
     `Project: ${project?.name || project?.id || 'unknown'}`,
     `Session: ${session?.name || session?.id || 'unknown'}`,
+    model ? `Requested model: ${safeChatText(model, 120)}` : '',
+    permissionsProfile ? `Run mode / permissions: ${safeChatText(permissionsProfile, 120)}` : '',
+    intelligenceProfile ? `Requested intelligence level: ${safeChatText(intelligenceProfile, 80)}` : '',
     session?.repoRoot ? `Repository root: ${session.repoRoot}` : `Session workspace: ${session?.worktreeRoot || ''}`,
     transcript ? `Recent conversation:\n${transcript}` : '',
     `Current user request:\n${safeChatText(message)}`,
@@ -2248,6 +2254,7 @@ export class CommandDeckRegistry {
     executorType,
     model,
     permissionsProfile,
+    intelligenceProfile,
     targetUrl,
     baseUrl = '',
     discoveryUrl = '',
@@ -2286,12 +2293,16 @@ export class CommandDeckRegistry {
           session,
           message: text,
           messages: thread.messages,
+          model,
+          permissionsProfile,
+          intelligenceProfile,
           baseUrl,
           discoveryUrl,
           nextActionUrl,
         }),
         model,
         permissionsProfile,
+        intelligenceProfile,
         targetUrl,
       }, {
         actor: context.actor || 'dashboard',
@@ -2721,6 +2732,7 @@ export class CommandDeckRegistry {
     taskPrompt,
     model,
     permissionsProfile,
+    intelligenceProfile,
     verificationCommand,
     expectedArtifacts,
     targetUrl,
@@ -2858,6 +2870,8 @@ export class CommandDeckRegistry {
     const sanitizedModel = typeof model === 'string' ? model.trim().slice(0, 120) : '';
     const sanitizedPermissionsProfile = typeof permissionsProfile === 'string'
       ? permissionsProfile.trim().slice(0, 120) : '';
+    const sanitizedIntelligenceProfile = typeof intelligenceProfile === 'string'
+      ? intelligenceProfile.trim().slice(0, 80) : '';
     const sanitizedVerificationCommand = typeof verificationCommand === 'string'
       ? verificationCommand.trim().slice(0, 1000) : '';
     const sanitizedTargetUrl = typeof targetUrl === 'string' && targetUrl.trim()
@@ -2894,6 +2908,7 @@ export class CommandDeckRegistry {
       taskPrompt: sanitizedTaskPrompt,
       model: sanitizedModel,
       permissionsProfile: sanitizedPermissionsProfile,
+      intelligenceProfile: sanitizedIntelligenceProfile,
       verificationCommand: sanitizedVerificationCommand,
       expectedArtifacts: expectedArtifactsList,
       targetUrl: sanitizedTargetUrl,
@@ -4865,6 +4880,7 @@ Exit reason: ${lane.exitReason || ''}
 Executor: ${lane.executorType}
 Model: ${lane.model || ''}
 Permissions profile: ${lane.permissionsProfile || ''}
+Intelligence profile: ${lane.intelligenceProfile || ''}
 Branch: ${lane.branch || ''}
 Workdir: ${lane.workdir || ''}
 MCP config: ${lane.mcpConfigPath || ''}
@@ -4889,6 +4905,7 @@ Changed files: ${changedFiles.length}
       taskPrompt: lane.taskPrompt || null,
       model: lane.model || null,
       permissionsProfile: lane.permissionsProfile || null,
+      intelligenceProfile: lane.intelligenceProfile || null,
       branch: lane.branch || null,
       repoRoot: lane.repoRoot || null,
       worktreePath: lane.worktreePath || lane.workdir || null,

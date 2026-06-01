@@ -2564,6 +2564,42 @@ function renderAgentEventTimeline(lane, { limit = 80, compact = false } = {}) {
   `;
 }
 
+function modelPresetOptions(selected = '') {
+  const normalized = String(selected || '').trim();
+  const options = [
+    ['', 'Default'],
+    ['gpt-5.5', 'GPT-5.5'],
+    ['gpt-5', 'GPT-5'],
+    ['claude-sonnet-4-5', 'Claude Sonnet 4.5'],
+    ['claude-opus-4-7', 'Claude Opus 4.7'],
+    ['gemini-2.5-pro', 'Gemini 2.5 Pro'],
+    ['gemini-2.5-flash', 'Gemini 2.5 Flash'],
+    ['cursor-default', 'Cursor default'],
+  ];
+  return options.map(([value, label]) => `<option value="${safeAttr(value)}"${normalized === value ? ' selected' : ''}>${safeText(label)}</option>`).join('');
+}
+
+function intelligenceOptions(selected = 'high') {
+  const normalized = String(selected || 'high').trim().toLowerCase();
+  return [
+    ['low', 'Low'],
+    ['medium', 'Medium'],
+    ['high', 'High'],
+    ['max', 'Max'],
+  ].map(([value, label]) => `<option value="${safeAttr(value)}"${normalized === value ? ' selected' : ''}>${safeText(label)}</option>`).join('');
+}
+
+function runModeOptions(selected = 'plan') {
+  const normalized = String(selected || 'plan').trim();
+  return [
+    ['plan', 'Plan'],
+    ['read-only', 'Read only'],
+    ['auto-edit', 'Auto edit'],
+    ['acceptEdits', 'Accept edits'],
+    ['bypassPermissions', 'Bypass permissions'],
+  ].map(([value, label]) => `<option value="${safeAttr(value)}"${normalized === value ? ' selected' : ''}>${safeText(label)}</option>`).join('');
+}
+
 function renderOrchestratorTerminal(project, session, lane) {
   if (!lane) {
     return `
@@ -2639,6 +2675,9 @@ function renderOrchestratorConsole(session) {
     `;
   }).join('');
   const selectedExecutor = thread.executorType || session.leader || 'codex';
+  const selectedModel = activeLane?.model || '';
+  const selectedRunMode = activeLane?.permissionsProfile || 'plan';
+  const selectedIntelligence = activeLane?.intelligenceProfile || 'high';
   return `
     <article class="orchestrator-console">
       <div class="orchestrator-header">
@@ -2665,10 +2704,22 @@ function renderOrchestratorConsole(session) {
             </select>
           </label>
           <label>Model
-            <input name="model" placeholder="optional" />
+            <select name="modelPreset">
+              ${modelPresetOptions(selectedModel)}
+            </select>
           </label>
-          <label>Permissions
-            <input name="permissionsProfile" placeholder="plan, auto-edit, restricted" />
+          <label>Custom model
+            <input name="model" placeholder="optional override" />
+          </label>
+          <label>Intelligence
+            <select name="intelligenceProfile">
+              ${intelligenceOptions(selectedIntelligence)}
+            </select>
+          </label>
+          <label>Mode
+            <select name="permissionsProfile">
+              ${runModeOptions(selectedRunMode)}
+            </select>
           </label>
         </div>
         <button type="submit">Send</button>
@@ -2731,8 +2782,15 @@ function renderSession(project, session) {
             <label>Model / profile
               <input name="model" placeholder="e.g., gpt-5 or claude-opus-4-7" />
             </label>
+            <label>Intelligence
+              <select name="intelligenceProfile">
+                ${intelligenceOptions('high')}
+              </select>
+            </label>
             <label>Permissions profile
-              <input name="permissionsProfile" placeholder="e.g., plan, restricted, full" />
+              <select name="permissionsProfile">
+                ${runModeOptions('plan')}
+              </select>
             </label>
             <label>Target URL
               <input name="targetUrl" placeholder="https://localhost:5173" />
@@ -2837,7 +2895,7 @@ function renderLane(project, session, lane) {
         <div class="disclosure-body">
           <div class="tiny muted">MCP tools: ${(lane.mcpTools || []).map((item) => safeText(item.name)).join(', ') || 'none'}</div>
           <div class="tiny muted">Route: ${safeText(laneDetailRoute(project, session, lane))}</div>
-          ${lane.model || lane.permissionsProfile || lane.branch ? `<div class="tiny">Model: ${safeText(lane.model || '—')} / Permissions: ${safeText(lane.permissionsProfile || '—')} / Branch: ${safeText(lane.branch || '—')}</div>` : ''}
+          ${lane.model || lane.permissionsProfile || lane.intelligenceProfile || lane.branch ? `<div class="tiny">Model: ${safeText(lane.model || '—')} / Mode: ${safeText(lane.permissionsProfile || '—')} / Intelligence: ${safeText(lane.intelligenceProfile || '—')} / Branch: ${safeText(lane.branch || '—')}</div>` : ''}
           ${lane.workdir ? `<div class="tiny">Workdir: ${safeText(lane.workdir)}</div>` : ''}
           ${lane.processMeta && lane.processMeta.pid !== null ? `<div class="tiny">Process: PID ${safeText(String(lane.processMeta.pid))} / exit ${safeText(String(lane.processMeta.exitCode ?? '—'))} / signal ${safeText(String(lane.processMeta.signal ?? '—'))}${lane.processMeta.stopRequestedBy ? ' / stopped by ' + safeText(lane.processMeta.stopRequestedBy) : ''}</div>` : ''}
           <div class="tiny">Pending audits: ${pendingAudits.length}</div>
@@ -3653,6 +3711,7 @@ async function handleCreateLane(event) {
       taskPrompt: payload.taskPrompt || null,
       model: payload.model || null,
       permissionsProfile: payload.permissionsProfile || null,
+      intelligenceProfile: payload.intelligenceProfile || null,
       targetUrl: payload.targetUrl || null,
       branch: payload.branch || null,
       verificationCommand: payload.verificationCommand || null,
@@ -3678,9 +3737,12 @@ async function handleOrchestratorMessage(event) {
     return;
   }
   const executorType = normalizeExecutorType(payload.executorType || 'codex');
+  const model = String(payload.model || '').trim() || String(payload.modelPreset || '').trim() || null;
+  const intelligenceProfile = String(payload.intelligenceProfile || '').trim() || 'high';
+  const permissionsProfile = String(payload.permissionsProfile || '').trim() || 'plan';
   const approval = buildApprovedActionBody(
     'createLane',
-    `Send this message to the ${executorType} orchestrator and start an orchestration lane?`,
+    `Start ${executorType} orchestrator?\nMode: ${permissionsProfile}\nModel: ${model || 'default'}\nIntelligence: ${intelligenceProfile}`,
   );
   if (!approval.approved) {
     renderAlert('Orchestrator message canceled.');
@@ -3691,8 +3753,9 @@ async function handleOrchestratorMessage(event) {
     body: {
       message,
       executorType,
-      model: payload.model || null,
-      permissionsProfile: payload.permissionsProfile || null,
+      model,
+      permissionsProfile,
+      intelligenceProfile,
       actor: approval.actor,
       approved: approval.approved,
     },
@@ -4497,33 +4560,42 @@ async function handleSystemActions(event) {
   }
 }
 
+function delegatedSubmitEvent(event) {
+  return {
+    currentTarget: event.target,
+    target: event.target,
+    preventDefault: () => event.preventDefault(),
+  };
+}
+
 document.addEventListener('submit', async (event) => {
+  const formEvent = delegatedSubmitEvent(event);
   if (event.target.id === 'create-project-form') {
-    await handleCreateProject(event);
+    await handleCreateProject(formEvent);
     return;
   }
   if (event.target.id === 'update-project-links-form') {
-    await handleAddProjectQuickLink(event);
+    await handleAddProjectQuickLink(formEvent);
     return;
   }
   if (event.target.id === 'create-session-form') {
-    await handleCreateSession(event);
+    await handleCreateSession(formEvent);
     return;
   }
   if (event.target.id === 'create-lane-form') {
-    await handleCreateLane(event);
+    await handleCreateLane(formEvent);
     return;
   }
   if (event.target.id === 'orchestrator-message-form') {
-    await handleOrchestratorMessage(event);
+    await handleOrchestratorMessage(formEvent);
     return;
   }
   if (event.target.id === 'create-mcp-tool-form') {
-    await handleCreateMcpTool(event);
+    await handleCreateMcpTool(formEvent);
     return;
   }
   if (event.target.id === 'cleanup-schedule-form') {
-    await handleCleanupSchedule(event);
+    await handleCleanupSchedule(formEvent);
     return;
   }
   if (
@@ -4531,15 +4603,15 @@ document.addEventListener('submit', async (event) => {
     event.target.id === 'setup-private-access-settings-form' ||
     event.target.id === 'settings-private-access-settings-form'
   ) {
-    await handlePrivateAccessSettings(event);
+    await handlePrivateAccessSettings(formEvent);
     return;
   }
   if (event.target.id === 'notification-settings-form') {
-    await handleNotificationSettings(event);
+    await handleNotificationSettings(formEvent);
     return;
   }
   if (event.target.id === 'private-access-target-form') {
-    await handleCreatePrivateAccessTarget(event);
+    await handleCreatePrivateAccessTarget(formEvent);
     return;
   }
 });

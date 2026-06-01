@@ -227,11 +227,19 @@ function buildExecutorCommandArgs(label, lane) {
   const targetUrl = flagSafe(lane.targetUrl, 1024);
   const geminiApprovalMode = (value) => {
     const normalized = String(value || '').trim().toLowerCase();
-    if (normalized === 'auto-edit' || normalized === 'auto_accept' || normalized === 'auto-accept') return 'auto_edit';
-    if (normalized === 'bypass' || normalized === 'bypass-permissions' || normalized === 'force') return 'yolo';
+    if (normalized === 'auto-edit' || normalized === 'auto_accept' || normalized === 'auto-accept' || normalized === 'acceptedits') return 'auto_edit';
+    if (normalized === 'bypass' || normalized === 'bypass-permissions' || normalized === 'bypasspermissions' || normalized === 'force') return 'yolo';
     return normalized;
   };
-  const isForceMode = (value) => ['auto-edit', 'auto_edit', 'auto-accept', 'auto_accept', 'bypass', 'bypass-permissions', 'force', 'yolo']
+  const claudePermissionMode = (value) => {
+    const normalized = String(value || '').trim();
+    const key = normalized.toLowerCase();
+    if (key === 'auto-edit' || key === 'auto_accept' || key === 'auto-accept') return 'acceptEdits';
+    if (key === 'bypass' || key === 'bypass-permissions') return 'bypassPermissions';
+    return normalized;
+  };
+  const isPlanMode = (value) => ['plan', 'read-only', 'readonly', 'default', 'ask'].includes(String(value || '').trim().toLowerCase());
+  const isForceMode = (value) => ['auto', 'auto-edit', 'auto_edit', 'auto-accept', 'auto_accept', 'acceptedits', 'bypass', 'bypass-permissions', 'bypasspermissions', 'force', 'yolo']
     .includes(String(value || '').trim().toLowerCase());
   const out = [];
   switch (String(label).toLowerCase()) {
@@ -239,7 +247,7 @@ function buildExecutorCommandArgs(label, lane) {
       out.push('exec', '--json');
       if (model) out.push('--model', model);
       if (isForceMode(permissions)) out.push('--full-auto');
-      if (permissions === 'read-only' || permissions === 'readonly') out.push('--sandbox', 'read-only');
+      if (isPlanMode(permissions)) out.push('--sandbox', 'read-only');
       if (lane.mcpConfigPath) out.push('--mcp-config', lane.mcpConfigPath);
       if (targetUrl) out.push('--target', targetUrl);
       out.push(targetUrl ? `Target: ${targetUrl}\n${safePrompt}` : safePrompt);
@@ -248,7 +256,7 @@ function buildExecutorCommandArgs(label, lane) {
     case 'claude': {
       out.push('--print');
       if (model) out.push('--model', model);
-      if (permissions) out.push('--permission-mode', permissions);
+      if (permissions) out.push('--permission-mode', claudePermissionMode(permissions));
       if (lane.mcpConfigPath) out.push('--mcp-config', lane.mcpConfigPath);
       out.push('--output-format', 'stream-json', '--verbose', '--include-partial-messages');
       out.push(targetUrl ? `Target: ${targetUrl}\n${safePrompt}` : safePrompt);
@@ -256,7 +264,7 @@ function buildExecutorCommandArgs(label, lane) {
     }
     case 'gemini-cli': {
       if (model) out.push('--model', model);
-      if (permissions) out.push('--approval-mode', geminiApprovalMode(permissions));
+      if (permissions && !isPlanMode(permissions)) out.push('--approval-mode', geminiApprovalMode(permissions));
       out.push('--output-format', 'json');
       out.push('--prompt', targetUrl ? `Target: ${targetUrl}\n${safePrompt}` : safePrompt);
       break;

@@ -1797,6 +1797,7 @@ async function handleApi(req, res, pathname, method, parts) {
           executorType: body.executorType,
           model: body.model,
           permissionsProfile: body.permissionsProfile,
+          intelligenceProfile: body.intelligenceProfile,
           targetUrl: body.targetUrl,
           baseUrl: origin,
           discoveryUrl: `${origin}/api/agent-tools/discovery`,

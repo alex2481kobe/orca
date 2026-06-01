@@ -1258,7 +1258,7 @@ body.sidebar-collapsed .sidebar-project-line {
 .orchestrator-options {
   display: grid;
   gap: 0.55rem;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .lane-queue {

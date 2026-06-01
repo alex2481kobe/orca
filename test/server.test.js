@@ -1246,12 +1246,18 @@ test('dashboard orchestrator messages create server-owned turns and scoped tool 
         actor: 'dashboard',
         approved: true,
         executorType: 'mock',
+        model: 'gpt-5',
+        permissionsProfile: 'plan',
+        intelligenceProfile: 'high',
         message: 'Build the project plan and create the first executor lane.',
       },
     });
     assert.equal(turn.status, 201);
     assert.equal(turn.body?.lane?.owner, 'orchestrator');
     assert.equal(turn.body?.lane?.executorType, 'mock');
+    assert.equal(turn.body?.lane?.model, 'gpt-5');
+    assert.equal(turn.body?.lane?.permissionsProfile, 'plan');
+    assert.equal(turn.body?.lane?.intelligenceProfile, 'high');
     assert.equal(turn.body?.thread?.messages?.length, 2);
     assert.equal(JSON.stringify(turn.body).includes('leaseToken'), false);
     assert.equal(JSON.stringify(turn.body).includes(token), false);

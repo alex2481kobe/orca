@@ -1712,7 +1712,7 @@ test('buildExecutorCommandArgs derives safe argv from lane task prompt', async (
   assert.ok(claudeArgs.includes('--model'));
   assert.ok(claudeArgs.includes('claude-opus-4-7'));
   assert.ok(claudeArgs.includes('--permission-mode'));
-  assert.ok(claudeArgs.includes('bypass-permissions'));
+  assert.ok(claudeArgs.includes('bypassPermissions'));
   assert.ok(claudeArgs.includes('--mcp-config'));
   assert.ok(claudeArgs.includes('/tmp/mcp.json'));
   assert.equal(claudeArgs[0], '--print');
@@ -1761,6 +1761,12 @@ test('buildExecutorCommandArgs derives safe argv from lane task prompt', async (
   const stripped = buildExecutorCommandArgs('codex', { taskPrompt: 'safe\nprompt' });
   const text = stripped.join('\n');
   assert.equal(/\x01/.test(text), false);
+
+  const codexPlanArgs = buildExecutorCommandArgs('codex', {
+    taskPrompt: 'Plan only',
+    permissionsProfile: 'plan',
+  });
+  assert.deepEqual(codexPlanArgs.slice(0, 4), ['exec', '--json', '--sandbox', 'read-only']);
 });
 
 test('evidence capture resolves saved preview presets server-side', async () => {
