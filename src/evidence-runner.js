@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const DEFAULT_CAPTURE = ['screenshot'];
 const MIME_HINT = {
@@ -60,12 +61,62 @@ function nowIso() {
 let _playwrightCache;
 async function safeImportPlaywright() {
   if (_playwrightCache !== undefined) return _playwrightCache;
+  // Prefer an on-demand install location (set by the governed capture-setup
+  // installer) so the read-only app bundle can stay Playwright-free. Fall back
+  // to a normally-resolvable 'playwright' (source/dev installs).
+  const onDemandDir = String(process.env.ORCA_PLAYWRIGHT_DIR || '').trim();
+  if (onDemandDir) {
+    try {
+      const entry = path.join(onDemandDir, 'node_modules', 'playwright', 'index.js');
+      _playwrightCache = await import(pathToFileURL(entry).href);
+      return _playwrightCache;
+    } catch {
+      // Fall through to the default resolver.
+    }
+  }
   try {
     _playwrightCache = await import('playwright');
   } catch (error) {
     _playwrightCache = null;
   }
   return _playwrightCache;
+}
+
+// Optional system-browser channel (e.g. 'chrome') chosen by capture setup to
+// avoid downloading Chromium. Empty => use Playwright's bundled Chromium.
+function captureChannel() {
+  const channel = String(process.env.ORCA_CAPTURE_CHANNEL || '').trim();
+  return /^[a-z-]{1,32}$/.test(channel) ? channel : null;
+}
+
+// Native WKWebView capture is advertised by the Tauri shell via env. The shell
+// runs a loopback bridge with a shared token; we ask it to snapshot a URL to a
+// file. Screenshots only — video/traces stay on Playwright.
+function nativeCaptureAvailable() {
+  return Boolean(String(process.env.ORCA_NATIVE_CAPTURE_URL || '').trim());
+}
+
+async function captureViaNativeBridge({ url, outPath, timeoutMs = 15000 }) {
+  const endpoint = String(process.env.ORCA_NATIVE_CAPTURE_URL || '').trim();
+  if (!endpoint) return { ok: false, reason: 'native-unavailable' };
+  const token = String(process.env.ORCA_NATIVE_CAPTURE_TOKEN || '');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs + 3000);
+  try {
+    const res = await fetch(new URL('/capture', endpoint), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-orca-native-token': token },
+      body: JSON.stringify({ url, outPath, timeoutMs }),
+      signal: controller.signal,
+    });
+    if (!res.ok) return { ok: false, reason: `native-status-${res.status}` };
+    await fs.access(outPath); // the shell writes the PNG; confirm it landed
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, reason: error?.name === 'AbortError' ? 'native-timeout' : 'native-error' };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function detectPlaywright() {
@@ -136,6 +187,32 @@ export class PlaywrightEvidenceRunner {
       return { captured: false, reason: summary.error, evidence: summary };
     }
 
+    // Native WKWebView fast-path (macOS desktop app): screenshots only. Falls
+    // through to Playwright for video/traces or if the native bridge fails.
+    const onlyScreenshot = requestedModes.length === 1 && requestedModes[0] === 'screenshot';
+    if (onlyScreenshot && nativeCaptureAvailable()) {
+      const nativeTimestamp = Date.now();
+      const nativeShotRel = `${EVIDENCE_PREFIX}${nativeTimestamp}-shot.png`;
+      const nativeShotPath = path.join(artifactDir, nativeShotRel);
+      const nativeLogRel = `${EVIDENCE_PREFIX}${nativeTimestamp}-log.txt`;
+      const nativeLogPath = path.join(artifactDir, nativeLogRel);
+      const native = await captureViaNativeBridge({ url, outPath: nativeShotPath, timeoutMs });
+      if (native.ok) {
+        const output = {
+          ...summary,
+          completedAt: nowIso(),
+          status: 'captured',
+          backend: 'native-webview',
+          produced: [nativeShotRel, nativeLogRel],
+          artifactExtensionByMode: { screenshot: MIME_HINT.screenshot },
+        };
+        await fs.writeFile(nativeLogPath, outputText(output));
+        await safeFire(this.onLog, lane, `Evidence captured for ${url} via native webview.`);
+        return { captured: true, evidence: output, files: output.produced };
+      }
+      await safeFire(this.onLog, lane, `Native capture unavailable (${native.reason}); falling back to Playwright.`);
+    }
+
     const playwright = await safeImportPlaywright();
     if (!playwright) {
       // Optional fallback path for environments where Playwright package is intentionally absent.
@@ -166,8 +243,10 @@ export class PlaywrightEvidenceRunner {
 
     let browser = null;
     try {
+      const channel = captureChannel();
       browser = await playwright.chromium.launch({
         headless: true,
+        ...(channel ? { channel } : {}),
       });
       const contextOptions = {};
       const wantsVideo = requestedModes.includes('video');
