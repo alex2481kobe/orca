@@ -8,7 +8,7 @@ macOS release.
 - `LICENSE` contains the GNU AGPLv3 text and matches `package.json` /
   `src-tauri/Cargo.toml` as `AGPL-3.0-or-later`.
 - `README.md` links to contribution, security, support, Tauri release, and
-  macOS manual release docs.
+  macOS/manual/web-PWA release docs.
 - `.github/` issue, pull request, and release templates are present.
 - `SECURITY.md` tells reporters not to post secrets publicly.
 - `CONTRIBUTING.md` lists required checks and sensitive files that must never

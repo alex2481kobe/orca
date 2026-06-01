@@ -43,6 +43,10 @@ GitHub Release asset upload. Use
 [`docs/tauri-manual-release-checklist.md`](docs/tauri-manual-release-checklist.md)
 for that flow.
 
+Windows and Linux users can run the web/PWA version from source today with
+Node.js and a browser. Native Windows/Linux installers are later release paths;
+see [`docs/web-pwa-distribution.md`](docs/web-pwa-distribution.md).
+
 ## Implemented and proven
 
 - Local HTTP API and static dashboard at `/`, binding to `127.0.0.1` by
@@ -161,6 +165,7 @@ These are not missing local app code:
 - [`SUPPORT.md`](SUPPORT.md)
 - [`LICENSE`](LICENSE)
 - [`docs/tauri-release.md`](docs/tauri-release.md)
+- [`docs/web-pwa-distribution.md`](docs/web-pwa-distribution.md)
 - [`docs/open-source-release-checklist.md`](docs/open-source-release-checklist.md)
 
 ## Run locally
