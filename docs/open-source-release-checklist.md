@@ -27,6 +27,7 @@ Run from a clean checkout:
 npm install
 npm test
 npm run smoke:acceptance
+npm run smoke:orchestrator-executor
 npm run smoke:full-buildout-ledger
 npm run build:web
 cargo test --manifest-path src-tauri/Cargo.toml

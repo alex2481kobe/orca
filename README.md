@@ -202,6 +202,7 @@ npm run smoke:private-access
 npm run smoke:pwa-cache
 npm run smoke:providers
 npm run smoke:api-provider
+npm run smoke:orchestrator-executor
 npm run smoke:credential-backends
 npm run smoke:credential-redaction
 npm run smoke:evidence-redaction
