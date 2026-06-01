@@ -68,11 +68,11 @@
     "operator:completion-audit": "node scripts/operator-completion-audit.mjs"
   },
   "devDependencies": {
-    "@tauri-apps/api": "^2.11.0",
-    "@tauri-apps/cli": "^2.11.2",
-    "playwright": "^1.60.0"
+    "@tauri-apps/api": "2.11.0",
+    "@tauri-apps/cli": "2.11.2",
+    "playwright": "1.60.0"
   },
   "dependencies": {
-    "@tauri-apps/plugin-updater": "^2.10.1"
+    "@tauri-apps/plugin-updater": "2.10.1"
   }
 }
