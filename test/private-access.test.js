@@ -93,3 +93,28 @@ test('private access store persists targets and rejects Funnel targets', async (
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
+
+test('private access targets are capped to avoid unbounded state growth', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'command-deck-private-access-cap-'));
+  const store = new PrivateAccessStore({ stateFile: path.join(dir, 'private-access.json') });
+  try {
+    for (let index = 0; index < 100; index += 1) {
+      await store.createTarget({
+        label: `Local app ${index}`,
+        mode: 'local',
+        localUrl: 'http://127.0.0.1:4173',
+      });
+    }
+
+    await assert.rejects(
+      () => store.createTarget({
+        label: 'One too many',
+        mode: 'local',
+        localUrl: 'http://127.0.0.1:5173',
+      }),
+      (error) => error.status === 409 && /target limit/.test(error.message),
+    );
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});

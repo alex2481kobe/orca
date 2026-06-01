@@ -1,0 +1,17 @@
+# Security-sensitive automation, dependency, desktop, and governance files.
+# Enable "Require review from Code Owners" in branch protection so changes to
+# these paths require explicit owner approval before merge.
+/.github/ @alex2481kobe
+/package.json @alex2481kobe
+/package-lock.json @alex2481kobe
+/.npmrc @alex2481kobe
+/src-tauri/ @alex2481kobe
+/scripts/ @alex2481kobe
+/public/service-worker.js @alex2481kobe
+/public/manifest.webmanifest @alex2481kobe
+/SECURITY.md @alex2481kobe
+/CONTRIBUTING.md @alex2481kobe
+/SUPPORT.md @alex2481kobe
+/LICENSE @alex2481kobe
+/AGENTS.md @alex2481kobe
+/CLAUDE.md @alex2481kobe

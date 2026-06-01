@@ -224,10 +224,34 @@ function getToolLeaseToken(req) {
 function toolLeaseRequirementForRoute(method, parts) {
   if (parts[0] !== 'api') return null;
   if (parts[1] === 'agent-tools' && parts[2] === 'discovery' && method === 'GET') {
-    return { toolId: 'session.next_action' };
+    return { toolId: 'executor.capabilities' };
   }
   if (parts[1] === 'agent-tools' && parts[2] === 'next-action' && method === 'GET') {
     return { toolId: 'session.next_action' };
+  }
+  if (parts[1] === 'projects' && parts.length === 2 && method === 'GET') {
+    return { toolId: 'project.list' };
+  }
+  if (parts[1] === 'projects' && parts[2] && parts.length === 3 && method === 'GET') {
+    return { toolId: 'project.describe', projectId: parts[2] };
+  }
+  if (parts[1] === 'projects' && parts[2] && parts[3] === 'quick-links' && parts.length === 4 && method === 'PATCH') {
+    return { toolId: 'project.quick_link.upsert', projectId: parts[2] };
+  }
+  if (parts[1] === 'projects' && parts[2] && parts[3] === 'quick-links' && parts[4] && parts.length === 5 && method === 'DELETE') {
+    return { toolId: 'project.quick_link.delete', projectId: parts[2] };
+  }
+  if (parts[1] === 'projects' && parts[2] && parts[3] === 'quick-links' && parts[4] && parts[5] === 'check' && method === 'POST') {
+    return { toolId: 'project.quick_link.health', projectId: parts[2] };
+  }
+  if (parts[1] === 'policy' && parts.length === 2 && method === 'GET') {
+    return { toolId: 'settings.describe_effective' };
+  }
+  if (parts[1] === 'providers' && parts.length === 2 && method === 'GET') {
+    return { toolId: 'provider.list' };
+  }
+  if (parts[1] === 'providers' && parts[2] && parts[3] === 'health' && method === 'GET') {
+    return { toolId: 'provider.health' };
   }
   if (parts[1] === 'sessions' && parts[2] && parts.length === 3 && method === 'GET') {
     return { toolId: 'session.describe', sessionId: parts[2] };
@@ -242,6 +266,15 @@ function toolLeaseRequirementForRoute(method, parts) {
   if (parts[1] === 'sessions' && parts[2] && parts[3] === 'capacity' && parts[4] === 'policy' && method === 'POST') {
     return { toolId: 'capacity.set_policy', sessionId: parts[2] };
   }
+  if (parts[1] === 'sessions' && parts[2] && parts[3] === 'audit-done-lanes' && method === 'POST') {
+    return { toolId: 'audit.queue_all_ready', sessionId: parts[2] };
+  }
+  if (parts[1] === 'artifacts' && parts[2] === 'cleanup' && method === 'POST') {
+    return { toolIds: ['evidence.cleanup_dry_run', 'evidence.cleanup_apply'] };
+  }
+  if (parts[1] === 'lanes' && parts[2] && parts[3] === 'heartbeat' && method === 'POST') {
+    return { toolId: 'lane.heartbeat', laneId: parts[2] };
+  }
   if (parts[1] === 'lanes' && parts[2] && parts[3] === 'stop' && method === 'POST') {
     return { toolId: 'lane.shutdown', laneId: parts[2] };
   }
@@ -251,23 +284,63 @@ function toolLeaseRequirementForRoute(method, parts) {
   if (parts[1] === 'lanes' && parts[2] && parts[3] === 'controls' && method === 'PATCH') {
     return { toolId: 'lane.controls.update', laneId: parts[2] };
   }
+  if (parts[1] === 'lanes' && parts[2] && parts[3] === 'critique' && parts[4] === 'bundle' && method === 'POST') {
+    return { toolId: 'critique.bundle.create', laneId: parts[2] };
+  }
+  if (parts[1] === 'lanes' && parts[2] && parts[3] === 'critique' && parts[4] === 'findings' && method === 'POST') {
+    return { toolId: 'critique.findings.record', laneId: parts[2] };
+  }
+  if (parts[1] === 'lanes' && parts[2] && parts[3] === 'critique' && parts[4] === 'waive' && method === 'POST') {
+    return { toolId: 'critique.waive', laneId: parts[2] };
+  }
+  if (parts[1] === 'lanes' && parts[2] && parts[3] === 'audit' && parts.length === 4 && method === 'POST') {
+    return { toolId: 'audit.queue_one', laneId: parts[2] };
+  }
+  if (parts[1] === 'lanes' && parts[2] && parts[3] === 'audit' && parts[4] === 'findings' && method === 'POST') {
+    return { toolId: 'audit.findings.record', laneId: parts[2] };
+  }
+  if (parts[1] === 'lanes' && parts[2] && parts[3] === 'audit' && parts[4] === 'accept' && method === 'POST') {
+    return { toolId: 'audit.accept', laneId: parts[2] };
+  }
+  if (parts[1] === 'lanes' && parts[2] && parts[3] === 'audit' && parts[4] === 'request-fix' && method === 'POST') {
+    return { toolId: 'audit.request_fix', laneId: parts[2] };
+  }
+  if (parts[1] === 'lanes' && parts[2] && parts[3] === 'audit' && parts[4] === 'block' && method === 'POST') {
+    return { toolId: 'audit.block', laneId: parts[2] };
+  }
+  if (parts[1] === 'lanes' && parts[2] && parts[3] === 'evidence' && parts.length === 4) {
+    if (method === 'GET') return { toolId: 'evidence.list', laneId: parts[2] };
+    if (method === 'POST') return { toolIds: ['evidence.capture_screenshot', 'evidence.capture_video'], laneId: parts[2] };
+  }
+  if (parts[1] === 'lanes' && parts[2] && parts[3] === 'evidence' && parts[4] === 'latest' && method === 'GET') {
+    return { toolId: 'evidence.latest', laneId: parts[2] };
+  }
   return null;
 }
 
-function hasToolLeaseRouteAuth(req, parts) {
+function hasSpecificToolLeaseAuth(req, requirement) {
   const token = getToolLeaseToken(req);
   if (!token) return false;
-  const requirement = toolLeaseRequirementForRoute(req.method || 'GET', parts);
   if (!requirement) return false;
-  try {
-    registry.validateToolLease(token, {
-      ...requirement,
-      role: 'orchestrator',
-    });
-    return true;
-  } catch {
-    return false;
+  const toolIds = Array.isArray(requirement.toolIds) ? requirement.toolIds : [requirement.toolId];
+  for (const toolId of toolIds.filter(Boolean)) {
+    try {
+      registry.validateToolLease(token, {
+        ...requirement,
+        toolId,
+        toolIds: undefined,
+      });
+      return true;
+    } catch {
+      // Keep checking alternate tool ids for shared routes such as evidence capture.
+    }
   }
+  return false;
+}
+
+function hasToolLeaseRouteAuth(req, parts) {
+  const requirement = toolLeaseRequirementForRoute(req.method || 'GET', parts);
+  return hasSpecificToolLeaseAuth(req, requirement);
 }
 
 function hasStreamAuth(req) {
@@ -2093,7 +2166,8 @@ async function handleApi(req, res, pathname, method, parts) {
     }
 
     if (parts.length === 4 && parts[3] === 'heartbeat' && method === 'POST') {
-      if (WORKER_TOKEN) {
+      const heartbeatLease = hasSpecificToolLeaseAuth(req, { toolId: 'lane.heartbeat', laneId: lane.id });
+      if (WORKER_TOKEN && !heartbeatLease) {
         const workerToken = req.headers['x-commanddeck-worker-token'];
         if (!workerToken || !constantTimeEqual(workerToken, WORKER_TOKEN)) {
           return sendJson(res, 401, {
@@ -2103,7 +2177,7 @@ async function handleApi(req, res, pathname, method, parts) {
       }
       const body = await parseJsonBody(req);
       if (body === null) return sendBodyError(req, res);
-    if (rejectSpoofedActor(body, res)) return;
+      if (rejectSpoofedActor(body, res)) return;
       const actor = String(body.actor || 'worker').trim() || 'worker';
       // Heartbeat is worker-scoped; the dashboard cannot impersonate other actors here.
       try {

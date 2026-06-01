@@ -1136,6 +1136,77 @@ test('lane controls update model, mode, intelligence, and audit event', async ()
   }
 });
 
+test('lane lifecycle log appends remain capped', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+
+  try {
+    const project = registry.createProject({ name: 'Lane Log Cap Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Lane Log Cap Session' }, { actor: 'test', approved: true });
+    const lane = registry.createLane(session.id, {
+      title: 'Log capped lane',
+      executorType: 'mock',
+      taskPrompt: 'Keep logs bounded.',
+    }, { actor: 'test', approved: true });
+    const stored = registry.getLane(lane.id);
+    stored.logs = Array.from({ length: 2005 }, (_, index) => ({
+      at: new Date(0).toISOString(),
+      message: `old log ${index}`,
+    }));
+
+    const updated = registry.updateLaneControls(lane.id, {
+      model: 'gpt-5',
+      permissionsProfile: 'auto-edit',
+      intelligenceProfile: 'max',
+    }, { actor: 'test', approved: true });
+
+    assert.equal(updated.logs.length, 2000);
+    assert.equal(updated.logs.at(-1).message.includes('Lane controls updated'), true);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('orchestrator thread messages are capped when restored or appended', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+
+  try {
+    const project = registry.createProject({ name: 'Thread Cap Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Thread Cap Session' }, { actor: 'test', approved: true });
+    const storedSession = registry.getSession(session.id);
+    storedSession.orchestratorThread = {
+      id: 'thread-cap',
+      messages: Array.from({ length: 505 }, (_, index) => ({
+        id: `message-${index}`,
+        role: 'user',
+        content: `message ${index}`,
+        createdAt: new Date(0).toISOString(),
+      })),
+      laneIds: [],
+      activeLaneId: null,
+      executorType: 'mock',
+      updatedAt: new Date(0).toISOString(),
+    };
+
+    const restored = registry.getOrchestratorThread(session.id);
+    assert.equal(restored.messages.length, 500);
+    assert.equal(restored.messages[0].id, 'message-5');
+
+    const thread = registry.ensureOrchestratorThread(storedSession);
+    registry.appendOrchestratorThreadMessage(thread, {
+      id: 'message-new',
+      role: 'assistant',
+      content: 'new message',
+      createdAt: new Date().toISOString(),
+    });
+
+    const appended = registry.getOrchestratorThread(session.id);
+    assert.equal(appended.messages.length, 500);
+    assert.equal(appended.messages.at(-1).id, 'message-new');
+  } finally {
+    await cleanup();
+  }
+});
+
 test('executor CLI reinstall execute mode requires confirmation', async () => {
   const restore = restoreEnv({
     COMMAND_DECK_CODEX_BINARY: process.env.COMMAND_DECK_CODEX_BINARY,

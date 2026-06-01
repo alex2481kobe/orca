@@ -351,10 +351,18 @@ const tool = await req('POST', '/api/mcp/tools', {
 if (tool.status !== 201) fail('createMcpTool', JSON.stringify(tool));
 log('mcpTool', tool.body.id);
 
+const pauseCodexExecution = await req('POST', `/api/sessions/${session.body.id}/capacity/policy`, {
+  actor: 'dashboard',
+  approved: true,
+  spawnPolicy: 'never',
+  approvedCapacity: 2,
+});
+if (pauseCodexExecution.status !== 200) fail('pauseCodexExecution', JSON.stringify(pauseCodexExecution));
+
 const codexLane = await req('POST', `/api/sessions/${session.body.id}/lanes`, {
   title: 'smoke codex lane',
   executorType: 'codex',
-  executorBinary: '/usr/bin/codex',
+  executorBinary: process.env.COMMAND_DECK_CODEX_BINARY || 'codex',
   mcpToolIds: [tool.body.id],
   approved: true,
   taskPrompt: 'Plan only',
@@ -362,7 +370,22 @@ const codexLane = await req('POST', `/api/sessions/${session.body.id}/lanes`, {
   permissionsProfile: 'plan',
 });
 if (codexLane.status !== 201) fail('createCodexLane', JSON.stringify(codexLane));
+if (codexLane.body?.state !== 'queued') fail('codexLane should stay queued while spawn policy is never', JSON.stringify(codexLane.body));
 log('codexLane', codexLane.body.id);
+
+const stopCodexLane = await req('POST', `/api/lanes/${codexLane.body.id}/stop`, {
+  actor: 'dashboard',
+  approved: true,
+});
+if (stopCodexLane.status !== 200 || stopCodexLane.body?.state !== 'stopped') fail('stopCodexLane', JSON.stringify(stopCodexLane));
+
+const resumeExecution = await req('POST', `/api/sessions/${session.body.id}/capacity/policy`, {
+  actor: 'dashboard',
+  approved: true,
+  spawnPolicy: 'within_capacity',
+  approvedCapacity: 2,
+});
+if (resumeExecution.status !== 200) fail('resumeExecution', JSON.stringify(resumeExecution));
 
 const artifacts = await req('GET', `/api/lanes/${lane.body.id}/artifacts`);
 log('artifacts', `${(artifacts.body.files || []).length} files`);

@@ -137,6 +137,7 @@ const DEFAULT_NOTIFICATION_SETTINGS = {
   muted: false,
 };
 const CLI_CAPABILITY_CACHE_MS = 30 * 1000;
+const MAX_CLI_CAPABILITY_CACHE_ENTRIES = 50;
 const cliCapabilityCache = new Map();
 
 function normalizeSpawnPolicy(value, fallback = 'within_capacity') {
@@ -836,6 +837,7 @@ async function boundedQuickLinkHealthCheck(link, { prefer = 'auto' } = {}) {
 
 const MAX_LANE_LOG_ENTRIES = 2000;
 const MAX_AGENT_EVENT_ENTRIES = 3000;
+const MAX_ORCHESTRATOR_THREAD_MESSAGES = 500;
 
 // Prefer the native structured clone (faster, less GC pressure than
 // JSON.parse(JSON.stringify(...))); fall back for older runtimes.
@@ -2292,10 +2294,24 @@ export class CommandDeckRegistry {
     if (!Array.isArray(session.orchestratorThread.messages)) {
       session.orchestratorThread.messages = [];
     }
+    if (session.orchestratorThread.messages.length > MAX_ORCHESTRATOR_THREAD_MESSAGES) {
+      session.orchestratorThread.messages = session.orchestratorThread.messages.slice(-MAX_ORCHESTRATOR_THREAD_MESSAGES);
+    }
     if (!Array.isArray(session.orchestratorThread.laneIds)) {
       session.orchestratorThread.laneIds = [];
     }
     return session.orchestratorThread;
+  }
+
+  appendOrchestratorThreadMessage(thread, message) {
+    if (!thread || !message) return;
+    if (!Array.isArray(thread.messages)) {
+      thread.messages = [];
+    }
+    thread.messages.push(message);
+    if (thread.messages.length > MAX_ORCHESTRATOR_THREAD_MESSAGES) {
+      thread.messages = thread.messages.slice(-MAX_ORCHESTRATOR_THREAD_MESSAGES);
+    }
   }
 
   getOrchestratorThread(sessionLocator) {
@@ -2319,7 +2335,7 @@ export class CommandDeckRegistry {
     const activeLaneId = thread.activeLaneId || '';
     const hasOrchestrator = activeLaneId || (Array.isArray(thread.laneIds) && thread.laneIds.length);
     if (!hasOrchestrator) return;
-    thread.messages.push({
+    this.appendOrchestratorThreadMessage(thread, {
       id: randomUUID(),
       role: 'system',
       content: `Operator manually stopped executor lane "${lane.title}". Reason: ${reason || 'stopped by dashboard'}.`,
@@ -2363,7 +2379,7 @@ export class CommandDeckRegistry {
       content: text,
       createdAt: now,
     };
-    thread.messages.push(userMessage);
+    this.appendOrchestratorThreadMessage(thread, userMessage);
 
     const resolvedExecutorType = this.resolveOrchestratorExecutorType(session, executorType);
     const executorCapabilities = this.getExecutorCapabilitiesMatrix();
@@ -2428,7 +2444,7 @@ export class CommandDeckRegistry {
     thread.activeLaneId = lane.id;
     thread.executorType = resolvedExecutorType;
     thread.updatedAt = nowIso();
-    thread.messages.push({
+    this.appendOrchestratorThreadMessage(thread, {
       id: randomUUID(),
       role: 'assistant',
       content: `Started ${resolvedExecutorType} orchestrator lane "${lane.title}".`,
@@ -3138,10 +3154,11 @@ export class CommandDeckRegistry {
     lane.intelligenceProfile = next.intelligenceProfile;
     lane.executorCapabilities = this.getExecutorCapabilities(lane.executorType);
     lane.updatedAt = nowIso();
-    lane.logs.push({
-      at: lane.updatedAt,
-      message: `Lane controls updated: model=${next.model || 'default'}, mode=${next.permissionsProfile || 'default'}, intelligence=${next.intelligenceProfile || 'default'}.`,
-    });
+    this.appendLaneLog(
+      lane,
+      `Lane controls updated: model=${next.model || 'default'}, mode=${next.permissionsProfile || 'default'}, intelligence=${next.intelligenceProfile || 'default'}.`,
+      { persist: false },
+    );
     this.appendLaneAgentEvent(lane, {
       type: 'agent.controls_updated',
       source: lane.executorType,
@@ -3198,7 +3215,7 @@ export class CommandDeckRegistry {
       lane.exitReason = `Stopped by ${context.actor || 'dashboard'}`;
       lane.completedAt = now;
       lane.updatedAt = now;
-      lane.logs.push({ at: now, message: lane.exitReason });
+      this.appendLaneLog(lane, lane.exitReason, { persist: false });
       this.appendLaneAgentEvent(lane, {
         type: 'agent.stopped',
         source: lane.executorType,
@@ -4611,6 +4628,11 @@ export class CommandDeckRegistry {
         cachedAt: Date.now(),
         capabilities,
       });
+      while (cliCapabilityCache.size > MAX_CLI_CAPABILITY_CACHE_ENTRIES) {
+        const oldestKey = cliCapabilityCache.keys().next().value;
+        if (!oldestKey) break;
+        cliCapabilityCache.delete(oldestKey);
+      }
       return clonePayload(capabilities);
     }
 
@@ -5102,7 +5124,7 @@ export class CommandDeckRegistry {
     lane.updatedAt = now;
     lane.completedAt = now;
     lane.exitReason = needsCritique ? 'Execution completed; self-verification required before audit.' : 'Mock execution completed';
-    lane.logs.push({ at: now, message: lane.exitReason });
+    this.appendLaneLog(lane, lane.exitReason, { persist: false });
     this.appendLaneAgentEvent(lane, {
       type: needsCritique ? 'agent.needs_critique' : 'agent.done',
       source: lane.executorType,
@@ -5140,7 +5162,7 @@ export class CommandDeckRegistry {
     lane.updatedAt = now;
     lane.completedAt = now;
     lane.exitReason = reason || 'Execution failed';
-    lane.logs.push({ at: now, message: lane.exitReason });
+    this.appendLaneLog(lane, lane.exitReason, { persist: false });
     this.appendLaneAgentEvent(lane, {
       type: 'agent.failed',
       source: lane.executorType,
@@ -5177,7 +5199,7 @@ export class CommandDeckRegistry {
     lane.updatedAt = now;
     lane.completedAt = now;
     lane.exitReason = reason;
-    lane.logs.push({ at: now, message: reason });
+    this.appendLaneLog(lane, reason, { persist: false });
     this.appendLaneAgentEvent(lane, {
       type: 'agent.stopped',
       source: lane.executorType,
@@ -5363,7 +5385,7 @@ Changed files: ${changedFiles.length}
         lane.completedAt = null;
         lane.exitReason = null;
         lane.heartbeatAt = now;
-        lane.logs.push({ at: now, message: `Lane started by scheduler using ${lane.executorType} executor` });
+        this.appendLaneLog(lane, `Lane started by scheduler using ${lane.executorType} executor`, { persist: false });
         this.appendLaneAgentEvent(lane, {
           type: 'agent.started',
           source: lane.executorType,

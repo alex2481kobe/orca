@@ -12,9 +12,22 @@ macOS release.
 - Public agent docs include the orchestrator skill, executor skill, and
   `docs/agent-run-modes.md`.
 - `.github/` issue, pull request, and release templates are present.
+- `.github/CODEOWNERS` protects workflows, dependency manifests, Tauri files,
+  scripts, service-worker files, and public governance docs.
+- GitHub Actions workflow permissions default to read-only, and Actions cannot
+  create or approve pull requests.
+- GitHub Actions fork pull request workflow approval is set to require approval
+  for all outside collaborators.
+- `main` branch protection requires PR review, CODEOWNERS review, passing CI,
+  resolved conversations, stale-review dismissal, last-push approval, no force
+  pushes, and no branch deletion.
+- Repo Actions policy is limited to GitHub-owned actions unless a third-party
+  action is explicitly reviewed and pinned.
 - `SECURITY.md` tells reporters not to post secrets publicly.
 - `CONTRIBUTING.md` lists required checks and sensitive files that must never
   be committed.
+- `.npmrc` blocks git dependencies, lifecycle scripts, non-exact saves, audit
+  bypass drift, and funding prompts by default.
 - `package.json` has repository, issue, homepage, license, and engine metadata.
 - `.gitignore` excludes local credentials, `.tauri/`, artifacts, logs, and
   release bundles.

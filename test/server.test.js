@@ -2461,6 +2461,30 @@ test('lane heartbeat endpoint can be gated by COMMAND_DECK_WORKER_TOKEN', async 
       body: {},
     });
     assert.equal(allowed.status, 200);
+
+    const lease = await server.requestJson('/api/agent-tools/leases', {
+      method: 'POST',
+      headers: { 'x-commanddeck-token': token },
+      body: {
+        actor: 'dashboard',
+        role: 'executor',
+        projectId: project.body.id,
+        sessionId: session.body.id,
+        laneId: lane.body.id,
+        ttlMs: 60000,
+      },
+    });
+    assert.equal(lease.status, 201);
+    assert.equal(lease.body?.lease?.allowedTools.includes('lane.heartbeat'), true);
+
+    const leaseHeartbeat = await server.requestJson(`/api/lanes/${lane.body.id}/heartbeat`, {
+      method: 'POST',
+      headers: { 'x-commanddeck-tool-lease': lease.body.leaseToken },
+      body: {
+        actor: 'executor',
+      },
+    });
+    assert.equal(leaseHeartbeat.status, 200);
   } finally {
     await server.stop();
   }

@@ -44,3 +44,15 @@ Older prerelease builds may be asked to upgrade before a fix is validated.
 - Provider secrets, updater private keys, Apple signing material, pairing
   codes, cookies, and API tokens must never be committed or stored in generated
   artifacts.
+
+## Repository hardening
+
+- Pull requests from forks should be reviewed before workflows are approved to
+  run, especially when they change `.github/workflows/`.
+- The default `GITHUB_TOKEN` permission should remain read-only, and workflows
+  should not receive secrets from fork pull requests.
+- The `main` branch should require a pull request, passing CI, conversation
+  resolution, stale-review dismissal, last-push approval, and CODEOWNERS review.
+- Changes to workflows, dependencies, Tauri packaging, scripts, service-worker
+  behavior, security policy, license, or contribution policy are owner-review
+  paths.

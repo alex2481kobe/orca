@@ -21,6 +21,7 @@ const SETUP_STATES = new Set([
   'unreachable',
   'external_verification_required',
 ]);
+const MAX_PRIVATE_ACCESS_TARGETS = 100;
 
 const DEFAULT_SETTINGS = {
   preferredMode: 'auto',
@@ -430,7 +431,7 @@ class PrivateAccessStore {
       this.state = {
         version: 1,
         settings: normalizeSettings(parsed.settings || {}),
-        targets: Array.isArray(parsed.targets) ? parsed.targets.map((target) => normalizeTarget(target)) : [],
+        targets: Array.isArray(parsed.targets) ? parsed.targets.map((target) => normalizeTarget(target)).slice(0, MAX_PRIVATE_ACCESS_TARGETS) : [],
         auditEvents: Array.isArray(parsed.auditEvents) ? parsed.auditEvents.slice(0, 200) : [],
       };
       if (shouldAuditRecovery) {
@@ -515,6 +516,9 @@ class PrivateAccessStore {
 
   async createTarget(raw, { actor = 'dashboard' } = {}) {
     await this.ensureLoaded();
+    if (this.state.targets.length >= MAX_PRIVATE_ACCESS_TARGETS) {
+      throw { status: 409, message: `Private access target limit reached (${MAX_PRIVATE_ACCESS_TARGETS}). Delete an old target before adding another.` };
+    }
     const target = normalizeTarget(raw);
     this.state.targets.push(target);
     this.recordAudit({

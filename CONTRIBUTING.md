@@ -39,6 +39,9 @@ cargo test --manifest-path src-tauri/Cargo.toml
 - Do not commit `.env` files, `.tauri/`, Apple certificates, updater private
   keys, API keys, pairing codes, auth cookies, generated logs, screenshots, or
   release bundles.
+- Dependency installs use repo npm guardrails. Do not bypass `ignore-scripts`,
+  `allow-git=none`, exact-version saves, or production audit checks without
+  calling it out for owner review.
 - Do not add public tunnels or default public exposure. Tailscale Funnel is not
   part of the v1 security model.
 - Keep the server authoritative for credentials, pairing, live links, MCP
@@ -54,6 +57,9 @@ cargo test --manifest-path src-tauri/Cargo.toml
 - Explain what changed and which checks passed.
 - Include screenshots only when UI changed.
 - Keep unrelated refactors out of the PR.
+- Changes to `.github/`, dependencies, Tauri config, scripts, the service
+  worker, license, security policy, or contribution policy require owner
+  review before merge.
 - Update `docs/full-buildout-ledger.md` and run
   `npm run smoke:full-buildout-ledger` when changing implementation status.
 
