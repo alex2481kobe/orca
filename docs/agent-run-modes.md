@@ -28,6 +28,8 @@ lane fields:
 | --- | --- |
 | Codex | `--model <model>`, `--permissions <permissionsProfile>`, `--mcp-config <path>`, `--target <targetUrl>`, `--prompt <taskPrompt>` |
 | Claude | `--model <model>`, `--permission-mode <permissionsProfile>`, `--mcp-config <path>`, `--print <taskPrompt>` |
+| Gemini CLI | `--model <model>`, `--approval-mode <permissionsProfile>`, `--prompt <taskPrompt>`. Shared labels normalize `auto-edit` to `auto_edit` and bypass/force labels to `yolo`. |
+| Composer CLI | `--model <model>`, optional `--force` for force-style modes, `--output-format text`, `-p <taskPrompt>` |
 | API providers | JSON request body with `model` and prompt content; secrets resolved server-side. |
 | Custom CLI | Uses explicit `commandArgs`, default args, or the task prompt as argv. Custom CLI is disabled unless explicitly configured. |
 
@@ -42,11 +44,11 @@ advanced Custom CLI adapter.
 | --- | --- | --- | --- |
 | Codex | yes, `executorType: "codex"` | no | n/a |
 | Claude | yes, `executorType: "claude"` | no | n/a |
-| Gemini | no | yes, `executorType: "gemini"` | Custom CLI only, disabled until configured and proven |
+| Gemini | yes, `executorType: "gemini-cli"` | yes, `executorType: "gemini"` | Custom CLI optional for nonstandard hosts |
 | Kimi | no | yes, `executorType: "kimi"` | Custom CLI only, disabled until configured and proven |
 | DeepSeek | no | yes, `executorType: "deepseek"` | Custom CLI only, disabled until configured and proven |
 | OpenRouter | no | yes, `executorType: "openrouter"` | Custom CLI only, disabled until configured and proven |
-| Composer | no | yes, `executorType: "composer"` | Custom CLI only, disabled until configured and proven |
+| Composer | yes, `executorType: "composer-cli"` using Cursor Agent CLI | yes, `executorType: "composer"` | Custom CLI optional for nonstandard hosts |
 
 The release posture is: tested adapters are listed as supported; untested CLIs
 are documented as experimental host configuration, not selectable defaults.
@@ -62,18 +64,19 @@ Host operators can set executor defaults with environment variables:
 
 | Variable family | Purpose |
 | --- | --- |
-| `COMMAND_DECK_CODEX_BINARY`, `COMMAND_DECK_CLAUDE_BINARY`, `COMMAND_DECK_CLI_BINARY` | Default executable path or name. |
-| `COMMAND_DECK_CODEX_ALLOWED_BINARIES`, `COMMAND_DECK_CLAUDE_ALLOWED_BINARIES`, `COMMAND_DECK_CLI_ALLOWED_BINARIES` | Binary allowlists. |
-| `COMMAND_DECK_CODEX_DEFAULT_ARGS`, `COMMAND_DECK_CLAUDE_DEFAULT_ARGS`, `COMMAND_DECK_CLI_DEFAULT_ARGS` | Default argv when the lane does not provide task-derived args. |
-| `COMMAND_DECK_CODEX_WORKDIR_ROOTS`, `COMMAND_DECK_CLAUDE_WORKDIR_ROOTS`, `COMMAND_DECK_CLI_WORKDIR_ROOTS` | Approved execution roots. |
-| `COMMAND_DECK_CODEX_ENV_WHITELIST`, `COMMAND_DECK_CLAUDE_ENV_WHITELIST`, `COMMAND_DECK_CLI_ENV_WHITELIST` | Extra env keys allowed into child processes. |
-| `COMMAND_DECK_CODEX_MODEL`, `COMMAND_DECK_CLAUDE_MODEL` | Default model metadata for provider/profile surfaces. |
+| `COMMAND_DECK_CODEX_BINARY`, `COMMAND_DECK_CLAUDE_BINARY`, `COMMAND_DECK_GEMINI_CLI_BINARY`, `COMMAND_DECK_COMPOSER_CLI_BINARY`, `COMMAND_DECK_CLI_BINARY` | Default executable path or name. Composer CLI defaults to `cursor-agent`. |
+| `COMMAND_DECK_CODEX_ALLOWED_BINARIES`, `COMMAND_DECK_CLAUDE_ALLOWED_BINARIES`, `COMMAND_DECK_GEMINI_CLI_ALLOWED_BINARIES`, `COMMAND_DECK_COMPOSER_CLI_ALLOWED_BINARIES`, `COMMAND_DECK_CLI_ALLOWED_BINARIES` | Binary allowlists. |
+| `COMMAND_DECK_CODEX_DEFAULT_ARGS`, `COMMAND_DECK_CLAUDE_DEFAULT_ARGS`, `COMMAND_DECK_GEMINI_CLI_DEFAULT_ARGS`, `COMMAND_DECK_COMPOSER_CLI_DEFAULT_ARGS`, `COMMAND_DECK_CLI_DEFAULT_ARGS` | Default argv when the lane does not provide task-derived args. |
+| `COMMAND_DECK_CODEX_WORKDIR_ROOTS`, `COMMAND_DECK_CLAUDE_WORKDIR_ROOTS`, `COMMAND_DECK_GEMINI_CLI_WORKDIR_ROOTS`, `COMMAND_DECK_COMPOSER_CLI_WORKDIR_ROOTS`, `COMMAND_DECK_CLI_WORKDIR_ROOTS` | Approved execution roots. |
+| `COMMAND_DECK_CODEX_ENV_WHITELIST`, `COMMAND_DECK_CLAUDE_ENV_WHITELIST`, `COMMAND_DECK_GEMINI_CLI_ENV_WHITELIST`, `COMMAND_DECK_COMPOSER_CLI_ENV_WHITELIST`, `COMMAND_DECK_CLI_ENV_WHITELIST` | Extra env keys allowed into child processes. |
+| `COMMAND_DECK_CODEX_MODEL`, `COMMAND_DECK_CLAUDE_MODEL`, `COMMAND_DECK_GEMINI_CLI_MODEL`, `COMMAND_DECK_COMPOSER_CLI_MODEL` | Default model metadata for provider/profile surfaces. |
 
 ## MCP tools
 
 MCP tools are configured separately from run mode:
 
-- Tools have executor scopes such as `codex`, `claude`, `cli`, or `all`.
+- Tools have executor scopes such as `codex`, `claude`, `gemini-cli`,
+  `composer-cli`, `cli`, or `all`.
 - Lane creation rejects unknown, disabled, or scope-mismatched tools.
 - Command Deck writes a per-lane `mcp-tools.json` containing both `tools` and
   `mcpServers` shapes.

@@ -12,11 +12,13 @@ import {
 
 test('default provider catalog includes required first-class providers without managed installs', () => {
   const profiles = defaultProfiles();
-  for (const id of ['codex', 'claude', 'custom-cli', 'openai-compatible', 'gemini', 'kimi', 'deepseek', 'openrouter', 'composer']) {
+  for (const id of ['codex', 'claude', 'gemini-cli', 'composer-cli', 'custom-cli', 'openai-compatible', 'gemini', 'kimi', 'deepseek', 'openrouter', 'composer']) {
     assert.equal(Boolean(profiles[id]), true, `missing ${id}`);
     assert.notEqual(profiles[id].installPolicy, 'managed');
     assert.notEqual(profiles[id].updatePolicy, 'managed');
   }
+  assert.equal(profiles['gemini-cli'].kind, 'cli');
+  assert.equal(profiles['composer-cli'].binary, 'cursor-agent');
   assert.equal(profiles.kimi.apiStyle, 'openai-compatible');
   assert.equal(profiles.deepseek.apiStyle, 'openai-compatible');
   assert.equal(profiles.openrouter.apiStyle, 'openai-compatible');

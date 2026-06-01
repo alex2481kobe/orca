@@ -1191,7 +1191,7 @@ test('API lane creation validates MCP tool IDs and executor constraints', async 
       },
     });
     assert.equal(badCommand.status, 422);
-    assert.equal(String(badCommand.body?.error || '').includes('must target the codex binary'), true);
+    assert.equal(String(badCommand.body?.error || '').includes('must target an approved codex binary'), true);
 
     const validLane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
       method: 'POST',
@@ -2345,7 +2345,7 @@ test('provider profile API exposes first-class providers and memory-backed secre
     assert.equal(list.status, 200);
     assert.equal(list.body?.credentialBackend, 'memory');
     const ids = new Set((list.body?.profiles || []).map((profile) => profile.id));
-    for (const id of ['codex', 'claude', 'custom-cli', 'openai-compatible', 'gemini', 'kimi', 'deepseek', 'openrouter', 'composer']) {
+    for (const id of ['codex', 'claude', 'gemini-cli', 'composer-cli', 'custom-cli', 'openai-compatible', 'gemini', 'kimi', 'deepseek', 'openrouter', 'composer']) {
       assert.equal(ids.has(id), true, `missing ${id}`);
     }
 

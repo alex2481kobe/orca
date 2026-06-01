@@ -6,6 +6,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { LANE_STATES } from './worker-contract.js';
 import {
   createExecutorAdapter,
+  FIRST_CLASS_CLI_EXECUTOR_TYPES,
   getApiProviderExecutorTypes,
   getExecutorProfiles as getExecutorProfilesFromFactory,
   getExecutorProfile as getExecutorProfileFromFactory,
@@ -97,6 +98,8 @@ const MCP_TOOL_SCOPE_ALLOWLIST = new Set([
   'mock',
   'codex',
   'claude',
+  'gemini-cli',
+  'composer-cli',
   'cli',
   'custom-cli',
   'api',
@@ -107,6 +110,12 @@ const MCP_TOOL_SCOPE_ALLOWLIST = new Set([
   'openrouter',
   'composer',
 ]);
+const FIRST_CLASS_CLI_TARGET_ALIASES = {
+  codex: ['codex'],
+  claude: ['claude'],
+  'gemini-cli': ['gemini', 'gemini-cli'],
+  'composer-cli': ['cursor-agent', 'composer-cli'],
+};
 const MAX_MCP_TOOL_ARG_LENGTH = 255;
 const MAX_MCP_TOOL_ARGS = 64;
 const SPAWN_POLICIES = new Set(['never', 'ask', 'within_capacity', 'auto']);
@@ -349,7 +358,8 @@ function commandTargetsExecutorFirstToken(type, commandParts) {
   if (!Array.isArray(commandParts)) return false;
   if (!commandParts.length) return true;
   const first = String(commandParts[0] || '').toLowerCase();
-  return first.includes(normalizedType);
+  const aliases = FIRST_CLASS_CLI_TARGET_ALIASES[normalizedType] || [normalizedType];
+  return aliases.some((alias) => first.includes(alias));
 }
 
 function getInstallerVerbsForBinary(binary) {
@@ -2554,21 +2564,21 @@ export class CommandDeckRegistry {
         message: `Lane executorType must be one of: ${supportedExecutorTypes.join(', ')}.`,
       };
     }
-    if (['codex', 'claude'].includes(normalizedExecutorType)) {
+    if (FIRST_CLASS_CLI_EXECUTOR_TYPES.includes(normalizedExecutorType)) {
       const commandParts = String(command || '').trim().split(/\s+/).filter(Boolean);
       if (commandParts.length > 0 && !commandTargetsExecutorFirstToken(normalizedExecutorType, commandParts)) {
         throw {
           status: 422,
-          message: `Lane command for ${normalizedExecutorType} must target the ${normalizedExecutorType} binary.`,
+          message: `Lane command for ${normalizedExecutorType} must target an approved ${normalizedExecutorType} binary.`,
         };
       }
       if (!commandParts.length && executorBinary) {
         const normalizedBinary = String(executorBinary).trim().toLowerCase();
         const binaryName = path.basename(normalizedBinary);
-        if (!binaryName.includes(normalizedExecutorType)) {
+        if (!commandTargetsExecutorFirstToken(normalizedExecutorType, [binaryName])) {
           throw {
             status: 422,
-            message: `Lane executor binary for ${normalizedExecutorType} must target the ${normalizedExecutorType} binary.`,
+            message: `Lane executor binary for ${normalizedExecutorType} must target an approved ${normalizedExecutorType} binary.`,
           };
         }
       }
@@ -3983,7 +3993,7 @@ export class CommandDeckRegistry {
   }
 
   getSupportedExecutorTypes() {
-    const supported = ['mock', 'codex', 'claude', ...getApiProviderExecutorTypes()];
+    const supported = ['mock', ...FIRST_CLASS_CLI_EXECUTOR_TYPES, ...getApiProviderExecutorTypes()];
     if (getExecutorProfileFromFactory('cli')) {
       supported.push('cli');
     }
@@ -4056,7 +4066,7 @@ export class CommandDeckRegistry {
 
   getExecutorCliInfo(executorType) {
     const type = normalizeExecutorType(executorType);
-    if (!['codex', 'claude'].includes(type)) {
+    if (!FIRST_CLASS_CLI_EXECUTOR_TYPES.includes(type)) {
       throw { status: 404, message: 'Unsupported executor type.' };
     }
 

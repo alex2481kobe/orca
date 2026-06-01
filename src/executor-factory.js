@@ -34,6 +34,35 @@ const API_PROVIDER_TYPES = [
   'openrouter',
   'composer',
 ];
+const FIRST_CLASS_CLI_EXECUTOR_TYPES = ['codex', 'claude', 'gemini-cli', 'composer-cli'];
+const CLI_EXECUTOR_TYPES = [...FIRST_CLASS_CLI_EXECUTOR_TYPES, 'cli'];
+const CLI_EXECUTOR_DEFAULTS = {
+  codex: {
+    envPrefix: 'CODEX',
+    binary: 'codex',
+    allowedBinaries: ['codex'],
+  },
+  claude: {
+    envPrefix: 'CLAUDE',
+    binary: 'claude',
+    allowedBinaries: ['claude'],
+  },
+  'gemini-cli': {
+    envPrefix: 'GEMINI_CLI',
+    binary: 'gemini',
+    allowedBinaries: ['gemini'],
+  },
+  'composer-cli': {
+    envPrefix: 'COMPOSER_CLI',
+    binary: 'cursor-agent',
+    allowedBinaries: ['cursor-agent'],
+  },
+  cli: {
+    envPrefix: 'CLI',
+    binary: 'node',
+    allowedBinaries: ['node'],
+  },
+};
 
 function safeFire(callback, ...args) {
   try {
@@ -190,6 +219,14 @@ function buildExecutorCommandArgs(label, lane) {
   const model = flagSafe(lane.model, 120);
   const permissions = flagSafe(lane.permissionsProfile, 120);
   const targetUrl = flagSafe(lane.targetUrl, 1024);
+  const geminiApprovalMode = (value) => {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (normalized === 'auto-edit' || normalized === 'auto_accept' || normalized === 'auto-accept') return 'auto_edit';
+    if (normalized === 'bypass' || normalized === 'bypass-permissions' || normalized === 'force') return 'yolo';
+    return normalized;
+  };
+  const isForceMode = (value) => ['auto-edit', 'auto_edit', 'auto-accept', 'auto_accept', 'bypass', 'bypass-permissions', 'force', 'yolo']
+    .includes(String(value || '').trim().toLowerCase());
   const out = [];
   switch (String(label).toLowerCase()) {
     case 'codex': {
@@ -206,6 +243,21 @@ function buildExecutorCommandArgs(label, lane) {
       if (lane.mcpConfigPath) out.push('--mcp-config', lane.mcpConfigPath);
       if (targetUrl) out.push('--print', `Target: ${targetUrl}\n${safePrompt}`);
       else out.push('--print', safePrompt);
+      break;
+    }
+    case 'gemini-cli': {
+      if (model) out.push('--model', model);
+      if (permissions) out.push('--approval-mode', geminiApprovalMode(permissions));
+      out.push('--prompt', targetUrl ? `Target: ${targetUrl}\n${safePrompt}` : safePrompt);
+      break;
+    }
+    case 'composer-cli': {
+      if (model) out.push('--model', model);
+      if (isForceMode(permissions)) {
+        out.push('--force');
+      }
+      out.push('--output-format', 'text');
+      out.push('-p', targetUrl ? `Target: ${targetUrl}\n${safePrompt}` : safePrompt);
       break;
     }
     default:
@@ -1075,15 +1127,19 @@ function parseEnvList(rawValue, fallback = []) {
 
 export function getExecutorProfile(type, callbacks = {}) {
   const executorType = String(type || '').toLowerCase();
-  if (!['codex', 'claude', 'cli'].includes(executorType)) {
+  if (!CLI_EXECUTOR_TYPES.includes(executorType)) {
     return null;
   }
   if (executorType === 'cli' && process.env.COMMAND_DECK_ENABLE_CUSTOM_CLI !== 'true' && !process.env.COMMAND_DECK_CLI_BINARY) {
     return null;
   }
-  const upper = executorType.toUpperCase();
-  const binary = process.env[`COMMAND_DECK_${upper}_BINARY`] || executorType;
-  const allowedBinaries = parseEnvList(process.env[`COMMAND_DECK_${upper}_ALLOWED_BINARIES`], [binary]);
+  const defaults = CLI_EXECUTOR_DEFAULTS[executorType] || CLI_EXECUTOR_DEFAULTS.cli;
+  const upper = defaults.envPrefix;
+  const binary = process.env[`COMMAND_DECK_${upper}_BINARY`] || defaults.binary || executorType;
+  const allowedBinaries = parseEnvList(process.env[`COMMAND_DECK_${upper}_ALLOWED_BINARIES`], [
+    binary,
+    ...(defaults.allowedBinaries || []),
+  ]);
   const defaultArgs = parseEnvList(process.env[`COMMAND_DECK_${upper}_DEFAULT_ARGS`], []);
   const workdirRoots = parseEnvList(process.env[`COMMAND_DECK_${upper}_WORKDIR_ROOTS`], [process.cwd()]);
   const defaultWorkingDir = callbacks.defaultWorkingDir || process.cwd();
@@ -1100,7 +1156,7 @@ export function getExecutorProfile(type, callbacks = {}) {
 }
 
 export function getExecutorProfiles() {
-  return ['codex', 'claude', 'cli'].reduce((accum, executorType) => {
+  return CLI_EXECUTOR_TYPES.reduce((accum, executorType) => {
     const profile = getExecutorProfile(executorType);
     if (profile) accum[executorType] = profile;
     return accum;
@@ -1110,6 +1166,7 @@ export function getExecutorProfiles() {
 export {
   API_PROVIDER_TYPES,
   buildExecutorCommandArgs,
+  FIRST_CLASS_CLI_EXECUTOR_TYPES,
   getApiProviderExecutorTypes,
   getApiProviderProfile,
   isApiProviderType,
@@ -1121,7 +1178,7 @@ export function createExecutorAdapter(type, callbacks = {}) {
     return new MockWorkerAdapter(callbacks);
   }
 
-  if (executorType === 'codex' || executorType === 'claude') {
+  if (FIRST_CLASS_CLI_EXECUTOR_TYPES.includes(executorType)) {
     const profile = getExecutorProfile(executorType, callbacks);
     if (!profile) {
       return new PendingExecutorAdapter(executorType, callbacks);

@@ -796,7 +796,7 @@ test('MCP tool command allowlist can be enforced via env override', async () => 
   }
 });
 
-test('Codex and Claude lanes accept executor overrides and command payloads', async () => {
+test('first-class CLI lanes accept executor overrides and command payloads', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
 
   try {
@@ -828,12 +828,35 @@ test('Codex and Claude lanes accept executor overrides and command payloads', as
     assert.equal(claudeLane.executorType, 'claude');
     assert.equal(codexLane.command, 'codex --version');
     assert.equal(claudeLane.command, 'claude --version');
+
+    const geminiLane = registry.createLane(session.id, {
+      title: 'Gemini CLI Lane',
+      executorType: 'gemini-cli',
+      command: 'gemini --version',
+      executorBinary: '/usr/bin/gemini',
+      workdir: process.cwd(),
+      mcpToolIds: [],
+    }, { approved: true, actor: 'test' });
+
+    const composerLane = registry.createLane(session.id, {
+      title: 'Composer CLI Lane',
+      executorType: 'composer-cli',
+      command: 'cursor-agent --version',
+      executorBinary: '/usr/local/bin/cursor-agent',
+      workdir: process.cwd(),
+      mcpToolIds: [],
+    }, { approved: true, actor: 'test' });
+
+    assert.equal(geminiLane.executorType, 'gemini-cli');
+    assert.equal(composerLane.executorType, 'composer-cli');
+    assert.equal(geminiLane.command, 'gemini --version');
+    assert.equal(composerLane.command, 'cursor-agent --version');
   } finally {
     await cleanup();
   }
 });
 
-test('Codex and Claude lanes enforce binary/command executor targeting', async () => {
+test('first-class CLI lanes enforce binary/command executor targeting', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
 
   try {
@@ -873,6 +896,38 @@ test('Codex and Claude lanes enforce binary/command executor targeting', async (
     }, { approved: true, actor: 'test' });
     assert.equal(validLane.executorType, 'codex');
     assert.equal(validLane.executorBinary, '/usr/local/bin/codex-runner');
+
+    assert.throws(() => registry.createLane(session.id, {
+      title: 'Invalid gemini command',
+      executorType: 'gemini-cli',
+      command: 'claude --version',
+      mcpToolIds: [],
+    }, { approved: true, actor: 'test' }), (error) => error.status === 422);
+
+    assert.throws(() => registry.createLane(session.id, {
+      title: 'Invalid composer binary',
+      executorType: 'composer-cli',
+      executorBinary: '/usr/bin/composer',
+      mcpToolIds: [],
+    }, { approved: true, actor: 'test' }), (error) => error.status === 422);
+
+    const geminiLane = registry.createLane(session.id, {
+      title: 'Valid gemini override',
+      executorType: 'gemini-cli',
+      command: 'gemini --help',
+      executorBinary: '/opt/bin/gemini',
+      mcpToolIds: [],
+    }, { approved: true, actor: 'test' });
+    assert.equal(geminiLane.executorType, 'gemini-cli');
+
+    const composerLane = registry.createLane(session.id, {
+      title: 'Valid composer override',
+      executorType: 'composer-cli',
+      command: 'cursor-agent --help',
+      executorBinary: '/opt/bin/cursor-agent',
+      mcpToolIds: [],
+    }, { approved: true, actor: 'test' });
+    assert.equal(composerLane.executorType, 'composer-cli');
   } finally {
     await cleanup();
   }
@@ -977,12 +1032,19 @@ test('executor CLI info and managed reinstall require approval', async () => {
       const profiles = registry.getExecutorProfiles();
       assert.equal(profiles.codex.defaultBinary, '/usr/bin/codex');
       assert.equal(profiles.claude.defaultBinary, '/usr/bin/claude');
+      assert.equal(profiles['gemini-cli'].defaultBinary, 'gemini');
+      assert.equal(profiles['composer-cli'].defaultBinary, 'cursor-agent');
 
       const codexInfo = registry.getExecutorCliInfo('codex');
       assert.equal(codexInfo.type, 'codex');
       assert.equal(codexInfo.binary, '/usr/bin/codex');
       assert.equal(codexInfo.reinstall.available, true);
       assert.equal(codexInfo.reinstall.command[0], 'npm');
+
+      const geminiInfo = registry.getExecutorCliInfo('gemini-cli');
+      assert.equal(geminiInfo.type, 'gemini-cli');
+      assert.equal(geminiInfo.binary, 'gemini');
+      assert.equal(geminiInfo.reinstall.available, false);
 
       const dryRun = await registry.runExecutorCliReinstall('codex', {
         actor: 'test',
@@ -1569,6 +1631,38 @@ test('buildExecutorCommandArgs derives safe argv from lane task prompt', async (
   assert.ok(claudeArgs.includes('Target: http://localhost:5173\nAudit the auth flow'));
   assert.equal(count(claudeArgs, '--mcp-config'), 1);
   assert.equal(count(claudeArgs, '--print'), 1);
+
+  const geminiArgs = buildExecutorCommandArgs('gemini-cli', {
+    taskPrompt: 'Run tests',
+    model: 'gemini-2.5-pro',
+    permissionsProfile: 'auto-edit',
+    targetUrl: 'http://localhost:5173',
+    mcpConfigPath: '/tmp/mcp.json',
+  });
+  assert.deepEqual(geminiArgs, [
+    '--model',
+    'gemini-2.5-pro',
+    '--approval-mode',
+    'auto_edit',
+    '--prompt',
+    'Target: http://localhost:5173\nRun tests',
+  ]);
+
+  const composerArgs = buildExecutorCommandArgs('composer-cli', {
+    taskPrompt: 'Refactor view',
+    model: 'gpt-5',
+    permissionsProfile: 'bypass-permissions',
+    targetUrl: 'http://localhost:5173',
+  });
+  assert.deepEqual(composerArgs, [
+    '--model',
+    'gpt-5',
+    '--force',
+    '--output-format',
+    'text',
+    '-p',
+    'Target: http://localhost:5173\nRefactor view',
+  ]);
   // Refuse control characters in derived prompt.
   const stripped = buildExecutorCommandArgs('codex', { taskPrompt: 'safe\nprompt' });
   const text = stripped.join('\n');
