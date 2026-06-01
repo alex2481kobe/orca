@@ -36,6 +36,7 @@ const steps = [
   { id: 'ui', command: ['npm', 'run', 'smoke:ui'], covers: ['npm run smoke:ui'] },
   { id: 'ui-inventory', command: ['npm', 'run', 'smoke:ui-inventory'], covers: ['npm run smoke:ui-inventory'] },
   { id: 'ui-contract', command: ['npm', 'run', 'smoke:ui-contract'], covers: ['npm run smoke:ui-contract'] },
+  { id: 'workflow-policy', command: ['npm', 'run', 'smoke:workflow-policy'], covers: ['npm run smoke:workflow-policy'] },
   { id: 'route-inventory', command: ['npm', 'run', 'smoke:route-inventory'], covers: ['npm run smoke:route-inventory'] },
   { id: 'route-security-matrix', command: ['npm', 'run', 'smoke:route-security-matrix'], covers: ['npm run smoke:route-security-matrix'] },
   { id: 'full-buildout-ledger', command: ['npm', 'run', 'smoke:full-buildout-ledger'], covers: ['npm run smoke:full-buildout-ledger'] },

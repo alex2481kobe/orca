@@ -21,6 +21,7 @@ Run the smallest relevant checks for your change. For broad changes, run:
 ```sh
 npm test
 npm run smoke:acceptance
+npm run smoke:workflow-policy
 npm run smoke:route-security-matrix
 npm run smoke:full-buildout-ledger
 git diff --check
@@ -39,6 +40,11 @@ cargo test --manifest-path src-tauri/Cargo.toml
 - Do not commit `.env` files, `.tauri/`, Apple certificates, updater private
   keys, API keys, pairing codes, auth cookies, generated logs, screenshots, or
   release bundles.
+- GitHub Actions are manual-only by default. Do not add automatic `push`,
+  `pull_request`, `pull_request_target`, or scheduled workflow triggers without
+  owner review and a matching update to `npm run smoke:workflow-policy`.
+- Fork PRs should be reviewed before any maintainer runs workflows against
+  them. Never expose repository secrets to untrusted pull request code.
 - Dependency installs use repo npm guardrails. Do not bypass `ignore-scripts`,
   `allow-git=none`, exact-version saves, or production audit checks without
   calling it out for owner review.

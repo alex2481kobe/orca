@@ -1,10 +1,11 @@
 name: ci
 
+# Manual-only while GitHub Actions billing is disabled and while third-party
+# contribution policy is intentionally conservative. Do not add automatic
+# `push`, `pull_request`, `pull_request_target`, or scheduled triggers without
+# owner review.
 on:
-  pull_request:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -38,6 +39,9 @@ jobs:
           grep -qx "save-exact=true" .npmrc
           grep -qx "audit=true" .npmrc
           grep -qx "fund=false" .npmrc
+
+      - name: Verify workflow policy
+        run: npm run smoke:workflow-policy
 
       - name: Install dependencies
         run: npm ci

@@ -14,13 +14,17 @@ macOS release.
 - `.github/` issue, pull request, and release templates are present.
 - `.github/CODEOWNERS` protects workflows, dependency manifests, Tauri files,
   scripts, service-worker files, and public governance docs.
+- GitHub Actions are manual-only (`workflow_dispatch`) by default; automatic
+  `push`, `pull_request`, `pull_request_target`, and scheduled triggers are
+  blocked by `npm run smoke:workflow-policy`.
 - GitHub Actions workflow permissions default to read-only, and Actions cannot
   create or approve pull requests.
-- GitHub Actions fork pull request workflow approval is set to require approval
-  for all outside collaborators.
-- `main` branch protection requires PR review, CODEOWNERS review, passing CI,
-  resolved conversations, stale-review dismissal, last-push approval, no force
-  pushes, and no branch deletion.
+- GitHub Actions fork pull requests are reviewed before a maintainer runs any
+  workflow against them.
+- `main` branch protection requires PR review, CODEOWNERS review, resolved
+  conversations, stale-review dismissal, last-push approval, no force pushes,
+  and no branch deletion. If automatic CI is later re-enabled, require passing
+  CI too.
 - Repo Actions policy is limited to GitHub-owned actions unless a third-party
   action is explicitly reviewed and pinned.
 - `SECURITY.md` tells reporters not to post secrets publicly.
@@ -42,6 +46,7 @@ Run from a clean checkout:
 npm install
 npm test
 npm run smoke:acceptance
+npm run smoke:workflow-policy
 npm run smoke:orchestrator-executor
 npm run smoke:full-buildout-ledger
 npm run build:web

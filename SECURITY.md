@@ -47,12 +47,19 @@ Older prerelease builds may be asked to upgrade before a fix is validated.
 
 ## Repository hardening
 
-- Pull requests from forks should be reviewed before workflows are approved to
-  run, especially when they change `.github/workflows/`.
+- GitHub Actions are manual-only by default while billing is disabled and while
+  third-party contribution policy is intentionally conservative.
+- Pull requests from forks should be reviewed before workflows are run,
+  especially when they change `.github/workflows/`, dependency manifests,
+  scripts, Tauri config, or service-worker files.
+- Do not use `pull_request_target` for untrusted code paths. Do not add
+  automatic `push`, `pull_request`, or scheduled workflow triggers without
+  owner review.
 - The default `GITHUB_TOKEN` permission should remain read-only, and workflows
   should not receive secrets from fork pull requests.
-- The `main` branch should require a pull request, passing CI, conversation
-  resolution, stale-review dismissal, last-push approval, and CODEOWNERS review.
+- The `main` branch should require a pull request, conversation resolution,
+  stale-review dismissal, last-push approval, and CODEOWNERS review. If CI is
+  later re-enabled automatically, passing CI should also be required.
 - Changes to workflows, dependencies, Tauri packaging, scripts, service-worker
   behavior, security policy, license, or contribution policy are owner-review
   paths.
