@@ -2800,3 +2800,55 @@ test('agent tool leases can be listed and admin-revoked (audit H2)', async () =>
     await server.stop();
   }
 });
+
+test('workstation directory picker lists jailed dirs and refuses escapes', async () => {
+  const token = 'workstation-dirs-token';
+  const server = await startServer({ token });
+  try {
+    // The harness chdir'd into an isolated temp dir, which is an approved root
+    // (getApprovedRepoRoots includes cwd). Create a plain subdir + a git repo.
+    const root = process.cwd();
+    await fs.mkdir(path.join(root, 'plain-sub'), { recursive: true });
+    await fs.mkdir(path.join(root, 'a-repo', '.git'), { recursive: true });
+
+    // No path -> approved roots as the top level.
+    const top = await server.requestJson('/api/system/dirs', {
+      method: 'GET',
+      headers: { 'x-orca-token': token },
+    });
+    assert.equal(top.status, 200);
+    assert.ok(Array.isArray(top.body.roots) && top.body.roots.length >= 1);
+
+    // List the root -> sees the subdirs; flags the git repo; never returns files.
+    const listed = await server.requestJson(`/api/system/dirs?path=${encodeURIComponent(root)}`, {
+      method: 'GET',
+      headers: { 'x-orca-token': token },
+    });
+    assert.equal(listed.status, 200);
+    const names = listed.body.entries.map((entry) => entry.name);
+    assert.ok(names.includes('plain-sub'));
+    const repo = listed.body.entries.find((entry) => entry.name === 'a-repo');
+    assert.equal(repo?.isGitRepo, true);
+    assert.ok(listed.body.entries.every((entry) => entry.isDirectory === true));
+
+    // Outside the jail -> 403.
+    const outside = await server.requestJson('/api/system/dirs?path=%2Fetc', {
+      method: 'GET',
+      headers: { 'x-orca-token': token },
+    });
+    assert.equal(outside.status, 403);
+
+    // Traversal above the jail -> 403.
+    const traversal = await server.requestJson(`/api/system/dirs?path=${encodeURIComponent(path.join(root, '..', '..'))}`, {
+      method: 'GET',
+      headers: { 'x-orca-token': token },
+    });
+    assert.equal(traversal.status, 403);
+
+    // Unauthenticated (no token) -> 401.
+    const unauth = await server.requestJson(`/api/system/dirs?path=${encodeURIComponent(root)}`, { method: 'GET' });
+    assert.equal(unauth.status, 401);
+  } finally {
+    await server.stop();
+  }
+});

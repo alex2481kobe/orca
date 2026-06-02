@@ -1,6 +1,7 @@
 // Session workspace provisioning + lane workdir resolution (path-boundary
 // enforcement) as a prototype mixin for OrcaRegistry. Extracted from registry.js.
 
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ensureDirectorySync, isPathWithinBoundary } from './registry-utils.js';
@@ -92,6 +93,77 @@ export const workspaceMethods = {
       .filter(Boolean)
       .map((value) => path.resolve(value));
     return [process.cwd(), ...fromEnv];
+  },
+
+  // Powers the workstation directory picker (desktop + remote). Jailed to the
+  // approved repo roots: a remote/paired device can browse the workstation's
+  // folders to pick a working directory, but can never escape the allowlist or
+  // read file contents. Returns directories only (it is a working-dir chooser),
+  // flags git working trees, and refuses traversal/symlink escapes. Widen the
+  // browsable area with ORCA_REPO_ROOTS.
+  async listWorkstationDirs({ path: requestedPath = '' } = {}) {
+    const roots = [...new Set(this.getApprovedRepoRoots().map((root) => path.resolve(root)))];
+    const withinAnyRoot = (target) => roots.some((root) => target === root || isPathWithinBoundary(target, root));
+
+    const rootEntries = roots.map((root) => ({
+      name: path.basename(root) || root,
+      path: root,
+      isDirectory: true,
+      isGitRepo: false,
+    }));
+
+    // No path -> present the approved roots as the top level to choose from.
+    const raw = String(requestedPath || '').trim();
+    if (!raw) {
+      return { roots, path: null, parent: null, entries: rootEntries };
+    }
+    if (raw.length > 4096 || raw.includes('\x00')) {
+      throw { status: 422, message: 'Invalid directory path.' };
+    }
+
+    const resolved = path.resolve(raw);
+    if (!withinAnyRoot(resolved)) {
+      throw { status: 403, message: 'Directory is outside the approved workstation roots. Add it to ORCA_REPO_ROOTS.' };
+    }
+
+    // Symlink-escape guard: the real path must also stay inside the jail.
+    let realResolved;
+    try {
+      realResolved = await fs.realpath(resolved);
+    } catch {
+      throw { status: 404, message: 'Directory not found.' };
+    }
+    if (!withinAnyRoot(realResolved)) {
+      throw { status: 403, message: 'Directory resolves outside the approved workstation roots.' };
+    }
+
+    let dirents;
+    try {
+      dirents = await fs.readdir(realResolved, { withFileTypes: true });
+    } catch {
+      throw { status: 404, message: 'Directory could not be read.' };
+    }
+
+    const entries = [];
+    for (const dirent of dirents) {
+      if (!dirent.isDirectory() || dirent.isSymbolicLink()) continue;
+      if (dirent.name.startsWith('.') && dirent.name !== '.') continue; // hide dotdirs from the picker
+      const childPath = path.join(realResolved, dirent.name);
+      if (!withinAnyRoot(childPath)) continue;
+      let isGitRepo = false;
+      try {
+        const gitStat = await fs.stat(path.join(childPath, '.git'));
+        isGitRepo = gitStat.isDirectory() || gitStat.isFile();
+      } catch { /* not a git repo */ }
+      entries.push({ name: dirent.name, path: childPath, isDirectory: true, isGitRepo });
+      if (entries.length >= 1000) break; // cap very large directories
+    }
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+
+    const parentPath = path.dirname(realResolved);
+    const parent = (parentPath !== realResolved && withinAnyRoot(parentPath)) ? parentPath : null;
+
+    return { roots, path: realResolved, parent, entries };
   },
 
   resolveLaneWorkdir(session, rawWorkdir) {

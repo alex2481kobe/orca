@@ -51,6 +51,19 @@ export async function handleMiscRoutes(ctx, req, res, method, parts) {
     }
   }
 
+  if (parts[1] === 'system' && parts[2] === 'dirs' && parts.length === 3 && method === 'GET') {
+    const searchParams = getSearchParams(req.url || '/');
+    if (!searchParams) {
+      return sendJson(res, 400, { error: 'Invalid request query string.' });
+    }
+    try {
+      const data = await registry.listWorkstationDirs({ path: searchParams.get('path') || '' });
+      return sendJson(res, 200, data);
+    } catch (error) {
+      return sendJson(res, error.status || 500, { error: error.message || 'Could not list workstation directories.' });
+    }
+  }
+
   if (parts[1] === 'audit' && parts[2] === 'events' && method === 'GET') {
     const searchParams = getSearchParams(req.url || '/');
     if (!searchParams) {
