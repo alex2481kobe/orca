@@ -193,3 +193,48 @@ test('registry recovers persisted projects from backup and audits recovery', asy
     }
   });
 });
+
+test('registry restores persisted sessions and normalizes invalid session config', async () => {
+  await withTempDir('orca-session-restore-', async (dir) => {
+    const previousCwd = process.cwd();
+    process.chdir(dir);
+    const stateFile = path.join(dir, '.orca', 'state.json');
+    try {
+      await writeJsonFileAtomic(stateFile, {
+        version: 1,
+        savedAt: new Date().toISOString(),
+        policies: {},
+        projects: [{
+          id: 'p1', name: 'P1', slug: 'p1',
+          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), quickLinks: [],
+        }],
+        // Session with invalid enum config — exercises ensureSessionWorkspaces
+        // normalization (regression guard for the lane-config extraction).
+        sessions: [{
+          id: 's1', projectId: 'p1', name: 'S1',
+          spawnPolicy: 'bogus', idleShutdownMode: 'bogus', critiqueMode: 'bogus',
+          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+        }],
+        lanes: [], auditEvents: [], cleanupSchedule: {}, mcpTools: [], toolLeases: [],
+      });
+
+      const registry = new OrcaRegistry({ heartbeatIntervalMs: 5 });
+      try {
+        const session = registry.getSession('s1');
+        assert.ok(session, 'session restored from disk');
+        // Invalid enums normalized to safe defaults (no ReferenceError thrown).
+        const cap = registry.getSessionCapacity('s1');
+        assert.equal(cap.spawnPolicy, 'within_capacity');
+        assert.equal(cap.idleShutdownMode, 'immediate');
+        assert.equal(session.critiqueMode, 'suggested');
+      } finally {
+        registry.stopScheduler();
+        if (typeof registry.drainPendingWrites === 'function') {
+          await registry.drainPendingWrites();
+        }
+      }
+    } finally {
+      process.chdir(previousCwd);
+    }
+  });
+});
