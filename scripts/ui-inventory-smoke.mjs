@@ -100,6 +100,10 @@ const WIRED_ACTIONS = new Set([
   'toggleExecutorPanel',
   'toggleNav',
   'toggleProviderEnabled',
+  'browseWorkstation',
+  'workstationOpenDir',
+  'workstationUseDir',
+  'workstationPickerClose',
 ]);
 
 const REQUIRED_INVENTORY_SCREENS = [

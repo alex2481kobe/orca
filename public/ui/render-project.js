@@ -5,6 +5,31 @@ import { formatRelative, latestTimestamp, safeAttr, safeText } from './format.js
 import { clientUrl, safeHref } from './dom.js';
 import { effectiveProjectQuickLinkUrl, quickLinkHealthLabel } from './access-mode.js';
 
+export function renderWorkstationPickerPanel(forInput) {
+  const picker = shell.workstationPicker;
+  if (!picker || !picker.open || picker.forInput !== forInput) return '';
+  const entries = Array.isArray(picker.entries) ? picker.entries : [];
+  const rows = entries.map((entry) => `
+    <button class="picker-row" data-action="workstationOpenDir" data-dir="${safeAttr(entry.path)}" data-for-input="${safeAttr(forInput)}" type="button">
+      <span class="picker-icon">${entry.isGitRepo ? '◆' : '▸'}</span>
+      <span>${safeText(entry.name)}</span>${entry.isGitRepo ? '<small class="muted"> git repo</small>' : ''}
+    </button>`).join('');
+  return `
+    <div class="workstation-picker card" role="group" aria-label="Workstation directory picker">
+      <div class="picker-head">
+        <strong>Pick a working directory</strong>
+        <button class="secondary" data-action="workstationPickerClose" type="button">Close</button>
+      </div>
+      ${picker.error ? `<div class="tiny bad">${safeText(picker.error)}</div>` : ''}
+      <div class="tiny muted">${picker.path ? safeText(picker.path) : 'Approved workstation roots (add more with ORCA_REPO_ROOTS):'}</div>
+      <div class="picker-list">
+        ${picker.parent ? `<button class="picker-row" data-action="workstationOpenDir" data-dir="${safeAttr(picker.parent)}" data-for-input="${safeAttr(forInput)}" type="button"><span class="picker-icon">↑</span><span>Up one level</span></button>` : ''}
+        ${rows || '<div class="tiny muted">No subfolders here.</div>'}
+      </div>
+      ${picker.path ? `<button data-action="workstationUseDir" data-dir="${safeAttr(picker.path)}" data-for-input="${safeAttr(forInput)}" type="button">Use this folder</button>` : ''}
+    </div>`;
+}
+
 export function renderProject(project) {
   const sessionsMarkup = shell.sessions.filter((session) => session.projectId === project.id).map((session) => {
     const route = session.route;
@@ -76,9 +101,14 @@ export function renderProject(project) {
                   <option value="mixed">Mixed</option>
                 </select>
               </label>
-              <label>Max parallel lanes
+              <label>Max parallel lanes (executor capacity cap)
                 <input name="laneConcurrencyLimit" type="number" min="1" max="4" value="1" />
               </label>
+              <label>Working directory (workstation repo)
+                <input id="session-repo-root" name="repoRoot" placeholder="Pick a folder on the workstation…" autocomplete="off" />
+              </label>
+              <button class="secondary" data-action="browseWorkstation" data-for-input="session-repo-root" type="button">Browse workstation…</button>
+              ${renderWorkstationPickerPanel('session-repo-root')}
               <button type="submit">Create session</button>
             </form>
               </div>

@@ -270,6 +270,10 @@ async function playwrightMode(pw) {
         'showArtifacts',
         'stopLane',
         'toggleNav',
+        'browseWorkstation',
+        'workstationOpenDir',
+        'workstationUseDir',
+        'workstationPickerClose',
         'toggleProviderEnabled',
       ]);
       return els

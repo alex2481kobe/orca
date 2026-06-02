@@ -5,6 +5,7 @@ import { safeText } from './format.js';
 import { renderAlert } from './dom.js';
 import { api } from './api.js';
 import { refresh } from './controller.js';
+import { render } from './render-views.js';
 import { shell } from './state.js';
 import { executorTargetsBinary, executorTargetsCommand, findMcpTool, getExecutorScopedMcpTools, normalizeExecutorType, normalizeMcpToolScopes, parseCommandParts } from './executor.js';
 import { FIRST_CLASS_CLI_EXECUTOR_TYPES } from './constants.js';
@@ -53,6 +54,7 @@ export async function handleCreateSession(event) {
       name: payload.name,
       leader: payload.leader,
       laneConcurrencyLimit: payload.laneConcurrencyLimit ? Number(payload.laneConcurrencyLimit) : 1,
+      ...(payload.repoRoot && String(payload.repoRoot).trim() ? { repoRoot: String(payload.repoRoot).trim() } : {}),
       actor: approval.actor,
       approved: approval.approved,
     },
@@ -240,4 +242,49 @@ export async function handleCreateMcpTool(event) {
   } else {
     renderAlert(response.data?.error || 'Could not add MCP tool.', 'bad');
   }
+}
+
+// Workstation directory picker (desktop + remote). Browses the workstation's
+// folders via the jailed /api/system/dirs API and writes the chosen working
+// directory into a target input. Actions: browseWorkstation (open at roots),
+// workstationOpenDir (navigate, data-dir), workstationUseDir (pick, data-dir),
+// workstationPickerClose.
+export async function handleWorkstationPicker(target) {
+  const action = target?.dataset?.action;
+  const dir = target?.dataset?.dir || '';
+  const forInput = target?.dataset?.forInput || shell.workstationPicker?.forInput || 'session-repo-root';
+
+  if (action === 'workstationPickerClose') {
+    shell.workstationPicker = null;
+    render();
+    return;
+  }
+  if (action === 'workstationUseDir') {
+    const input = document.getElementById(forInput);
+    if (input && dir) input.value = dir;
+    shell.workstationPicker = null;
+    render();
+    if (!dir) renderAlert('Pick a folder first.', 'bad');
+    return;
+  }
+
+  // browseWorkstation (open) / workstationOpenDir (navigate)
+  shell.workstationPicker = { ...(shell.workstationPicker || {}), open: true, forInput, loading: true, error: null };
+  render();
+  const resp = await api(`/api/system/dirs${dir ? `?path=${encodeURIComponent(dir)}` : ''}`);
+  if (resp.ok && resp.data) {
+    shell.workstationPicker = { open: true, forInput, loading: false, error: null, ...resp.data };
+  } else {
+    shell.workstationPicker = {
+      open: true,
+      forInput,
+      loading: false,
+      error: resp.data?.error || 'Could not list workstation directories.',
+      roots: shell.workstationPicker?.roots || [],
+      entries: [],
+      path: shell.workstationPicker?.path || null,
+      parent: null,
+    };
+  }
+  render();
 }

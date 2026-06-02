@@ -12,7 +12,7 @@ import { stateTagClass, getActionPolicy, needsApproval, confirmHighRiskAction, p
 import { renderHome } from './ui/render-home.js';
 import { renderLaneExecutorGuidance, captureContentUiState, restoreContentUiState, renderAccessGate, renderProject, renderLaneCard, renderAgentEventTimeline, modelPresetOptions, intelligenceOptions, runModeOptions, modelControlOptions, renderOrchestratorTerminal, renderApprovalRows, renderSessionApprovals, composerAttachmentsFor, renderComposerAttachmentChips, refreshComposerAttachments, readFileAsBase64, uploadComposerFiles, renderOrchestratorConsole, renderExecutorLanePanelItem, renderExecutorSidePanel, activeOrchestratorLaneForSession, renderSession, renderLane, renderAuditLog, loadEvidenceGallery, render, renderStatusStrip, renderBlockers, renderSidebarProjects, renderMobileManifest } from './ui/render-views.js';
 import { refresh, showArtifacts, parseRoute, connectEventStream, startPolling } from './ui/controller.js';
-import { handlePrivateAccessSettings, handleNotificationSettings, handleNotificationAction, handleCreatePrivateAccessTarget, handlePrivateAccessAction, handleProviderAction, handleAppBackupAction, handleCleanupSchedule, handleCreateMcpTool, handleCreateProject, handleCreateSession, handleAddProjectQuickLink, handleCreateLane, handleOrchestratorMessage, handleLaneControlsUpdate, handleAuditEventAction, buildCleanupScheduleBody, buildMcpToolBody, buildApprovedActionBody, toObj } from './ui/handlers.js';
+import { handlePrivateAccessSettings, handleNotificationSettings, handleNotificationAction, handleCreatePrivateAccessTarget, handlePrivateAccessAction, handleProviderAction, handleAppBackupAction, handleCleanupSchedule, handleCreateMcpTool, handleCreateProject, handleCreateSession, handleAddProjectQuickLink, handleCreateLane, handleOrchestratorMessage, handleLaneControlsUpdate, handleAuditEventAction, handleWorkstationPicker, buildCleanupScheduleBody, buildMcpToolBody, buildApprovedActionBody, toObj } from './ui/handlers.js';
 import { handleLaneActions, handleSessionActions, handleSystemActions } from './ui/handlers-actions.js';
 
 
@@ -481,6 +481,11 @@ document.addEventListener('click', async (event) => {
   }
   if (!inSidebar) {
     closeSidebarActionMenus();
+  }
+
+  if (['browseWorkstation', 'workstationOpenDir', 'workstationUseDir', 'workstationPickerClose'].includes(action)) {
+    await handleWorkstationPicker(actionTarget);
+    return;
   }
 
   if (action === 'toggleNav') {

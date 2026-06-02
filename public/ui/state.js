@@ -30,6 +30,7 @@ export const shell = {
   authSessions: null,
   lastPairing: null,
   executorPanelOpen: true,
+  workstationPicker: null,
 };
 
 export const refs = {
