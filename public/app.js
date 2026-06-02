@@ -1,34 +1,6 @@
 import { qrSvgForText } from './ui/qr.js';
 import { safeText, safeAttr, stateBadge, formatMeta, formatRelative, latestTimestamp } from './ui/format.js';
-const shell = {
-  route: {
-    projectSlug: null,
-    sessionId: null,
-    laneId: null,
-  },
-  projects: [],
-  sessions: [],
-  lanes: [],
-  policy: {},
-  alerts: [],
-  mobileManifest: null,
-  apiToken: '',
-  cleanupSchedule: null,
-  pendingAuditEvents: [],
-  mcpTools: [],
-  executorProfiles: null,
-  executorCliInfo: {},
-  systemBlockers: [],
-  privateAccess: null,
-  providerCatalog: null,
-  providerHealth: {},
-  effectiveSettings: null,
-  authStatus: null,
-  notifications: null,
-  authSessions: null,
-  lastPairing: null,
-  executorPanelOpen: true,
-};
+import { shell, refs } from './ui/state.js';
 
 let refreshRequestId = 0;
 let refreshInFlight = false;
@@ -55,18 +27,6 @@ const MCP_TOOL_SCOPE_ALLOWLIST = [
   ...API_PROVIDER_EXECUTOR_TYPES,
 ];
 
-const refs = {
-  breadcrumbs: document.getElementById('breadcrumbs'),
-  alerts: document.getElementById('alerts'),
-  content: document.getElementById('content'),
-  statusStrip: document.getElementById('status-strip'),
-  blockers: document.getElementById('blockers'),
-  sidebarProjects: document.getElementById('sidebar-projects'),
-  topbarSubtitle: document.getElementById('topbar-subtitle'),
-  topbarTitle: document.getElementById('topbar-title'),
-};
-// Audit queue is rendered inside refs.content for the new operator shell.
-refs.actions = refs.content;
 const API_TOKEN_STORAGE_KEY = 'orcaApiToken';
 const SIDEBAR_ORDER_STORAGE_KEY = 'orcaSidebarOrder:v1';
 const NOTIFICATION_SEEN_STORAGE_KEY = 'orcaNotificationsSeen:v1';
