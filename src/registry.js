@@ -1,5 +1,4 @@
 import fs from 'node:fs/promises';
-import fsSync from 'node:fs';
 import path from 'node:path';
 import { spawnSync, spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
@@ -11,6 +10,21 @@ import {
 } from './capture-setup.js';
 import { availableToolIdsForRole, buildNextActionEnvelope } from './agent-tools.js';
 import { buildOrchestratorMcpConfigs } from './mcp-orchestrator-bootstrap.js';
+import {
+  nowIso,
+  sleep,
+  parsePositiveInteger,
+  parsePositiveFloat,
+  parseBooleanEnv,
+  isPathWithinBoundary,
+  ensureDirectorySync,
+  normalizeExecutorType,
+  normalizeSlug,
+  firstLine,
+  publicBinaryName,
+  clonePayload,
+  safeArray,
+} from './registry-utils.js';
 
 // Authoritative workflow gates: lane states in which each agent tool is legal.
 // Enforced only on the agent (tool-lease) path so out-of-order/skipped/stale
@@ -70,27 +84,6 @@ const {
   FAILED: FAILED_STATE,
 } = LANE_STATES;
 
-const nowIso = () => new Date().toISOString();
-const sleep = async (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const parsePositiveInteger = (value, fallback = null) => {
-  const parsed = Number.parseInt(value, 10);
-  if (Number.isNaN(parsed) || parsed <= 0) return fallback;
-  return parsed;
-};
-
-const parsePositiveFloat = (value, fallback = null) => {
-  const parsed = Number.parseFloat(value);
-  if (Number.isNaN(parsed) || parsed <= 0) return fallback;
-  return parsed;
-};
-
-function parseBooleanEnv(value, fallback = false) {
-  if (value === undefined || value === null) return fallback;
-  const normalized = String(value).trim().toLowerCase();
-  if (['1', 'true', 'yes', 'on', 'enabled'].includes(normalized)) return true;
-  if (['0', 'false', 'no', 'off', 'disabled'].includes(normalized)) return false;
-  return fallback;
-}
 
 const REINSTALL_COMMAND_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_REINSTALL_ARG_LEN = 120;
@@ -233,23 +226,6 @@ function sanitizeNotificationSettings(raw = {}, existing = DEFAULT_NOTIFICATION_
     minSeverity: normalizeNotificationSeverity(source.minSeverity, normalizeNotificationSeverity(current.minSeverity, 'info')),
     muted: source.muted === undefined ? Boolean(current.muted) : Boolean(source.muted),
   };
-}
-
-function isPathWithinBoundary(candidatePath, boundaryPath) {
-  const boundary = path.resolve(String(boundaryPath || '').trim() || process.cwd());
-  const candidate = path.resolve(String(candidatePath || '').trim() || boundary);
-  const boundaryWithSep = boundary.endsWith(path.sep) ? boundary : `${boundary}${path.sep}`;
-  return candidate === boundary || candidate.startsWith(boundaryWithSep);
-}
-
-function ensureDirectorySync(directoryPath) {
-  const target = String(directoryPath || '').trim();
-  if (!target) return;
-  try {
-    fsSync.mkdirSync(target, { recursive: true });
-  } catch {
-    // Directory creation will be validated by runtime execution when needed.
-  }
 }
 
 function sanitizeWorkdirInput(raw) {
@@ -427,10 +403,6 @@ function getInstallerVerbsForBinary(binary) {
   return byBase || byBinary || ['install'];
 }
 
-function normalizeExecutorType(raw) {
-  return String(raw || '').toLowerCase().trim();
-}
-
 // Flags that redirect where a package comes from, rewrite config, or change
 // execution semantics — these turn an allowlisted "reinstall codex" into a
 // vector for pulling attacker-controlled code (e.g. --registry https://evil).
@@ -597,14 +569,6 @@ function getCliHelp(binary, executorType) {
       exitCode: error.code,
     };
   }
-}
-
-function firstLine(value, max = 160) {
-  return String(value || '').split(/\r?\n/).map((line) => line.trim()).find(Boolean)?.slice(0, max) || null;
-}
-
-function publicBinaryName(binary) {
-  return path.basename(String(binary || '').trim()) || '';
 }
 
 function helpHas(helpText, pattern) {
@@ -774,15 +738,6 @@ const defaultPolicy = {
   },
 };
 
-function normalizeSlug(value) {
-  return String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 64);
-}
-
 const MAX_PROJECT_QUICK_LINKS = 50;
 const QUICK_LINK_KINDS = new Set(['dev-server', 'vite', 'preview', 'dashboard', 'artifact', 'docs', 'other']);
 const QUICK_LINK_HEALTH_STATUSES = new Set(['configured_unchecked', 'reachable', 'unreachable', 'not_checkable']);
@@ -930,22 +885,6 @@ const MAX_ORCHESTRATOR_THREAD_MESSAGES = 500;
 
 // Prefer the native structured clone (faster, less GC pressure than
 // JSON.parse(JSON.stringify(...))); fall back for older runtimes.
-function clonePayload(value) {
-  if (value === undefined || value === null) return value;
-  if (typeof structuredClone === 'function') {
-    try {
-      return structuredClone(value);
-    } catch {
-      /* fall through to JSON clone for non-cloneable shapes */
-    }
-  }
-  return JSON.parse(JSON.stringify(value));
-}
-
-function safeArray(value, fallback = []) {
-  return Array.isArray(value) ? value : fallback;
-}
-
 function sanitizeMcpName(value) {
   const name = String(value || '').trim().toLowerCase();
   if (!name) {
