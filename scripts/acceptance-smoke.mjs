@@ -54,6 +54,7 @@ const steps = [
   { id: 'credential-redaction', command: ['npm', 'run', 'smoke:credential-redaction'], covers: ['npm run smoke:credential-redaction'] },
   { id: 'evidence-redaction', command: ['npm', 'run', 'smoke:evidence-redaction'], covers: ['npm run smoke:evidence-redaction'] },
   { id: 'process-lifecycle', command: ['npm', 'run', 'smoke:process-lifecycle'], covers: ['npm run smoke:process-lifecycle'] },
+  { id: 'orchestrator-lifecycle', command: ['npm', 'run', 'smoke:orchestrator-lifecycle'], covers: ['npm run smoke:orchestrator-lifecycle'] },
 ];
 
 const externalChecks = [

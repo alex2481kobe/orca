@@ -100,6 +100,7 @@ npm run smoke:credential-backends
 npm run smoke:credential-redaction
 npm run smoke:evidence-redaction
 npm run smoke:process-lifecycle
+npm run smoke:orchestrator-lifecycle
 ```
 
 Unit tests:

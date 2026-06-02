@@ -33,6 +33,37 @@ Orca policy gates.
 - Use audit/critique tools for completed lanes instead of treating executor
   summaries as final.
 
+## Executor lane lifecycle (the controls you have)
+
+You drive executor agents entirely through lane tools — there is no separate
+"agent process" surface. The lifecycle and the tool/route for each step:
+
+- **Spawn** an executor: `lane.create` (POST `/api/sessions/:id/lanes`) with a
+  chosen `executorType` (codex, claude, gemini-cli, custom-cli, an API provider,
+  or `mock`). The lane shows up immediately in the session as a tracked lane.
+- **Respawn** (re-run after stop/failure): `lane.retry`
+  (POST `/api/lanes/:id/retry`).
+- **Despawn / stop** a running executor: `lane.shutdown` (POST
+  `/api/lanes/:id/stop`); clean up its worktree with the worktree-remove tool.
+  The dashboard also exposes an operator **Stop lane** button.
+- **Deactivate** a lane from the workflow: `lane.block` / the audit `block`
+  transition.
+- **Pause new spawns** for a session: set `spawnPolicy: 'never'` (PATCH the
+  session). New lanes stay `queued` until you restore `within_capacity`. This is
+  the pause control — Orca does not suspend an already-running CLI process
+  mid-turn (those are live OS processes); stop + retry is the model for that.
+- **Cap concurrency**: `approvedCapacity` is a ceiling, not a target. The
+  scheduler never runs more executor lanes than the approved capacity.
+
+Executor activity is **read-only** to the operator: each lane streams structured
+`agentEvents` (the "what is this executor doing" feed) plus raw terminal logs;
+the dashboard renders them as a read-only monitor. Do not expect operators to
+type into a running executor — they steer via stop/retry/audit/critique.
+
+This whole flow (external-orchestrator bootstrap → session with orchestrator CLI
++ capacity → spawn/stop/retry/pause executor lanes → read-only events) is proven
+by `npm run smoke:orchestrator-lifecycle`.
+
 ## Live project links
 
 When a project has a running dev server, register it through
