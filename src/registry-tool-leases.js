@@ -122,6 +122,40 @@ export const toolLeaseMethods = {
     return activeOnly ? leases.filter((lease) => lease.active) : leases;
   },
 
+  // Admin-only revocation by lease id (the operator lists leases and revokes one;
+  // they never hold the raw token). Idempotent on an already-revoked lease; the
+  // hashed token is left in place so any in-flight agent call fails closed at
+  // validateToolLease ("Tool lease has been revoked."). Audit item H2.
+  revokeToolLease(leaseId, { actor = 'dashboard' } = {}) {
+    const id = String(leaseId || '').trim();
+    if (!id) {
+      throw { status: 422, message: 'Tool lease id is required.' };
+    }
+    const lease = this.toolLeases.find((item) => item.id === id);
+    if (!lease) {
+      throw { status: 404, message: 'Tool lease not found.' };
+    }
+    if (!lease.revokedAt) {
+      lease.revokedAt = new Date().toISOString();
+      this.recordAudit({
+        type: 'agent_tool_lease_revoked',
+        actor: String(actor || 'dashboard').slice(0, 120),
+        projectId: lease.projectId,
+        sessionId: lease.sessionId,
+        laneId: lease.laneId,
+        summary: `Revoked ${lease.role} tool lease`,
+        status: 'passed',
+        evidence: {
+          leaseId: lease.id,
+          role: lease.role,
+          tokenHashPrefix: String(lease.tokenHash || '').slice(0, 12),
+        },
+      });
+      this.persistState();
+    }
+    return this.publicToolLease(lease);
+  },
+
   validateToolLease(leaseToken, {
     toolId = null,
     projectId = null,

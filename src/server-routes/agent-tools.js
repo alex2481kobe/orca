@@ -4,7 +4,7 @@
 import { FALL_THROUGH } from './lanes.js';
 
 export async function handleAgentToolRoutes(ctx, req, res, method, parts) {
-  const { registry, sendJson, sendBodyError, parseJsonBody, rejectSpoofedActor, getSearchParams, buildAgentToolDiscovery, buildNextActionEnvelope } = ctx;
+  const { registry, sendJson, sendBodyError, parseJsonBody, rejectSpoofedActor, getSearchParams, buildAgentToolDiscovery, buildNextActionEnvelope, requireAdminAuth } = ctx;
   if (parts[1] === 'agent-tools') {
     if (parts[2] === 'discovery' && method === 'GET') {
       return sendJson(res, 200, buildAgentToolDiscovery(registry));
@@ -20,6 +20,25 @@ export async function handleAgentToolRoutes(ctx, req, res, method, parts) {
         sessionId: searchParams.get('sessionId'),
         laneId: searchParams.get('laneId'),
       }));
+    }
+    if (parts[2] === 'leases' && parts.length === 3 && method === 'GET') {
+      const searchParams = getSearchParams(req.url || '/');
+      if (!searchParams) {
+        return sendJson(res, 400, { error: 'Invalid request query string.' });
+      }
+      const activeOnly = searchParams.get('activeOnly') !== 'false';
+      return sendJson(res, 200, { leases: registry.listToolLeases({ activeOnly }) });
+    }
+    if (parts[2] === 'leases' && parts.length === 4 && method === 'DELETE') {
+      if (!requireAdminAuth(req, res)) return;
+      try {
+        const lease = registry.revokeToolLease(parts[3], { actor: 'dashboard' });
+        return sendJson(res, 200, { lease });
+      } catch (error) {
+        return sendJson(res, error.status || 500, {
+          error: error.message || 'Could not revoke agent tool lease.',
+        });
+      }
     }
     if (parts[2] === 'leases' && method === 'POST') {
       const body = await parseJsonBody(req);

@@ -2730,3 +2730,73 @@ test('orchestrator MCP bootstrap is token-gated and returns paste-ready desktop 
     await server.stop();
   }
 });
+
+test('agent tool leases can be listed and admin-revoked (audit H2)', async () => {
+  const token = 'lease-revoke-token';
+  const server = await startServer({ token });
+
+  try {
+    // Create an orchestrator lease (admin/token context).
+    const created = await server.requestJson('/api/agent-tools/leases', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'dashboard', role: 'orchestrator' },
+    });
+    assert.equal(created.status, 201);
+    const leaseId = created.body?.lease?.id;
+    assert.ok(leaseId, 'lease id returned');
+
+    // List shows the active lease and never leaks the raw token or hash.
+    const listed = await server.requestJson('/api/agent-tools/leases?activeOnly=true', {
+      method: 'GET',
+      headers: { 'x-orca-token': token },
+    });
+    assert.equal(listed.status, 200);
+    assert.ok(listed.body.leases.some((lease) => lease.id === leaseId && lease.active));
+    const listText = JSON.stringify(listed.body);
+    assert.equal(listText.includes('tokenHash'), false);
+    assert.equal(listText.includes(created.body.leaseToken), false);
+
+    // Pair an operator (non-admin) browser session.
+    const pairing = await server.requestJson('/api/auth/pairing-codes', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'dashboard', label: 'phone' },
+    });
+    const paired = await server.requestJson('/api/auth/pair', {
+      method: 'POST',
+      body: { actor: 'dashboard', code: pairing.body.pairing.code, label: 'phone' },
+    });
+    const cookie = paired.response.headers['set-cookie'];
+
+    // Operator (paired session) may NOT revoke — admin only.
+    const operatorRevoke = await server.requestJson(`/api/agent-tools/leases/${leaseId}`, {
+      method: 'DELETE',
+      headers: { cookie },
+    });
+    assert.equal(operatorRevoke.status, 403);
+
+    // Admin (token) revokes successfully; idempotent + reflected in active list.
+    const adminRevoke = await server.requestJson(`/api/agent-tools/leases/${leaseId}`, {
+      method: 'DELETE',
+      headers: { 'x-orca-token': token },
+    });
+    assert.equal(adminRevoke.status, 200);
+    assert.equal(adminRevoke.body?.lease?.active, false);
+
+    const afterList = await server.requestJson('/api/agent-tools/leases?activeOnly=true', {
+      method: 'GET',
+      headers: { 'x-orca-token': token },
+    });
+    assert.equal(afterList.body.leases.some((lease) => lease.id === leaseId), false);
+
+    // Unknown lease id -> 404.
+    const missing = await server.requestJson('/api/agent-tools/leases/does-not-exist', {
+      method: 'DELETE',
+      headers: { 'x-orca-token': token },
+    });
+    assert.equal(missing.status, 404);
+  } finally {
+    await server.stop();
+  }
+});

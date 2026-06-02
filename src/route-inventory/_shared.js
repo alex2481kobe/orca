@@ -32,6 +32,7 @@ const PUBLIC_ROUTE_KEYS = new Set([
 // Host-level administration: only the workstation (API token or non-proxied
 // loopback bootstrap) may reach these. Paired devices are denied (403).
 const ADMIN_ROUTE_KEYS = new Set([
+  'DELETE /api/agent-tools/leases/{leaseId}',
   'POST /api/executors/{executor}/cli/reinstall',
   'GET /api/providers/export',
   'PATCH /api/providers/{providerId}',
