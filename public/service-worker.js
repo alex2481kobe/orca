@@ -1,4 +1,4 @@
-const CACHE_NAME = 'orca-static-v23';
+const CACHE_NAME = 'orca-static-v24';
 const STATIC_ASSETS = [
   '/',
   '/styles.css',
@@ -16,6 +16,12 @@ const STATIC_ASSETS = [
   '/ui/render-helpers.js',
   '/ui/render-home.js',
   '/ui/render-views.js',
+  '/ui/render-fragments.js',
+  '/ui/render-session-parts.js',
+  '/ui/render-project.js',
+  '/ui/render-session.js',
+  '/ui/render-lane.js',
+  '/ui/render-shell.js',
   '/ui/controller.js',
   '/ui/handlers.js',
   '/ui/handlers-actions.js',

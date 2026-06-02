@@ -1,0 +1,258 @@
+// Render view module (split from render-views.js).
+
+import { getExecutorProfile, getExecutorScopedMcpTools, getProviderProfile, isApiExecutorType, normalizeExecutorType } from './executor.js';
+import { formatMeta, formatRelative, safeAttr, safeText, stateBadge } from './format.js';
+import { refs, shell } from './state.js';
+import { api } from './api.js';
+import { agentEventLabel, agentEventTone, getActionPolicy, pendingAuditsForLane } from './render-helpers.js';
+import { showArtifacts } from './controller.js';
+
+export function renderLaneExecutorGuidance(form) {
+  if (!form || form.id !== 'create-lane-form') return;
+  const profileEl = document.getElementById('lane-command-guidance');
+  if (!profileEl) return;
+  const selectedType = normalizeExecutorType(form.executorType?.value || 'mock');
+  const profile = getExecutorProfile(selectedType);
+  const providerProfile = getProviderProfile(selectedType);
+  const lowerType = normalizeExecutorType(selectedType);
+  const commandInput = form.elements.command;
+  const binaryInput = form.elements.executorBinary;
+  const scopedTools = getExecutorScopedMcpTools(selectedType);
+  // Populate MCP picker select with executor-scoped tools.
+  const mcpSelect = form.querySelector('select[name="mcpToolIds"]');
+  if (mcpSelect) {
+    const previous = new Set(Array.from(mcpSelect.selectedOptions || []).map((opt) => opt.value));
+    mcpSelect.innerHTML = scopedTools.map((tool) => {
+      const value = safeText(tool.id || tool.name);
+      const label = safeText(tool.name || tool.id);
+      return `<option value="${value}" ${previous.has(value) ? 'selected' : ''}>${label}</option>`;
+    }).join('');
+    if (!scopedTools.length) {
+      mcpSelect.innerHTML = '<option disabled>No tools available for this executor</option>';
+    }
+  }
+  const defaultBinary = safeText(profile?.defaultBinary || '');
+  const defaultArgs = Array.isArray(profile?.defaultArgs) ? profile.defaultArgs.join(' ') : '';
+  const allowedBinaries = Array.isArray(profile?.allowedBinaries) ? profile.allowedBinaries : [];
+  const allowedList = allowedBinaries.length ? `Allowed binaries: ${safeText(allowedBinaries.join(', '))}` : 'No curated binary allowlist available';
+  const visibleToolIds = scopedTools.map((tool) => safeText(tool.id || tool.name)).slice(0, 10).join(', ');
+  const toolSummary = scopedTools.length
+    ? `Available MCP tools: ${visibleToolIds}${scopedTools.length > 10 ? ', ...' : ''}`
+    : 'No MCP tools currently available for this lane type.';
+
+  const defaultArgsText = defaultArgs ? ` ${safeText(defaultArgs)}` : '';
+  const binaryHint = defaultBinary ? `Try ${defaultBinary}${defaultArgsText} for ${lowerType}-led lanes.` : '';
+
+  if (lowerType === 'codex' || lowerType === 'claude') {
+    commandInput.placeholder = defaultBinary
+      ? `${defaultBinary} run --help`
+      : `${lowerType} <args>`;
+    binaryInput.placeholder = defaultBinary || `${lowerType}`;
+    profileEl.innerHTML = `
+      <div class="tiny muted">
+        Executor guidance: command or binary must contain "${lowerType}".
+        ${binaryHint ? `${binaryHint} ` : ''}
+        ${allowedList ? `${allowedList}` : ''}
+        <br/>${toolSummary}
+      </div>
+    `.trim();
+    return;
+  }
+
+  if (lowerType === 'mock') {
+    commandInput.placeholder = 'e.g., node';
+    binaryInput.placeholder = 'e.g., codex, claude, node, ./scripts/run.sh';
+    profileEl.innerHTML = `
+      <div class="tiny muted">
+        ${toolSummary}
+      </div>
+    `.trim();
+    return;
+  }
+
+  if (isApiExecutorType(lowerType)) {
+    const credentialLabel = providerProfile?.apiKeyEnv || providerProfile?.secretRef || 'configured provider secret';
+    commandInput.placeholder = 'Not used for API provider lanes';
+    binaryInput.placeholder = 'Not used for API provider lanes';
+    profileEl.innerHTML = `
+      <div class="tiny muted">
+        API lane: uses ${safeText(providerProfile?.displayName || lowerType)} provider settings,
+        ${safeText(providerProfile?.apiStyle || 'configured')} request shape,
+        and secret reference ${safeText(credentialLabel)}. Configure secrets in Providers settings.
+        <br/>${toolSummary}
+      </div>
+    `.trim();
+    return;
+  }
+
+  commandInput.placeholder = 'e.g., node';
+  binaryInput.placeholder = 'e.g., codex, claude, node, ./scripts/run.sh';
+  profileEl.textContent = toolSummary;
+}
+
+export function captureContentUiState() {
+  if (!refs.content) return null;
+  return {
+    detailsOpen: Array.from(refs.content.querySelectorAll('details')).map((detail) => detail.open),
+    projectToolsOpen: Boolean(refs.content.querySelector('.project-shell.tools-open')),
+  };
+}
+
+export function restoreContentUiState(state) {
+  if (!state || !refs.content) return;
+  Array.from(refs.content.querySelectorAll('details')).forEach((detail, index) => {
+    if (index < state.detailsOpen.length) {
+      detail.open = state.detailsOpen[index];
+    }
+  });
+  const projectShell = refs.content.querySelector('.project-shell');
+  if (projectShell && state.projectToolsOpen) {
+    projectShell.classList.add('tools-open');
+  }
+}
+
+export function renderLaneCard(lane) {
+  const artifactsLink = `/api/lanes/${lane.id}/artifacts`;
+  const evidenceLatestUrl = `/api/lanes/${lane.id}/evidence/latest`;
+  const lanePendingAudits = pendingAuditsForLane(lane.id);
+  const auditQueuedBadge = lanePendingAudits.length
+    ? `<span class="tag warn">Audit queued (${lanePendingAudits.length})</span>`
+    : '';
+  const laneAuditWarning = lanePendingAudits.length
+    ? `<div class="tiny">Pending audit event${lanePendingAudits.length > 1 ? 's' : ''}: ${
+      lanePendingAudits.map((event) => event.id.slice(0, 8)).join(', ')
+    }</div>`
+    : '';
+  const stopButton = ['running', 'starting', 'queued'].includes(lane.state)
+    ? `<button data-action="stopLane" data-lane-id="${safeAttr(lane.id)}" title="${safeAttr(getActionPolicy('stopLane').message)}" type="button">Stop lane</button>` : '';
+  const retryButton = ['failed', 'stopped'].includes(lane.state)
+    ? `<button class="secondary" data-action="retryLane" data-lane-id="${safeAttr(lane.id)}" title="${safeAttr(getActionPolicy('retryLane').message)}" type="button">Retry lane</button>` : '';
+  const laneLink = lane.route ? `<a class="secondary" href="${safeAttr(lane.route)}">Lane detail</a>` : '';
+  const auditLabel = lanePendingAudits.length ? 'Audit already queued' : 'Audit now';
+  return `
+      <article class="lane-list-item click-card" data-href="${safeAttr(lane.route || '')}" tabindex="0" role="link" aria-label="Open lane ${safeAttr(lane.title)}">
+        <div class="row">
+          <h4>${safeText(lane.title)}</h4>
+          ${stateBadge(lane.state)}
+          ${auditQueuedBadge}
+      </div>
+      <p>${safeText(lane.taskDescription || lane.taskPrompt || 'No task description yet.')}</p>
+      <div class="card-meta">
+        <span>${safeText(lane.executorType)}</span>
+        <span>${safeText(lane.owner)}</span>
+        <span>${safeText((lane.mcpTools || []).length)} MCP</span>
+        <span>${safeText(formatRelative(lane.updatedAt || lane.startedAt))}</span>
+      </div>
+      ${laneAuditWarning}
+      <div class="lane-row">
+        ${stopButton}
+        ${retryButton}
+        <button class="secondary" data-action="captureEvidence" data-lane-id="${lane.id}" type="button">Capture evidence</button>
+        <button class="secondary" data-action="auditLane" data-lane-id="${lane.id}" type="button">${auditLabel}</button>
+      </div>
+      <details class="disclosure compact-disclosure">
+        <summary>More</summary>
+        <div class="tiny">
+          Started: ${formatMeta(lane.startedAt)} · Heartbeat: ${formatMeta(lane.heartbeatAt)} · Last evidence: ${safeText(lane.lastEvidenceCaptureAt || 'never')} (${safeText(lane.lastEvidence?.status || 'not captured')})
+        </div>
+        <div class="muted tiny">Path: ${safeText(lane.artifactPath || '')}</div>
+        <div class="lane-row">
+          ${laneLink}
+          <button class="secondary" data-action="clearEvidence" data-lane-id="${lane.id}" type="button">Clear evidence</button>
+          <button class="secondary" data-action="showArtifacts" data-lane-id="${lane.id}" type="button">Artifacts</button>
+          <a class="secondary" href="${artifactsLink}" target="_blank" rel="noopener noreferrer">Artifact API</a>
+          <a class="secondary" href="${evidenceLatestUrl}" target="_blank" rel="noopener noreferrer">Latest evidence</a>
+        </div>
+      </details>
+      <div id="lane-artifacts-${lane.id}" class="tiny"></div>
+    </article>
+  `;
+}
+
+export function activeOrchestratorLaneForSession(session) {
+  const thread = session?.orchestratorThread || {};
+  if (thread.activeLaneId) {
+    const active = shell.lanes.find((lane) => lane.id === thread.activeLaneId);
+    if (active) return active;
+  }
+  const laneIds = Array.isArray(thread.laneIds) ? thread.laneIds : [];
+  for (let i = laneIds.length - 1; i >= 0; i -= 1) {
+    const lane = shell.lanes.find((item) => item.id === laneIds[i]);
+    if (lane) return lane;
+  }
+  return shell.lanes
+    .filter((lane) => lane.sessionId === session?.id && lane.owner === 'orchestrator')
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))[0] || null;
+}
+
+export function renderAgentEventTimeline(lane, { limit = 80, compact = false } = {}) {
+  const events = Array.isArray(lane?.agentEvents) ? lane.agentEvents.slice(-limit) : [];
+  if (!events.length) {
+    return '<div class="agent-event-empty muted">No structured agent events yet. Raw terminal output will appear below.</div>';
+  }
+  return `
+    <div class="agent-event-list ${compact ? 'compact' : ''}">
+      ${events.map((item) => {
+        const type = String(item.type || 'event');
+        const tone = agentEventTone(type);
+        const content = item.command || item.content || item.title || '';
+        const meta = [
+          item.toolName,
+          item.stream,
+          item.source,
+          formatMeta(item.at),
+        ].filter(Boolean).join(' · ');
+        return `
+          <article class="agent-event ${safeAttr(type.replaceAll('.', '-'))}">
+            <div class="agent-event-topline">
+              <span class="tag ${tone}">${safeText(agentEventLabel(type))}</span>
+              <span class="tiny muted">${safeText(meta)}</span>
+            </div>
+            ${content ? `<pre>${safeText(content)}</pre>` : ''}
+          </article>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+export function modelPresetOptions(selected = '') {
+  const normalized = String(selected || '').trim();
+  const options = [
+    ['', 'Default'],
+    ['gpt-5.5', 'GPT-5.5'],
+    ['gpt-5', 'GPT-5'],
+    ['claude-sonnet-4-5', 'Claude Sonnet 4.5'],
+    ['claude-opus-4-7', 'Claude Opus 4.7'],
+    ['gemini-2.5-pro', 'Gemini 2.5 Pro'],
+    ['gemini-2.5-flash', 'Gemini 2.5 Flash'],
+    ['cursor-default', 'Cursor default'],
+  ];
+  return options.map(([value, label]) => `<option value="${safeAttr(value)}"${normalized === value ? ' selected' : ''}>${safeText(label)}</option>`).join('');
+}
+
+export function intelligenceOptions(selected = 'high') {
+  const normalized = String(selected || 'high').trim().toLowerCase();
+  return [
+    ['low', 'Low'],
+    ['medium', 'Medium'],
+    ['high', 'High'],
+    ['xhigh', 'Extra high'],
+    ['max', 'Max'],
+  ].map(([value, label]) => `<option value="${safeAttr(value)}"${normalized === value ? ' selected' : ''}>${safeText(label)}</option>`).join('');
+}
+
+export function runModeOptions(selected = 'plan') {
+  const normalized = String(selected || 'plan').trim();
+  return [
+    ['plan', 'Plan'],
+    ['read-only', 'Read only'],
+    ['auto-edit', 'Auto edit'],
+    ['acceptEdits', 'Accept edits'],
+    ['bypassPermissions', 'Bypass permissions'],
+  ].map(([value, label]) => `<option value="${safeAttr(value)}"${normalized === value ? ' selected' : ''}>${safeText(label)}</option>`).join('');
+}
+
+export function modelControlOptions(selected = '') {
+  return modelPresetOptions(selected || '');
+}
