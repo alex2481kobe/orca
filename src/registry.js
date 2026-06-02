@@ -1924,6 +1924,50 @@ export class OrcaRegistry {
     return clonePayload(session);
   }
 
+  // Store a chat attachment (screenshot/document) under the session's artifacts.
+  // dataBase64 is the file contents; the returned ref includes an absolute path
+  // the agent can read and a /artifacts URL the dashboard can display.
+  async saveSessionAttachment(sessionLocator, { name = '', contentType = '', dataBase64 = '', actor = 'dashboard' } = {}) {
+    const session = this.getSession(sessionLocator);
+    if (!session) throw { status: 404, message: 'Session not found.' };
+    const data = String(dataBase64 || '');
+    if (!data) throw { status: 422, message: 'Attachment data is required.' };
+    const buffer = Buffer.from(data, 'base64');
+    if (buffer.length === 0) throw { status: 422, message: 'Attachment is empty or not valid base64.' };
+    if (buffer.length > 12 * 1024 * 1024) throw { status: 413, message: 'Attachment exceeds the 12MB limit.' };
+    const base = (String(name || 'attachment').split(/[\\/]/).pop() || 'attachment').slice(-120);
+    const safe = base.replace(/[^A-Za-z0-9._-]/g, '_').replace(/^\.+/, '') || 'attachment';
+    const sessionSeg = /^[A-Za-z0-9._-]{1,128}$/.test(String(session.id)) ? String(session.id) : 'session';
+    const filename = `${Date.now()}-${randomUUID().slice(0, 8)}-${safe}`;
+    const dir = path.join(process.cwd(), 'artifacts', sessionSeg, 'attachments');
+    await fs.mkdir(dir, { recursive: true });
+    const abs = path.join(dir, filename);
+    if (abs !== path.join(dir, filename) || !abs.startsWith(dir + path.sep)) {
+      throw { status: 400, message: 'Invalid attachment path.' };
+    }
+    await fs.writeFile(abs, buffer);
+    const ref = {
+      id: randomUUID(),
+      name: base,
+      filename,
+      contentType: String(contentType || '').slice(0, 120),
+      bytes: buffer.length,
+      path: abs,
+      url: `/artifacts/${sessionSeg}/attachments/${filename}`,
+    };
+    this.recordAudit({
+      type: 'session_attachment_uploaded',
+      actor: String(actor || 'dashboard').slice(0, 120),
+      projectId: session.projectId,
+      sessionId: session.id,
+      summary: `Attachment "${base}" (${buffer.length}B) uploaded`,
+      status: 'passed',
+      evidence: { filename, bytes: buffer.length, contentType: ref.contentType },
+    });
+    this.persistState();
+    return ref;
+  }
+
   // Orchestrator-owned session goal + plan (the durable "what are we doing").
   updateSessionPlan(sessionLocator, { goal, plan, actor = 'orchestrator' } = {}) {
     const session = this.getSession(sessionLocator);
@@ -2414,6 +2458,7 @@ export class OrcaRegistry {
     permissionsProfile,
     intelligenceProfile,
     targetUrl,
+    attachments = [],
     baseUrl = '',
     discoveryUrl = '',
     nextActionUrl = '',
@@ -2421,7 +2466,10 @@ export class OrcaRegistry {
     const session = this.getSession(sessionLocator);
     if (!session) throw { status: 404, message: 'Session not found.' };
     const text = safeChatText(message);
-    if (!text) throw { status: 422, message: 'Message is required.' };
+    const attachmentList = (Array.isArray(attachments) ? attachments : [])
+      .filter((entry) => entry && (entry.path || entry.url))
+      .slice(0, 20);
+    if (!text && !attachmentList.length) throw { status: 422, message: 'Message or attachment is required.' };
 
     const project = this.getProject(session.projectId);
     const thread = this.ensureOrchestratorThread(session);
@@ -2430,9 +2478,26 @@ export class OrcaRegistry {
       id: randomUUID(),
       role: 'user',
       content: text,
+      attachments: attachmentList.map((entry) => ({
+        name: String(entry.name || 'attachment').slice(0, 200),
+        url: String(entry.url || '').slice(0, 500),
+        contentType: String(entry.contentType || '').slice(0, 120),
+      })),
       createdAt: now,
     };
     this.appendOrchestratorThreadMessage(thread, userMessage);
+    // Resolve each attachment's server-side absolute path from its /artifacts URL
+    // (never trust a client-supplied path), contained under artifacts/.
+    const artifactsRoot = path.join(process.cwd(), 'artifacts');
+    const resolveAttachmentPath = (entry) => {
+      const url = String(entry.url || '');
+      if (!url.startsWith('/artifacts/')) return null;
+      const abs = path.join(process.cwd(), url.replace(/^\/+/, ''));
+      return abs.startsWith(artifactsRoot + path.sep) ? abs : null;
+    };
+    const promptText = attachmentList.length
+      ? `${text}\n\nAttached files (absolute paths you can read):\n${attachmentList.map(resolveAttachmentPath).filter(Boolean).map((p) => `- ${p}`).join('\n')}`
+      : text;
 
     const resolvedExecutorType = this.resolveOrchestratorExecutorType(session, executorType);
     const executorCapabilities = this.getExecutorCapabilitiesMatrix();
@@ -2442,7 +2507,7 @@ export class OrcaRegistry {
     try {
       lane = await this.createLane(session.id, {
         title: `Orchestrator turn ${turnNumber}`,
-        taskDescription: text.slice(0, 1000),
+        taskDescription: (text || '(attachment)').slice(0, 1000),
         executorType: resolvedExecutorType,
         owner: 'orchestrator',
         workdir,
@@ -2450,7 +2515,7 @@ export class OrcaRegistry {
         taskPrompt: buildOrchestratorPrompt({
           project,
           session,
-          message: text,
+          message: promptText,
           messages: thread.messages,
           model,
           permissionsProfile,

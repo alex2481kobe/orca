@@ -2806,6 +2806,61 @@ function renderSessionApprovals(session) {
     </article>`;
 }
 
+function composerAttachmentsFor(sessionId) {
+  shell.composerAttachments = shell.composerAttachments || {};
+  if (!Array.isArray(shell.composerAttachments[sessionId])) shell.composerAttachments[sessionId] = [];
+  return shell.composerAttachments[sessionId];
+}
+
+function renderComposerAttachmentChips(sessionId) {
+  const list = composerAttachmentsFor(sessionId);
+  if (!list.length) return '';
+  return list.map((entry) => `
+    <span class="attach-chip">${safeText(entry.name)}<button data-action="removeAttachment" data-session-id="${safeAttr(sessionId)}" data-attachment-id="${safeAttr(entry.id)}" type="button" aria-label="Remove ${safeAttr(entry.name)}">×</button></span>
+  `).join('');
+}
+
+function refreshComposerAttachments(sessionId) {
+  const el = document.getElementById(`composer-attachments-${sessionId}`);
+  if (el) writeHtml(el, renderComposerAttachmentChips(sessionId));
+}
+
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      const comma = result.indexOf(',');
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.onerror = () => reject(reader.error || new Error('read failed'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function uploadComposerFiles(sessionId, fileList) {
+  const files = [...(fileList || [])].slice(0, 10);
+  if (!files.length) return;
+  for (const file of files) {
+    if (file.size > 12 * 1024 * 1024) { renderAlert(`${file.name} exceeds the 12MB limit.`, 'bad'); continue; }
+    try {
+      const dataBase64 = await readFileAsBase64(file);
+      const response = await api(`/api/sessions/${sessionId}/attachments`, {
+        method: 'POST',
+        body: { actor: 'dashboard', name: file.name, contentType: file.type || '', dataBase64 },
+      });
+      if (response.ok && response.data) {
+        composerAttachmentsFor(sessionId).push({ id: response.data.id, name: response.data.name, url: response.data.url });
+      } else {
+        renderAlert(response.data?.error || `Could not attach ${file.name}.`, 'bad');
+      }
+    } catch {
+      renderAlert(`Could not read ${file.name}.`, 'bad');
+    }
+  }
+  refreshComposerAttachments(sessionId);
+}
+
 function renderOrchestratorConsole(session) {
   const project = shell.projects.find((value) => value.id === session.projectId) || currentActiveProject();
   const thread = session.orchestratorThread || {};
@@ -2857,8 +2912,11 @@ function renderOrchestratorConsole(session) {
       ${renderOrchestratorTerminal(project, session, activeLane)}
       ${renderExecutorCapabilities(activeLane?.executorCapabilities || executorCapabilitiesFor(selectedExecutor))}
       <form id="orchestrator-message-form" data-session-id="${safeAttr(session.id)}" class="orchestrator-form composer-shell">
-        <textarea name="message" rows="4" required placeholder="Ask the orchestrator..."></textarea>
+        <div id="composer-attachments-${safeAttr(session.id)}" class="composer-attachments">${renderComposerAttachmentChips(session.id)}</div>
+        <textarea name="message" rows="4" placeholder="Ask the orchestrator… (drop or paste files/screenshots to attach)"></textarea>
+        <input type="file" id="composer-file-input" data-session-id="${safeAttr(session.id)}" multiple hidden />
         <div class="composer-bar">
+          <button class="secondary composer-attach" data-action="pickAttachment" data-session-id="${safeAttr(session.id)}" type="button" title="Attach screenshot or document" aria-label="Attach file">📎</button>
           <select name="executorType" aria-label="Agent">
             ${cliExecutorOptions(selectedExecutor)}
             ${apiProviderOptions()}
@@ -3962,8 +4020,9 @@ async function handleOrchestratorMessage(event) {
   const sessionId = event.currentTarget.dataset.sessionId;
   const payload = toObj(event.currentTarget);
   const message = String(payload.message || '').trim();
-  if (!message) {
-    renderAlert('Message is required.', 'bad');
+  const attachments = composerAttachmentsFor(sessionId).map((entry) => ({ name: entry.name, url: entry.url }));
+  if (!message && !attachments.length) {
+    renderAlert('Message or attachment is required.', 'bad');
     return;
   }
   const executorType = normalizeExecutorType(payload.executorType || 'codex');
@@ -3986,12 +4045,14 @@ async function handleOrchestratorMessage(event) {
       model,
       permissionsProfile,
       intelligenceProfile,
+      attachments,
       actor: approval.actor,
       approved: approval.approved,
     },
   });
   if (response.ok) {
     event.currentTarget.reset();
+    composerAttachmentsFor(sessionId).length = 0; // clear attached files after send
     renderAlert('Orchestrator lane started.');
     await refresh();
   } else {
@@ -4288,6 +4349,21 @@ async function handleSystemActions(event) {
       await refresh();
     } else {
       renderAlert(response.data?.error || 'Could not create pairing code.', 'bad');
+    }
+    return;
+  }
+  if (action === 'pickAttachment') {
+    const input = document.getElementById('composer-file-input');
+    if (input) input.click();
+    return;
+  }
+  if (action === 'removeAttachment') {
+    const sessionId = event.currentTarget.dataset.sessionId;
+    const attachmentId = event.currentTarget.dataset.attachmentId;
+    shell.composerAttachments = shell.composerAttachments || {};
+    if (Array.isArray(shell.composerAttachments[sessionId])) {
+      shell.composerAttachments[sessionId] = shell.composerAttachments[sessionId].filter((a) => a.id !== attachmentId);
+      refreshComposerAttachments(sessionId);
     }
     return;
   }
@@ -4955,6 +5031,35 @@ document.addEventListener('submit', async (event) => {
 document.addEventListener('change', (event) => {
   if (event.target && event.target.name === 'executorType' && event.target.form && event.target.form.id === 'create-lane-form') {
     renderLaneExecutorGuidance(event.target.form);
+  }
+  if (event.target && event.target.id === 'composer-file-input') {
+    const sessionId = event.target.dataset.sessionId;
+    if (sessionId) uploadComposerFiles(sessionId, event.target.files);
+    event.target.value = '';
+  }
+});
+
+// Drag-drop and paste files/screenshots onto the orchestrator composer.
+document.addEventListener('dragover', (event) => {
+  if (event.target?.closest?.('.composer-shell')) event.preventDefault();
+});
+document.addEventListener('drop', (event) => {
+  const form = event.target?.closest?.('.composer-shell');
+  if (form && event.dataTransfer?.files?.length) {
+    event.preventDefault();
+    uploadComposerFiles(form.dataset.sessionId, event.dataTransfer.files);
+  }
+});
+document.addEventListener('paste', (event) => {
+  const form = event.target?.closest?.('.composer-shell');
+  if (!form) return;
+  const files = [...(event.clipboardData?.items || [])]
+    .filter((item) => item.kind === 'file')
+    .map((item) => item.getAsFile())
+    .filter(Boolean);
+  if (files.length) {
+    event.preventDefault();
+    uploadComposerFiles(form.dataset.sessionId, files);
   }
 });
 

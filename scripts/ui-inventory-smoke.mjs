@@ -50,6 +50,8 @@ const WIRED_ACTIONS = new Set([
   'auditLane',
   'captureEvidence',
   'captureEvidencePreset',
+  'pickAttachment',
+  'removeAttachment',
   'saveSessionPlan',
   'approveApproval',
   'denyApproval',

@@ -665,6 +665,31 @@ async function serveStaticOrIndex(pathname, res, req = null) {
     if (parts.length < 4 || parts[0] !== 'artifacts') {
       return sendText(res, 404, 'Artifact not found');
     }
+
+    // Session chat attachments: /artifacts/<sessionId>/attachments/<file>
+    if (parts[2] === 'attachments') {
+      const sessionId = parts[1];
+      const attachmentName = parts.slice(3).join('/');
+      if (!registry.getSession(sessionId) || !/^[A-Za-z0-9._-]{1,128}$/.test(sessionId) || !attachmentName) {
+        return sendText(res, 404, 'Artifact not found');
+      }
+      const dir = path.join(process.cwd(), 'artifacts', sessionId, 'attachments');
+      const filePath = path.join(dir, attachmentName);
+      if (filePath !== path.normalize(filePath) || !filePath.startsWith(dir + path.sep)) {
+        return sendText(res, 400, 'Invalid artifact path');
+      }
+      try {
+        const buffer = await readArtifactBuffer(filePath);
+        res.statusCode = 200;
+        applySecurityHeaders(res);
+        res.setHeader('Content-Type', artifactContentType(filePath));
+        setCacheHeaders(res);
+        return res.end(buffer);
+      } catch {
+        return sendText(res, 404, 'Artifact file not found');
+      }
+    }
+
     const [, , laneId, ...rest] = parts;
     const filename = rest.join('/');
     const lane = registry.getLane(laneId);
@@ -1947,6 +1972,26 @@ async function handleApi(req, res, pathname, method, parts) {
       }
     }
 
+    if (parts.length === 4 && parts[3] === 'attachments' && method === 'POST') {
+      // Larger cap than normal JSON: attachments (screenshots/docs) arrive base64-encoded.
+      const body = await parseJsonBody(req, { maxBytes: 13 * 1024 * 1024 });
+      if (body === null) return sendBodyError(req, res);
+      if (rejectSpoofedActor(body, res)) return;
+      try {
+        const ref = await registry.saveSessionAttachment(session.id, {
+          name: body.name,
+          contentType: body.contentType,
+          dataBase64: body.dataBase64,
+          actor: String(body.actor || 'dashboard').trim() || 'dashboard',
+        });
+        // Do not expose the server's absolute filesystem path to the client.
+        const { path: _absolute, ...publicRef } = ref;
+        return sendJson(res, 201, publicRef);
+      } catch (error) {
+        return sendJson(res, error.status || 500, { error: error.message || 'Could not save attachment.' });
+      }
+    }
+
     if (parts.length === 4 && parts[3] === 'orchestrator' && method === 'GET') {
       try {
         return sendJson(res, 200, registry.getOrchestratorThread(session.id));
@@ -1973,6 +2018,7 @@ async function handleApi(req, res, pathname, method, parts) {
           permissionsProfile: body.permissionsProfile,
           intelligenceProfile: body.intelligenceProfile,
           targetUrl: body.targetUrl,
+          attachments: body.attachments,
           baseUrl: origin,
           discoveryUrl: `${origin}/api/agent-tools/discovery`,
           nextActionUrl: `${origin}/api/agent-tools/next-action?role=orchestrator&projectId=${encodeURIComponent(session.projectId)}&sessionId=${encodeURIComponent(session.id)}`,

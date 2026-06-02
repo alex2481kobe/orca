@@ -2490,3 +2490,23 @@ test('updateSessionPlan stores goal and plan with audit', async () => {
     await cleanup();
   }
 });
+
+test('saveSessionAttachment stores a file under session artifacts and rejects bad input', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const project = registry.createProject({ name: 'Attach Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Attach Session' }, { actor: 'test', approved: true });
+    const png = Buffer.from('hello-screenshot').toString('base64');
+    const ref = await registry.saveSessionAttachment(session.id, { name: '../../evil shot.png', contentType: 'image/png', dataBase64: png });
+    assert.match(ref.filename, /evil_shot\.png$/); // traversal + spaces sanitized
+    assert.ok(ref.url.startsWith(`/artifacts/${session.id}/attachments/`));
+    assert.equal(ref.bytes, Buffer.from('hello-screenshot').length);
+    const fs = await import('node:fs/promises');
+    await fs.access(ref.path); // file actually written
+    assert.ok(ref.path.includes('/attachments/'));
+
+    await assert.rejects(() => registry.saveSessionAttachment(session.id, { name: 'x', dataBase64: '' }), (e) => e.status === 422);
+  } finally {
+    await cleanup();
+  }
+});
