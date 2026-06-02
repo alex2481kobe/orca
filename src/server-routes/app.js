@@ -16,6 +16,8 @@ export async function handleAppRoutes(ctx, req, res, method, parts) {
     buildAppExport,
     buildSupportBundle,
     buildRouteInventory,
+    providerProfiles,
+    privateAccess,
   } = ctx;
     if (parts.length === 3 && parts[2] === 'export' && method === 'GET') {
       if (!requireAdminAuth(req, res)) return;
