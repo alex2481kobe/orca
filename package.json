@@ -16,6 +16,9 @@
   "engines": {
     "node": ">=18.18.0"
   },
+  "bin": {
+    "orca-mcp": "src/mcp-server.js"
+  },
   "scripts": {
     "dev": "node src/server.js",
     "start": "node src/server.js",

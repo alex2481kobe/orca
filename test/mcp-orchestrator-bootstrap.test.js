@@ -53,6 +53,34 @@ test('builder emits Claude Desktop JSON and Codex TOML pointing at the MCP serve
   assert.ok(out.instructions.length >= 2);
 });
 
+test('builder offers a source-free global-install (orca-mcp) launcher variant', () => {
+  const out = buildOrchestratorMcpConfigs({
+    baseUrl: 'http://127.0.0.1:3000',
+    leaseToken: 'lease-xyz',
+    nodePath: '/usr/local/bin/node',
+  });
+  // Primary config uses absolute node+path (works for app bundle / source).
+  assert.equal(out.clients.claudeDesktop.config.mcpServers.orca.command, '/usr/local/bin/node');
+  // Global-install variant uses the PATH command with no absolute path — no Orca
+  // source checkout needed.
+  const g = out.globalInstall.claudeDesktop.config.mcpServers.orca;
+  assert.equal(g.command, 'orca-mcp');
+  assert.deepEqual(g.args, []);
+  assert.equal(g.env.ORCA_ROLE, 'orchestrator');
+  assert.match(out.globalInstall.codex.snippet, /command = "orca-mcp"/);
+  assert.match(out.globalInstall.codex.snippet, /args = \[\]/);
+  assert.ok(out.instructions.some((line) => /No Orca source checkout is required/.test(line)));
+});
+
+test('package.json exposes the orca-mcp standalone bin pointing at the MCP server', async () => {
+  const here = path.dirname(new URL(import.meta.url).pathname);
+  const pkg = JSON.parse(await fs.readFile(path.join(here, '..', 'package.json'), 'utf8'));
+  assert.ok(pkg.bin && pkg.bin['orca-mcp'], 'orca-mcp bin declared');
+  const target = path.join(here, '..', pkg.bin['orca-mcp']);
+  const source = await fs.readFile(target, 'utf8');
+  assert.match(source.split('\n')[0], /^#!.*node/, 'bin target has a node shebang so it runs standalone');
+});
+
 test('builder omits path-param env when unscoped', () => {
   const out = buildOrchestratorMcpConfigs({ baseUrl: 'http://127.0.0.1:3000', leaseToken: 't' });
   const env = out.clients.claudeDesktop.config.mcpServers.orca.env;

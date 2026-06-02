@@ -69,13 +69,46 @@ ORCA_ROLE = "orchestrator"
 
 Restart the desktop app after editing its config so it spawns the MCP server.
 
+### No Orca source checkout required
+
+You do **not** need to clone or open Orca's source, or launch anything from
+within the repo, to drive Orca as an external orchestrator. Three ways the
+generated config can point at the stdio MCP server:
+
+1. **Installed app (default):** the generated config's absolute path resolves to
+   the `mcp-server.js` shipped inside the installed Orca app bundle — not a dev
+   source tree.
+2. **Global install:** run `npm i -g orca` (or `npm link` in a checkout) to put
+   the `orca-mcp` command on your `PATH`. The bootstrap's `globalInstall` config
+   variant uses `command: "orca-mcp"` with no absolute path at all.
+3. **Source checkout:** `command: node`, `args: ["…/src/mcp-server.js"]`.
+
+In every case the desktop app/CLI spawns the stdio MCP server itself and it talks
+to the **already-running** Orca HTTP API over loopback using the scoped lease —
+you never start an Orca process from source by hand.
+
+Global-install config (Codex example):
+
+```toml
+[mcp_servers.orca]
+command = "orca-mcp"
+args = []
+
+[mcp_servers.orca.env]
+ORCA_AGENT_TOOLS_BASE_URL = "http://127.0.0.1:3000"
+ORCA_TOOL_LEASE_TOKEN = "<scoped-lease-token>"
+ORCA_ROLE = "orchestrator"
+```
+
 ### How it works
 
-The desktop app spawns `src/mcp-server.js` over stdio — the same hand-rolled MCP
-server Orca injects into its own lanes. It authenticates each Orca HTTP tool call
-with the scoped lease (`x-orca-tool-lease`), and the server enforces the workflow:
-call `session__next_action` first to learn the required next tool; out-of-order
-calls are refused with a `nextAction` envelope.
+The desktop app spawns the Orca stdio MCP server (`orca-mcp` / `mcp-server.js`) —
+the same hand-rolled server Orca injects into its own lanes. It authenticates each
+Orca HTTP tool call with the scoped lease (`x-orca-tool-lease`), and the server
+enforces the workflow: call `session__next_action` first to learn the required
+next tool; out-of-order calls are refused with a `nextAction` envelope. The
+`initialize` response also delivers the role-specific orchestrator rulebook, so an
+agent told "act as the orchestrator" knows the rules at connect time.
 
 ### Security
 

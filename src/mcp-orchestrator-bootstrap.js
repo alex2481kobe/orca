@@ -40,13 +40,15 @@ function buildEnv({ baseUrl, leaseToken, role, projectId, sessionId }) {
 }
 
 // Claude Desktop reads ~/Library/Application Support/Claude/claude_desktop_config.json
-// with the standard mcpServers shape (command/args/env).
-function buildClaudeDesktopConfig({ nodePath, serverPath, env }) {
+// with the standard mcpServers shape (command/args/env). `launcher` is how to
+// start the stdio MCP server: either {command:node, args:[absolutePath]} or a
+// PATH command like {command:'orca-mcp', args:[]} for a global install.
+function buildClaudeDesktopConfig({ launcher, env }) {
   return {
     mcpServers: {
       [SERVER_KEY]: {
-        command: nodePath,
-        args: [serverPath],
+        command: launcher.command,
+        args: launcher.args,
         env,
       },
     },
@@ -54,11 +56,12 @@ function buildClaudeDesktopConfig({ nodePath, serverPath, env }) {
 }
 
 // Codex app reads ~/.codex/config.toml with [mcp_servers.<name>] tables.
-function buildCodexConfigToml({ nodePath, serverPath, env }) {
+function buildCodexConfigToml({ launcher, env }) {
+  const argsToml = launcher.args.map((a) => tomlString(a)).join(', ');
   const lines = [
     `[mcp_servers.${SERVER_KEY}]`,
-    `command = ${tomlString(nodePath)}`,
-    `args = [${tomlString(serverPath)}]`,
+    `command = ${tomlString(launcher.command)}`,
+    `args = [${argsToml}]`,
     '',
     `[mcp_servers.${SERVER_KEY}.env]`,
   ];
@@ -66,6 +69,32 @@ function buildCodexConfigToml({ nodePath, serverPath, env }) {
     lines.push(`${key} = ${tomlString(value)}`);
   }
   return `${lines.join('\n')}\n`;
+}
+
+// All client snippets for one launcher (node+path, or a PATH command).
+function buildClientConfigs(launcher, env) {
+  const claudeDesktop = buildClaudeDesktopConfig({ launcher, env });
+  return {
+    claudeDesktop: {
+      label: 'Claude Desktop',
+      configPath: '~/Library/Application Support/Claude/claude_desktop_config.json',
+      merge: 'Merge the "orca" entry into the existing mcpServers object.',
+      config: claudeDesktop,
+      snippet: JSON.stringify(claudeDesktop, null, 2),
+    },
+    codex: {
+      label: 'Codex app',
+      configPath: '~/.codex/config.toml',
+      merge: 'Append these tables to your Codex config.toml.',
+      snippet: buildCodexConfigToml({ launcher, env }),
+    },
+    generic: {
+      label: 'Generic MCP client',
+      merge: 'Use this mcpServers map directly.',
+      config: claudeDesktop,
+      snippet: JSON.stringify(claudeDesktop, null, 2),
+    },
+  };
 }
 
 // Build every client config from one lease. `nodePath` defaults to the running
@@ -83,7 +112,20 @@ export function buildOrchestratorMcpConfigs({
 } = {}) {
   const env = buildEnv({ baseUrl, leaseToken, role, projectId, sessionId });
   const resolvedNode = String(nodePath || process.execPath);
-  const claudeDesktop = buildClaudeDesktopConfig({ nodePath: resolvedNode, serverPath, env });
+  // Primary launcher: absolute node + bundled server path. This resolves to
+  // wherever mcp-server.js actually lives — the installed app bundle, a global
+  // npm install, or a source checkout — so it works WITHOUT the user opening
+  // Orca's source. No Orca process needs to be started from source: the desktop
+  // app/CLI spawns this stdio server itself, and it talks to the already-running
+  // Orca HTTP API over loopback using the scoped lease.
+  const nodeLauncher = { command: resolvedNode, args: [serverPath] };
+  // Alternative for users who installed Orca globally (`npm i -g`): the `orca-mcp`
+  // bin is on PATH, so no absolute path is needed at all.
+  const binLauncher = { command: 'orca-mcp', args: [] };
+
+  const clients = buildClientConfigs(nodeLauncher, env);
+  const globalInstall = buildClientConfigs(binLauncher, env);
+
   return {
     serverKey: SERVER_KEY,
     nodePath: resolvedNode,
@@ -93,30 +135,14 @@ export function buildOrchestratorMcpConfigs({
     // Way A — visual: open the dashboard in the desktop app's in-app browser.
     // Way B — programmatic: wire one of the MCP configs below for full tooling.
     instructions: [
+      `No Orca source checkout is required: install the Orca app (or 'npm i -g orca'), then paste a config below into your desktop app/CLI and restart it.`,
       `Open ${dashboardUrl || baseUrl || 'the Orca dashboard URL'} in the desktop app's in-app browser to drive Orca visually.`,
-      `For programmatic control, add the MCP server config for your client (Claude Desktop JSON or Codex TOML) and restart the app.`,
+      `For programmatic control, add the MCP server config for your client (Claude Desktop JSON or Codex TOML).`,
       `The server exposes Orca's orchestrator tools; call session__next_action first — the server enforces the workflow.`,
     ],
-    clients: {
-      claudeDesktop: {
-        label: 'Claude Desktop',
-        configPath: '~/Library/Application Support/Claude/claude_desktop_config.json',
-        merge: 'Merge the "orca" entry into the existing mcpServers object.',
-        config: claudeDesktop,
-        snippet: JSON.stringify(claudeDesktop, null, 2),
-      },
-      codex: {
-        label: 'Codex app',
-        configPath: '~/.codex/config.toml',
-        merge: 'Append these tables to your Codex config.toml.',
-        snippet: buildCodexConfigToml({ nodePath: resolvedNode, serverPath, env }),
-      },
-      generic: {
-        label: 'Generic MCP client',
-        merge: 'Use this mcpServers map directly.',
-        config: claudeDesktop,
-        snippet: JSON.stringify(claudeDesktop, null, 2),
-      },
-    },
+    clients,
+    // Same configs but launched via the PATH-resolved 'orca-mcp' command instead
+    // of an absolute node+path (for global installs / arbitrary CLIs).
+    globalInstall,
   };
 }
