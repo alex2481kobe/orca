@@ -193,12 +193,26 @@ function isLiveLaneState(state) {
   return [QUEUED_STATE, STARTING_STATE, RUNNING_STATE].includes(String(state || '').toLowerCase());
 }
 
+// Upper bound on the raw text we run redaction regexes over. Notification text
+// is later truncated to ~180 chars, but redaction must run on the raw value
+// first; capping here keeps the alternation-with-wildcards patterns linear and
+// removes any ReDoS exposure from attacker-influenced lane titles/exit reasons.
+const MAX_REDACTION_INPUT = 2000;
+
 function redactNotificationText(value) {
   return String(value ?? '')
+    .slice(0, MAX_REDACTION_INPUT)
     .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer [REDACTED]')
+    // Common provider secret formats: OpenAI sk-, Slack xox[baprs]-, GitHub
+    // PATs (ghp_/gho_/ghu_/ghs_/ghr_/github_pat_), AWS access key ids.
     .replace(/\bsk-[A-Za-z0-9_-]{6,}\b/g, '[REDACTED_SECRET]')
+    .replace(/\bxox[baprs]-[A-Za-z0-9-]{6,}\b/gi, '[REDACTED_SECRET]')
+    .replace(/\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g, '[REDACTED_SECRET]')
+    .replace(/\bAKIA[0-9A-Z]{16}\b/g, '[REDACTED_SECRET]')
     .replace(/\b([A-Z0-9_]*(?:TOKEN|SECRET|API[_-]?KEY|PASSWORD)[A-Z0-9_]*)\s*[:=]\s*['"]?[^'"\s,;}]+/gi, '$1=[REDACTED]')
-    .replace(/\b(command[_-]?deck[_-]?[A-Za-z0-9_-]*token[A-Za-z0-9_-]*)\b/gi, '[REDACTED_TOKEN]');
+    // App-named token references (post-"orca" rename; the legacy command-deck
+    // name is kept so older persisted strings still redact).
+    .replace(/\b((?:orca|command[_-]?deck)[_-]?[A-Za-z0-9_-]*token[A-Za-z0-9_-]*)\b/gi, '[REDACTED_TOKEN]');
 }
 
 function sanitizeNotificationText(value, fallback = '', maxLength = 180) {
@@ -338,6 +352,20 @@ function tokenMatchesReinstallSource(token, allowedSource) {
   return normalizedToken === normalizedAllowed;
 }
 
+// Only a plain semver / dist-tag may follow the "name@" separator. This rejects
+// npm aliasing (pkg@npm:other), and git/file/url refs (pkg@git+https://...,
+// pkg@file:...) that would otherwise install an attacker-chosen package while
+// still "matching" the allowlisted name.
+const SAFE_PACKAGE_VERSION = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+function packageMatchesAllowedName(normalizedToken, normalizedAllowed) {
+  if (normalizedToken === normalizedAllowed) return true;
+  const prefix = `${normalizedAllowed}@`;
+  if (!normalizedToken.startsWith(prefix)) return false;
+  const version = normalizedToken.slice(prefix.length);
+  return SAFE_PACKAGE_VERSION.test(version);
+}
+
 function tokenMatchesPackage(token, allowedPackage) {
   const normalizedToken = String(token || '').toLowerCase();
   const normalizedAllowed = String(allowedPackage || '').toLowerCase();
@@ -353,13 +381,11 @@ function tokenMatchesPackage(token, allowedPackage) {
       // Disallow path-like package references to avoid URL/path spoofing.
       return false;
     }
-    return normalizedToken === normalizedAllowed
-      || normalizedToken.startsWith(`${normalizedAllowed}@`);
+    return packageMatchesAllowedName(normalizedToken, normalizedAllowed);
   }
 
   if (normalizedToken.includes('://')) return false;
-  return normalizedToken === normalizedAllowed
-    || normalizedToken.startsWith(`${normalizedAllowed}@`);
+  return packageMatchesAllowedName(normalizedToken, normalizedAllowed);
 }
 
 function hasAllowedReinstallTarget(parts, expectedType) {
@@ -405,6 +431,36 @@ function normalizeExecutorType(raw) {
   return String(raw || '').toLowerCase().trim();
 }
 
+// Flags that redirect where a package comes from, rewrite config, or change
+// execution semantics — these turn an allowlisted "reinstall codex" into a
+// vector for pulling attacker-controlled code (e.g. --registry https://evil).
+function isDangerousReinstallFlag(token) {
+  const t = String(token || '').toLowerCase();
+  if (t.includes('://')) return true; // url embedded in a --flag=value form
+  return /^--?(registry|config|userconfig|globalconfig|prefix|cache|script-shell|scripts-prepend-node-path|node-options|unsafe-perm|allow-scripts|ignore-scripts|install-links|cwd|chdir|init-|tarball|pack-destination|auth|_auth|email)\b/.test(t);
+}
+
+// Every argument after the binary must be a known-safe token: an install verb, a
+// benign flag, or an allowlisted package/source. Strict only when an allowlist
+// exists for this executor type (it does for codex/claude).
+function reinstallArgsAreSafe(args, { installVerbs, packageAllowlist, sourceAllowlist }) {
+  const strict = packageAllowlist.length > 0 || sourceAllowlist.length > 0;
+  for (const arg of args) {
+    const lower = String(arg || '').toLowerCase();
+    if (installVerbs.includes(normalizeReinstallToken(arg))) continue;
+    if (lower.startsWith('-')) {
+      if (isDangerousReinstallFlag(lower)) return false;
+      continue;
+    }
+    const okPkg = packageAllowlist.some((p) => tokenMatchesPackage(arg, p));
+    const okSrc = sourceAllowlist.some((s) => tokenMatchesReinstallSource(arg, s));
+    if (okPkg || okSrc) continue;
+    if (strict) return false; // unknown positional token in strict mode
+    if (lower.includes('://')) return false; // bare URL target with no allowlist
+  }
+  return true;
+}
+
 function normalizeReinstallCommand(raw, expectedType = null) {
   if (!raw) return null;
   if (!Array.isArray(raw) && typeof raw !== 'string') return null;
@@ -443,6 +499,16 @@ function normalizeReinstallCommand(raw, expectedType = null) {
 
   for (const part of parts) {
     if (!normalizeReinstallToken(part)) return null;
+  }
+
+  // Reject any extra/unknown arg (alt registries, config overrides, bare URLs)
+  // so an allowlisted package name can't smuggle attacker-controlled sources.
+  if (!reinstallArgsAreSafe(args, {
+    installVerbs,
+    packageAllowlist: getReinstallPackageAllowlist(expectedType),
+    sourceAllowlist: getReinstallSourceRepos(expectedType),
+  })) {
+    return null;
   }
 
   return [binary, ...args];
@@ -1943,7 +2009,9 @@ export class OrcaRegistry {
     const dir = path.join(process.cwd(), 'artifacts', sessionSeg, 'attachments');
     await fs.mkdir(dir, { recursive: true });
     const abs = path.join(dir, filename);
-    if (abs !== path.join(dir, filename) || !abs.startsWith(dir + path.sep)) {
+    // filename is fully server-constructed from a sanitized base, but keep a real
+    // boundary check (not a tautology) as defense in depth.
+    if (!isPathWithinBoundary(abs, dir)) {
       throw { status: 400, message: 'Invalid attachment path.' };
     }
     await fs.writeFile(abs, buffer);
@@ -3870,14 +3938,14 @@ export class OrcaRegistry {
 
     for (const session of targetSessions) {
       const retentionDays = parsePositiveInteger(session.artifactRetentionDays, fallbackRetentionDays);
+      // An explicit olderThanDays from the caller takes precedence (operator asked
+      // for a specific window); otherwise fall back to the session's retention.
       const effectiveRetentionDays = summary.olderThanDays || retentionDays;
-      const cutoff = now - (retentionDays * msPerDay);
-      const configuredCutoff = now - (effectiveRetentionDays * msPerDay);
+      const deadline = now - (effectiveRetentionDays * msPerDay);
       const sessionLanes = this.lanes.filter((lane) => lane.sessionId === session.id && terminalStates.has(lane.state));
       for (const lane of sessionLanes) {
         summary.scanned += 1;
         const laneTimestamp = new Date(lane.completedAt || lane.updatedAt || lane.createdAt).getTime();
-        const deadline = Number.isFinite(configuredCutoff) ? configuredCutoff : cutoff;
         if (!Number.isFinite(laneTimestamp) || laneTimestamp >= deadline) {
           continue;
         }
@@ -5557,7 +5625,10 @@ export class OrcaRegistry {
     lane.state = needsCritique ? NEEDS_CRITIQUE_STATE : DONE_STATE;
     lane.updatedAt = now;
     lane.completedAt = now;
-    lane.exitReason = needsCritique ? 'Execution completed; self-verification required before audit.' : 'Mock execution completed';
+    const executorLabel = String(lane.executorType || 'mock');
+    lane.exitReason = needsCritique
+      ? 'Execution completed; self-verification required before audit.'
+      : `${executorLabel} execution completed`;
     this.appendLaneLog(lane, lane.exitReason, { persist: false });
     this.appendLaneAgentEvent(lane, {
       type: needsCritique ? 'agent.needs_critique' : 'agent.done',
@@ -5567,7 +5638,8 @@ export class OrcaRegistry {
     });
     this.recordAudit({
       type: needsCritique ? 'lane_needs_critique' : 'lane_completed',
-      actor: 'mock-worker',
+      // Attribute completion to the lane's actual executor, not always the mock.
+      actor: `${executorLabel}-worker`,
       projectId: lane.projectId,
       sessionId: lane.sessionId,
       laneId: lane.id,
@@ -5806,12 +5878,15 @@ Changed files: ${changedFiles.length}
       const runningCount = this.getRunningCountForSession(session.id);
       const approvedCapacity = normalizeApprovedCapacity(session.approvedCapacity, normalizeApprovedCapacity(session.laneConcurrencyLimit));
       const capacityLimit = normalizeSpawnPolicy(session.spawnPolicy) === 'never' ? 0 : approvedCapacity;
-      const availableSlots = Math.max(0, capacityLimit - runningCount);
+      let availableSlots = Math.max(0, capacityLimit - runningCount);
 
-      for (let i = 0; i < availableSlots; i += 1) {
-        const lane = queued[i];
-        if (!lane) break;
+      // Walk the queued list consuming a slot per actually-started lane, so a lane
+      // that is no longer queued (raced to another state) is skipped without
+      // burning a free slot.
+      for (const lane of queued) {
+        if (availableSlots <= 0) break;
         if (lane.state !== QUEUED_STATE) continue;
+        availableSlots -= 1;
         const now = nowIso();
         lane.state = STARTING_STATE;
         lane.updatedAt = now;

