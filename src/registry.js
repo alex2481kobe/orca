@@ -129,25 +129,6 @@ const {
 
 
 
-// Prefer the native structured clone (faster, less GC pressure than
-// JSON.parse(JSON.stringify(...))); fall back for older runtimes.
-function inferEvidenceMode(filename) {
-  if (!filename) return null;
-  if (filename.endsWith('-shot.png')) return 'screenshot';
-  if (filename.endsWith('-trace.zip')) return 'trace';
-  if (filename.endsWith('.webm')) return 'video';
-  if (filename.endsWith('-log.txt')) return 'log';
-  return null;
-}
-
-function normalizeEvidenceModeList(mode) {
-  if (!mode) return null;
-  const normalized = String(mode || '').trim().toLowerCase();
-  if (!normalized) return null;
-  const mapped = ['screenshot', 'trace', 'video', 'log'].includes(normalized) ? normalized : null;
-  return mapped;
-}
-
 export class OrcaRegistry {
   constructor({
     heartbeatIntervalMs = 2000,

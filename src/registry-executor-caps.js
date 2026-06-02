@@ -2,6 +2,8 @@
 // mixin for OrcaRegistry. Extracted from registry.js. Owns the CLI capability
 // cache (module-scoped, shared across instances — it's just a probe cache).
 
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { spawn } from 'node:child_process';
 import {
   planPlaywrightInstall,

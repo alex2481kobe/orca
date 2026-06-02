@@ -6,6 +6,23 @@ import path from 'node:path';
 import { nowIso, isPathWithinBoundary, clonePayload, safeArray } from './registry-utils.js';
 import { effectiveQuickLinkUrl } from './registry-quick-links.js';
 
+function inferEvidenceMode(filename) {
+  if (!filename) return null;
+  if (filename.endsWith('-shot.png')) return 'screenshot';
+  if (filename.endsWith('-trace.zip')) return 'trace';
+  if (filename.endsWith('.webm')) return 'video';
+  if (filename.endsWith('-log.txt')) return 'log';
+  return null;
+}
+
+function normalizeEvidenceModeList(mode) {
+  if (!mode) return null;
+  const normalized = String(mode || '').trim().toLowerCase();
+  if (!normalized) return null;
+  const mapped = ['screenshot', 'trace', 'video', 'log'].includes(normalized) ? normalized : null;
+  return mapped;
+}
+
 export const evidenceMethods = {
   async getEvidenceFiles(laneLocator) {
     const lane = this.getLane(laneLocator);

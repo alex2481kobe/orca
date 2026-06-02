@@ -1,6 +1,8 @@
 // Lane operations: submit, approvals, controls, stop/retry/heartbeat, artifacts,
 // worktree removal — prototype mixin for OrcaRegistry. Extracted from registry.js.
 
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { LANE_STATES } from './worker-contract.js';
 import { nowIso, clonePayload, safeArray } from './registry-utils.js';

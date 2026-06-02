@@ -2560,3 +2560,25 @@ test('reinstall override rejects alternate registries, alias packages, and bare 
     await cleanup();
   }
 });
+
+test('evidence lookups resolve mode helpers (getLatestEvidence/getEvidenceFiles do not throw)', async () => {
+  // Regression: inferEvidenceMode/normalizeEvidenceModeList were defined in
+  // registry.js but used only in registry-evidence.js; the split orphaned them
+  // so getLatestEvidence threw "normalizeEvidenceModeList is not defined" (500
+  // on GET /api/lanes/:id/evidence/latest). Exercise both evidence readers.
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const project = registry.createProject({ name: 'Evidence Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Evidence Session' }, { actor: 'test', approved: true });
+    const lane = registry.createLane(session.id, { title: 'evidence lane', executorType: 'mock' }, { approved: true, actor: 'test' });
+
+    const latest = await registry.getLatestEvidence(lane.id, { mode: 'screenshot' });
+    assert.equal(latest.laneId, lane.id);
+    assert.equal(latest.requestedMode, 'screenshot');
+
+    const files = await registry.getEvidenceFiles(lane.id);
+    assert.ok(Array.isArray(files), 'evidence files list resolves');
+  } finally {
+    await cleanup();
+  }
+});
