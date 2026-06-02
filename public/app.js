@@ -6,6 +6,7 @@ import { clientUrl, safeHref, safeNavigate, authRequiredMessage, isLocalHostName
 import { browserNotificationsSupported, browserNotificationPermission, readSeenBrowserNotifications, writeSeenBrowserNotifications, requestBrowserNotificationPermission, maybeShowBrowserNotifications } from './ui/notifications.js';
 import { normalizeExecutorType, parseCommandParts, executorTargetsCommand, executorTargetsBinary, getExecutorProfile, getProviderProfile, isApiExecutorType, apiProviderOptions, cliExecutorOptions, getExecutorScopedMcpTools, findMcpTool, normalizeMcpToolScopes } from './ui/executor.js';
 import { accessModeLabel, effectiveAccessMode, exactUrlForAccessMode, fallbackUrlForAccessMode, effectiveProjectQuickLinkUrl, quickLinkHealthLabel, preferredPhoneUrl } from './ui/access-mode.js';
+import { readSidebarOrder, writeSidebarOrder, orderItems, moveId } from './ui/sidebar.js';
 
 let refreshRequestId = 0;
 let refreshInFlight = false;
@@ -120,42 +121,6 @@ function setApiToken(token) {
   }
 }
 
-function readSidebarOrder() {
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(SIDEBAR_ORDER_STORAGE_KEY) || '{}');
-    return {
-      projects: Array.isArray(parsed.projects) ? parsed.projects : [],
-      sessions: parsed.sessions && typeof parsed.sessions === 'object' ? parsed.sessions : {},
-    };
-  } catch {
-    return { projects: [], sessions: {} };
-  }
-}
-
-function writeSidebarOrder(order) {
-  window.localStorage.setItem(SIDEBAR_ORDER_STORAGE_KEY, JSON.stringify(order));
-}
-
-function orderItems(items, ids) {
-  const positions = new Map((ids || []).map((id, index) => [id, index]));
-  return [...items].sort((a, b) => {
-    const aIndex = positions.has(a.id) ? positions.get(a.id) : Number.MAX_SAFE_INTEGER;
-    const bIndex = positions.has(b.id) ? positions.get(b.id) : Number.MAX_SAFE_INTEGER;
-    if (aIndex !== bIndex) return aIndex - bIndex;
-    return items.indexOf(a) - items.indexOf(b);
-  });
-}
-
-function moveId(ids, sourceId, targetId) {
-  const next = ids.filter((id) => id !== sourceId);
-  const targetIndex = next.indexOf(targetId);
-  if (targetIndex === -1) {
-    next.push(sourceId);
-  } else {
-    next.splice(targetIndex, 0, sourceId);
-  }
-  return next;
-}
 
 function currentActiveProject() {
   return shell.projects.find((value) => value.slug === shell.route.projectSlug || value.id === shell.route.projectSlug) || null;
