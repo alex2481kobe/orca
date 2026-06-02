@@ -1,10 +1,10 @@
-const CACHE_NAME = 'orca-static-v7';
+const CACHE_NAME = 'orca-static-v8';
 const STATIC_ASSETS = [
   '/',
   '/styles.css',
   '/app.js',
   '/manifest.webmanifest',
-  '/icon.svg',
+  '/favicon-32.png',
   '/icon-192.png',
   '/icon-512.png',
   '/apple-touch-icon.png',
