@@ -83,3 +83,7 @@ export function clonePayload(value) {
 export function safeArray(value, fallback = []) {
   return Array.isArray(value) ? value : fallback;
 }
+
+export function buildLaneRoute(projectSlug, sessionId, laneId) {
+  return `/projects/${projectSlug}/sessions/${sessionId}/lanes/${laneId}`;
+}
