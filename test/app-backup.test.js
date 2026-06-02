@@ -110,3 +110,22 @@ test('support bundle builder excludes auth sessions and raw artifacts', async ()
   assert.equal(bundle.includesArtifacts, false);
   assert.equal(text.includes('sk-support-secret-value'), false);
 });
+
+test('app import rejects prototype-pollution keys and redactDeep drops them', () => {
+  // Build via JSON.parse so __proto__/constructor are real OWN keys (the actual
+  // attack shape) — an object literal would set the prototype instead.
+  const payload = JSON.parse(
+    `{"schemaVersion":1,"kind":"${APP_EXPORT_KIND}","registry":{"projects":[{"id":"p","__proto__":{"polluted":true}}]}}`,
+  );
+  assert.throws(
+    () => validateAppImport(payload),
+    (e) => e.status === 422 && Array.isArray(e.blockedKeys),
+  );
+  // redactDeep strips __proto__/constructor without polluting Object.prototype.
+  const dirty = JSON.parse('{"keep":1,"__proto__":{"polluted":"x"},"constructor":{"bad":1}}');
+  const cleaned = redactDeep(dirty);
+  assert.equal({}.polluted, undefined);
+  assert.equal(cleaned.keep, 1);
+  assert.equal(Object.prototype.hasOwnProperty.call(cleaned, '__proto__'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(cleaned, 'constructor'), false);
+});
