@@ -27,6 +27,8 @@ import { handleMcpRoutes } from './server-routes/mcp.js';
 import { handleNotificationRoutes } from './server-routes/notifications.js';
 import { handleExecutorRoutes } from './server-routes/executors.js';
 import { handleAppRoutes } from './server-routes/app.js';
+import { handlePrivateAccessApi } from './server-routes/private-access.js';
+import { handleProvidersApi } from './server-routes/providers.js';
 import {
   classifyRequestForRateLimit,
   createRateLimiter,
@@ -882,234 +884,7 @@ function buildMobileManifest(req) {
   return payload;
 }
 
-async function handlePrivateAccessApi(req, res, method, parts) {
-  if (parts.length === 2 && method === 'GET') {
-    const searchParams = getSearchParams(req.url || '/');
-    if (!searchParams) return sendJson(res, 400, { error: 'Invalid request query string.' });
-    const fakeState = searchParams.get('fakeTailnetState') || searchParams.get('fake') || null;
-    const data = await privateAccess.describe({
-      origin: requestOrigin(req),
-      fakeTailnetState: fakeState,
-    });
-    return sendJson(res, 200, data);
-  }
 
-  if (parts.length === 3 && parts[2] === 'tailnet' && method === 'GET') {
-    const searchParams = getSearchParams(req.url || '/');
-    if (!searchParams) return sendJson(res, 400, { error: 'Invalid request query string.' });
-    return sendJson(res, 200, privateAccess.tailnetState(searchParams.get('fake') || null));
-  }
-
-  if (parts.length === 3 && parts[2] === 'setup-plan' && method === 'GET') {
-    const searchParams = getSearchParams(req.url || '/');
-    if (!searchParams) return sendJson(res, 400, { error: 'Invalid request query string.' });
-    try {
-      const plan = await privateAccess.setupPlan({
-        localUrl: searchParams.get('localUrl') || requestOrigin(req),
-        httpPort: searchParams.get('httpPort') || 80,
-        httpsPort: searchParams.get('httpsPort') || 443,
-      });
-      return sendJson(res, 200, plan);
-    } catch (error) {
-      return sendJson(res, error.status || 500, { error: error.message || 'Could not build setup plan.' });
-    }
-  }
-
-  if (parts.length === 3 && parts[2] === 'settings' && method === 'PATCH') {
-    if (!requireAdminAuth(req, res)) return;
-    const body = await parseJsonBody(req);
-    if (body === null) return sendBodyError(req, res);
-    if (rejectSpoofedActor(body, res)) return;
-    try {
-      const settings = await privateAccess.updateSettings(body, { actor: body.actor || 'dashboard' });
-      return sendJson(res, 200, settings);
-    } catch (error) {
-      return sendJson(res, error.status || 500, { error: error.message || 'Could not update private access settings.' });
-    }
-  }
-
-  if (parts.length === 3 && parts[2] === 'targets' && method === 'POST') {
-    if (!requireAdminAuth(req, res)) return;
-    const body = await parseJsonBody(req);
-    if (body === null) return sendBodyError(req, res);
-    if (rejectSpoofedActor(body, res)) return;
-    try {
-      const target = await privateAccess.createTarget(body, { actor: body.actor || 'dashboard' });
-      return sendJson(res, 201, target);
-    } catch (error) {
-      return sendJson(res, error.status || 500, { error: error.message || 'Could not create private access target.' });
-    }
-  }
-
-  if (parts.length === 4 && parts[2] === 'targets' && method === 'PATCH') {
-    if (!requireAdminAuth(req, res)) return;
-    const body = await parseJsonBody(req);
-    if (body === null) return sendBodyError(req, res);
-    if (rejectSpoofedActor(body, res)) return;
-    try {
-      const target = await privateAccess.updateTarget(parts[3], body, { actor: body.actor || 'dashboard' });
-      return sendJson(res, 200, target);
-    } catch (error) {
-      return sendJson(res, error.status || 500, { error: error.message || 'Could not update private access target.' });
-    }
-  }
-
-  if (parts.length === 4 && parts[2] === 'targets' && method === 'DELETE') {
-    if (!requireAdminAuth(req, res)) return;
-    const body = await parseJsonBody(req);
-    if (body === null) return sendBodyError(req, res);
-    if (rejectSpoofedActor(body, res)) return;
-    try {
-      const result = await privateAccess.deleteTarget(parts[3], { actor: body.actor || 'dashboard' });
-      return sendJson(res, 200, result);
-    } catch (error) {
-      return sendJson(res, error.status || 500, { error: error.message || 'Could not delete private access target.' });
-    }
-  }
-
-  if (parts.length === 5 && parts[2] === 'targets' && parts[4] === 'check' && method === 'POST') {
-    if (!requireAdminAuth(req, res)) return;
-    const body = await parseJsonBody(req);
-    if (body === null) return sendBodyError(req, res);
-    if (rejectSpoofedActor(body, res)) return;
-    try {
-      const result = await privateAccess.checkTarget(parts[3], { actor: body.actor || 'dashboard' });
-      return sendJson(res, 200, result);
-    } catch (error) {
-      return sendJson(res, error.status || 500, { error: error.message || 'Could not check private access target.' });
-    }
-  }
-
-  return sendJson(res, 404, { error: 'Private access API route not found.' });
-}
-
-async function handleProvidersApi(req, res, method, parts) {
-  if (parts.length === 2 && method === 'GET') {
-    try {
-      return sendJson(res, 200, await providerProfiles.listProfiles());
-    } catch (error) {
-      return sendJson(res, error.status || 500, { error: error.message || 'Could not list provider profiles.' });
-    }
-  }
-
-  if (parts.length === 3 && parts[2] === 'export' && method === 'GET') {
-    if (!requireAdminAuth(req, res)) return;
-    try {
-      return sendJson(res, 200, await providerProfiles.exportProfiles());
-    } catch (error) {
-      return sendJson(res, error.status || 500, { error: error.message || 'Could not export provider profiles.' });
-    }
-  }
-
-  if (parts.length === 4 && parts[2] === 'import' && parts[3] === 'dry-run' && method === 'POST') {
-    if (!requireAdminAuth(req, res)) return;
-    const body = await parseJsonBody(req);
-    if (body === null) return sendBodyError(req, res);
-    if (rejectSpoofedActor(body, res)) return;
-    try {
-      return sendJson(res, 200, await providerProfiles.importDryRun(body));
-    } catch (error) {
-      return sendJson(res, error.status || 500, {
-        error: error.message || 'Could not dry-run provider import.',
-        errors: error.errors || [],
-      });
-    }
-  }
-
-  if (parts.length === 4 && parts[2] === 'import' && parts[3] === 'apply' && method === 'POST') {
-    if (!requireAdminAuth(req, res)) return;
-    const body = await parseJsonBody(req);
-    if (body === null) return sendBodyError(req, res);
-    if (rejectSpoofedActor(body, res)) return;
-    try {
-      return sendJson(res, 200, await providerProfiles.importApply(body, {
-        actor: body.actor || 'dashboard',
-        approved: body.approved,
-      }));
-    } catch (error) {
-      return sendJson(res, error.status || 500, {
-        error: error.message || 'Could not apply provider import.',
-        errors: error.errors || [],
-        requiresApproval: error.requiresApproval || false,
-        risk: error.risk || null,
-      });
-    }
-  }
-
-  if (parts.length >= 3) {
-    const providerId = parts[2];
-    if (parts.length === 3 && method === 'GET') {
-      try {
-        return sendJson(res, 200, await providerProfiles.getProfile(providerId));
-      } catch (error) {
-        return sendJson(res, error.status || 500, { error: error.message || 'Could not load provider profile.' });
-      }
-    }
-    if (parts.length === 3 && method === 'PATCH') {
-      if (!requireAdminAuth(req, res)) return;
-      const body = await parseJsonBody(req);
-      if (body === null) return sendBodyError(req, res);
-      if (rejectSpoofedActor(body, res)) return;
-      try {
-        return sendJson(res, 200, await providerProfiles.updateProfile(providerId, body, {
-          actor: body.actor || 'dashboard',
-          approved: body.approved,
-        }));
-      } catch (error) {
-        return sendJson(res, error.status || 500, {
-          error: error.message || 'Could not update provider profile.',
-          requiresApproval: error.requiresApproval || false,
-          risk: error.risk || null,
-        });
-      }
-    }
-    if (parts.length === 4 && parts[3] === 'health' && method === 'GET') {
-      try {
-        return sendJson(res, 200, await providerProfiles.health(providerId));
-      } catch (error) {
-        return sendJson(res, error.status || 500, { error: error.message || 'Could not check provider health.' });
-      }
-    }
-    if (parts.length === 4 && parts[3] === 'secret' && method === 'POST') {
-      if (!requireAdminAuth(req, res)) return;
-      const body = await parseJsonBody(req);
-      if (body === null) return sendBodyError(req, res);
-      if (rejectSpoofedActor(body, res)) return;
-      try {
-        return sendJson(res, 200, await providerProfiles.setSecret(providerId, body.secret, {
-          actor: body.actor || 'dashboard',
-          approved: body.approved,
-        }));
-      } catch (error) {
-        return sendJson(res, error.status || 500, {
-          error: error.message || 'Could not set provider secret.',
-          requiresApproval: error.requiresApproval || false,
-          risk: error.risk || null,
-        });
-      }
-    }
-    if (parts.length === 4 && parts[3] === 'secret' && method === 'DELETE') {
-      if (!requireAdminAuth(req, res)) return;
-      const body = await parseJsonBody(req);
-      if (body === null) return sendBodyError(req, res);
-      if (rejectSpoofedActor(body, res)) return;
-      try {
-        return sendJson(res, 200, await providerProfiles.deleteSecret(providerId, {
-          actor: body.actor || 'dashboard',
-          approved: body.approved,
-        }));
-      } catch (error) {
-        return sendJson(res, error.status || 500, {
-          error: error.message || 'Could not delete provider secret.',
-          requiresApproval: error.requiresApproval || false,
-          risk: error.risk || null,
-        });
-      }
-    }
-  }
-
-  return sendJson(res, 404, { error: 'Provider API route not found.' });
-}
 
 function getRouteParts(pathname) {
   return pathname.split('?')[0].replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
@@ -1250,6 +1025,8 @@ const ROUTE_CTX = {
   buildAppExport,
   buildSupportBundle,
   buildRouteInventory,
+  privateAccess,
+  providerProfiles,
 };
 
 async function handleApi(req, res, pathname, method, parts) {
@@ -1405,11 +1182,11 @@ async function handleApi(req, res, pathname, method, parts) {
   }
 
   if (parts[1] === 'private-access') {
-    return handlePrivateAccessApi(req, res, method, parts);
+    return handlePrivateAccessApi(ROUTE_CTX, req, res, method, parts);
   }
 
   if (parts[1] === 'providers') {
-    return handleProvidersApi(req, res, method, parts);
+    return handleProvidersApi(ROUTE_CTX, req, res, method, parts);
   }
 
   if (parts[1] === 'executors') {
