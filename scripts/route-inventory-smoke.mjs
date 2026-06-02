@@ -54,8 +54,21 @@ async function loadInventory() {
 }
 
 async function readCombinedSource() {
+  // server.js delegates route groups to ctx-threaded handlers under
+  // src/server-routes/; include them so each route's serverHints resolve no
+  // matter which file the handler now lives in.
+  const routeHandlerDir = path.resolve(root, 'src', 'server-routes');
+  let routeHandlerFiles = [];
+  try {
+    routeHandlerFiles = (await fs.readdir(routeHandlerDir))
+      .filter((name) => name.endsWith('.js'))
+      .map((name) => path.join(routeHandlerDir, name));
+  } catch {
+    routeHandlerFiles = [];
+  }
   const files = [
     serverPath,
+    ...routeHandlerFiles,
     path.join(publicDir, 'index.html'),
     path.join(publicDir, 'app.js'),
     path.join(publicDir, 'styles.css'),
