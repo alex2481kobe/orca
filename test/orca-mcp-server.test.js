@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const serverPath = path.join(here, '..', 'scripts', 'orca-mcp-server.mjs');
+const serverPath = path.join(here, '..', 'src', 'mcp-server.js');
 
 // Minimal stub of the Orca HTTP API: records the last request and echoes a body.
 function startStubApi() {
