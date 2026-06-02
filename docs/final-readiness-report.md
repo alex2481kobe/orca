@@ -61,7 +61,7 @@ Latest recorded acceptance result:
 - Started: `2026-05-31T20:44:54.190Z`
 - Ended: `2026-05-31T20:46:23.894Z`
 - Elapsed: `89704ms`
-- Steps passed: `23`
+- Steps passed: `24`
 
 Additional live operator preflight:
 
@@ -104,7 +104,19 @@ npm run smoke:process-lifecycle
 
 Unit tests:
 
-- `143/143` passing in the latest local unit-test run.
+- `201/201` passing in the latest local unit-test run.
+
+Architecture + type safety (post-decomposition):
+
+- The three former monoliths were decomposed into cohesive modules with their
+  public surfaces preserved via barrels/re-exports: `src/registry.js`
+  (5872 -> 287 LOC) across ~29 prototype-mixin modules; `src/server.js`
+  (2669 -> 811 LOC) with every route group extracted to `src/server-routes/`;
+  `public/app.js` (5462 -> 648 LOC) across ~30 ES modules under `public/ui/`.
+- A loose TypeScript `checkJs` pass guards the codebase: `npm run typecheck`
+  (full) and `npm run typecheck:imports` (CI gate that fails only on the
+  undefined-name / broken-import class). The gate is wired into
+  `.github/workflows/ci.yml`.
 
 Ledger:
 
@@ -264,7 +276,7 @@ Security controls proven by tests/smokes include:
 - Same-origin checks for browser-session mutations.
 - Pairing code rate limits.
 - JSON body limits and malformed JSON/query handling.
-- Route security matrix for 102 routes.
+- Route security matrix for 116 routes.
 - Centralized rate-limit metadata.
 - Security headers and no-store sensitive responses.
 - SSRF URL policy reused by accepted URL surfaces.
