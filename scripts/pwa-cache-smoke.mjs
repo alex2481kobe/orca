@@ -198,7 +198,7 @@ async function main() {
   await harness.runLifecycle('install');
   await harness.runLifecycle('activate');
   const precache = harness.addAllCalls[0] || [];
-  const expectedPrecache = ['/', '/styles.css', '/app.js', '/manifest.webmanifest', '/icon.svg'];
+  const expectedPrecache = ['/', '/styles.css', '/app.js', '/manifest.webmanifest', '/favicon-32.png'];
   for (const item of expectedPrecache) {
     if (!precache.includes(item)) fail('precache missing static asset', item);
   }
