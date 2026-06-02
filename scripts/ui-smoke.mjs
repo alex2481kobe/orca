@@ -236,6 +236,8 @@ async function playwrightMode(pw) {
         'cleanupArtifactsRunNow',
         'clearApiToken',
         'clearEvidence',
+        'connectDesktopApp',
+        'setupCapture',
         'copyPhoneUrl',
         'deleteMcpTool',
         'deletePrivateAccessTarget',
