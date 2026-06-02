@@ -11,25 +11,9 @@ import { api, initializeApiToken, isTrustedAdminClientHost, browserAccessBlocked
 import { stateTagClass, getActionPolicy, needsApproval, confirmHighRiskAction, pendingAuditsForLane, pendingAuditsForSession, laneDetailRoute, isVerificationProject, activeHomePanel, renderBreadcrumbs, renderTopbarTitle, agentEventTone, agentEventLabel, isLiveLaneState, isRestartableLaneState, executorCapabilitiesFor, renderExecutorCapabilities, capabilityList } from './ui/render-helpers.js';
 import { renderHome } from './ui/render-home.js';
 import { renderLaneExecutorGuidance, captureContentUiState, restoreContentUiState, renderAccessGate, renderProject, renderLaneCard, renderAgentEventTimeline, modelPresetOptions, intelligenceOptions, runModeOptions, modelControlOptions, renderOrchestratorTerminal, renderApprovalRows, renderSessionApprovals, composerAttachmentsFor, renderComposerAttachmentChips, refreshComposerAttachments, readFileAsBase64, uploadComposerFiles, renderOrchestratorConsole, renderExecutorLanePanelItem, renderExecutorSidePanel, activeOrchestratorLaneForSession, renderSession, renderLane, renderAuditLog, loadEvidenceGallery, render, renderStatusStrip, renderBlockers, renderSidebarProjects, renderMobileManifest } from './ui/render-views.js';
+import { refresh, showArtifacts, parseRoute, connectEventStream, startPolling } from './ui/controller.js';
 
-let refreshRequestId = 0;
-let refreshInFlight = false;
-let lastRefreshAt = 0;
 
-function parseRoute() {
-  const parts = window.location.pathname.split('/').filter(Boolean);
-  const route = { projectSlug: null, sessionId: null, laneId: null };
-  if (parts.length >= 2 && parts[0] === 'projects') {
-    route.projectSlug = parts[1];
-    if (parts[2] === 'sessions' && parts[3]) {
-      route.sessionId = parts[3];
-      if (parts[4] === 'lanes' && parts[5]) {
-        route.laneId = parts[5];
-      }
-    }
-  }
-  return route;
-}
 
 
 
@@ -95,14 +79,6 @@ function registerServiceWorker() {
 
 
 
-function abortRefreshFromUnauthorized(response, requestId, uiState) {
-  if (!response || response.status !== 401) return false;
-  if (requestId !== refreshRequestId) return true;
-  if (maybeLockFromResponse(response)) {
-    render(uiState || null);
-  }
-  return true;
-}
 
 // Cache the MediaQueryList and track its value so pointer/click handlers don't
 // re-run matchMedia() several times per gesture.
@@ -579,146 +555,6 @@ function setupSidebarReorder() {
 
 
 
-async function refresh() {
-  if (refreshInFlight) return;
-  refreshInFlight = true;
-  lastRefreshAt = Date.now();
-  const requestId = ++refreshRequestId;
-  const uiState = captureContentUiState();
-  try {
-    shell.route = parseRoute();
-    shell.alerts = [];
-    const abortFromAuth = (response) => abortRefreshFromUnauthorized(response, requestId, uiState);
-    const authResp = await api('/api/auth/status');
-    if (abortFromAuth(authResp)) return;
-    if (authResp.ok && authResp.data) {
-      shell.authStatus = authResp.data;
-    }
-    if (browserAccessBlocked()) {
-      clearProtectedWorkspaceState();
-      render(captureContentUiState());
-      return;
-    }
-    const policyResp = await api('/api/policy');
-    if (abortFromAuth(policyResp)) return;
-    if (policyResp.ok && policyResp.data) {
-      shell.policy = policyResp.data.policies;
-    }
-    const effectiveSettingsResp = await api('/api/settings/effective');
-    if (abortFromAuth(effectiveSettingsResp)) return;
-    if (effectiveSettingsResp.ok && effectiveSettingsResp.data) {
-      shell.effectiveSettings = effectiveSettingsResp.data;
-    }
-    const notificationsResp = await api('/api/notifications');
-    if (abortFromAuth(notificationsResp)) return;
-    if (notificationsResp.ok && notificationsResp.data) {
-      shell.notifications = notificationsResp.data;
-      maybeShowBrowserNotifications();
-    }
-    const blockersResp = await api('/api/system/blockers');
-    if (abortFromAuth(blockersResp)) return;
-    if (blockersResp.ok && Array.isArray(blockersResp.data?.blockers)) {
-      shell.systemBlockers = blockersResp.data.blockers;
-    }
-    const privateAccessResp = await api('/api/private-access');
-    if (abortFromAuth(privateAccessResp)) return;
-    if (privateAccessResp.ok && privateAccessResp.data) {
-      shell.privateAccess = privateAccessResp.data;
-    }
-    const profilesResp = await api('/api/executors/profiles');
-    if (abortFromAuth(profilesResp)) return;
-    if (profilesResp.ok && profilesResp.data?.profiles) {
-      shell.executorProfiles = profilesResp.data.profiles;
-    }
-    const captureStatusResp = await api('/api/capture/status');
-    if (abortFromAuth(captureStatusResp)) return;
-    if (captureStatusResp.ok && captureStatusResp.data) {
-      shell.captureStatus = captureStatusResp.data;
-    }
-    const providerCatalogResp = await api('/api/providers');
-    if (abortFromAuth(providerCatalogResp)) return;
-    if (providerCatalogResp.ok && providerCatalogResp.data) {
-      shell.providerCatalog = providerCatalogResp.data;
-    }
-    const authSessionsResp = await api('/api/auth/sessions');
-    if (abortFromAuth(authSessionsResp)) return;
-    if (authSessionsResp.ok && Array.isArray(authSessionsResp.data?.sessions)) {
-      shell.authSessions = authSessionsResp.data.sessions;
-    }
-
-    if (shell.executorProfiles && typeof shell.executorProfiles === 'object') {
-      const cliInfo = {};
-      for (const executorType of Object.keys(shell.executorProfiles)) {
-        const response = await api(`/api/executors/${encodeURIComponent(executorType)}/cli`);
-        if (abortFromAuth(response)) return;
-        if (response.ok && response.data) {
-          cliInfo[executorType] = response.data;
-        }
-      }
-      shell.executorCliInfo = cliInfo;
-    }
-
-    const cleanupScheduleResp = await api('/api/artifacts/cleanup/schedule');
-    if (abortFromAuth(cleanupScheduleResp)) return;
-    if (cleanupScheduleResp.ok && cleanupScheduleResp.data?.schedule) {
-      shell.cleanupSchedule = cleanupScheduleResp.data.schedule;
-    }
-    const mcpToolsResp = await api('/api/mcp/tools');
-    if (abortFromAuth(mcpToolsResp)) return;
-    if (mcpToolsResp.ok && Array.isArray(mcpToolsResp.data)) {
-      shell.mcpTools = mcpToolsResp.data;
-    }
-
-    const pendingAuditResp = await api('/api/audit/events?status=pending');
-    if (abortFromAuth(pendingAuditResp)) return;
-    if (requestId !== refreshRequestId) return;
-    if (pendingAuditResp.ok && Array.isArray(pendingAuditResp.data)) {
-      shell.pendingAuditEvents = pendingAuditResp.data;
-    }
-
-    const projectsResp = await api('/api/projects');
-    if (abortFromAuth(projectsResp)) return;
-    if (requestId !== refreshRequestId) return;
-    if (projectsResp.ok && Array.isArray(projectsResp.data)) {
-      const nextProjects = projectsResp.data;
-      const allSessions = [];
-      let sessionsComplete = true;
-      for (const project of nextProjects) {
-        const sessionsResp = await api(`/api/projects/${project.id}/sessions`);
-        if (requestId !== refreshRequestId) return;
-        if (abortFromAuth(sessionsResp)) return;
-        if (sessionsResp.ok && Array.isArray(sessionsResp.data)) {
-          allSessions.push(...sessionsResp.data);
-        } else {
-          sessionsComplete = false;
-        }
-      }
-
-      let allLanes = shell.lanes;
-      let lanesComplete = false;
-      if (sessionsComplete) {
-        const allLaneResponses = await Promise.all(allSessions.map((session) => api(`/api/sessions/${session.id}/lanes`)));
-        if (requestId !== refreshRequestId) return;
-        const unauthorizedLanes = allLaneResponses.find((response) => response.status === 401);
-        if (abortFromAuth(unauthorizedLanes)) return;
-        lanesComplete = allLaneResponses.every((response) => response.ok && Array.isArray(response.data));
-        if (lanesComplete) {
-          allLanes = allLaneResponses.flatMap((response) => response.data);
-        }
-      }
-
-      shell.projects = nextProjects;
-      if (sessionsComplete && lanesComplete) {
-        shell.sessions = allSessions;
-        shell.lanes = allLanes;
-      }
-    }
-    if (requestId !== refreshRequestId) return;
-    render(uiState);
-  } finally {
-    refreshInFlight = false;
-  }
-}
 
 function buildCleanupScheduleBody(formData) {
   const payload = {};
@@ -859,21 +695,6 @@ function toObj(form) {
   return output;
 }
 
-async function showArtifacts(laneId) {
-  const response = await api(`/api/lanes/${laneId}/artifacts`);
-  const target = document.getElementById(`lane-artifacts-${laneId}`);
-  if (!target) return;
-  if (!response.ok) {
-    target.textContent = response.data?.error || 'Could not load artifacts.';
-    return;
-  }
-  const files = response.data.files;
-  if (!files.length) {
-    target.textContent = 'No artifacts yet.';
-    return;
-  }
-  target.innerHTML = files.map((file) => `<div><a href="${safeHref(file.url)}" target="_blank" rel="noopener noreferrer">${safeText(file.name)}</a></div>`).join('');
-}
 
 async function handleCreateProject(event) {
   event.preventDefault();
@@ -2429,51 +2250,12 @@ window.addEventListener('hashchange', () => {
   render();
 });
 
-function hasLiveOrchestratorConsole() {
-  const session = shell.sessions.find((value) => value.id === shell.route.sessionId);
-  if (!session) return false;
-  const lane = activeOrchestratorLaneForSession(session);
-  return Boolean(lane && isLiveLaneState(lane.state));
-}
 
-setInterval(() => {
-  const cadenceMs = hasLiveOrchestratorConsole() ? 1000 : 3000;
-  if (Date.now() - lastRefreshAt >= cadenceMs) {
-    refresh();
-  }
-}, 500);
 
 // Live push: subscribe to the server event stream and refresh promptly when the
 // state revision changes (agent turns, approvals, lane transitions). Works when
 // the browser is paired (cookie) or on the loopback workstation; falls back to
 // the polling timer above for token-in-page browsers where SSE can't authenticate.
-let _streamRefreshTimer = null;
-function scheduleStreamRefresh() {
-  if (_streamRefreshTimer) return;
-  _streamRefreshTimer = setTimeout(() => { _streamRefreshTimer = null; refresh(); }, 150);
-}
-function connectEventStream() {
-  if (typeof EventSource === 'undefined') return;
-  let retryMs = 2000;
-  const open = () => {
-    let es;
-    try {
-      es = new EventSource('/api/streams/events');
-    } catch {
-      return;
-    }
-    es.addEventListener('update', scheduleStreamRefresh);
-    es.addEventListener('snapshot', scheduleStreamRefresh);
-    es.onerror = () => {
-      try { es.close(); } catch { /* ignore */ }
-      // Reconnect with backoff; the polling timer keeps the UI fresh meanwhile.
-      retryMs = Math.min(retryMs * 2, 30000);
-      window.setTimeout(open, retryMs);
-    };
-    es.onopen = () => { retryMs = 2000; };
-  };
-  open();
-}
 
 initializeApiToken();
 registerServiceWorker();
@@ -2482,4 +2264,5 @@ setupSidebarReorder();
 // Connect the live SSE stream only after the initial load settles. A persistent
 // SSE connection would otherwise keep the page from ever reaching "network idle"
 // (used by automated checks); the polling timer covers this short window.
+startPolling();
 refresh().then(() => window.setTimeout(connectEventStream, 1200)).catch(() => {});
