@@ -1,4 +1,5 @@
 import { qrSvgForText } from './ui/qr.js';
+import { safeText, safeAttr, stateBadge, formatMeta, formatRelative, latestTimestamp } from './ui/format.js';
 const shell = {
   route: {
     projectSlug: null,
@@ -241,18 +242,6 @@ function currentActiveProject() {
   return shell.projects.find((value) => value.slug === shell.route.projectSlug || value.id === shell.route.projectSlug) || null;
 }
 
-function safeText(value) {
-  return String(value ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;');
-}
-
-function safeAttr(value) {
-  return safeText(value)
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
-}
 
 function clientUrl(value) {
   const raw = String(value || '').trim();
@@ -449,18 +438,6 @@ function preferredPhoneUrl(privateTargets = [], privateSettings = {}, tailnet = 
 }
 
 
-function stateBadge(state) {
-  const map = {
-    queued: ['Queued', 'warn'],
-    starting: ['Starting', 'warn'],
-    running: ['Running', 'ok'],
-    done: ['Done', 'ok'],
-    stopped: ['Stopped', 'bad'],
-    failed: ['Failed', 'bad'],
-  };
-  const [label, tone] = map[state] || [state, 'warn'];
-  return `<span class="tag ${tone}">${label}</span>`;
-}
 
 function normalizeExecutorType(raw) {
   return String(raw || '').toLowerCase().trim();
@@ -649,32 +626,6 @@ function laneDetailRoute(project, session, lane) {
   return lane.route || `/projects/${project.slug}/sessions/${session.id}/lanes/${lane.id}`;
 }
 
-function formatMeta(timeString) {
-  if (!timeString) return 'n/a';
-  return new Date(timeString).toLocaleTimeString();
-}
-
-function formatRelative(timeString) {
-  if (!timeString) return 'never';
-  const timestamp = new Date(timeString).getTime();
-  if (!Number.isFinite(timestamp)) return 'unknown';
-  const deltaSeconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
-  if (deltaSeconds < 60) return `${deltaSeconds}s ago`;
-  const deltaMinutes = Math.round(deltaSeconds / 60);
-  if (deltaMinutes < 60) return `${deltaMinutes}m ago`;
-  const deltaHours = Math.round(deltaMinutes / 60);
-  if (deltaHours < 24) return `${deltaHours}h ago`;
-  const deltaDays = Math.round(deltaHours / 24);
-  return `${deltaDays}d ago`;
-}
-
-function latestTimestamp(items) {
-  const timestamps = (items || [])
-    .map((item) => new Date(item.updatedAt || item.completedAt || item.createdAt || 0).getTime())
-    .filter(Number.isFinite);
-  if (!timestamps.length) return null;
-  return new Date(Math.max(...timestamps)).toISOString();
-}
 
 function isVerificationProject(project) {
   const slug = String(project?.slug || '').toLowerCase();
