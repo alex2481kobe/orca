@@ -29,6 +29,10 @@ import { handleExecutorRoutes } from './server-routes/executors.js';
 import { handleAppRoutes } from './server-routes/app.js';
 import { handlePrivateAccessApi } from './server-routes/private-access.js';
 import { handleProvidersApi } from './server-routes/providers.js';
+import { handleSettingsRoutes } from './server-routes/settings.js';
+import { handleAgentToolRoutes } from './server-routes/agent-tools.js';
+import { handleCaptureRoutes } from './server-routes/capture.js';
+import { handleArtifactRoutes } from './server-routes/artifacts.js';
 import {
   classifyRequestForRateLimit,
   createRateLimiter,
@@ -1027,6 +1031,7 @@ const ROUTE_CTX = {
   buildRouteInventory,
   privateAccess,
   providerProfiles,
+  buildAgentToolDiscovery,
 };
 
 async function handleApi(req, res, pathname, method, parts) {
@@ -1067,44 +1072,9 @@ async function handleApi(req, res, pathname, method, parts) {
     return sendJson(res, 200, { policies: registry.getPolicyMap() });
   }
 
-  if (parts[1] === 'settings' && parts[2] === 'effective' && method === 'GET') {
-    const searchParams = getSearchParams(req.url || '/');
-    if (!searchParams) {
-      return sendJson(res, 400, { error: 'Invalid request query string.' });
-    }
-    try {
-      return sendJson(res, 200, registry.getEffectiveSettings({
-        projectId: searchParams.get('projectId'),
-        sessionId: searchParams.get('sessionId'),
-        laneId: searchParams.get('laneId'),
-      }));
-    } catch (error) {
-      return sendJson(res, error.status || 500, {
-        error: error.message || 'Could not resolve effective settings.',
-      });
-    }
-  }
-
-  if (parts[1] === 'settings' && ['project', 'session', 'lane'].includes(parts[2]) && parts[3] && method === 'PATCH') {
-    const body = await parseJsonBody(req);
-    if (body === null) return sendBodyError(req, res);
-    if (rejectSpoofedActor(body, res)) return;
-    try {
-      const result = registry.updateSettingsOverrides({
-        scope: parts[2],
-        locator: decodeURIComponent(parts[3]),
-        settingsOverrides: body.settingsOverrides || body.overrides || {},
-        actor: body.actor || 'dashboard',
-        approved: body.approved,
-      });
-      return sendJson(res, 200, result);
-    } catch (error) {
-      return sendJson(res, error.status || 500, {
-        error: error.message || 'Could not update settings overrides.',
-        requiresApproval: error.requiresApproval || false,
-        risk: error.risk || null,
-      });
-    }
+  if (parts[1] === 'settings') {
+    const result = await handleSettingsRoutes(ROUTE_CTX, req, res, method, parts);
+    if (result !== LANE_FALL_THROUGH) return;
   }
 
   if (parts[1] === 'notifications') {
@@ -1122,54 +1092,8 @@ async function handleApi(req, res, pathname, method, parts) {
   }
 
   if (parts[1] === 'agent-tools') {
-    if (parts[2] === 'discovery' && method === 'GET') {
-      return sendJson(res, 200, buildAgentToolDiscovery(registry));
-    }
-    if (parts[2] === 'next-action' && method === 'GET') {
-      const searchParams = getSearchParams(req.url || '/');
-      if (!searchParams) {
-        return sendJson(res, 400, { error: 'Invalid request query string.' });
-      }
-      return sendJson(res, 200, buildNextActionEnvelope(registry, {
-        role: searchParams.get('role'),
-        projectId: searchParams.get('projectId'),
-        sessionId: searchParams.get('sessionId'),
-        laneId: searchParams.get('laneId'),
-      }));
-    }
-    if (parts[2] === 'leases' && method === 'POST') {
-      const body = await parseJsonBody(req);
-      if (body === null) return sendBodyError(req, res);
-      if (rejectSpoofedActor(body, res)) return;
-      try {
-        const nextAction = buildNextActionEnvelope(registry, {
-          role: body.role,
-          projectId: body.projectId,
-          sessionId: body.sessionId,
-          laneId: body.laneId,
-        });
-        const result = registry.createToolLease({
-          role: nextAction.role,
-          projectId: nextAction.projectId,
-          sessionId: nextAction.sessionId,
-          laneId: nextAction.laneId,
-          allowedTools: nextAction.allowedTools,
-          ttlMs: body.ttlMs,
-          actor: body.actor || 'dashboard',
-        });
-        return sendJson(res, 201, {
-          ...result,
-          nextAction,
-        });
-      } catch (error) {
-        return sendJson(res, error.status || 500, {
-          error: error.message || 'Could not create agent tool lease.',
-          requiresApproval: error.requiresApproval || false,
-          risk: error.risk || null,
-        });
-      }
-    }
-    return sendJson(res, 404, { error: 'Agent tool route not found.' });
+    const result = await handleAgentToolRoutes(ROUTE_CTX, req, res, method, parts);
+    if (result !== LANE_FALL_THROUGH) return;
   }
 
   if (parts[1] === 'system' && parts[2] === 'blockers' && method === 'GET') {
@@ -1194,113 +1118,14 @@ async function handleApi(req, res, pathname, method, parts) {
     if (result !== LANE_FALL_THROUGH) return;
   }
 
-  if (parts[1] === 'capture' && parts[2] === 'status' && parts.length === 3 && method === 'GET') {
-    const playwrightAvailable = await registry.evidenceRunner.ensurePlaywrightDetected().catch(() => false);
-    return sendJson(res, 200, registry.captureStatus({ playwrightAvailable }));
+  if (parts[1] === 'capture') {
+    const result = await handleCaptureRoutes(ROUTE_CTX, req, res, method, parts);
+    if (result !== LANE_FALL_THROUGH) return;
   }
 
-  if (parts[1] === 'capture' && parts[2] === 'install' && parts.length === 3 && method === 'POST') {
-    if (!requireAdminAuth(req, res)) return;
-    const body = await parseJsonBody(req);
-    if (body === null) return sendBodyError(req, res);
-    if (rejectSpoofedActor(body, res)) return;
-    try {
-      const result = await registry.setupCaptureBackend({
-        actor: body.actor || 'dashboard',
-        approved: Boolean(body.approved),
-        confirmed: Boolean(body.confirmed),
-        preferSystemChrome: body.preferSystemChrome !== false,
-      });
-      return sendJson(res, 200, result);
-    } catch (error) {
-      return sendJson(res, error.status || 500, {
-        error: error.message || 'Could not set up capture backend.',
-        requiresApproval: error.requiresApproval || false,
-        risk: error.risk || null,
-      });
-    }
-  }
-
-  if (parts[1] === 'artifacts' && parts[2] === 'cleanup' && parts.length === 3 && method === 'POST') {
-    const body = await parseJsonBody(req);
-    if (body === null) return sendBodyError(req, res);
-    if (rejectSpoofedActor(body, res)) return;
-    try {
-      const result = await registry.cleanupArtifacts({
-        ...body,
-        actor: body.actor || 'dashboard',
-        // skipApproval is an internal scheduler-only flag; never honor it from a request body.
-        skipApproval: false,
-      });
-      return sendJson(res, 200, result);
-    } catch (error) {
-      return sendJson(res, error.status || 500, {
-        error: error.message || 'Could not run artifact cleanup.',
-        requiresApproval: error.requiresApproval || false,
-        risk: error.risk || null,
-      });
-    }
-  }
-
-  if (parts[1] === 'artifacts' && parts[2] === 'cleanup' && parts[3] === 'schedule' && method === 'GET') {
-    return sendJson(res, 200, { schedule: registry.getCleanupSchedule() });
-  }
-
-  if (parts[1] === 'artifacts' && parts[2] === 'cleanup' && parts[3] === 'schedule' && method === 'POST') {
-    const body = await parseJsonBody(req);
-    if (body === null) return sendBodyError(req, res);
-    if (rejectSpoofedActor(body, res)) return;
-    try {
-      const result = await registry.updateCleanupSchedule(body, {
-        actor: body.actor || 'dashboard',
-        approved: body.approved,
-      });
-      return sendJson(res, 200, result);
-    } catch (error) {
-      return sendJson(res, error.status || 500, {
-        error: error.message || 'Could not update artifact cleanup schedule.',
-        requiresApproval: error.requiresApproval || false,
-        risk: error.risk || null,
-      });
-    }
-  }
-
-  if (parts[1] === 'artifacts' && parts[2] === 'cleanup' && parts[3] === 'run-now' && method === 'POST') {
-    const body = await parseJsonBody(req);
-    if (body === null) return sendBodyError(req, res);
-    if (rejectSpoofedActor(body, res)) return;
-    const schedule = registry.getCleanupSchedule?.() || {};
-    const hasSessionOverride = body && Object.prototype.hasOwnProperty.call(body, 'sessionId');
-    const hasRetentionOverride = body && Object.prototype.hasOwnProperty.call(body, 'olderThanDays');
-    const hasDryRunOverride = body && Object.prototype.hasOwnProperty.call(body, 'dryRun');
-    const normalizedSessionId = hasSessionOverride
-      ? (body.sessionId && String(body.sessionId).trim()) || null
-      : schedule.sessionId;
-    const normalizedRetention = hasRetentionOverride
-      ? body.olderThanDays
-      : schedule.olderThanDays;
-    const normalizedDryRun = hasDryRunOverride
-      ? body.dryRun
-      : schedule.dryRun;
-    const approved = body && body.approved !== undefined ? body.approved : false;
-    try {
-      const result = await registry.cleanupArtifacts({
-        actor: body.actor || 'dashboard',
-        approved: approved,
-        skipApproval: false,
-        sessionId: normalizedSessionId || null,
-        olderThanDays: normalizedRetention ?? null,
-        dryRun: Boolean(normalizedDryRun),
-        confirmed: Boolean(body.confirmed),
-      });
-      return sendJson(res, 200, result);
-    } catch (error) {
-      return sendJson(res, error.status || 500, {
-        error: error.message || 'Could not run artifact cleanup.',
-        requiresApproval: error.requiresApproval || false,
-        risk: error.risk || null,
-      });
-    }
+  if (parts[1] === 'artifacts') {
+    const result = await handleArtifactRoutes(ROUTE_CTX, req, res, method, parts);
+    if (result !== LANE_FALL_THROUGH) return;
   }
 
   if (parts[1] === 'audit' && parts[2] === 'events' && method === 'GET') {
