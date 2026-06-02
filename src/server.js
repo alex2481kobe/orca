@@ -33,6 +33,7 @@ import { handleSettingsRoutes } from './server-routes/settings.js';
 import { handleAgentToolRoutes } from './server-routes/agent-tools.js';
 import { handleCaptureRoutes } from './server-routes/capture.js';
 import { handleArtifactRoutes } from './server-routes/artifacts.js';
+import { handleMiscRoutes } from './server-routes/misc.js';
 import {
   classifyRequestForRateLimit,
   createRateLimiter,
@@ -1032,6 +1033,8 @@ const ROUTE_CTX = {
   privateAccess,
   providerProfiles,
   buildAgentToolDiscovery,
+  hasOperatorAuth,
+  buildMobileManifest,
 };
 
 async function handleApi(req, res, pathname, method, parts) {
@@ -1051,26 +1054,8 @@ async function handleApi(req, res, pathname, method, parts) {
     return;
   }
 
-  if (parts[1] === 'health' && method === 'GET') {
-    const payload = {
-      status: 'ok',
-      now: new Date().toISOString(),
-    };
-    // Counts are workspace data; only expose them to an authorized caller.
-    if (hasOperatorAuth(req)) {
-      payload.counts = {
-        projects: registry.projects.length,
-        sessions: registry.sessions.length,
-        lanes: registry.lanes.length,
-        auditEvents: registry.auditEvents.length,
-      };
-    }
-    return sendJson(res, 200, payload);
-  }
+  if (await handleMiscRoutes(ROUTE_CTX, req, res, method, parts) !== LANE_FALL_THROUGH) return;
 
-  if (parts[1] === 'policy' && method === 'GET') {
-    return sendJson(res, 200, { policies: registry.getPolicyMap() });
-  }
 
   if (parts[1] === 'settings') {
     const result = await handleSettingsRoutes(ROUTE_CTX, req, res, method, parts);
@@ -1087,23 +1072,12 @@ async function handleApi(req, res, pathname, method, parts) {
     if (result !== LANE_FALL_THROUGH) return;
   }
 
-  if (parts[1] === 'route-inventory' && method === 'GET') {
-    return sendJson(res, 200, buildRouteInventory());
-  }
 
   if (parts[1] === 'agent-tools') {
     const result = await handleAgentToolRoutes(ROUTE_CTX, req, res, method, parts);
     if (result !== LANE_FALL_THROUGH) return;
   }
 
-  if (parts[1] === 'system' && parts[2] === 'blockers' && method === 'GET') {
-    try {
-      const data = await registry.describeSystemBlockers();
-      return sendJson(res, 200, data);
-    } catch (error) {
-      return sendJson(res, 500, { error: error?.message || 'Could not load blockers.' });
-    }
-  }
 
   if (parts[1] === 'private-access') {
     return handlePrivateAccessApi(ROUTE_CTX, req, res, method, parts);
@@ -1128,16 +1102,6 @@ async function handleApi(req, res, pathname, method, parts) {
     if (result !== LANE_FALL_THROUGH) return;
   }
 
-  if (parts[1] === 'audit' && parts[2] === 'events' && method === 'GET') {
-    const searchParams = getSearchParams(req.url || '/');
-    if (!searchParams) {
-      return sendJson(res, 400, {
-        error: 'Invalid request query string.',
-      });
-    }
-    const status = searchParams.get('status');
-    return sendJson(res, 200, registry.listAuditEvents({ status }));
-  }
 
   if (parts[1] === 'mcp') {
     const result = await handleMcpRoutes(ROUTE_CTX, req, res, method, parts);
@@ -1149,9 +1113,6 @@ async function handleApi(req, res, pathname, method, parts) {
     if (result !== LANE_FALL_THROUGH) return;
   }
 
-  if (parts[1] === 'mobile' && parts[2] === 'manifest' && method === 'GET') {
-    return sendJson(res, 200, buildMobileManifest(req));
-  }
 
   if (parts[1] === 'sessions') {
     const result = await handleSessionRoutes(ROUTE_CTX, req, res, method, parts);
@@ -1163,36 +1124,6 @@ async function handleApi(req, res, pathname, method, parts) {
     if (result !== LANE_FALL_THROUGH) return;
   }
 
-  if (parts[1] === 'audit' && parts[2] === 'events') {
-    if (parts.length === 5 && parts[4] === 'ack' && method === 'POST') {
-      const body = await parseJsonBody(req);
-      if (body === null) return sendBodyError(req, res);
-    if (rejectSpoofedActor(body, res)) return;
-      try {
-        const event = registry.acknowledgeAuditEvent(parts[3], {
-          actor: body.actor || 'dashboard',
-          notes: body.notes,
-        });
-        return sendJson(res, 200, event);
-      } catch (error) {
-        return sendJson(res, error.status || 500, {
-          error: error.message || 'Could not acknowledge audit event.',
-          requiresApproval: error.requiresApproval || false,
-          risk: error.risk || null,
-        });
-      }
-    }
-    if (parts.length === 3 && method === 'GET') {
-      const searchParams = getSearchParams(req.url || '/');
-      if (!searchParams) {
-        return sendJson(res, 400, {
-          error: 'Invalid request query string.',
-        });
-      }
-      const status = searchParams.get('status');
-      return sendJson(res, 200, registry.listAuditEvents({ status }));
-    }
-  }
 
   return sendJson(res, 404, { error: 'API route not found.' });
 }
