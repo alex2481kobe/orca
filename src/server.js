@@ -468,7 +468,12 @@ function parseJsonBody(req, options = {}) {
       }
       if (!chunks.length) return resolve({});
       try {
-        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+        // Defense-in-depth against prototype pollution: a JSON reviver drops any
+        // "__proto__" key (JSON.parse otherwise materializes it as an own
+        // property that downstream Object.assign/spread could use to pollute).
+        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'), (key, value) => (
+          key === '__proto__' ? undefined : value
+        )));
       } catch {
         resolve(null);
       }
