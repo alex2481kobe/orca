@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import http from 'node:http';
 import { pathToFileURL } from 'node:url';
 
 const DEFAULT_CAPTURE = ['screenshot'];
@@ -96,28 +97,71 @@ function nativeCaptureAvailable() {
   return Boolean(String(process.env.ORCA_NATIVE_CAPTURE_URL || '').trim());
 }
 
+// Issue the loopback POST with node:http and `agent: false` so every capture
+// opens a fresh socket. The bridge (tiny_http) closes the connection after each
+// response; the global fetch/undici pool would otherwise try to reuse that dead
+// socket on the next capture and fail with ECONNRESET ("native-error"). A new
+// connection per request sidesteps the keep-alive race entirely.
+function postCaptureRequest({ endpoint, token, payload, timeoutMs }) {
+  return new Promise((resolve) => {
+    let target;
+    try {
+      target = new URL('/capture', endpoint);
+    } catch (error) {
+      resolve({ ok: false, reason: `native-error: ${error?.message || 'bad endpoint'}` });
+      return;
+    }
+    const body = Buffer.from(JSON.stringify(payload));
+    const req = http.request(
+      {
+        protocol: target.protocol,
+        hostname: target.hostname,
+        port: target.port,
+        path: target.pathname,
+        method: 'POST',
+        agent: false, // fresh socket per request — no keep-alive reuse
+        headers: {
+          'content-type': 'application/json',
+          'content-length': body.length,
+          connection: 'close',
+          'x-orca-native-token': token,
+        },
+      },
+      (res) => {
+        res.resume(); // drain so the socket can close cleanly
+        res.on('end', () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode }));
+      },
+    );
+    req.setTimeout(timeoutMs + 3000, () => {
+      req.destroy(new Error('native capture request timed out'));
+    });
+    req.on('error', (error) => {
+      const timedOut = error?.message?.includes('timed out');
+      resolve({ ok: false, reason: timedOut ? 'native-timeout' : `native-error: ${error?.message || 'request failed'}` });
+    });
+    req.end(body);
+  });
+}
+
 async function captureViaNativeBridge({ url, outPath, timeoutMs = 15000 }) {
   const endpoint = String(process.env.ORCA_NATIVE_CAPTURE_URL || '').trim();
   if (!endpoint) return { ok: false, reason: 'native-unavailable' };
   const token = String(process.env.ORCA_NATIVE_CAPTURE_TOKEN || '');
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs + 3000);
-  try {
-    const res = await fetch(new URL('/capture', endpoint), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-orca-native-token': token },
-      body: JSON.stringify({ url, outPath, timeoutMs }),
-      signal: controller.signal,
-    });
-    if (!res.ok) return { ok: false, reason: `native-status-${res.status}` };
-    await fs.access(outPath); // the shell writes the PNG; confirm it landed
-    return { ok: true };
-  } catch (error) {
-    const detail = error?.message ? `: ${error.message}` : '';
-    return { ok: false, reason: error?.name === 'AbortError' ? 'native-timeout' : `native-error${detail}` };
-  } finally {
-    clearTimeout(timer);
+  const result = await postCaptureRequest({
+    endpoint,
+    token,
+    payload: { url, outPath, timeoutMs },
+    timeoutMs,
+  });
+  if (!result.ok) {
+    return result.reason ? result : { ok: false, reason: `native-status-${result.status}` };
   }
+  try {
+    await fs.access(outPath); // the shell writes the PNG; confirm it landed
+  } catch {
+    return { ok: false, reason: 'native-missing-output' };
+  }
+  return { ok: true };
 }
 
 export async function detectPlaywright() {
