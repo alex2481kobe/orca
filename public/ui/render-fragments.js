@@ -31,6 +31,49 @@ export function renderLaneExecutorGuidance(form) {
       mcpSelect.innerHTML = '<option disabled>No tools available for this executor</option>';
     }
   }
+  // Dynamic per-executor controls: repopulate permission/intelligence/model
+  // options from THIS executor's detected capabilities so each CLI shows its own
+  // modes (codex sandbox/approval, Claude acceptEdits/bypassPermissions, etc.),
+  // effort/intelligence levels, model values, and background-agents/workflows.
+  const controls = profile?.capabilities?.controls || {};
+  const repopulateSelect = (name, values, { keepFirstDefault = false } = {}) => {
+    const select = form.querySelector(`select[name="${name}"]`);
+    if (!select || !Array.isArray(values) || !values.length) return;
+    const previous = select.value;
+    const opts = (keepFirstDefault ? [''] : []).concat(values);
+    select.innerHTML = opts.map((value) => {
+      const label = value === '' ? 'Default (use CLI config)' : value;
+      const selected = value === previous ? ' selected' : '';
+      return `<option value="${safeAttr(value)}"${selected}>${safeText(label)}</option>`;
+    }).join('');
+    if (previous && values.includes(previous)) select.value = previous;
+  };
+  if (controls.permissions?.values?.length) repopulateSelect('permissionsProfile', controls.permissions.values);
+  if (controls.intelligence?.values?.length) repopulateSelect('intelligenceProfile', controls.intelligence.values);
+  // Model: keep the free-text input but offer this executor's known models as a datalist.
+  const modelInput = form.elements.model;
+  if (modelInput && Array.isArray(controls.model?.values)) {
+    let listEl = document.getElementById('lane-model-options');
+    if (!listEl) {
+      listEl = document.createElement('datalist');
+      listEl.id = 'lane-model-options';
+      modelInput.insertAdjacentElement('afterend', listEl);
+      modelInput.setAttribute('list', 'lane-model-options');
+    }
+    listEl.innerHTML = controls.model.values.map((value) => `<option value="${safeAttr(value)}"></option>`).join('');
+    if (controls.model.defaultValue && !modelInput.value) modelInput.placeholder = `${controls.model.defaultValue} (CLI default)`;
+  }
+  const capabilitySummary = (() => {
+    const bits = [];
+    if (controls.permissions?.values?.length) bits.push(`modes: ${controls.permissions.values.join(', ')}`);
+    if (controls.intelligence?.supported && controls.intelligence?.values?.length) bits.push(`intelligence: ${controls.intelligence.values.join(', ')}`);
+    else if (controls.intelligence?.passthrough) bits.push('intelligence: passthrough to CLI config');
+    if (controls.model?.values?.length) bits.push(`models: ${controls.model.values.slice(0, 6).join(', ')}`);
+    if (controls.backgroundAgents?.supported) bits.push(`workflows/background agents: ${(controls.backgroundAgents.commands || ['agents']).join(', ')}`);
+    if (controls.structuredOutput?.supported) bits.push('structured agent events');
+    return bits.length ? `Detected ${lowerType} capabilities — ${bits.join(' · ')}. Leave a field on Default to use the CLI's own configured rules.` : '';
+  })();
+
   const defaultBinary = safeText(profile?.defaultBinary || '');
   const defaultArgs = Array.isArray(profile?.defaultArgs) ? profile.defaultArgs.join(' ') : '';
   const allowedBinaries = Array.isArray(profile?.allowedBinaries) ? profile.allowedBinaries : [];
@@ -54,6 +97,7 @@ export function renderLaneExecutorGuidance(form) {
         ${binaryHint ? `${binaryHint} ` : ''}
         ${allowedList ? `${allowedList}` : ''}
         <br/>${toolSummary}
+        ${capabilitySummary ? `<br/>${safeText(capabilitySummary)}` : ''}
       </div>
     `.trim();
     return;

@@ -7,8 +7,20 @@ import { FALL_THROUGH } from './lanes.js';
 export async function handleExecutorRoutes(ctx, req, res, method, parts) {
   const { registry, sendJson, sendBodyError, parseJsonBody, rejectSpoofedActor, requireAdminAuth } = ctx;
   if (parts[1] === 'executors' && parts[2] === 'profiles' && method === 'GET') {
+    // Enrich each executor profile with its detected capabilities so the lane
+    // form can render per-CLI permission modes, intelligence/effort levels,
+    // model values, and workflow/background-agent options dynamically.
+    const baseProfiles = registry.getExecutorProfiles() || {};
+    const profiles = {};
+    for (const [type, profile] of Object.entries(baseProfiles)) {
+      let capabilities = null;
+      try {
+        capabilities = registry.getExecutorCapabilities(type);
+      } catch { /* leave null if capabilities cannot be detected */ }
+      profiles[type] = { ...profile, capabilities };
+    }
     return sendJson(res, 200, {
-      profiles: registry.getExecutorProfiles(),
+      profiles,
       orcaApiEndpoint: '/api/executors/profiles',
     });
   }
