@@ -4,6 +4,7 @@ import { shell, refs } from './ui/state.js';
 import { MOBILE_NAV_BREAKPOINT, API_PROVIDER_EXECUTOR_TYPES, FIRST_CLASS_CLI_EXECUTOR_TYPES, CLI_EXECUTOR_TARGET_ALIASES, MCP_TOOL_SCOPE_ALLOWLIST, API_TOKEN_STORAGE_KEY, SIDEBAR_ORDER_STORAGE_KEY, NOTIFICATION_SEEN_STORAGE_KEY, FOLDER_ICON, COMPOSE_ICON, PENCIL_ICON } from './ui/constants.js';
 import { clientUrl, safeHref, safeNavigate, authRequiredMessage, isLocalHostName, writeHtml, renderAlert } from './ui/dom.js';
 import { browserNotificationsSupported, browserNotificationPermission, readSeenBrowserNotifications, writeSeenBrowserNotifications, requestBrowserNotificationPermission, maybeShowBrowserNotifications } from './ui/notifications.js';
+import { normalizeExecutorType, parseCommandParts, executorTargetsCommand, executorTargetsBinary, getExecutorProfile, getProviderProfile, isApiExecutorType, apiProviderOptions, cliExecutorOptions, getExecutorScopedMcpTools, findMcpTool, normalizeMcpToolScopes } from './ui/executor.js';
 
 let refreshRequestId = 0;
 let refreshInFlight = false;
@@ -293,104 +294,6 @@ function preferredPhoneUrl(privateTargets = [], privateSettings = {}, tailnet = 
 
 
 
-function normalizeExecutorType(raw) {
-  return String(raw || '').toLowerCase().trim();
-}
-
-function parseCommandParts(raw) {
-  return String(raw || '').trim().split(/\s+/).filter(Boolean);
-}
-
-function executorTargetsCommand(executorType, commandParts) {
-  const normalizedType = normalizeExecutorType(executorType);
-  if (!normalizedType) return true;
-  if (!Array.isArray(commandParts) || !commandParts.length) return true;
-  const first = String(commandParts[0]).toLowerCase();
-  const aliases = CLI_EXECUTOR_TARGET_ALIASES[normalizedType] || [normalizedType];
-  return aliases.some((alias) => first.includes(alias));
-}
-
-function executorTargetsBinary(executorType, binary) {
-  const normalizedType = normalizeExecutorType(executorType);
-  if (!normalizedType) return true;
-  const normalizedBinary = String(binary || '').trim().toLowerCase();
-  const binaryName = normalizedBinary.split('/').pop();
-  const aliases = CLI_EXECUTOR_TARGET_ALIASES[normalizedType] || [normalizedType];
-  return aliases.some((alias) => binaryName.includes(alias));
-}
-
-function getExecutorProfile(type) {
-  const profileType = normalizeExecutorType(type);
-  return shell.executorProfiles && shell.executorProfiles[profileType] ? shell.executorProfiles[profileType] : null;
-}
-
-function getProviderProfile(type) {
-  const profileType = normalizeExecutorType(type);
-  const profiles = Array.isArray(shell.providerCatalog?.profiles) ? shell.providerCatalog.profiles : [];
-  return profiles.find((profile) => normalizeExecutorType(profile.id) === profileType) || null;
-}
-
-function isApiExecutorType(type) {
-  return API_PROVIDER_EXECUTOR_TYPES.includes(normalizeExecutorType(type));
-}
-
-function apiProviderOptions() {
-  const profiles = Array.isArray(shell.providerCatalog?.profiles) ? shell.providerCatalog.profiles : [];
-  return profiles
-    .filter((profile) => profile.kind === 'api')
-    .map((profile) => {
-      const id = safeAttr(profile.id);
-      const label = safeText(profile.displayName || profile.id);
-      const suffix = profile.enabled === false ? ' (setup)' : '';
-      return `<option value="${id}">${label}${suffix}</option>`;
-    })
-    .join('');
-}
-
-function cliExecutorOptions(selected = '') {
-  const profiles = shell.executorProfiles || {};
-  return FIRST_CLASS_CLI_EXECUTOR_TYPES
-    .filter((id) => profiles[id])
-    .map((id) => {
-      const selectedAttr = normalizeExecutorType(selected) === id ? ' selected' : '';
-      return `<option value="${safeAttr(id)}"${selectedAttr}>${safeText(id)}</option>`;
-    })
-    .join('');
-}
-
-function getExecutorScopedMcpTools(executorType) {
-  const normalizedType = normalizeExecutorType(executorType);
-  const tools = Array.isArray(shell.mcpTools) ? shell.mcpTools : [];
-  return tools.filter((tool) => {
-    const scope = Array.isArray(tool.scope) && tool.scope.length
-      ? tool.scope.map((value) => String(value || '').toLowerCase())
-      : [];
-    return tool.enabled !== false && (!scope.length || scope.includes('all') || scope.includes(normalizedType));
-  });
-}
-
-function findMcpTool(locator) {
-  if (!locator) return null;
-  const target = String(locator).trim().toLowerCase();
-  return Array.isArray(shell.mcpTools)
-    ? shell.mcpTools.find((tool) => (tool.id === target || tool.name === target))
-    : null;
-}
-
-function normalizeMcpToolScopes(rawScopes) {
-  const scopes = Array.isArray(rawScopes)
-    ? rawScopes
-    : String(rawScopes || '').split(',').map((value) => value.trim().toLowerCase()).filter(Boolean);
-  const normalized = Array.from(new Set(scopes));
-  const invalid = normalized.filter((scope) => !MCP_TOOL_SCOPE_ALLOWLIST.includes(scope));
-  if (invalid.length) {
-    return {
-      scopes: null,
-      error: `Unsupported MCP scope(s): ${invalid.join(', ')}`,
-    };
-  }
-  return { scopes: normalized.length ? normalized : ['all'], error: null };
-}
 
 function renderLaneExecutorGuidance(form) {
   if (!form || form.id !== 'create-lane-form') return;
