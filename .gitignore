@@ -21,3 +21,4 @@ tmp/
 *.swp
 *.swo
 *.swn
+.verify-out.txt
