@@ -7,6 +7,7 @@ import { browserNotificationsSupported, browserNotificationPermission, readSeenB
 import { normalizeExecutorType, parseCommandParts, executorTargetsCommand, executorTargetsBinary, getExecutorProfile, getProviderProfile, isApiExecutorType, apiProviderOptions, cliExecutorOptions, getExecutorScopedMcpTools, findMcpTool, normalizeMcpToolScopes } from './ui/executor.js';
 import { accessModeLabel, effectiveAccessMode, exactUrlForAccessMode, fallbackUrlForAccessMode, effectiveProjectQuickLinkUrl, quickLinkHealthLabel, preferredPhoneUrl } from './ui/access-mode.js';
 import { readSidebarOrder, writeSidebarOrder, orderItems, moveId } from './ui/sidebar.js';
+import { api, initializeApiToken, isTrustedAdminClientHost, browserAccessBlocked, setApiToken, currentActiveProject, clearProtectedWorkspaceState, lockClientAuthState, maybeLockFromResponse } from './ui/api.js';
 
 let refreshRequestId = 0;
 let refreshInFlight = false;
@@ -27,36 +28,8 @@ function parseRoute() {
   return route;
 }
 
-function initializeApiToken() {
-  const saved = window.sessionStorage.getItem(API_TOKEN_STORAGE_KEY);
-  shell.apiToken = saved || '';
-  if (!window.location.search) return;
-  const params = new URLSearchParams(window.location.search);
-  if (!params.has('apiToken') && !params.has('token')) return;
-  const cleaned = new URLSearchParams(window.location.search);
-  cleaned.delete('apiToken');
-  cleaned.delete('token');
-  const next = cleaned.toString();
-  const query = next ? `?${next}` : '';
-  const url = `${window.location.pathname}${query}${window.location.hash || ''}`;
-  window.history.replaceState({}, '', url);
-}
 
-function isTrustedAdminClientHost() {
-  const hostname = String(window.location.hostname || '').toLowerCase();
-  return isLocalHostName(hostname) || hostname.endsWith('.local');
-}
 
-function browserAccessBlocked() {
-  return Boolean(
-    (shell.authStatus?.apiTokenRequired
-      && !shell.authStatus?.apiTokenAuthenticated
-      && !shell.authStatus?.browserSessionAuthenticated)
-    || (!shell.authStatus?.apiTokenRequired
-      && !isTrustedAdminClientHost()
-      && !shell.authStatus?.browserSessionAuthenticated),
-  );
-}
 
 // After any tap/click, drop focus from the activated control so it never stays
 // visually "stuck" highlighted on touch (the dominant cause of lingering
@@ -111,55 +84,13 @@ function registerServiceWorker() {
   });
 }
 
-function setApiToken(token) {
-  const nextToken = (token || '').trim();
-  shell.apiToken = nextToken;
-  if (nextToken) {
-    window.sessionStorage.setItem(API_TOKEN_STORAGE_KEY, nextToken);
-  } else {
-    window.sessionStorage.removeItem(API_TOKEN_STORAGE_KEY);
-  }
-}
-
-
-function currentActiveProject() {
-  return shell.projects.find((value) => value.slug === shell.route.projectSlug || value.id === shell.route.projectSlug) || null;
-}
 
 
 
-function clearProtectedWorkspaceState() {
-  shell.projects = [];
-  shell.sessions = [];
-  shell.lanes = [];
-  shell.policy = {};
-  shell.alerts = [];
-  shell.pendingAuditEvents = [];
-  shell.mcpTools = [];
-  shell.providerCatalog = null;
-  shell.notifications = null;
-  shell.authSessions = null;
-  shell.executorProfiles = null;
-  shell.executorCliInfo = {};
-}
 
-function lockClientAuthState() {
-  shell.authStatus = {
-    ...(shell.authStatus || {}),
-    apiTokenRequired: shell.authStatus?.apiTokenRequired || true,
-    apiTokenAuthenticated: false,
-    browserSessionAuthenticated: false,
-  };
-  clearProtectedWorkspaceState();
-}
 
-function maybeLockFromResponse(response) {
-  if (!response || response.status !== 401) return false;
-  if (!browserAccessBlocked()) {
-    lockClientAuthState();
-  }
-  return true;
-}
+
+
 
 function abortRefreshFromUnauthorized(response, requestId, uiState) {
   if (!response || response.status !== 401) return false;
@@ -345,34 +276,6 @@ function pendingAuditsForSession(sessionId) {
 }
 
 
-async function api(path, options = {}) {
-  const headers = {
-    'Content-Type': 'application/json',
-  };
-  if (shell.apiToken) {
-    headers['x-orca-token'] = shell.apiToken;
-  }
-  const resp = await fetch(path, {
-    headers,
-    credentials: 'same-origin',
-    ...options,
-    body: options.body ? JSON.stringify(options.body) : options.body,
-  });
-  const bodyText = await resp.text();
-  let bodyJson = null;
-  if (bodyText) {
-    try {
-      bodyJson = JSON.parse(bodyText);
-    } catch {
-      bodyJson = { raw: bodyText };
-    }
-  }
-  const normalizedResponse = { ok: resp.ok, status: resp.status, data: bodyJson };
-  if (normalizedResponse.status === 401 && !browserAccessBlocked()) {
-    maybeLockFromResponse(normalizedResponse);
-  }
-  return normalizedResponse;
-}
 
 function renderBreadcrumbs(project, session) {
   refs.breadcrumbs.innerHTML = '';
