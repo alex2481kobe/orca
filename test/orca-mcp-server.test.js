@@ -117,6 +117,36 @@ test('Orca MCP server: initialize, tools/list, and a proxied tools/call', async 
   assert.match(calls[0].body, /localhost:5173/);
 });
 
+test('Orca MCP server: initialize delivers role-specific operating rules', async () => {
+  const { server, port } = await startStubApi();
+  try {
+    // Orchestrator connection (what a Codex/Claude desktop app gets when told to
+    // "act as the orchestrator"): the rulebook must arrive at connect time.
+    const orchResponses = await runMcp(
+      { ORCA_AGENT_TOOLS_BASE_URL: `http://127.0.0.1:${port}`, ORCA_TOOL_LEASE_TOKEN: 'l', ORCA_ROLE: 'orchestrator' },
+      [{ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05' } }],
+    );
+    const orchInstr = orchResponses.get(1).result.instructions;
+    assert.match(orchInstr, /ORCHESTRATOR/);
+    assert.match(orchInstr, /session__next_action FIRST/);
+    assert.match(orchInstr, /lane__create/);
+    assert.match(orchInstr, /evidence/);
+    assert.match(orchInstr, /nextAction/);
+
+    // Executor connection gets executor rules, not orchestrator ones.
+    const execResponses = await runMcp(
+      { ORCA_AGENT_TOOLS_BASE_URL: `http://127.0.0.1:${port}`, ORCA_TOOL_LEASE_TOKEN: 'l', ORCA_ROLE: 'executor' },
+      [{ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05' } }],
+    );
+    const execInstr = execResponses.get(1).result.instructions;
+    assert.match(execInstr, /EXECUTOR/);
+    assert.match(execInstr, /lane__submit/);
+    assert.ok(!/you own project\/session direction/i.test(execInstr), 'executor must not get orchestrator ownership rules');
+  } finally {
+    server.close();
+  }
+});
+
 test('Orca MCP server: refusal body (with nextAction envelope) is surfaced as isError', async () => {
   // Stub that returns 409 with an envelope-shaped body.
   const calls = [];
