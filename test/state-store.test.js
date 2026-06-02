@@ -238,3 +238,23 @@ test('registry restores persisted sessions and normalizes invalid session config
     }
   });
 });
+
+test('state-store strips prototype-pollution keys when reading from disk', async () => {
+  await withTempDir('orca-proto-pollution-', async (dir) => {
+    const target = path.join(dir, 'state.json');
+    // A crafted file with __proto__/constructor payloads.
+    await fs.writeFile(target, JSON.stringify({
+      ok: true,
+      __proto__: { polluted: 'yes' },
+      nested: { constructor: { prototype: { bad: 1 } }, keep: 'value' },
+    }));
+    const result = await readJsonFileWithRecovery(target, { fallback: {} });
+    assert.equal(result.status.ok, true);
+    // Object.prototype must not be polluted.
+    assert.equal({}.polluted, undefined);
+    // Dangerous keys stripped; legitimate data preserved.
+    assert.equal(Object.prototype.hasOwnProperty.call(result.data, '__proto__'), false);
+    assert.equal(result.data.ok, true);
+    assert.equal(result.data.nested.keep, 'value');
+  });
+});
