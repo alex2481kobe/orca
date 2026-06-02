@@ -8,6 +8,7 @@ import { normalizeExecutorType, parseCommandParts, executorTargetsCommand, execu
 import { accessModeLabel, effectiveAccessMode, exactUrlForAccessMode, fallbackUrlForAccessMode, effectiveProjectQuickLinkUrl, quickLinkHealthLabel, preferredPhoneUrl } from './ui/access-mode.js';
 import { readSidebarOrder, writeSidebarOrder, orderItems, moveId } from './ui/sidebar.js';
 import { api, initializeApiToken, isTrustedAdminClientHost, browserAccessBlocked, setApiToken, currentActiveProject, clearProtectedWorkspaceState, lockClientAuthState, maybeLockFromResponse } from './ui/api.js';
+import { stateTagClass, getActionPolicy, needsApproval, confirmHighRiskAction, pendingAuditsForLane, pendingAuditsForSession, laneDetailRoute, isVerificationProject, activeHomePanel, renderBreadcrumbs, renderTopbarTitle, agentEventTone, agentEventLabel, isLiveLaneState, isRestartableLaneState } from './ui/render-helpers.js';
 
 let refreshRequestId = 0;
 let refreshInFlight = false;
@@ -215,76 +216,20 @@ function renderLaneExecutorGuidance(form) {
   profileEl.textContent = toolSummary;
 }
 
-function laneDetailRoute(project, session, lane) {
-  if (!project || !session || !lane) return '';
-  return lane.route || `/projects/${project.slug}/sessions/${session.id}/lanes/${lane.id}`;
-}
-
-
-function isVerificationProject(project) {
-  const slug = String(project?.slug || '').toLowerCase();
-  const name = String(project?.name || '').toLowerCase();
-  return slug.startsWith('smoke-') || name.startsWith('smoke ');
-}
-
-function activeHomePanel() {
-  const panel = String(window.location.hash || '').replace(/^#/, '').toLowerCase();
-  const allowed = new Set(['projects', 'setup', 'create', 'system', 'mcp', 'audit', 'cleanup', 'token', 'private-access', 'providers', 'effective-settings', 'notifications', 'backup', 'pair']);
-  return allowed.has(panel) ? panel : 'overview';
-}
-
-
-function stateTagClass(state) {
-  switch (String(state || '').toLowerCase()) {
-    case 'done': return 'ok';
-    case 'running':
-    case 'starting': return '';
-    case 'failed': return 'bad';
-    case 'stopped':
-    case 'queued': return 'warn';
-    default: return '';
-  }
-}
-
-function getActionPolicy(actionKey) {
-  return shell.policy?.[actionKey] || { requiresApproval: false, risk: 'low', message: '' };
-}
-
-function needsApproval(actionKey) {
-  return Boolean(getActionPolicy(actionKey).requiresApproval);
-}
-
-function confirmHighRiskAction(message, actionKey) {
-  const policy = getActionPolicy(actionKey);
-  if (!policy.requiresApproval) return true;
-  const policyMessage = policy.message || 'This action requires explicit approval.';
-  return window.confirm(`${message}\n${policyMessage}`);
-}
-
-function pendingAuditsForLane(laneId) {
-  if (!Array.isArray(shell.pendingAuditEvents)) return [];
-  const target = String(laneId || '');
-  if (!target) return [];
-  return shell.pendingAuditEvents.filter((event) => String(event.laneId || '') === target);
-}
-
-function pendingAuditsForSession(sessionId) {
-  if (!Array.isArray(shell.pendingAuditEvents)) return [];
-  const target = String(sessionId || '');
-  if (!target) return [];
-  return shell.pendingAuditEvents.filter((event) => String(event.sessionId || '') === target);
-}
 
 
 
-function renderBreadcrumbs(project, session) {
-  refs.breadcrumbs.innerHTML = '';
-}
 
-function renderTopbarTitle(project, session, lane) {
-  if (!refs.topbarTitle) return;
-  refs.topbarTitle.textContent = 'Orca';
-}
+
+
+
+
+
+
+
+
+
+
 
 function captureContentUiState() {
   if (!refs.content) return null;
@@ -1878,13 +1823,7 @@ function renderLaneCard(lane) {
   `;
 }
 
-function isLiveLaneState(state) {
-  return ['queued', 'starting', 'running'].includes(String(state || '').toLowerCase());
-}
 
-function isRestartableLaneState(state) {
-  return ['failed', 'stopped', 'fix_requested'].includes(String(state || '').toLowerCase());
-}
 
 function activeOrchestratorLaneForSession(session) {
   const thread = session?.orchestratorThread || {};
@@ -1902,34 +1841,7 @@ function activeOrchestratorLaneForSession(session) {
     .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))[0] || null;
 }
 
-function agentEventTone(type) {
-  const normalized = String(type || '').toLowerCase();
-  if (normalized.includes('failed') || normalized === 'error') return 'bad';
-  if (normalized.includes('done') || normalized.includes('completed')) return 'ok';
-  if (normalized.includes('stopped') || normalized.includes('queued') || normalized.includes('started')) return 'warn';
-  return '';
-}
 
-function agentEventLabel(type) {
-  const map = {
-    'agent.queued': 'Queued',
-    'agent.started': 'Started',
-    'agent.done': 'Done',
-    'agent.failed': 'Failed',
-    'agent.stopped': 'Stopped',
-    'agent.needs_critique': 'Needs check',
-    'message.user': 'User',
-    'message.assistant.delta': 'Assistant',
-    'message.assistant.final': 'Final',
-    'tool.started': 'Tool',
-    'tool.completed': 'Tool done',
-    'command.started': 'Command',
-    'command.output': 'Output',
-    'file.changed': 'Files',
-    error: 'Error',
-  };
-  return map[type] || String(type || 'Event').replaceAll('.', ' ');
-}
 
 function renderAgentEventTimeline(lane, { limit = 80, compact = false } = {}) {
   const events = Array.isArray(lane?.agentEvents) ? lane.agentEvents.slice(-limit) : [];
