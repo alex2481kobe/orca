@@ -2653,3 +2653,35 @@ test('server API provider lanes use dashboard-stored credential references witho
     await dummy.close();
   }
 });
+
+test('orchestrator MCP bootstrap is token-gated and returns paste-ready desktop configs', async () => {
+  const token = 'bootstrap-token-01';
+  const server = await startServer({ token });
+  try {
+    // Mutating route: rejected without the API token.
+    const denied = await server.requestJson('/api/mcp/orchestrator-bootstrap', {
+      method: 'POST',
+      body: { actor: 'desktop-app' },
+    });
+    assert.equal(denied.status, 401);
+
+    const created = await server.requestJson('/api/mcp/orchestrator-bootstrap', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'desktop-app' },
+    });
+    assert.equal(created.status, 201);
+    assert.equal(created.body.lease.role, 'orchestrator');
+    assert.ok(created.body.leaseToken, 'returns the lease token once for pasting');
+
+    const orca = created.body.bootstrap.clients.claudeDesktop.config.mcpServers.orca;
+    assert.equal(orca.env.ORCA_ROLE, 'orchestrator');
+    assert.equal(orca.env.ORCA_TOOL_LEASE_TOKEN, created.body.leaseToken);
+    assert.match(created.body.bootstrap.clients.codex.snippet, /\[mcp_servers\.orca\]/);
+
+    // The full API token must never appear in the bootstrap payload.
+    assert.equal(JSON.stringify(created.body).includes(token), false);
+  } finally {
+    await server.stop();
+  }
+});

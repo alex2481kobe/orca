@@ -10,6 +10,7 @@ import {
   describeCaptureStatus,
 } from './capture-setup.js';
 import { availableToolIdsForRole, buildNextActionEnvelope } from './agent-tools.js';
+import { buildOrchestratorMcpConfigs } from './mcp-orchestrator-bootstrap.js';
 
 // Authoritative workflow gates: lane states in which each agent tool is legal.
 // Enforced only on the agent (tool-lease) path so out-of-order/skipped/stale
@@ -5030,6 +5031,66 @@ export class OrcaRegistry {
     };
     this.laneRuntimeEnv.set(key, next);
     return next;
+  }
+
+  // Mint an orchestrator-scoped tool lease and emit ready-to-paste MCP config so
+  // an external desktop app (Codex app, Claude Desktop) can drive Orca as the
+  // orchestrator — full orchestrator toolset, never the raw API token. The lease
+  // is unbound by lane (an external orchestrator works session/project-wide) and
+  // optionally scoped to one project/session. Privileged: callers must hold full
+  // API auth (this hands out a powerful credential).
+  createOrchestratorMcpBootstrap({
+    projectId = null,
+    sessionId = null,
+    ttlMs = 12 * 60 * 60 * 1000,
+    actor = 'desktop-app',
+    nodePath = null,
+  } = {}) {
+    const allowedTools = availableToolIdsForRole('orchestrator');
+    if (!allowedTools.length) {
+      throw { status: 500, message: 'No orchestrator tools are available to lease.' };
+    }
+    // createToolLease validates project/session existence + relationship.
+    const { lease, leaseToken } = this.createToolLease({
+      role: 'orchestrator',
+      projectId,
+      sessionId,
+      allowedTools,
+      ttlMs,
+      actor,
+    });
+    const baseUrl = this.serverBaseUrl();
+    const bootstrap = buildOrchestratorMcpConfigs({
+      baseUrl,
+      leaseToken,
+      role: 'orchestrator',
+      projectId: lease.projectId,
+      sessionId: lease.sessionId,
+      dashboardUrl: baseUrl,
+      nodePath: nodePath || process.execPath,
+    });
+    this.recordAudit({
+      type: 'orchestrator_mcp_bootstrap_created',
+      actor: String(actor || 'desktop-app').slice(0, 120),
+      projectId: lease.projectId,
+      sessionId: lease.sessionId,
+      summary: 'Issued external orchestrator MCP bootstrap',
+      status: 'passed',
+      evidence: {
+        leaseId: lease.id,
+        toolCount: allowedTools.length,
+        expiresAt: lease.expiresAt,
+        scopedProject: Boolean(lease.projectId),
+        scopedSession: Boolean(lease.sessionId),
+      },
+    });
+    return {
+      lease,
+      // leaseToken is returned ONCE here (never persisted in plaintext) so the
+      // operator can paste it into the desktop app's config.
+      leaseToken,
+      bootstrap,
+    };
   }
 
   // Governed on-demand setup of the evidence-capture browser backend.

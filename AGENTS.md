@@ -8,6 +8,8 @@ Orca is a local-first control plane for coordinating AI coding agents, project s
 
 This repo now contains the Node HTTP server, browser dashboard, provider profile system, credential abstraction, MCP tool contract, evidence runner, PWA assets, route inventory, public agent skill docs, tests, and smoke gates. Do not treat it as scaffold-only. Before changing behavior, inspect the current source, `docs/implementation-plan.md`, `docs/full-buildout-ledger.md`, `docs/live-project-links.md`, and the relevant tests/smokes.
 
+External desktop AI apps (Codex app, Claude Desktop) can drive Orca as the orchestrator over a local stdio MCP bridge (`src/mcp-server.js`) using a scoped orchestrator lease — see `docs/desktop-app-control.md` and the `POST /api/mcp/orchestrator-bootstrap` route.
+
 ## Public / Private Boundary
 
 Keep this repo public-safe. Do not add internal roadmap, private task tracking, personal workflow notes, launch chatter, or Codex/Claude coordination details here.

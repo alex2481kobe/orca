@@ -1654,6 +1654,26 @@ async function handleApi(req, res, pathname, method, parts) {
     return sendJson(res, 200, filtered);
   }
 
+  if (parts[1] === 'mcp' && parts[2] === 'orchestrator-bootstrap' && parts.length === 3 && method === 'POST') {
+    const body = await parseJsonBody(req);
+    if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
+    try {
+      const result = registry.createOrchestratorMcpBootstrap({
+        projectId: body.projectId || null,
+        sessionId: body.sessionId || null,
+        ttlMs: body.ttlMs,
+        actor: body.actor || 'desktop-app',
+        nodePath: typeof body.nodePath === 'string' ? body.nodePath : null,
+      });
+      return sendJson(res, 201, result);
+    } catch (error) {
+      return sendJson(res, error.status || 500, {
+        error: error.message || 'Could not create orchestrator MCP bootstrap.',
+      });
+    }
+  }
+
   if (parts[1] === 'mcp' && parts[2] === 'tools' && method === 'POST') {
     const body = await parseJsonBody(req);
     if (body === null) return sendBodyError(req, res);

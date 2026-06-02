@@ -66,6 +66,8 @@ const WIRED_ACTIONS = new Set([
   'copyPhoneUrl',
   'archiveSession',
   'createPairingCode',
+  'connectDesktopApp',
+  'copyDesktopConfig',
   'deleteMcpTool',
   'deletePrivateAccessTarget',
   'deleteProjectQuickLink',

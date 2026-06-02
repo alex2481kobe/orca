@@ -1233,6 +1233,18 @@ function renderHome() {
       <button class="secondary" data-action="revokeBrowserSession" data-session-id="${safeAttr(session.id)}" type="button" ${session.active ? '' : 'disabled'}>Revoke</button>
     </div>
   `).join('');
+  const desktopBootstrap = shell.lastDesktopBootstrap || null;
+  const desktopBootstrapMarkup = desktopBootstrap ? `
+    <div class="pair-step">
+      <strong>Generated orchestrator config</strong>
+      <div class="tiny muted">Scoped orchestrator lease (expires ${safeText(formatRelative(desktopBootstrap.lease?.expiresAt))}). Paste into your desktop app and restart it. This grants Orca's orchestrator tools — never the API token.</div>
+      <div class="lane-row">
+        <button class="secondary" data-action="copyDesktopConfig" data-client="claudeDesktop" type="button">Copy Claude Desktop JSON</button>
+        <button class="secondary" data-action="copyDesktopConfig" data-client="codex" type="button">Copy Codex TOML</button>
+      </div>
+      <div class="tiny muted">Claude Desktop: ${safeText(desktopBootstrap.bootstrap?.clients?.claudeDesktop?.configPath || '')} · Codex: ${safeText(desktopBootstrap.bootstrap?.clients?.codex?.configPath || '')}</div>
+    </div>
+  ` : '<div class="tiny muted">Generates a scoped orchestrator MCP config you paste into Codex app or Claude Desktop. Those apps then drive Orca as the orchestrator with full tooling. You can still use Orca\'s own chats for full control.</div>';
   const primaryProjects = shell.projects.filter((project) => !isVerificationProject(project));
   const projectRows = primaryProjects.map((project) => `
     <a class="simple-row" href="${safeAttr(project.route)}">
@@ -1356,6 +1368,27 @@ function renderHome() {
         <div class="lane-row">
           <a class="secondary" href="#setup">Full setup wizard</a>
           <a class="secondary" href="#system">Access &amp; token settings</a>
+        </div>
+      </article>
+      <article class="card control-card desktop-control-card" id="section-desktop-control" data-panel-card="desktop-control">
+        <div class="card-kicker">Desktop app control</div>
+        <h3>Drive Orca from Codex app or Claude Desktop</h3>
+        <p class="muted">Two complementary ways to control this dashboard from a desktop AI app:</p>
+        <div class="pair-step">
+          <strong>A. In-app browser (visual)</strong>
+          <div class="tiny muted">Open this dashboard URL in the desktop app's built-in browser to use Orca's UI and chats directly.</div>
+          <code class="copy-url">${safeText(phoneUrl)}</code>
+          <div class="lane-row">
+            <button class="secondary" data-action="copyPhoneUrl" data-url="${safeAttr(phoneUrl)}" type="button">Copy dashboard URL</button>
+          </div>
+        </div>
+        <div class="pair-step">
+          <strong>B. MCP tooling (programmatic)</strong>
+          <div class="tiny muted">Generate a scoped orchestrator MCP config. The desktop agent then acts as the Orca orchestrator with full tooling (spawn/stop lanes, tasks, approvals, mode/permission/goal/plan, evidence, audit).</div>
+          <div class="lane-row">
+            <button data-action="connectDesktopApp" type="button">Generate desktop-app config</button>
+          </div>
+          ${desktopBootstrapMarkup}
         </div>
       </article>
       <article class="card control-card setup-wizard" id="section-setup" data-panel-card="setup">
@@ -4352,6 +4385,31 @@ async function handleSystemActions(event) {
     }
     return;
   }
+  if (action === 'connectDesktopApp') {
+    const response = await api('/api/mcp/orchestrator-bootstrap', {
+      method: 'POST',
+      body: { actor: 'desktop-app' },
+    });
+    if (response.ok) {
+      shell.lastDesktopBootstrap = response.data || null;
+      renderAlert('Desktop-app orchestrator config generated. Copy it into Codex or Claude Desktop.');
+      await refresh();
+    } else {
+      renderAlert(response.data?.error || 'Could not generate desktop-app config.', 'bad');
+    }
+    return;
+  }
+  if (action === 'copyDesktopConfig') {
+    const client = event.currentTarget.dataset.client || 'claudeDesktop';
+    const snippet = shell.lastDesktopBootstrap?.bootstrap?.clients?.[client]?.snippet || '';
+    try {
+      await navigator.clipboard.writeText(snippet);
+      renderAlert(`${client === 'codex' ? 'Codex' : 'Claude Desktop'} config copied.`);
+    } catch {
+      renderAlert(snippet || 'Nothing to copy.');
+    }
+    return;
+  }
   if (action === 'pickAttachment') {
     const input = document.getElementById('composer-file-input');
     if (input) input.click();
@@ -5260,6 +5318,8 @@ document.addEventListener('click', async (event) => {
     'clearApiToken',
     'copyPhoneUrl',
     'createPairingCode',
+    'connectDesktopApp',
+    'copyDesktopConfig',
     'pairBrowserSession',
     'logoutBrowserSession',
     'revokeBrowserSession',
