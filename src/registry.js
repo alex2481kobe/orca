@@ -11,6 +11,13 @@ import {
 import { toolLeaseMethods } from './registry-tool-leases.js';
 import { notificationMethods } from './registry-notification-methods.js';
 import {
+  DEFAULT_APPROVED_CAPACITY,
+  normalizeSpawnPolicy,
+  normalizeIdleShutdownMode,
+  normalizeCritiqueMode,
+  normalizeApprovedCapacity,
+} from './registry-lane-config.js';
+import {
   nowIso,
   sleep,
   parsePositiveInteger,
@@ -118,34 +125,9 @@ const MCP_TOOL_SCOPE_ALLOWLIST = new Set([
 ]);
 const MAX_MCP_TOOL_ARG_LENGTH = 255;
 const MAX_MCP_TOOL_ARGS = 64;
-const SPAWN_POLICIES = new Set(['never', 'ask', 'within_capacity', 'auto']);
-const IDLE_SHUTDOWN_MODES = new Set(['immediate', 'short_keepalive', 'policy']);
-const CRITIQUE_MODES = new Set(['off', 'suggested', 'required', 'visual-required']);
-const DEFAULT_APPROVED_CAPACITY = 2;
 const CLI_CAPABILITY_CACHE_MS = 30 * 1000;
 const MAX_CLI_CAPABILITY_CACHE_ENTRIES = 50;
 const cliCapabilityCache = new Map();
-
-function normalizeSpawnPolicy(value, fallback = 'within_capacity') {
-  const normalized = String(value || fallback).trim().toLowerCase();
-  return SPAWN_POLICIES.has(normalized) ? normalized : fallback;
-}
-
-function normalizeIdleShutdownMode(value, fallback = 'immediate') {
-  const normalized = String(value || fallback).trim().toLowerCase();
-  return IDLE_SHUTDOWN_MODES.has(normalized) ? normalized : fallback;
-}
-
-function normalizeCritiqueMode(value, fallback = 'suggested') {
-  const normalized = String(value || fallback).trim().toLowerCase();
-  return CRITIQUE_MODES.has(normalized) ? normalized : fallback;
-}
-
-function normalizeApprovedCapacity(value, fallback = DEFAULT_APPROVED_CAPACITY) {
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed < 0) return fallback;
-  return Math.min(64, parsed);
-}
 
 function isLiveLaneState(state) {
   return [QUEUED_STATE, STARTING_STATE, RUNNING_STATE].includes(String(state || '').toLowerCase());
