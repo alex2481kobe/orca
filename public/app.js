@@ -5,6 +5,7 @@ import { MOBILE_NAV_BREAKPOINT, API_PROVIDER_EXECUTOR_TYPES, FIRST_CLASS_CLI_EXE
 import { clientUrl, safeHref, safeNavigate, authRequiredMessage, isLocalHostName, writeHtml, renderAlert } from './ui/dom.js';
 import { browserNotificationsSupported, browserNotificationPermission, readSeenBrowserNotifications, writeSeenBrowserNotifications, requestBrowserNotificationPermission, maybeShowBrowserNotifications } from './ui/notifications.js';
 import { normalizeExecutorType, parseCommandParts, executorTargetsCommand, executorTargetsBinary, getExecutorProfile, getProviderProfile, isApiExecutorType, apiProviderOptions, cliExecutorOptions, getExecutorScopedMcpTools, findMcpTool, normalizeMcpToolScopes } from './ui/executor.js';
+import { accessModeLabel, effectiveAccessMode, exactUrlForAccessMode, fallbackUrlForAccessMode, effectiveProjectQuickLinkUrl, quickLinkHealthLabel, preferredPhoneUrl } from './ui/access-mode.js';
 
 let refreshRequestId = 0;
 let refreshInFlight = false;
@@ -231,66 +232,6 @@ function openMobileNavPanel() {
   document.body.classList.add('nav-open');
 }
 
-function accessModeLabel(mode) {
-  if (mode === 'tailnet-https-serve') return 'Tailscale HTTPS Serve';
-  if (mode === 'tailnet-http') return 'Tailscale HTTP';
-  if (mode === 'local') return 'Local only';
-  return 'Auto-detect';
-}
-
-function effectiveAccessMode(privateSettings = {}, tailnet = {}) {
-  const preferredMode = String(privateSettings.preferredMode || 'auto').toLowerCase();
-  if (preferredMode === 'local' || preferredMode === 'tailnet-http' || preferredMode === 'tailnet-https-serve') {
-    return preferredMode;
-  }
-  if (tailnet.serveMode === 'tailnet-https-serve') return 'tailnet-https-serve';
-  if (tailnet.serveMode === 'tailnet-http') return 'tailnet-http';
-  return 'tailnet-http';
-}
-
-function exactUrlForAccessMode(target, mode) {
-  if (!target) return '';
-  if (mode === 'local') return target.localUrl || '';
-  if (mode === 'tailnet-https-serve') return target.httpsServeUrl || '';
-  if (mode === 'tailnet-http') return target.tailnetHttpUrl || '';
-  return target.tailnetHttpUrl || target.httpsServeUrl || target.localUrl || '';
-}
-
-function fallbackUrlForAccessMode(target, mode) {
-  if (!target) return '';
-  if (mode === 'local') return target.localUrl || '';
-  if (mode === 'tailnet-https-serve') return target.httpsServeUrl || target.tailnetHttpUrl || target.localUrl || '';
-  if (mode === 'tailnet-http') return target.tailnetHttpUrl || target.httpsServeUrl || target.localUrl || '';
-  return target.tailnetHttpUrl || target.httpsServeUrl || target.localUrl || '';
-}
-
-function effectiveProjectQuickLinkUrl(quick, mode = 'auto') {
-  if (!quick) return '';
-  if (mode === 'local') return quick.localUrl || quick.url || '';
-  if (mode === 'tailnet-http') return quick.tailnetHttpUrl || quick.httpsServeUrl || quick.localUrl || quick.url || '';
-  if (mode === 'tailnet-https-serve') return quick.httpsServeUrl || quick.tailnetHttpUrl || quick.localUrl || quick.url || '';
-  return quick.url || quick.tailnetHttpUrl || quick.httpsServeUrl || quick.localUrl || '';
-}
-
-function quickLinkHealthLabel(status) {
-  if (status === 'reachable') return 'Reachable';
-  if (status === 'unreachable') return 'Unreachable';
-  if (status === 'not_checkable') return 'Dashboard link';
-  return 'Unchecked';
-}
-
-function preferredPhoneUrl(privateTargets = [], privateSettings = {}, tailnet = {}) {
-  if (!isLocalHostName(window.location.hostname)) return window.location.origin;
-  const targets = privateTargets.filter((item) => !item.hidden);
-  const mode = effectiveAccessMode(privateSettings, tailnet);
-  const target = targets.find((item) => item.favorite && exactUrlForAccessMode(item, mode)) ||
-    targets.find((item) => item.mode === mode && exactUrlForAccessMode(item, mode)) ||
-    targets.find((item) => exactUrlForAccessMode(item, mode)) ||
-    targets.find((item) => item.favorite && fallbackUrlForAccessMode(item, mode)) ||
-    targets.find((item) => fallbackUrlForAccessMode(item, mode));
-  const url = exactUrlForAccessMode(target, mode) || fallbackUrlForAccessMode(target, mode);
-  return url ? clientUrl(url) : window.location.origin;
-}
 
 
 

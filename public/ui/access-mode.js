@@ -1,0 +1,65 @@
+// Private-access mode resolution + quick-link/phone URL preference helpers.
+// Depends only on clientUrl (dom) + each other. Extracted from app.js.
+
+import { clientUrl, isLocalHostName } from './dom.js';
+
+export function accessModeLabel(mode) {
+  if (mode === 'tailnet-https-serve') return 'Tailscale HTTPS Serve';
+  if (mode === 'tailnet-http') return 'Tailscale HTTP';
+  if (mode === 'local') return 'Local only';
+  return 'Auto-detect';
+}
+
+export function effectiveAccessMode(privateSettings = {}, tailnet = {}) {
+  const preferredMode = String(privateSettings.preferredMode || 'auto').toLowerCase();
+  if (preferredMode === 'local' || preferredMode === 'tailnet-http' || preferredMode === 'tailnet-https-serve') {
+    return preferredMode;
+  }
+  if (tailnet.serveMode === 'tailnet-https-serve') return 'tailnet-https-serve';
+  if (tailnet.serveMode === 'tailnet-http') return 'tailnet-http';
+  return 'tailnet-http';
+}
+
+export function exactUrlForAccessMode(target, mode) {
+  if (!target) return '';
+  if (mode === 'local') return target.localUrl || '';
+  if (mode === 'tailnet-https-serve') return target.httpsServeUrl || '';
+  if (mode === 'tailnet-http') return target.tailnetHttpUrl || '';
+  return target.tailnetHttpUrl || target.httpsServeUrl || target.localUrl || '';
+}
+
+export function fallbackUrlForAccessMode(target, mode) {
+  if (!target) return '';
+  if (mode === 'local') return target.localUrl || '';
+  if (mode === 'tailnet-https-serve') return target.httpsServeUrl || target.tailnetHttpUrl || target.localUrl || '';
+  if (mode === 'tailnet-http') return target.tailnetHttpUrl || target.httpsServeUrl || target.localUrl || '';
+  return target.tailnetHttpUrl || target.httpsServeUrl || target.localUrl || '';
+}
+
+export function effectiveProjectQuickLinkUrl(quick, mode = 'auto') {
+  if (!quick) return '';
+  if (mode === 'local') return quick.localUrl || quick.url || '';
+  if (mode === 'tailnet-http') return quick.tailnetHttpUrl || quick.httpsServeUrl || quick.localUrl || quick.url || '';
+  if (mode === 'tailnet-https-serve') return quick.httpsServeUrl || quick.tailnetHttpUrl || quick.localUrl || quick.url || '';
+  return quick.url || quick.tailnetHttpUrl || quick.httpsServeUrl || quick.localUrl || '';
+}
+
+export function quickLinkHealthLabel(status) {
+  if (status === 'reachable') return 'Reachable';
+  if (status === 'unreachable') return 'Unreachable';
+  if (status === 'not_checkable') return 'Dashboard link';
+  return 'Unchecked';
+}
+
+export function preferredPhoneUrl(privateTargets = [], privateSettings = {}, tailnet = {}) {
+  if (!isLocalHostName(window.location.hostname)) return window.location.origin;
+  const targets = privateTargets.filter((item) => !item.hidden);
+  const mode = effectiveAccessMode(privateSettings, tailnet);
+  const target = targets.find((item) => item.favorite && exactUrlForAccessMode(item, mode)) ||
+    targets.find((item) => item.mode === mode && exactUrlForAccessMode(item, mode)) ||
+    targets.find((item) => exactUrlForAccessMode(item, mode)) ||
+    targets.find((item) => item.favorite && fallbackUrlForAccessMode(item, mode)) ||
+    targets.find((item) => fallbackUrlForAccessMode(item, mode));
+  const url = exactUrlForAccessMode(target, mode) || fallbackUrlForAccessMode(target, mode);
+  return url ? clientUrl(url) : window.location.origin;
+}
