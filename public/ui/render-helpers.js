@@ -3,6 +3,7 @@
 // Extracted from app.js.
 
 import { shell, refs } from './state.js';
+import { safeText, formatMeta } from './format.js';
 
 export function laneDetailRoute(project, session, lane) {
   if (!project || !session || !lane) return '';
@@ -106,4 +107,42 @@ export function agentEventLabel(type) {
     error: 'Error',
   };
   return map[type] || String(type || 'Event').replaceAll('.', ' ');
+}
+
+export function executorCapabilitiesFor(type) {
+  const info = shell.executorCliInfo || {};
+  return info[String(type || '').trim()]?.capabilities || null;
+}
+
+export function capabilityList(value, fallback = 'none') {
+  const list = Array.isArray(value) ? value.filter(Boolean) : [];
+  return list.length ? list.join(', ') : fallback;
+}
+
+export function renderExecutorCapabilities(capabilities, { compact = false } = {}) {
+  if (!capabilities) return '<div class="tiny muted">Capabilities: not detected yet.</div>';
+  const controls = capabilities.controls || {};
+  const invocation = capabilities.invocation || {};
+  const details = [
+    `roles ${capabilityList(capabilities.roles)}`,
+    `model ${controls.model?.supported ? 'yes' : 'no'}`,
+    `modes ${capabilityList(controls.permissions?.values)}`,
+    `intelligence ${controls.intelligence?.supported ? capabilityList(controls.intelligence?.values) : 'metadata only'}`,
+    `MCP ${controls.mcpConfig?.supported ? 'native' : capabilityList(capabilities.mcpScopes)}`,
+    `events ${invocation.structuredAgentEvents ? 'structured' : (invocation.rawTerminalArtifacts ? 'raw logs' : 'provider response')}`,
+    controls.backgroundAgents?.supported ? 'background agents yes' : 'background agents no',
+  ];
+  const version = capabilities.version ? ` · ${capabilities.version}` : '';
+  const title = `${capabilities.displayName || capabilities.type || 'executor'}${version}`;
+  if (compact) {
+    return `<div class="tiny muted">Capabilities: ${safeText(details.join(' · '))}</div>`;
+  }
+  return `
+    <details class="disclosure compact-disclosure">
+      <summary>Capabilities: ${safeText(title)}</summary>
+      <div class="tiny muted">${safeText(details.join(' · '))}</div>
+      <div class="tiny muted">output: ${safeText(capabilityList(controls.structuredOutput?.formats))}</div>
+      <div class="tiny muted">detected: ${safeText(capabilities.detection?.source || 'unknown')} ${capabilities.detection?.checkedAt ? `· ${safeText(formatMeta(capabilities.detection.checkedAt))}` : ''}</div>
+    </details>
+  `;
 }
