@@ -243,6 +243,46 @@ class AuthSessionStore {
     };
   }
 
+  // Mint a session WITHOUT a pairing code, for callers the server has already
+  // authenticated by a valid API token (or local-host bootstrap). This bridges
+  // header/token auth to a cookie so same-origin asset loads (e.g. <img src> for
+  // evidence/artifacts, which cannot send the token header) authenticate too.
+  createTrustedSession({ label = 'Workstation browser', userAgent = '', remoteAddress = '' } = {}) {
+    this.pruneExpired();
+    const sessionToken = generateSessionToken();
+    const session = {
+      id: randomUUID(),
+      tokenHash: hashSecret(sessionToken),
+      label: safeLabel(label, 'Workstation browser'),
+      createdAt: nowIso(),
+      expiresAt: new Date(Date.now() + this.sessionTtlMs).toISOString(),
+      revokedAt: null,
+      pairedFromId: null,
+      userAgent: safeLabel(userAgent, ''),
+      remoteAddress: safeLabel(remoteAddress, ''),
+    };
+    this.state.sessions.unshift(session);
+    this.state.sessions = this.state.sessions.slice(0, 100);
+    this.audit({
+      type: 'auth_session_created',
+      actor: 'token-bootstrap',
+      status: 'passed',
+      summary: `Created browser session ${session.label} from token auth`,
+      evidence: {
+        sessionId: session.id,
+        pairedFromId: null,
+        expiresAt: session.expiresAt,
+        tokenHashPrefix: session.tokenHash.slice(0, 12),
+      },
+    });
+    this.persist();
+    return {
+      session: this.publicSession(session),
+      sessionToken,
+      maxAgeSeconds: Math.floor(this.sessionTtlMs / 1000),
+    };
+  }
+
   publicSession(session) {
     if (!session) return null;
     return {

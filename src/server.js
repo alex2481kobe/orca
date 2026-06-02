@@ -657,7 +657,12 @@ async function serveStaticOrIndex(pathname, res, req = null) {
 
   const hasExtension = pathname.includes('.');
   if (pathname.startsWith('/artifacts/')) {
-    if (req && !requireDashboardAuth(req, res)) {
+    // Fail closed: artifacts (evidence, attachments, logs) are operator-gated.
+    // Without a request context we cannot authenticate, so deny.
+    if (!req) {
+      return sendText(res, 401, 'Unauthorized');
+    }
+    if (!requireDashboardAuth(req, res)) {
       return;
     }
 
@@ -1087,7 +1092,25 @@ function getRouteParts(pathname) {
 
 async function handleAuthApi(req, res, method, parts) {
   if (parts[2] === 'status' && method === 'GET') {
-    const session = currentBrowserSession(req);
+    let session = currentBrowserSession(req);
+    // Bridge token/local-bootstrap auth to a cookie session so same-origin asset
+    // loads (evidence <img>, artifact downloads) — which cannot carry the token
+    // header — authenticate. Only for an already-authenticated, same-origin admin
+    // browser without an existing session; never weakens auth (token holder is
+    // already an admin).
+    if (!session && sameOriginAllowed(req) && (hasValidApiToken(req) || isLocalBootstrapAdmin(req))) {
+      try {
+        const minted = authSessions.createTrustedSession({
+          label: 'Workstation browser',
+          userAgent: req.headers['user-agent'] || '',
+          remoteAddress: req.socket?.remoteAddress || '',
+        });
+        res.setHeader('Set-Cookie', buildSessionCookie(req, minted.sessionToken, minted.maxAgeSeconds));
+        session = minted.session;
+      } catch {
+        /* fall through: status still returns token-auth info */
+      }
+    }
     return sendJson(res, 200, {
       apiTokenRequired: Boolean(API_TOKEN),
       apiTokenAuthenticated: hasValidApiToken(req),
@@ -2583,7 +2606,7 @@ async function handleRequest(req, res, pathname, method, parts) {
     return handleApi(req, res, pathname, method, parts);
   }
 
-  return serveStaticOrIndex(pathname, res);
+  return serveStaticOrIndex(pathname, res, req);
 }
 
 function startServer(port = PORT, host = HOST) {

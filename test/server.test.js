@@ -2402,21 +2402,66 @@ test('artifact serving rejects traversal, absolute, encoded, and symlink paths',
       // ignore platforms that lack symlink support
     }
 
+    const authHeaders = { 'x-orca-token': token };
+
+    // Artifacts are operator-gated: an unauthenticated request must be rejected,
+    // never served (regression guard for the unauthenticated-artifact bypass).
+    const unauth = await server.requestJson(`/artifacts/${session.body.id}/${lane.body.id}/real.txt`, { method: 'GET' });
+    assert.equal(unauth.status, 401);
+
     const traversal = await server.requestJson(`/artifacts/${session.body.id}/${lane.body.id}/..%2Fsensitive.txt`, {
-      method: 'GET',
+      method: 'GET', headers: authHeaders,
     });
     assert.equal(traversal.status === 400 || traversal.status === 404, true);
 
     const absolute = await server.requestJson(`/artifacts/${session.body.id}/${lane.body.id}/%2Fetc%2Fpasswd`, {
-      method: 'GET',
+      method: 'GET', headers: authHeaders,
     });
     assert.equal(absolute.status === 400 || absolute.status === 404, true);
 
-    const real = await server.requestJson(`/artifacts/${session.body.id}/${lane.body.id}/real.txt`, { method: 'GET' });
+    const real = await server.requestJson(`/artifacts/${session.body.id}/${lane.body.id}/real.txt`, { method: 'GET', headers: authHeaders });
     assert.equal(real.status, 200);
     // Symlink should be refused even though it exists.
-    const symlinkProbe = await server.requestJson(`/artifacts/${session.body.id}/${lane.body.id}/link.txt`, { method: 'GET' });
+    const symlinkProbe = await server.requestJson(`/artifacts/${session.body.id}/${lane.body.id}/link.txt`, { method: 'GET', headers: authHeaders });
     assert.equal(symlinkProbe.status === 400 || symlinkProbe.status === 404, true);
+  } finally {
+    await server.stop();
+  }
+});
+
+test('auth status bridges token auth to a cookie session that authorizes artifact <img> loads', async () => {
+  const token = 'route-token-bridge';
+  const server = await startServer({ token });
+  try {
+    const project = await server.requestJson('/api/projects', {
+      method: 'POST', headers: { 'x-orca-token': token }, body: { name: 'Bridge Project', approved: true },
+    });
+    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST', headers: { 'x-orca-token': token }, body: { name: 'Bridge Session', approved: true },
+    });
+    const lane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST', headers: { 'x-orca-token': token }, body: { title: 'Bridge Lane', executorType: 'mock', owner: 'dashboard', approved: true },
+    });
+    const laneDir = path.join(process.cwd(), 'artifacts', session.body.id, lane.body.id);
+    await fs.mkdir(laneDir, { recursive: true });
+    await fs.writeFile(path.join(laneDir, 'shot.png'), 'png-bytes');
+
+    // A token-authed dashboard load mints a session cookie (no Origin header, as
+    // with same-origin browser navigations).
+    const status = await server.requestJson('/api/auth/status', {
+      method: 'GET', headers: { 'x-orca-token': token },
+    });
+    assert.equal(status.status, 200);
+    assert.equal(status.body?.browserSessionAuthenticated, true);
+    const setCookie = String(status.response.headers['set-cookie'] || '');
+    assert.match(setCookie, /orca[_-]?session=/i);
+    const cookiePair = setCookie.split(';')[0]; // "name=value"
+
+    // An <img>-style request carries only the cookie (no token header) and is authorized.
+    const viaCookie = await server.requestJson(`/artifacts/${session.body.id}/${lane.body.id}/shot.png`, {
+      method: 'GET', headers: { cookie: cookiePair },
+    });
+    assert.equal(viaCookie.status, 200);
   } finally {
     await server.stop();
   }
