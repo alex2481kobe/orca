@@ -2475,3 +2475,18 @@ test('lane approval flow records, decides, and surfaces pending approvals', asyn
     await cleanup();
   }
 });
+
+test('updateSessionPlan stores goal and plan with audit', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const project = registry.createProject({ name: 'Plan Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Plan Session' }, { actor: 'test', approved: true });
+    const updated = registry.updateSessionPlan(session.id, { goal: 'Ship v1', plan: '1. build\n2. test', actor: 'orchestrator' });
+    assert.equal(updated.goal, 'Ship v1');
+    assert.match(updated.plan, /build/);
+    assert.ok(updated.planUpdatedAt);
+    assert.throws(() => registry.updateSessionPlan(session.id, {}), (e) => e.status === 422);
+  } finally {
+    await cleanup();
+  }
+});

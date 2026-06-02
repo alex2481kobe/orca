@@ -16,12 +16,12 @@ const TOOL_DEFINITIONS = [
   {
     id: 'session.plan.update',
     group: 'session',
-    roles: ['orchestrator'],
+    roles: ['orchestrator', 'dashboard'],
     method: 'POST',
-    route: null,
-    implemented: false,
+    route: '/api/sessions/{sessionId}/plan',
+    implemented: true,
     mutating: true,
-    summary: 'Update the durable session task plan.',
+    summary: 'Update the durable session goal and task plan.',
   },
   {
     id: 'session.next_action',

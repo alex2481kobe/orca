@@ -2836,6 +2836,20 @@ function renderOrchestratorConsole(session) {
           ${activeLane ? stateBadge(activeLane.state) : '<span class="tag">Idle</span>'}
         </div>
       </div>
+      <details class="disclosure orchestrator-plan"${session.goal || session.plan ? ' open' : ''}>
+        <summary><span>Goal &amp; plan</span><small>${session.goal ? safeText(String(session.goal).slice(0, 60)) : 'not set'}</small></summary>
+        <div class="disclosure-body">
+          <form id="session-plan-form" data-session-id="${safeAttr(session.id)}">
+            <label>Goal
+              <input name="goal" value="${safeAttr(session.goal || '')}" placeholder="What are we trying to achieve?" />
+            </label>
+            <label>Plan
+              <textarea name="plan" rows="4" placeholder="Steps / approach">${safeText(session.plan || '')}</textarea>
+            </label>
+            <button class="secondary" data-action="saveSessionPlan" type="button">Save goal &amp; plan</button>
+          </form>
+        </div>
+      </details>
       ${renderSessionApprovals(session)}
       <div class="orchestrator-feed">
         ${messageRows || '<div class="muted">No orchestration messages yet.</div>'}
@@ -4274,6 +4288,23 @@ async function handleSystemActions(event) {
       await refresh();
     } else {
       renderAlert(response.data?.error || 'Could not create pairing code.', 'bad');
+    }
+    return;
+  }
+  if (action === 'saveSessionPlan') {
+    const form = document.getElementById('session-plan-form');
+    const sessionId = form?.dataset.sessionId;
+    const goal = form?.querySelector('[name="goal"]')?.value || '';
+    const plan = form?.querySelector('[name="plan"]')?.value || '';
+    const response = await api(`/api/sessions/${sessionId}/plan`, {
+      method: 'POST',
+      body: { actor: 'dashboard', goal, plan },
+    });
+    if (response.ok) {
+      renderAlert('Goal & plan saved.');
+      await refresh();
+    } else {
+      renderAlert(response.data?.error || 'Could not save plan.', 'bad');
     }
     return;
   }

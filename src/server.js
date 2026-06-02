@@ -269,6 +269,9 @@ function toolLeaseRequirementForRoute(method, parts) {
   if (parts[1] === 'sessions' && parts[2] && parts[3] === 'audit-done-lanes' && method === 'POST') {
     return { toolId: 'audit.queue_all_ready', sessionId: parts[2] };
   }
+  if (parts[1] === 'sessions' && parts[2] && parts[3] === 'plan' && method === 'POST') {
+    return { toolId: 'session.plan.update', sessionId: parts[2] };
+  }
   if (parts[1] === 'artifacts' && parts[2] === 'cleanup' && method === 'POST') {
     return { toolIds: ['evidence.cleanup_dry_run', 'evidence.cleanup_apply'] };
   }
@@ -1925,6 +1928,22 @@ async function handleApi(req, res, pathname, method, parts) {
           requiresApproval: error.requiresApproval || false,
           risk: error.risk || null,
         });
+      }
+    }
+
+    if (parts.length === 4 && parts[3] === 'plan' && method === 'POST') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+      if (rejectSpoofedActor(body, res)) return;
+      try {
+        const result = registry.updateSessionPlan(session.id, {
+          goal: body.goal,
+          plan: body.plan,
+          actor: String(body.actor || 'orchestrator').trim() || 'orchestrator',
+        });
+        return sendJson(res, 200, result);
+      } catch (error) {
+        return sendJson(res, error.status || 500, { error: error.message || 'Could not update session plan.' });
       }
     }
 

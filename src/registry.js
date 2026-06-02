@@ -1924,6 +1924,30 @@ export class OrcaRegistry {
     return clonePayload(session);
   }
 
+  // Orchestrator-owned session goal + plan (the durable "what are we doing").
+  updateSessionPlan(sessionLocator, { goal, plan, actor = 'orchestrator' } = {}) {
+    const session = this.getSession(sessionLocator);
+    if (!session) throw { status: 404, message: 'Session not found.' };
+    if (goal === undefined && plan === undefined) {
+      throw { status: 422, message: 'Provide a goal and/or plan to update.' };
+    }
+    if (goal !== undefined) session.goal = String(goal).slice(0, 4000);
+    if (plan !== undefined) session.plan = String(plan).slice(0, 20000);
+    session.planUpdatedAt = nowIso();
+    session.updatedAt = nowIso();
+    this.recordAudit({
+      type: 'session_plan_updated',
+      actor: String(actor || 'orchestrator').slice(0, 120),
+      projectId: session.projectId,
+      sessionId: session.id,
+      summary: `Session "${session.name}" plan updated`,
+      status: 'passed',
+      evidence: { goal: session.goal || '', planChars: (session.plan || '').length },
+    });
+    this.persistState();
+    return clonePayload(session);
+  }
+
   getCleanupSchedule() {
     return clonePayload(this.cleanupSchedule);
   }
