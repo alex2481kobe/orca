@@ -49,6 +49,13 @@ import {
   effectiveQuickLinkUrl,
   boundedQuickLinkHealthCheck,
 } from './registry-quick-links.js';
+import {
+  NOTIFICATION_SEVERITY_RANK,
+  DEFAULT_NOTIFICATION_SETTINGS,
+  normalizeNotificationSeverity,
+  sanitizeNotificationText,
+  sanitizeNotificationSettings,
+} from './registry-notifications.js';
 
 // Authoritative workflow gates: lane states in which each agent tool is legal.
 // Enforced only on the agent (tool-lease) path so out-of-order/skipped/stale
@@ -133,19 +140,6 @@ const SPAWN_POLICIES = new Set(['never', 'ask', 'within_capacity', 'auto']);
 const IDLE_SHUTDOWN_MODES = new Set(['immediate', 'short_keepalive', 'policy']);
 const CRITIQUE_MODES = new Set(['off', 'suggested', 'required', 'visual-required']);
 const DEFAULT_APPROVED_CAPACITY = 2;
-const NOTIFICATION_SEVERITIES = new Set(['info', 'success', 'warning', 'error']);
-const NOTIFICATION_SEVERITY_RANK = {
-  info: 0,
-  success: 0,
-  warning: 1,
-  error: 2,
-};
-const DEFAULT_NOTIFICATION_SETTINGS = {
-  inAppEnabled: true,
-  browserEnabled: false,
-  minSeverity: 'info',
-  muted: false,
-};
 const CLI_CAPABILITY_CACHE_MS = 30 * 1000;
 const MAX_CLI_CAPABILITY_CACHE_ENTRIES = 50;
 const cliCapabilityCache = new Map();
@@ -171,55 +165,8 @@ function normalizeApprovedCapacity(value, fallback = DEFAULT_APPROVED_CAPACITY) 
   return Math.min(64, parsed);
 }
 
-function normalizeNotificationSeverity(raw, fallback = 'info') {
-  const normalized = String(raw || fallback).trim().toLowerCase();
-  return NOTIFICATION_SEVERITIES.has(normalized) ? normalized : fallback;
-}
-
 function isLiveLaneState(state) {
   return [QUEUED_STATE, STARTING_STATE, RUNNING_STATE].includes(String(state || '').toLowerCase());
-}
-
-// Upper bound on the raw text we run redaction regexes over. Notification text
-// is later truncated to ~180 chars, but redaction must run on the raw value
-// first; capping here keeps the alternation-with-wildcards patterns linear and
-// removes any ReDoS exposure from attacker-influenced lane titles/exit reasons.
-const MAX_REDACTION_INPUT = 2000;
-
-function redactNotificationText(value) {
-  return String(value ?? '')
-    .slice(0, MAX_REDACTION_INPUT)
-    .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer [REDACTED]')
-    // Common provider secret formats: OpenAI sk-, Slack xox[baprs]-, GitHub
-    // PATs (ghp_/gho_/ghu_/ghs_/ghr_/github_pat_), AWS access key ids.
-    .replace(/\bsk-[A-Za-z0-9_-]{6,}\b/g, '[REDACTED_SECRET]')
-    .replace(/\bxox[baprs]-[A-Za-z0-9-]{6,}\b/gi, '[REDACTED_SECRET]')
-    .replace(/\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g, '[REDACTED_SECRET]')
-    .replace(/\bAKIA[0-9A-Z]{16}\b/g, '[REDACTED_SECRET]')
-    .replace(/\b([A-Z0-9_]*(?:TOKEN|SECRET|API[_-]?KEY|PASSWORD)[A-Z0-9_]*)\s*[:=]\s*['"]?[^'"\s,;}]+/gi, '$1=[REDACTED]')
-    // App-named token references (post-"orca" rename; the legacy command-deck
-    // name is kept so older persisted strings still redact).
-    .replace(/\b((?:orca|command[_-]?deck)[_-]?[A-Za-z0-9_-]*token[A-Za-z0-9_-]*)\b/gi, '[REDACTED_TOKEN]');
-}
-
-function sanitizeNotificationText(value, fallback = '', maxLength = 180) {
-  const redacted = redactNotificationText(value).replace(/\s+/g, ' ').trim();
-  const text = redacted || fallback;
-  return text.length > maxLength ? `${text.slice(0, maxLength - 3)}...` : text;
-}
-
-function sanitizeNotificationSettings(raw = {}, existing = DEFAULT_NOTIFICATION_SETTINGS) {
-  const source = raw && typeof raw === 'object' ? raw : {};
-  const current = {
-    ...DEFAULT_NOTIFICATION_SETTINGS,
-    ...(existing && typeof existing === 'object' ? existing : {}),
-  };
-  return {
-    inAppEnabled: source.inAppEnabled === undefined ? Boolean(current.inAppEnabled) : Boolean(source.inAppEnabled),
-    browserEnabled: source.browserEnabled === undefined ? Boolean(current.browserEnabled) : Boolean(source.browserEnabled),
-    minSeverity: normalizeNotificationSeverity(source.minSeverity, normalizeNotificationSeverity(current.minSeverity, 'info')),
-    muted: source.muted === undefined ? Boolean(current.muted) : Boolean(source.muted),
-  };
 }
 
 function sanitizeWorkdirInput(raw) {
