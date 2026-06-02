@@ -1215,7 +1215,7 @@ function renderHome() {
           <div class="tiny muted">Route: <a href="${safeAttr(project.route)}">${safeText(project.route)}</a></div>
         </details>
         <div class="lane-row">
-          <a class="button-secondary" href="${project.route}">Open project</a>
+          <a class="button-secondary" href="${safeHref(project.route)}">Open project</a>
         </div>
       </article>
     `;
@@ -2541,9 +2541,9 @@ function renderLaneCard(lane) {
     }</div>`
     : '';
   const stopButton = ['running', 'starting', 'queued'].includes(lane.state)
-    ? `<button data-action="stopLane" data-lane-id="${lane.id}" title="${getActionPolicy('stopLane').message}" type="button">Stop lane</button>` : '';
+    ? `<button data-action="stopLane" data-lane-id="${safeAttr(lane.id)}" title="${safeAttr(getActionPolicy('stopLane').message)}" type="button">Stop lane</button>` : '';
   const retryButton = ['failed', 'stopped'].includes(lane.state)
-    ? `<button class="secondary" data-action="retryLane" data-lane-id="${lane.id}" title="${getActionPolicy('retryLane').message}" type="button">Retry lane</button>` : '';
+    ? `<button class="secondary" data-action="retryLane" data-lane-id="${safeAttr(lane.id)}" title="${safeAttr(getActionPolicy('retryLane').message)}" type="button">Retry lane</button>` : '';
   const laneLink = lane.route ? `<a class="secondary" href="${safeAttr(lane.route)}">Lane detail</a>` : '';
   const auditLabel = lanePendingAudits.length ? 'Audit already queued' : 'Audit now';
   return `
@@ -3152,16 +3152,16 @@ function renderLane(project, session, lane) {
         <div class="card">
           <h3>Lane not found</h3>
           <p>The selected lane is not in this session yet.</p>
-          <a class="secondary" href="${session.route}">Back to session</a>
+          <a class="secondary" href="${safeHref(session.route)}">Back to session</a>
         </div>
       </section>
     `;
   }
 
   const stopButton = ['running', 'starting', 'queued'].includes(lane.state)
-    ? `<button data-action="stopLane" data-lane-id="${lane.id}" type="button">Stop lane</button>` : '';
+    ? `<button data-action="stopLane" data-lane-id="${safeAttr(lane.id)}" type="button">Stop lane</button>` : '';
   const retryButton = ['failed', 'stopped'].includes(lane.state)
-    ? `<button class="secondary" data-action="retryLane" data-lane-id="${lane.id}" type="button">Retry lane</button>` : '';
+    ? `<button class="secondary" data-action="retryLane" data-lane-id="${safeAttr(lane.id)}" type="button">Retry lane</button>` : '';
   const artifactUrl = `/api/lanes/${lane.id}/artifacts`;
   const evidenceUrl = `/api/lanes/${lane.id}/evidence`;
   const evidenceLatestUrl = `/api/lanes/${lane.id}/evidence/latest`;
@@ -3187,7 +3187,7 @@ function renderLane(project, session, lane) {
         <div class="alert bad"><strong>Warning:</strong> ${safeText(warning.message || warning.kind)}</div>
       `).join('')}
       <div class="card lane-detail-card">
-        <p><a href="${session.route}" class="secondary">Back</a></p>
+        <p><a href="${safeHref(session.route)}" class="secondary">Back</a></p>
         <h3>${safeText(lane.title)}</h3>
         <p>${safeText(lane.taskDescription || 'No task description')}</p>
         ${lane.taskPrompt ? `<div class="tiny"><strong>Task prompt:</strong> ${safeText(lane.taskPrompt)}</div>` : ''}
@@ -3284,9 +3284,9 @@ function renderAuditLog() {
         <div class="tiny">Type: ${safeText(event.type || 'unknown')}</div>
         <div class="tiny">Project: ${safeText(event.projectId || 'unknown')}</div>
         <div class="tiny">Lane: ${safeText(event.laneId || 'n/a')}</div>
-        ${laneRoute ? `<a class="secondary" href="${laneRoute}">Open lane</a>` : ''}
+        ${laneRoute ? `<a class="secondary" href="${safeHref(laneRoute)}">Open lane</a>` : ''}
         <div class="lane-row" style="margin-top:0.75rem">
-          <button class="secondary" data-action="ackAuditEvent" data-event-id="${safeText(event.id)}" type="button">Mark reviewed</button>
+          <button class="secondary" data-action="ackAuditEvent" data-event-id="${safeAttr(event.id)}" type="button">Mark reviewed</button>
         </div>
       </article>
     `;
@@ -5335,6 +5335,15 @@ document.addEventListener('click', async (event) => {
     'archiveSession',
     'renameProject',
     'renameSession',
+    // These are handled in handleSystemActions but were missing from the
+    // dispatch allowlist, so their buttons (incl. agent approve/deny) silently
+    // did nothing. Wire them up.
+    'approveApproval',
+    'denyApproval',
+    'saveSessionPlan',
+    'pickAttachment',
+    'removeAttachment',
+    'setupCapture',
   ].includes(action)) {
     await handleSystemActions({ currentTarget: actionTarget });
     return;
