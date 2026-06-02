@@ -3,6 +3,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { readJsonFileWithRecovery, writeJsonFileAtomic } from '../state-store.js';
 import { nowIso, clone, PROVIDER_IDS } from './constants.js';
 import { safeSlug, ensurePlainObject, normalizeProfile } from './validation.js';

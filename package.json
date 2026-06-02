@@ -70,12 +70,16 @@
     "operator:status": "node scripts/operator-status.mjs",
     "operator:pair": "node scripts/operator-pairing-code.mjs",
     "operator:phone-check": "node scripts/operator-phone-check.mjs",
-    "operator:completion-audit": "node scripts/operator-completion-audit.mjs"
+    "operator:completion-audit": "node scripts/operator-completion-audit.mjs",
+    "typecheck": "tsc --noEmit",
+    "typecheck:imports": "node scripts/typecheck-imports.mjs"
   },
   "devDependencies": {
     "@tauri-apps/api": "2.11.0",
     "@tauri-apps/cli": "2.11.2",
-    "playwright": "1.60.0"
+    "@types/node": "25.9.1",
+    "playwright": "1.60.0",
+    "typescript": "6.0.3"
   },
   "dependencies": {
     "@tauri-apps/plugin-updater": "2.10.1"

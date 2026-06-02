@@ -1,0 +1,25 @@
+// Phase 0: loose type-check pass over the JS codebase (no emit, no renames, no
+// build step). Catches the high-value bug class (undefined names, missing
+// imports, wrong arg counts) without the noImplicitAny annotation avalanche.
+// Run: npx tsc --noEmit
+// Note: methods added to OrcaRegistry via Object.assign(prototype, mixin) are
+// invisible to checkJs, so `registry.method()` calls report false TS2551s until
+// the prototype is typed (a later phase).
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": false,
+    "noImplicitAny": false,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*.js", "public/**/*.js", "scripts/**/*.mjs"],
+  "exclude": ["node_modules", "src-tauri", "artifacts", ".orca", "test"]
+}
