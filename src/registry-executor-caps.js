@@ -4,6 +4,11 @@
 
 import { spawn } from 'node:child_process';
 import {
+  planPlaywrightInstall,
+  runCaptureInstall,
+  describeCaptureStatus,
+} from './capture-setup.js';
+import {
   normalizeExecutorType,
   parseBooleanEnv,
   publicBinaryName,
