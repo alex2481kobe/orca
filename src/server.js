@@ -24,6 +24,8 @@ import { handleLaneRoutes, FALL_THROUGH as LANE_FALL_THROUGH } from './server-ro
 import { handleSessionRoutes } from './server-routes/sessions.js';
 import { handleProjectRoutes } from './server-routes/projects.js';
 import { handleMcpRoutes } from './server-routes/mcp.js';
+import { handleNotificationRoutes } from './server-routes/notifications.js';
+import { handleExecutorRoutes } from './server-routes/executors.js';
 import {
   classifyRequestForRateLimit,
   createRateLimiter,
@@ -1323,63 +1325,8 @@ async function handleApi(req, res, pathname, method, parts) {
   }
 
   if (parts[1] === 'notifications') {
-    if (parts.length === 2 && method === 'GET') {
-      const searchParams = getSearchParams(req.url || '/');
-      if (!searchParams) return sendJson(res, 400, { error: 'Invalid request query string.' });
-      return sendJson(res, 200, registry.getNotifications({
-        unreadOnly: searchParams.get('unreadOnly') === 'true',
-        limit: searchParams.get('limit') || 50,
-      }));
-    }
-
-    if (parts.length === 3 && parts[2] === 'settings' && method === 'PATCH') {
-      const body = await parseJsonBody(req);
-      if (body === null) return sendBodyError(req, res);
-      if (rejectSpoofedActor(body, res)) return;
-      try {
-        const result = registry.updateNotificationSettings(body, {
-          actor: body.actor || 'dashboard',
-          approved: body.approved,
-        });
-        return sendJson(res, 200, result);
-      } catch (error) {
-        return sendJson(res, error.status || 500, {
-          error: error.message || 'Could not update notification settings.',
-          requiresApproval: error.requiresApproval || false,
-          risk: error.risk || null,
-        });
-      }
-    }
-
-    if (parts.length === 3 && parts[2] === 'read-all' && method === 'POST') {
-      const body = await parseJsonBody(req);
-      if (body === null) return sendBodyError(req, res);
-      if (rejectSpoofedActor(body, res)) return;
-      try {
-        return sendJson(res, 200, registry.markAllNotificationsRead({
-          actor: body.actor || 'dashboard',
-        }));
-      } catch (error) {
-        return sendJson(res, error.status || 500, {
-          error: error.message || 'Could not mark notifications read.',
-        });
-      }
-    }
-
-    if (parts.length === 4 && parts[3] === 'read' && method === 'POST') {
-      const body = await parseJsonBody(req);
-      if (body === null) return sendBodyError(req, res);
-      if (rejectSpoofedActor(body, res)) return;
-      try {
-        return sendJson(res, 200, registry.markNotificationRead(parts[2], {
-          actor: body.actor || 'dashboard',
-        }));
-      } catch (error) {
-        return sendJson(res, error.status || 500, {
-          error: error.message || 'Could not mark notification read.',
-        });
-      }
-    }
+    const result = await handleNotificationRoutes(ROUTE_CTX, req, res, method, parts);
+    if (result !== LANE_FALL_THROUGH) return;
   }
 
   if (parts[1] === 'app') {
@@ -1537,48 +1484,9 @@ async function handleApi(req, res, pathname, method, parts) {
     return handleProvidersApi(req, res, method, parts);
   }
 
-  if (parts[1] === 'executors' && parts[2] === 'profiles' && method === 'GET') {
-    return sendJson(res, 200, {
-      profiles: registry.getExecutorProfiles(),
-      orcaApiEndpoint: '/api/executors/profiles',
-    });
-  }
-
-  if (parts[1] === 'executors' && parts[2] && parts[3] === 'cli' && method === 'GET' && parts.length === 4) {
-    try {
-      const info = registry.getExecutorCliInfo(parts[2]);
-      return sendJson(res, 200, info);
-    } catch (error) {
-      return sendJson(res, error.status || 500, {
-        error: error.message || 'Could not load executor CLI info.',
-        requiresApproval: error.requiresApproval || false,
-        risk: error.risk || null,
-      });
-    }
-  }
-
-  if (parts[1] === 'executors' && ['codex', 'claude'].includes(parts[2]) && parts[3] === 'cli' && parts[4] === 'reinstall' && method === 'POST') {
-    if (!requireAdminAuth(req, res)) return;
-    const body = await parseJsonBody(req);
-    if (body === null) return sendBodyError(req, res);
-    if (rejectSpoofedActor(body, res)) return;
-    try {
-      const result = await registry.runExecutorCliReinstall(parts[2], {
-        actor: body.actor || 'dashboard',
-        approved: body.approved,
-        execute: Boolean(body.execute),
-        command: body.command,
-        confirmed: body.confirmed,
-        useSource: Boolean(body.useSource),
-      });
-      return sendJson(res, 200, result);
-    } catch (error) {
-      return sendJson(res, error.status || 500, {
-        error: error.message || 'Could not run CLI management action.',
-        requiresApproval: error.requiresApproval || false,
-        risk: error.risk || null,
-      });
-    }
+  if (parts[1] === 'executors') {
+    const result = await handleExecutorRoutes(ROUTE_CTX, req, res, method, parts);
+    if (result !== LANE_FALL_THROUGH) return;
   }
 
   if (parts[1] === 'capture' && parts[2] === 'status' && parts.length === 3 && method === 'GET') {
