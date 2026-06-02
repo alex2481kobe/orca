@@ -188,6 +188,7 @@ async function htmlOnlyMode() {
 async function playwrightMode(pw) {
   log('mode', 'Playwright Chromium');
   const browser = await pw.chromium.launch({ headless: true });
+  try {
   const ctx = await browser.newContext();
   await addSessionCookie(ctx, await createBrowserSessionCookie());
   const artifactDir = path.resolve('artifacts', 'ui-smoke');
@@ -301,7 +302,9 @@ async function playwrightMode(pw) {
     await page.close();
   }
   await ctx.close();
-  await browser.close();
+  } finally {
+    await browser.close();
+  }
 }
 
 async function main() {

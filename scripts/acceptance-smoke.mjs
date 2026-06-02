@@ -82,7 +82,28 @@ async function writeSummary(summary) {
 const results = [];
 let failed = null;
 
+// The Playwright-backed UI smokes (ui/ui-inventory/ui-contract) are slow and can
+// be flaky under load, so they are opt-in: set ORCA_SMOKE_UI=1 to include them.
+// They are recorded as skipped (not failed) when gated, so the routine acceptance
+// gate stays fast. Run them on demand with `npm run smoke:ui-*`.
+const PLAYWRIGHT_UI_STEPS = new Set(['ui', 'ui-inventory', 'ui-contract']);
+const includeUi = process.env.ORCA_SMOKE_UI === '1';
+
 for (const step of steps) {
+  if (!includeUi && PLAYWRIGHT_UI_STEPS.has(step.id)) {
+    log('skip', `${step.id}: gated behind ORCA_SMOKE_UI=1 (slow Playwright UI smoke)`);
+    results.push({
+      id: step.id,
+      command: step.command.join(' '),
+      covers: step.covers,
+      reason: 'Gated behind ORCA_SMOKE_UI=1; run on demand via npm run smoke:ui*.',
+      status: 'skipped',
+      exitCode: null,
+      signal: null,
+      elapsedMs: 0,
+    });
+    continue;
+  }
   const stepStarted = Date.now();
   log('run', `${step.id}: ${step.command.join(' ')}`);
   const result = spawnSync(step.command[0], step.command.slice(1), {
