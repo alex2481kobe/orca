@@ -2,7 +2,7 @@
 
 import { formatMeta, formatRelative, safeAttr, safeText, stateBadge } from './format.js';
 import { executorCapabilitiesFor, isLiveLaneState, isRestartableLaneState, laneDetailRoute, renderExecutorCapabilities } from './render-helpers.js';
-import { activeOrchestratorLaneForSession, intelligenceOptions, modelControlOptions, renderAgentEventTimeline, runModeOptions } from './render-fragments.js';
+import { activeOrchestratorLaneForSession, intelligenceOptionsFor, modelPresetOptionsFor, renderAgentEventTimeline, runModeOptionsFor } from './render-fragments.js';
 import { shell } from './state.js';
 import { renderAlert, writeHtml } from './dom.js';
 import { api, currentActiveProject } from './api.js';
@@ -215,14 +215,14 @@ export function renderOrchestratorConsole(session) {
             <option value="mock"${normalizeExecutorType(selectedExecutor) === 'mock' ? ' selected' : ''}>mock</option>
           </select>
           <select name="modelPreset" aria-label="Model">
-            ${modelControlOptions(selectedModel)}
+            ${modelPresetOptionsFor(selectedExecutor, selectedModel)}
           </select>
           <input name="model" aria-label="Custom model" placeholder="custom model" />
           <select name="intelligenceProfile" aria-label="Intelligence">
-            ${intelligenceOptions(selectedIntelligence)}
+            ${intelligenceOptionsFor(selectedExecutor, selectedIntelligence)}
           </select>
           <select name="permissionsProfile" aria-label="Mode">
-            ${runModeOptions(selectedRunMode)}
+            ${runModeOptionsFor(selectedExecutor, selectedRunMode)}
           </select>
           <button class="send-button" type="submit" aria-label="Send">Send</button>
         </div>
@@ -249,10 +249,10 @@ export function renderExecutorLanePanelItem(lane) {
       <form class="lane-controls-form" data-lane-id="${safeAttr(lane.id)}">
         <input name="model" value="${safeAttr(lane.model || '')}" placeholder="model" aria-label="Model" />
         <select name="intelligenceProfile" aria-label="Intelligence">
-          ${intelligenceOptions(lane.intelligenceProfile || 'high')}
+          ${intelligenceOptionsFor(lane.executorType, lane.intelligenceProfile || 'high')}
         </select>
         <select name="permissionsProfile" aria-label="Mode">
-          ${runModeOptions(lane.permissionsProfile || 'plan')}
+          ${runModeOptionsFor(lane.executorType, lane.permissionsProfile || 'plan')}
         </select>
         <button type="submit">Save</button>
       </form>

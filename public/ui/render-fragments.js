@@ -300,3 +300,62 @@ export function runModeOptions(selected = 'plan') {
 export function modelControlOptions(selected = '') {
   return modelPresetOptions(selected || '');
 }
+
+// --- Dynamic per-executor control options --------------------------------
+// Build <option> HTML from a SELECTED executor's detected capabilities
+// (controls.permissions / .intelligence / .model) so each CLI shows its own
+// real modes, effort levels, and models. When capabilities aren't available
+// (mock, undetected CLI, offline) we fall back to the static superset so the
+// form is never empty.
+function optionListHtml(values, selected) {
+  const normalized = String(selected || '').trim();
+  return values
+    .map((value) => `<option value="${safeAttr(value)}"${normalized === value ? ' selected' : ''}>${safeText(value)}</option>`)
+    .join('');
+}
+
+function executorControl(executorType, control) {
+  const profile = getExecutorProfile(executorType);
+  const node = profile?.capabilities?.controls?.[control];
+  return node && typeof node === 'object' ? node : null;
+}
+
+export function runModeOptionsFor(executorType, selected = 'plan') {
+  const node = executorControl(executorType, 'permissions');
+  if (!node || !Array.isArray(node.values) || !node.values.length) return runModeOptions(selected);
+  return optionListHtml(node.values, selected);
+}
+
+export function intelligenceOptionsFor(executorType, selected = 'high') {
+  const node = executorControl(executorType, 'intelligence');
+  if (!node) return intelligenceOptions(selected);
+  if (node.supported === false || node.passthrough) {
+    // CLI has no effort/intelligence flag — defer to its own config.
+    return '<option value="" selected>Default (CLI config)</option>';
+  }
+  if (!Array.isArray(node.values) || !node.values.length) return intelligenceOptions(selected);
+  return optionListHtml(node.values, selected);
+}
+
+export function modelPresetOptionsFor(executorType, selected = '') {
+  const node = executorControl(executorType, 'model');
+  if (!node || !Array.isArray(node.values) || !node.values.length) return modelPresetOptions(selected);
+  const normalized = String(selected || '').trim();
+  const defaultLabel = node.defaultValue ? `Default (${node.defaultValue})` : 'Default';
+  const head = `<option value=""${normalized === '' ? ' selected' : ''}>${safeText(defaultLabel)}</option>`;
+  return head + optionListHtml(node.values, selected);
+}
+
+// Repopulate the permission/intelligence/model selects of a form (orchestrator
+// composer or any executor-scoped form) when its executor changes, preserving
+// the prior selection when the new executor still supports it.
+export function repopulateExecutorScopedControls(form) {
+  if (!form) return;
+  const executorType = normalizeExecutorType(form.executorType?.value || '');
+  const mode = form.querySelector('select[name="permissionsProfile"]');
+  if (mode) mode.innerHTML = runModeOptionsFor(executorType, mode.value);
+  const intelligence = form.querySelector('select[name="intelligenceProfile"]');
+  if (intelligence) intelligence.innerHTML = intelligenceOptionsFor(executorType, intelligence.value);
+  const modelPreset = form.querySelector('select[name="modelPreset"]');
+  if (modelPreset) modelPreset.innerHTML = modelPresetOptionsFor(executorType, modelPreset.value);
+}

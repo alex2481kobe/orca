@@ -10,6 +10,7 @@ import { renderProject } from './render-project.js';
 import { loadEvidenceGallery, renderAuditLog, renderLane } from './render-lane.js';
 import { renderSession } from './render-session.js';
 import { restoreContentUiState } from './render-fragments.js';
+import { FIRST_CLASS_CLI_EXECUTOR_TYPES } from './constants.js';
 import { orderItems, readSidebarOrder } from './sidebar.js';
 import { COMPOSE_ICON, FOLDER_ICON, PENCIL_ICON } from './constants.js';
 
@@ -136,7 +137,10 @@ export function renderStatusStrip() {
   const tokenTag = shell.apiToken
     ? '<span class="tag ok" data-status="token">token: set</span>'
     : '<span class="tag warn" data-status="token">token: unset</span>';
-  const executorTags = ['codex', 'claude'].map((type) => {
+  // Status tags for every first-class CLI executor we actually know about
+  // (codex, claude, gemini-cli, composer-cli, …) rather than a fixed pair.
+  const statusExecutorTypes = FIRST_CLASS_CLI_EXECUTOR_TYPES.filter((type) => cli[type] || profiles[type]);
+  const executorTags = (statusExecutorTypes.length ? statusExecutorTypes : ['codex', 'claude']).map((type) => {
     const info = cli[type];
     if (!info) return '';
     const tone = info.binaryExists ? 'ok' : 'bad';

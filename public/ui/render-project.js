@@ -4,6 +4,7 @@ import { refs, shell } from './state.js';
 import { formatRelative, latestTimestamp, safeAttr, safeText } from './format.js';
 import { clientUrl, safeHref } from './dom.js';
 import { effectiveProjectQuickLinkUrl, quickLinkHealthLabel } from './access-mode.js';
+import { leaderOptions } from './executor.js';
 
 export function renderWorkstationPickerPanel(forInput) {
   const picker = shell.workstationPicker;
@@ -96,13 +97,11 @@ export function renderProject(project) {
               </label>
               <label>Leader
                 <select name="leader">
-                  <option value="codex">Codex-led</option>
-                  <option value="claude">Claude-led</option>
-                  <option value="mixed">Mixed</option>
+                  ${leaderOptions('codex')}
                 </select>
               </label>
               <label>Max parallel lanes (executor capacity cap)
-                <input name="laneConcurrencyLimit" type="number" min="1" max="4" value="1" />
+                <input name="laneConcurrencyLimit" type="number" min="1" max="64" value="1" />
               </label>
               <label>Working directory (workstation repo)
                 <input id="session-repo-root" name="repoRoot" placeholder="Pick a folder on the workstation…" autocomplete="off" />
