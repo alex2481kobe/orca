@@ -680,11 +680,24 @@ async function serveStaticOrIndex(pathname, res, req = null) {
       }
       const dir = path.join(process.cwd(), 'artifacts', sessionId, 'attachments');
       const filePath = path.join(dir, attachmentName);
-      if (filePath !== path.normalize(filePath) || !filePath.startsWith(dir + path.sep)) {
+      // Reject obvious traversal/absolute names up front...
+      if (attachmentName.includes('..') || attachmentName.includes('\\') || path.isAbsolute(attachmentName) || !filePath.startsWith(dir + path.sep)) {
         return sendText(res, 400, 'Invalid artifact path');
       }
+      // ...then confirm the real (symlink-resolved) path stays inside the dir, so
+      // a symlink planted in the attachments dir can't escape the boundary.
+      let realPath;
       try {
-        const buffer = await readArtifactBuffer(filePath);
+        realPath = await fs.realpath(filePath);
+        const realDir = await fs.realpath(dir);
+        if (realPath !== realDir && !realPath.startsWith(realDir + path.sep)) {
+          return sendText(res, 400, 'Invalid artifact path');
+        }
+      } catch {
+        return sendText(res, 404, 'Artifact file not found');
+      }
+      try {
+        const buffer = await readArtifactBuffer(realPath);
         res.statusCode = 200;
         applySecurityHeaders(res);
         res.setHeader('Content-Type', artifactContentType(filePath));
@@ -1698,6 +1711,9 @@ async function handleApi(req, res, pathname, method, parts) {
   }
 
   if (parts[1] === 'mcp' && parts[2] === 'tools' && method === 'POST') {
+    // MCP tools define executable commands the host runs; mutating them is a
+    // host-level (admin) action, not a workflow action paired operators may do.
+    if (!requireAdminAuth(req, res)) return;
     const body = await parseJsonBody(req);
     if (body === null) return sendBodyError(req, res);
     if (rejectSpoofedActor(body, res)) return;
@@ -1723,6 +1739,7 @@ async function handleApi(req, res, pathname, method, parts) {
   }
 
   if (parts[1] === 'mcp' && parts[2] === 'tools' && parts.length === 4 && method === 'PATCH') {
+    if (!requireAdminAuth(req, res)) return;
     const body = await parseJsonBody(req);
     if (body === null) return sendBodyError(req, res);
     if (rejectSpoofedActor(body, res)) return;
@@ -1747,6 +1764,7 @@ async function handleApi(req, res, pathname, method, parts) {
   }
 
   if (parts[1] === 'mcp' && parts[2] === 'tools' && parts.length === 4 && method === 'DELETE') {
+    if (!requireAdminAuth(req, res)) return;
     const body = await parseJsonBody(req);
     if (body === null) return sendBodyError(req, res);
     if (rejectSpoofedActor(body, res)) return;
