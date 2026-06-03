@@ -371,7 +371,15 @@ body.sidebar-collapsed .sidebar-pair-label {
 .sidebar-list {
   display: grid;
   gap: 0.55rem;
+  /* Constrain the single column to the panel width so long project/session names
+     truncate (…) instead of widening the row and overflowing the static sidebar. */
+  grid-template-columns: minmax(0, 1fr);
 }
+.sidebar-list > *,
+.sidebar-project-group,
+.sidebar-project-line,
+.sidebar-sessions,
+.sidebar-session-line { min-width: 0; }
 
 .sidebar-link {
   align-items: center;
