@@ -2367,9 +2367,11 @@ pre {
 .composer-send { background: var(--text); color: #1a1a1a; }
 .composer-send:hover { background: #fff; }
 .composer-select {
-  background: var(--panel-soft); border: 1px solid var(--line); border-radius: 8px; color: var(--text);
-  font-size: 0.8rem; max-width: 9rem; padding: 0.28rem 0.4rem;
+  background-color: transparent; border: 0; border-radius: 8px; color: var(--muted);
+  font-size: 0.82rem; max-width: 9rem; padding: 0.3rem 1.45rem 0.3rem 0.5rem;
+  background-position: right 0.4rem center;
 }
+.composer-select:hover { background-color: var(--hover); color: var(--text); }
 .composer-spacer { flex: 1; }
 .composer-more { position: relative; }
 .composer-more > summary {
