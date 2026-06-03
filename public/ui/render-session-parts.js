@@ -247,7 +247,6 @@ export function renderExecutorLanePanelItem(lane) {
         </select>
         <button type="submit">Save</button>
       </form>
-      ${renderExecutorCapabilities(lane.executorCapabilities || executorCapabilitiesFor(lane.executorType), { compact: true })}
       <div class="lane-row">
         ${stopButton}
         ${restartButton}
