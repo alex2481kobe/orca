@@ -141,7 +141,7 @@ export const executorCapabilityMethods = {
         controls: {
           model: { supported: false, values: [] },
           permissions: { supported: true, values: ['plan', 'read-only', 'auto-edit'] },
-          intelligence: { supported: true, values: ['low', 'medium', 'high', 'xhigh', 'max'], passthrough: true },
+          intelligence: { supported: true, values: ['low', 'medium', 'high', 'xhigh'], passthrough: true },
           structuredOutput: { supported: true, formats: ['mock-events'] },
           backgroundAgents: { supported: false },
         },
@@ -188,8 +188,8 @@ export const executorCapabilityMethods = {
           ? ['plan', 'read-only', 'auto-edit', 'bypass-permissions']
           : (supportsApprovalMode ? ['plan', 'read-only', 'auto-edit', 'bypass-permissions'] : ['plan', 'read-only', 'auto-edit', 'acceptEdits', 'bypassPermissions']));
       const intelligenceValues = supportsEffort
-        ? (effortChoices.length ? effortChoices : ['low', 'medium', 'high', 'xhigh', 'max'])
-        : ['low', 'medium', 'high', 'xhigh', 'max'];
+        ? (effortChoices.length ? effortChoices : ['low', 'medium', 'high', 'xhigh'])
+        : ['low', 'medium', 'high', 'xhigh'];
       const backgroundAgents = type === 'claude' && (
         helpHas(helpText, /^\s*agents\s/m)
         || helpHas(helpText, /(?:^|\s)--agents(?:\s|[=<])/m)
@@ -281,7 +281,7 @@ export const executorCapabilityMethods = {
       controls: {
         model: { supported: true, values: safeArray(profile.allowedModels), freeText: true, defaultValue: profile.defaultModel || null },
         permissions: { supported: false, values: ['restricted'] },
-        intelligence: { supported: false, values: ['low', 'medium', 'high', 'xhigh', 'max'], passthrough: true },
+        intelligence: { supported: false, values: ['low', 'medium', 'high', 'xhigh'], passthrough: true },
         structuredOutput: { supported: Boolean(profile.streaming), formats: profile.streaming ? ['provider-stream'] : ['provider-json'] },
         backgroundAgents: { supported: false },
       },

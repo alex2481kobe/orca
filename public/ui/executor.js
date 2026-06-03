@@ -87,11 +87,17 @@ export function cliExecutorOptions(selected = '') {
   // rather than hidden, so the operator can see what's available.
   return FIRST_CLASS_CLI_EXECUTOR_TYPES
     .map((id) => {
-      const installed = Boolean(profiles[id]);
+      const profile = profiles[id];
+      const installed = Boolean(profile);
       const selectedAttr = normalized === id ? ' selected' : '';
       const disabledAttr = installed ? '' : ' disabled';
       const suffix = installed ? '' : ' (not installed)';
-      return `<option value="${safeAttr(id)}"${selectedAttr}${disabledAttr}>${safeText(id)}${suffix}</option>`;
+      // Models the CLI actually reports (dynamic; empty for free-text CLIs like
+      // codex) — used by the per-agent 3-dots model picker.
+      const models = Array.isArray(profile?.capabilities?.controls?.model?.values)
+        ? profile.capabilities.controls.model.values : [];
+      const modelsAttr = installed ? ` data-models="${safeAttr(models.join(','))}"` : '';
+      return `<option value="${safeAttr(id)}"${selectedAttr}${disabledAttr}${modelsAttr}>${safeText(id)}${suffix}</option>`;
     })
     .join('');
 }

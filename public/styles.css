@@ -2568,6 +2568,42 @@ pre {
 .dd-compact .dd-trigger:hover { background: var(--hover); color: var(--text); }
 .dd-compact .dd-menu { min-width: 170px; }
 
+/* ===== Consolidated composer config popover (Reasoning / Model / Speed) ===== */
+.cfg { position: relative; flex: 0 0 auto; }
+.cfg-trigger {
+  align-items: center; background: transparent; border: 1px solid var(--line); border-radius: 999px;
+  color: var(--text); cursor: pointer; display: inline-flex; font: inherit; font-size: 0.85rem; gap: 0.3rem;
+  min-height: 2rem; padding: 0.32rem 0.7rem;
+}
+.cfg-trigger:hover { border-color: var(--muted); }
+.cfg.cfg-active .cfg-trigger { border-color: var(--text); }
+.cfg-caret { color: var(--muted); flex: 0 0 auto; }
+.cfg-pop {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px; bottom: calc(100% + 6px);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; gap: 1px; max-height: 360px;
+  min-width: 230px; overflow-y: auto; padding: 0.35rem; position: absolute; right: 0; z-index: 90;
+}
+.cfg-pop[hidden] { display: none; }
+.cfg-head { color: var(--muted); font-size: 0.7rem; letter-spacing: 0.06em; padding: 0.45rem 0.6rem 0.2rem; text-transform: uppercase; }
+.cfg-item {
+  align-items: center; background: transparent; border: 0; border-radius: 8px; color: var(--text); cursor: pointer;
+  display: flex; font: inherit; font-size: 0.88rem; gap: 0.6rem; justify-content: space-between; padding: 0.45rem 0.6rem;
+  text-align: left; width: 100%;
+}
+.cfg-item:hover { background: var(--hover); }
+.cfg-check { color: var(--muted); }
+.cfg-arrow { color: var(--muted); font-size: 1.05rem; line-height: 1; }
+.cfg-sep { border-top: 1px solid var(--line); margin: 0.25rem 0.2rem; }
+.cfg-back { background: transparent; border: 0; border-radius: 8px; color: var(--muted); cursor: pointer; font: inherit; font-size: 0.82rem; padding: 0.4rem 0.6rem; text-align: left; width: 100%; }
+.cfg-back:hover { background: var(--hover); color: var(--text); }
+.cfg-note { color: var(--muted); font-size: 0.8rem; padding: 0.4rem 0.6rem; }
+.cfg-free { display: flex; gap: 0.3rem; padding: 0.4rem; }
+.cfg-model-input { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; color: var(--text); flex: 1 1 auto; font: inherit; font-size: 0.85rem; min-width: 0; padding: 0.35rem 0.5rem; }
+.cfg-model-use { background: var(--text); border: 0; border-radius: 8px; color: #1a1a1a; cursor: pointer; flex: 0 0 auto; font-size: 0.82rem; padding: 0 0.75rem; }
+.cfg-speed { align-items: flex-start; flex-direction: column; gap: 0.15rem; }
+.cfg-speed-main { align-items: center; display: flex; gap: 0.4rem; }
+.cfg-speed-sub { color: var(--muted); font-size: 0.74rem; }
+
 /* ===== ChatGPT-style sidebar header + full-height shell ===== */
 .sidebar-head { align-items: center; display: flex; gap: 0.5rem; justify-content: space-between; padding: 0.4rem 0.3rem 0.7rem; }
 .sidebar-brand { color: var(--text); font-size: 1.02rem; font-weight: 600; padding-left: 0.35rem; }

@@ -23,6 +23,7 @@ export async function handleOrchestratorMessage(event) {
   const model = String(payload.model || '').trim() || String(payload.modelPreset || '').trim() || null;
   const intelligenceProfile = String(payload.intelligenceProfile || '').trim() || 'high';
   const permissionsProfile = String(payload.permissionsProfile || '').trim() || 'auto-edit';
+  const speed = String(payload.speed || '').trim() || 'standard';
   // Sending your own chat message IS the approval — a real chat doesn't pop a
   // confirm modal on every message. The composer already shows mode/model, so the
   // operator's send is the explicit, informed action.
@@ -41,6 +42,7 @@ export async function handleOrchestratorMessage(event) {
       model,
       permissionsProfile,
       intelligenceProfile,
+      speed,
       attachments,
       actor: 'dashboard',
       approved: true,

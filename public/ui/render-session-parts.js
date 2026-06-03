@@ -7,6 +7,7 @@ import { shell } from './state.js';
 import { renderAlert, writeHtml } from './dom.js';
 import { api } from './api.js';
 import { apiProviderOptions, cliExecutorOptions, normalizeExecutorType, defaultExecutorType } from './executor.js';
+import { renderComposerConfig } from './composer-config.js';
 
 export function renderOrchestratorTerminal(project, session, lane) {
   if (!lane) {
@@ -196,6 +197,8 @@ export function renderOrchestratorConsole(session) {
         <textarea name="message" rows="1" placeholder="Message ${safeText(selectedExecutor)}…"></textarea>
         <input type="file" id="composer-file-input" data-session-id="${safeAttr(session.id)}" multiple hidden />
         <input type="hidden" name="model" value="${safeAttr(selectedModel)}" />
+        <input type="hidden" name="intelligenceProfile" value="${safeAttr(selectedIntelligence)}" />
+        <input type="hidden" name="speed" value="standard" />
         <div class="composer-bar">
           <button class="composer-attach" data-action="pickAttachment" data-session-id="${safeAttr(session.id)}" type="button" title="Attach screenshot or document" aria-label="Attach file">
             <svg viewBox="0 0 20 20" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 4.5v11M4.5 10h11"/></svg>
@@ -209,9 +212,7 @@ export function renderOrchestratorConsole(session) {
             ${runModeOptionsFor(selectedExecutor, selectedRunMode)}
           </select>
           <span class="composer-spacer"></span>
-          <select name="intelligenceProfile" class="composer-select" aria-label="Intelligence">
-            ${intelligenceOptionsFor(selectedExecutor, selectedIntelligence)}
-          </select>
+          ${renderComposerConfig(selectedExecutor, { model: selectedModel, intelligence: selectedIntelligence, speed: 'standard' })}
           <button class="composer-send" type="submit" aria-label="Send message">
             <svg viewBox="0 0 20 20" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15.5V5M5.5 9.5L10 5l4.5 4.5"/></svg>
           </button>

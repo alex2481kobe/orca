@@ -15,6 +15,7 @@ import { refresh, showArtifacts, parseRoute, connectEventStream, startPolling } 
 import { handlePrivateAccessSettings, handleNotificationSettings, handleNotificationAction, handleCreatePrivateAccessTarget, handlePrivateAccessAction, handleProviderAction, handleAppBackupAction, handleCleanupSchedule, handleCreateMcpTool, handleCreateProject, handleCreateSession, handleAddProjectQuickLink, handleCreateLane, handleOrchestratorMessage, handleLaneControlsUpdate, handleAuditEventAction, handleWorkstationPicker, buildCleanupScheduleBody, buildMcpToolBody, buildApprovedActionBody, toObj } from './ui/handlers.js';
 import { handleLaneActions, handleSessionActions, handleSystemActions } from './ui/handlers-actions.js';
 import { initDropdowns, enhanceSelects } from './ui/dropdown.js';
+import { initComposerConfig } from './ui/composer-config.js';
 
 
 
@@ -704,6 +705,7 @@ window.addEventListener('popstate', () => {
 initializeApiToken();
 registerServiceWorker();
 initDropdowns();
+initComposerConfig();
 renderMobileManifest();
 setupSidebarReorder();
 // Connect the live SSE stream only after the initial load settles. A persistent

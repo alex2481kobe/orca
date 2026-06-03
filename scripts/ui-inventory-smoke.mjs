@@ -341,9 +341,9 @@ async function checkRoute(page, viewport, screen) {
       ariaDisabled: button.getAttribute('aria-disabled') || '',
       ariaLabel: button.getAttribute('aria-label') || '',
       title: button.getAttribute('title') || '',
-      // Custom-dropdown trigger/option buttons are wired by the dropdown controller
-      // (delegated listener), not data-action — exempt from the dead-button check.
-      dropdown: Boolean(button.closest('.dd')),
+      // Custom-dropdown + composer-config buttons are wired by their controllers
+      // (delegated listeners), not data-action — exempt from the dead-button check.
+      dropdown: Boolean(button.closest('.dd') || button.closest('.cfg')),
     }));
     const visibleLinksWithoutHref = Array.from(document.querySelectorAll('a')).filter((link) => {
       const style = window.getComputedStyle(link);
