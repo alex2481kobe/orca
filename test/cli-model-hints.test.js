@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseModelHints } from '../src/registry-cli-info.js';
+import { parseModelHints, parseEffortChoices } from '../src/registry-cli-info.js';
 
 // Real-world shape of Claude's `claude --help` --model block. The apostrophe in
 // "model's" used to desync quote parsing and drop the full-name example.
@@ -34,4 +34,19 @@ test('parseModelHints returns [] when the CLI documents no model examples', () =
 test('parseModelHints ignores prose stopwords even when quoted', () => {
   const help = "  --model <model>  Pass the 'model' alias or the 'latest' build\n";
   assert.deepEqual(parseModelHints(help), []);
+});
+
+// Claude prints its effort levels on a continuation line WITHOUT a "choices:"
+// prefix, so the generic parseHelpChoices misses them. parseEffortChoices reads
+// the parenthesised enumeration in the --effort option block. This is what makes
+// "max" appear for claude (and stay absent for codex, which has no --effort).
+test('parseEffortChoices reads the parenthesised --effort enumeration', () => {
+  const help = `  --effort <level>                      Effort level for the current session
+                                        (low, medium, high, xhigh, max)
+  --settings <file>                     Path to settings`;
+  assert.deepEqual(parseEffortChoices(help), ['low', 'medium', 'high', 'xhigh', 'max']);
+});
+
+test('parseEffortChoices returns [] when no --effort flag is documented', () => {
+  assert.deepEqual(parseEffortChoices('  --model <model>  pick a model\n'), []);
 });

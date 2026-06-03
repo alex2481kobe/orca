@@ -8,7 +8,7 @@ import { getExecutorProfile, normalizeExecutorType } from './executor.js';
 import { safeText, safeAttr } from './format.js';
 
 // Pretty labels for effort levels (xhigh -> "Extra High"); anything else is title-cased.
-const REASONING_LABELS = { low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra High', max: 'Max' };
+const REASONING_LABELS = { low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra High', max: 'Max', ultra: 'Ultra' };
 const SPEED_OPTIONS = [
   { v: 'standard', label: 'Standard', sub: 'Default speed' },
   { v: 'fast', label: 'Fast', sub: '1.5x speed, increased usage' },
@@ -18,10 +18,25 @@ function titleCase(s) { return String(s || '').replace(/(^|[\s-])\w/g, (m) => m.
 function reasonLabel(v) { return REASONING_LABELS[v] || titleCase(v); }
 function shortModel(m) { return String(m || '').replace(/^gpt-/i, '').replace(/^claude-/i, ''); }
 
-function reasoningValues(executorType) {
+// Reasoning levels are PER-MODEL when the CLI exposes a catalog (codex lists each
+// model's supported_reasoning_levels), else per-CLI from detected capabilities,
+// else a generic fallback. This is what keeps codex on low/medium/high/xhigh (no
+// "max") while claude surfaces its real low/medium/high/xhigh/max set.
+function reasoningValues(executorType, model) {
+  const cat = modelCatalog(executorType);
+  if (cat && model) {
+    const hit = cat.find((m) => m.slug === model);
+    if (hit && Array.isArray(hit.efforts) && hit.efforts.length) return hit.efforts.filter(Boolean);
+  }
   const node = getExecutorProfile(executorType)?.capabilities?.controls?.intelligence;
   const vals = Array.isArray(node?.values) ? node.values.filter(Boolean) : [];
   return vals.length ? vals : ['low', 'medium', 'high', 'xhigh'];
+}
+// A model's default reasoning effort from the catalog (codex), when present.
+function defaultEffortFor(executorType, model) {
+  const cat = modelCatalog(executorType);
+  const hit = cat && model ? cat.find((m) => m.slug === model) : null;
+  return hit?.defaultEffort || '';
 }
 function modelValues(executorType) {
   const node = getExecutorProfile(executorType)?.capabilities?.controls?.model;
@@ -38,11 +53,13 @@ function modelItems(executorType) {
   return modelValues(executorType).map((v) => ({ v, label: shortModel(v) }));
 }
 
+// Two-tone label: the model slug in bright text, the reasoning level muted. They
+// read as separate by default and only "connect" into one pill on hover/active
+// (Codex-style) via the .cfg-trigger background.
 export function configLabel({ model, intelligence }) {
-  const parts = [];
-  if (model) parts.push(shortModel(model));
-  parts.push(reasonLabel(intelligence || 'high'));
-  return parts.join(' ');
+  const m = model ? `<span class="cfg-lab-model">${safeText(shortModel(model))}</span>` : '';
+  const r = `<span class="cfg-lab-reason">${safeText(reasonLabel(intelligence || 'high'))}</span>`;
+  return `${m}${r}`;
 }
 
 // Refresh the visible "{model} {reasoning}" label from the form's current hidden
@@ -56,7 +73,7 @@ export function renderComposerConfig(executorType, state = {}) {
   return `
     <div class="cfg">
       <button type="button" class="cfg-trigger" aria-haspopup="menu" aria-expanded="false" title="Model, reasoning &amp; speed">
-        <span class="cfg-label">${safeText(configLabel(state))}</span>
+        <span class="cfg-label">${configLabel(state)}</span>
         <svg class="cfg-caret" viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8l5 5 5-5"/></svg>
       </button>
       <div class="cfg-pop" role="menu" hidden></div>
@@ -66,6 +83,14 @@ export function renderComposerConfig(executorType, state = {}) {
 
 // ---- runtime ----
 let _open = null;
+let _hideTimer = null;
+function cancelHide() { if (_hideTimer) { clearTimeout(_hideTimer); _hideTimer = null; } }
+// Grace period before a submenu closes so a slow diagonal move from the row,
+// across the small gap, into the flyout doesn't snap it shut.
+function scheduleHide(cfg) {
+  cancelHide();
+  _hideTimer = setTimeout(() => { _hideTimer = null; if (_open === cfg) hideFlyout(cfg); }, 280);
+}
 
 function form(cfg) { return cfg.closest('form'); }
 function field(cfg, name) { return form(cfg)?.querySelector(`input[name="${name}"]`); }
@@ -73,14 +98,25 @@ function executorOf(cfg) { return normalizeExecutorType(form(cfg)?.querySelector
 function val(cfg, name) { return field(cfg, name)?.value || ''; }
 
 function setLabel(cfg) {
-  cfg.querySelector('.cfg-label').textContent = configLabel({ model: val(cfg, 'model'), intelligence: val(cfg, 'intelligenceProfile') });
+  cfg.querySelector('.cfg-label').innerHTML = configLabel({ model: val(cfg, 'model'), intelligence: val(cfg, 'intelligenceProfile') });
+}
+
+// When the model changes, keep the reasoning level valid for the new model
+// (e.g. switching off a model that supported "max"). Falls back to the model's
+// default effort, else the highest available level.
+function clampReasoning(cfg, model) {
+  const f = field(cfg, 'intelligenceProfile');
+  if (!f) return;
+  const allowed = reasoningValues(executorOf(cfg), model);
+  if (allowed.includes(f.value)) return;
+  f.value = defaultEffortFor(executorOf(cfg), model) || (allowed.includes('high') ? 'high' : allowed[allowed.length - 1]) || 'high';
 }
 
 function mainView(cfg) {
   const ex = executorOf(cfg);
   const reason = val(cfg, 'intelligenceProfile') || 'high';
   const model = val(cfg, 'model');
-  const reasonRows = reasoningValues(ex).map((v) =>
+  const reasonRows = reasoningValues(ex, model).map((v) =>
     `<button type="button" class="cfg-item cfg-reason${v === reason ? ' selected' : ''}" data-v="${safeAttr(v)}">${safeText(reasonLabel(v))}${v === reason ? '<span class="cfg-check">✓</span>' : ''}</button>`,
   ).join('');
   return `
@@ -120,6 +156,7 @@ function renderMain(cfg) {
 }
 
 function hideFlyout(cfg) {
+  cancelHide();
   const fly = cfg.querySelector('.cfg-flyout');
   if (fly) { fly.hidden = true; fly.dataset.sub = ''; }
   cfg.querySelectorAll('.cfg-row.active').forEach((r) => r.classList.remove('active'));
@@ -135,16 +172,19 @@ function showFlyout(cfg, row) {
     fly.dataset.sub = sub;
   }
   fly.hidden = false;
+  cancelHide();
   cfg.querySelectorAll('.cfg-row').forEach((r) => r.classList.toggle('active', r === row));
   const cfgRect = cfg.getBoundingClientRect();
   const popRect = cfg.querySelector('.cfg-pop').getBoundingClientRect();
   const rowRect = row.getBoundingClientRect();
-  // Right edge of the flyout sits just left of the popover; bottom aligned to the row.
-  fly.style.right = `${Math.round(cfgRect.right - popRect.left + 6)}px`;
+  // Overlap the popover by 1px so there's no dead gap between the menu and the
+  // flyout for the cursor to fall through; bottom aligned to the row.
+  fly.style.right = `${Math.round(cfgRect.right - popRect.left - 1)}px`;
   fly.style.bottom = `${Math.round(cfgRect.bottom - rowRect.bottom)}px`;
 }
 
 function close() {
+  cancelHide();
   if (!_open) return;
   _open.querySelector('.cfg-pop').hidden = true;
   hideFlyout(_open);
@@ -163,13 +203,25 @@ function open(cfg) {
 
 export function initComposerConfig() {
   // Submenus open on HOVER and appear beside the menu (flyout), not replacing it.
+  // Closing is debounced (hover-intent) so a slow move from the row into the
+  // flyout never makes it vanish — only a deliberate move onto another main item,
+  // or leaving the menu for the grace period, dismisses it.
   document.addEventListener('mouseover', (event) => {
     if (!_open) return;
-    if (event.target.closest?.('.cfg-flyout')) return; // stay open while in the flyout
+    const inFlyout = event.target.closest?.('.cfg-flyout');
+    if (inFlyout && inFlyout.closest('.cfg') === _open) { cancelHide(); return; } // stay open in flyout
     const row = event.target.closest?.('.cfg-row');
     if (row && row.closest('.cfg') === _open) { showFlyout(_open, row); return; }
-    // Hovering anything else in the main menu (e.g. a reasoning row) closes the flyout.
-    if (event.target.closest?.('.cfg-pop')) hideFlyout(_open);
+    // Hovering another main-menu item (e.g. a reasoning row): close after a grace
+    // period so crossing the gap to the flyout (briefly over neither) is allowed.
+    if (event.target.closest?.('.cfg-pop')) scheduleHide(_open);
+  });
+  // Leaving the whole control entirely also closes the submenu after the grace.
+  document.addEventListener('mouseout', (event) => {
+    if (!_open) return;
+    const to = event.relatedTarget;
+    if (to && to.closest?.('.cfg') === _open) return; // still inside this control
+    scheduleHide(_open);
   });
   document.addEventListener('click', (event) => {
     const t = event.target;
@@ -192,13 +244,16 @@ export function initComposerConfig() {
     if (model) {
       event.preventDefault();
       const f = field(cfg, 'model'); if (f) f.value = model.dataset.v;
+      clampReasoning(cfg, model.dataset.v);
       setLabel(cfg); close();
       return;
     }
     if (t.closest('.cfg-model-use')) {
       event.preventDefault();
       const input = cfg.querySelector('.cfg-model-input');
-      const f = field(cfg, 'model'); if (f) f.value = (input?.value || '').trim();
+      const value = (input?.value || '').trim();
+      const f = field(cfg, 'model'); if (f) f.value = value;
+      clampReasoning(cfg, value);
       setLabel(cfg); close();
       return;
     }

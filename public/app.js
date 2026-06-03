@@ -16,6 +16,7 @@ import { handlePrivateAccessSettings, handleNotificationSettings, handleNotifica
 import { handleLaneActions, handleSessionActions, handleSystemActions } from './ui/handlers-actions.js';
 import { initDropdowns, enhanceSelects } from './ui/dropdown.js';
 import { initComposerConfig, refreshConfigLabel } from './ui/composer-config.js';
+import { initComposerContext } from './ui/composer-context.js';
 import { defaultModelFor } from './ui/executor.js';
 
 
@@ -722,6 +723,7 @@ initializeApiToken();
 registerServiceWorker();
 initDropdowns();
 initComposerConfig();
+initComposerContext();
 renderMobileManifest();
 setupSidebarReorder();
 // Connect the live SSE stream only after the initial load settles. A persistent

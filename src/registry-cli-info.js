@@ -89,6 +89,34 @@ export function parseHelpChoices(helpText, flagName) {
     .slice(0, 32);
 }
 
+// Extract effort/reasoning levels a CLI documents for `--effort`. Claude prints
+// the levels on a continuation line WITHOUT a "choices:" prefix, e.g.:
+//   --effort <level>   Effort level for the current session
+//                      (low, medium, high, xhigh, max)
+// so parseHelpChoices misses them. Walk the --effort option block and pull the
+// first parenthesised comma list of bare words. Returns [] when absent.
+export function parseEffortChoices(helpText) {
+  const lines = String(helpText || '').split(/\r?\n/);
+  const startIdx = lines.findIndex((line) => /(^|\s)--effort(\s|<|=)/i.test(line));
+  if (startIdx < 0) return [];
+  const block = [lines[startIdx]];
+  for (let i = startIdx + 1; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (!line.trim()) break; // blank line ends the option block
+    if (/^\s*-{1,2}[a-z]/i.test(line)) break; // next option starts
+    if (!/^\s/.test(line)) break; // dedented prose
+    block.push(line);
+  }
+  const match = block.join(' ').match(/\(([a-z0-9][a-z0-9,\s|/-]+)\)/i);
+  if (!match) return [];
+  return match[1]
+    .split(/[,\s|/]+/)
+    .map((value) => value.replace(/["'`]/g, '').trim().toLowerCase())
+    .filter((value) => /^[a-z][a-z0-9-]*$/.test(value))
+    .filter((value, index, all) => all.indexOf(value) === index)
+    .slice(0, 12);
+}
+
 // Extract model aliases / example names a CLI documents in its `--model` help
 // block. Claude, for example, prints: "Provide an alias for the latest model
 // (e.g. 'sonnet' or 'opus') or a model's full name (e.g. 'claude-opus-4-8')."

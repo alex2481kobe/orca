@@ -78,6 +78,47 @@ export function describeRepoRoot(repoRoot) {
   };
 }
 
+// Read branch + worktree state for a repo so the composer can show (Codex-style)
+// the branch picker and existing worktrees. Returns { isGit:false } for non-git
+// folders (agents still run there — git info is just unavailable). Never throws.
+export function readRepoGitInfo(repoRoot) {
+  const descriptor = describeRepoRoot(repoRoot);
+  if (!descriptor.ok) return { isGit: false, reason: descriptor.reason };
+  const root = descriptor.repoRoot;
+  const branchOut = runGit(
+    ['for-each-ref', '--format=%(refname:short)', '--sort=-committerdate', '--count=200', 'refs/heads'],
+    { cwd: root },
+  );
+  const branches = branchOut.status === 0
+    ? branchOut.stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean).slice(0, 200)
+    : [];
+  const worktrees = [];
+  const wtOut = runGit(['worktree', 'list', '--porcelain'], { cwd: root });
+  if (wtOut.status === 0) {
+    let current = null;
+    wtOut.stdout.split(/\r?\n/).forEach((line) => {
+      if (line.startsWith('worktree ')) {
+        current = { path: line.slice('worktree '.length).trim(), branch: null, head: null };
+        worktrees.push(current);
+      } else if (current && line.startsWith('branch ')) {
+        current.branch = line.slice('branch '.length).trim().replace(/^refs\/heads\//, '');
+      } else if (current && line.startsWith('HEAD ')) {
+        current.head = line.slice('HEAD '.length).trim().slice(0, 12);
+      } else if (current && line.startsWith('detached')) {
+        current.branch = '(detached)';
+      }
+    });
+  }
+  return {
+    isGit: true,
+    repoRoot: root,
+    currentBranch: descriptor.headBranch,
+    remoteUrl: descriptor.remoteUrl,
+    branches,
+    worktrees: worktrees.slice(0, 50),
+  };
+}
+
 /**
  * Create a git worktree for a lane.
  *

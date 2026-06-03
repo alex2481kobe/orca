@@ -13,7 +13,7 @@ import {
   normalizeCritiqueMode,
 } from './registry-lane-config.js';
 import { sanitizeSettingsOverrides } from './effective-settings.js';
-import { directoryExists } from './worktree-manager.js';
+import { directoryExists, readRepoGitInfo } from './worktree-manager.js';
 
 export const sessionMethods = {
   updateSession(locator, patch = {}, context = {}) {
@@ -331,5 +331,14 @@ export const sessionMethods = {
 
   getSession(locator) {
     return this.sessions.find((session) => session.id === locator);
+  },
+
+  // Branch + worktree state for a session's repoRoot, for the composer git picker.
+  // Non-git (or no) repoRoot returns { isGit:false } — the agent still runs there.
+  getSessionGitInfo(sessionLocator) {
+    const session = this.getSession(sessionLocator);
+    if (!session) throw { status: 404, message: 'Session not found.' };
+    if (!session.repoRoot) return { isGit: false, reason: 'No folder configured for this session.' };
+    return readRepoGitInfo(session.repoRoot);
   },
 };

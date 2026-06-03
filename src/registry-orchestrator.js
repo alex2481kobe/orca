@@ -132,6 +132,8 @@ export const orchestratorMethods = {
     permissionsProfile,
     intelligenceProfile,
     speed,
+    branch,
+    executionMode,
     targetUrl,
     attachments = [],
     baseUrl = '',
@@ -170,9 +172,16 @@ export const orchestratorMethods = {
       const abs = path.join(process.cwd(), url.replace(/^\/+/, ''));
       return abs.startsWith(artifactsRoot + path.sep) ? abs : null;
     };
-    const promptText = attachmentList.length
+    const branchHint = String(branch || '').trim().slice(0, 200);
+    const baseText = attachmentList.length
       ? `${text}\n\nAttached files (absolute paths you can read):\n${attachmentList.map(resolveAttachmentPath).filter(Boolean).map((p) => `- ${p}`).join('\n')}`
       : text;
+    // The composer's branch picker is a working-branch hint for the agent (the
+    // orchestrator runs in the shared repo, so it should switch/create the branch
+    // itself rather than us checking out under it).
+    const promptText = branchHint
+      ? `${baseText}\n\nWork on git branch: ${branchHint} (create or switch to it before making changes).`
+      : baseText;
 
     const resolvedExecutorType = this.resolveOrchestratorExecutorType(session, executorType);
     const executorCapabilities = this.getExecutorCapabilitiesMatrix();
@@ -204,6 +213,7 @@ export const orchestratorMethods = {
         permissionsProfile,
         intelligenceProfile,
         speed,
+        branch: branchHint,
         targetUrl,
       }, {
         actor: context.actor || 'dashboard',

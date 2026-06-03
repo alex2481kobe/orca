@@ -127,6 +127,14 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
       }
     }
 
+    if (parts.length === 4 && parts[3] === 'git' && method === 'GET') {
+      try {
+        return sendJson(res, 200, registry.getSessionGitInfo(session.id));
+      } catch (error) {
+        return sendJson(res, error.status || 500, { error: error.message || 'Could not read git info.' });
+      }
+    }
+
     if (parts.length === 4 && parts[3] === 'orchestrator' && method === 'GET') {
       try {
         return sendJson(res, 200, registry.getOrchestratorThread(session.id));
@@ -153,6 +161,8 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
           permissionsProfile: body.permissionsProfile,
           intelligenceProfile: body.intelligenceProfile,
           speed: body.speed,
+          branch: body.branch,
+          executionMode: body.executionMode,
           targetUrl: body.targetUrl,
           attachments: body.attachments,
           baseUrl: origin,

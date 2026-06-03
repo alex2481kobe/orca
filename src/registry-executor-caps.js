@@ -27,6 +27,7 @@ import {
   getCliHelp,
   helpHas,
   parseHelpChoices,
+  parseEffortChoices,
   parseModelHints,
   compactCapabilities,
 } from './registry-cli-info.js';
@@ -224,20 +225,29 @@ export const executorCapabilityMethods = {
       const modelValues = [...new Set([...catalogSlugs, ...modelHints, ...safeArray(profile.allowedModels)])].slice(0, 32);
       const permissionChoices = parseHelpChoices(helpText, '--permission-mode');
       const outputChoices = parseHelpChoices(helpText, '--output-format');
+      // Prefer an explicit "choices:" list; otherwise read the parenthesised
+      // enumeration on the continuation line (claude prints "(low, …, max)").
       const effortChoices = parseHelpChoices(helpText, '--effort');
+      const effortEnum = effortChoices.length ? effortChoices : parseEffortChoices(helpText);
       const permissionValues = permissionChoices.length
         ? permissionChoices
         : (type === 'codex'
           ? ['plan', 'read-only', 'auto-edit', 'bypass-permissions']
           : (supportsApprovalMode ? ['plan', 'read-only', 'auto-edit', 'bypass-permissions'] : ['plan', 'read-only', 'auto-edit', 'acceptEdits', 'bypassPermissions']));
       const intelligenceValues = supportsEffort
-        ? (effortChoices.length ? effortChoices : ['low', 'medium', 'high', 'xhigh'])
+        ? (effortEnum.length ? effortEnum : ['low', 'medium', 'high', 'xhigh'])
         : ['low', 'medium', 'high', 'xhigh'];
       const backgroundAgents = type === 'claude' && (
         helpHas(helpText, /^\s*agents\s/m)
         || helpHas(helpText, /(?:^|\s)--agents(?:\s|[=<])/m)
         || helpHas(helpText, /(?:^|\s)--agent(?:\s|[=<])/m)
       );
+      // Cloud capability detection. codex exposes a `cloud` subcommand (browse
+      // Codex Cloud tasks) and claude exposes `ultrareview` (cloud-hosted review).
+      // Neither is a non-interactive "run this prompt in the cloud", so the UI
+      // surfaces Cloud per-CLI but keeps it non-runnable until that's wired.
+      const cloudCommand = (type === 'codex' && helpHas(helpText, /^\s*cloud\s/m)) ? 'cloud'
+        : ((type === 'claude' && helpHas(helpText, /^\s*ultrareview\s/m)) ? 'ultrareview' : null);
       const attachable = type === 'claude' && helpHas(helpText, /^\s*attach\s/m);
       const stoppable = type === 'claude' && helpHas(helpText, /^\s*stop\s/m);
       const logs = type === 'claude' && helpHas(helpText, /^\s*logs\s/m);
@@ -286,6 +296,13 @@ export const executorCapabilityMethods = {
             logs,
             stoppable,
             commands: backgroundAgents ? ['agents', 'attach', 'logs', 'stop', 'respawn'].filter((command) => command === 'agents' || helpHas(helpText, new RegExp(`^\\s*${command}\\s`, 'm'))) : [],
+          },
+          cloud: {
+            detected: Boolean(cloudCommand),
+            command: cloudCommand,
+            // No non-interactive cloud run exists for these CLIs yet, so a Cloud
+            // run mode is surfaced but not yet selectable.
+            runnable: false,
           },
         },
         invocation: {

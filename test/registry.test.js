@@ -2194,6 +2194,40 @@ test('Worktree manager creates per-lane worktree under approved base and cleanup
   }
 });
 
+test('getSessionGitInfo reports branches/worktrees for git repos and isGit:false otherwise', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const { spawnSync } = await import('node:child_process');
+    // Git repo within the approved root (process.cwd() == temp dir).
+    const repoDir = path.join(process.cwd(), 'git-info-repo');
+    await fs.mkdir(repoDir, { recursive: true });
+    const g = (...args) => spawnSync('git', args, { cwd: repoDir, encoding: 'utf8' });
+    g('init', '-q');
+    g('config', 'user.email', 't@l');
+    g('config', 'user.name', 't');
+    await fs.writeFile(path.join(repoDir, 'README.md'), 'hi');
+    g('add', 'README.md');
+    g('commit', '-qm', 'init');
+    g('branch', 'feature/x');
+
+    const project = registry.createProject({ name: 'Git Info' }, { actor: 'test', approved: true });
+    const gitSession = registry.createSession(project.id, { name: 'git', repoRoot: repoDir }, { actor: 'test', approved: true });
+    const info = registry.getSessionGitInfo(gitSession.id);
+    assert.equal(info.isGit, true);
+    assert.ok(info.branches.includes('feature/x'), 'should list created branch');
+    assert.ok(info.currentBranch, 'should report the current branch');
+    assert.ok(Array.isArray(info.worktrees) && info.worktrees.length >= 1, 'should list at least the main worktree');
+
+    // Non-git folder → isGit:false (agent still runs there).
+    const plainDir = path.join(process.cwd(), 'git-info-plain');
+    await fs.mkdir(plainDir, { recursive: true });
+    const plainSession = registry.createSession(project.id, { name: 'plain', repoRoot: plainDir }, { actor: 'test', approved: true });
+    assert.equal(registry.getSessionGitInfo(plainSession.id).isGit, false);
+  } finally {
+    await cleanup();
+  }
+});
+
 test('Session creation refuses nonexistent or out-of-bounds repoRoot but accepts non-git dirs', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {

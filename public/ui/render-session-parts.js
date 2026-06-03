@@ -190,10 +190,12 @@ export function renderChatThreadInner(session) {
         </div>
       </div>`;
   }
+  // Codex-style hero for a fresh chat: "What should we build in {project}?"
+  const project = (shell.projects || []).find((p) => p.id === session.projectId);
+  const heroName = project?.name || session.name || 'this project';
   const emptyState = `
     <div class="chat-empty">
-      <h2>${safeText(session.name)}</h2>
-      <p>Message the orchestrator to plan work, spawn executors, and review results.</p>
+      <h2>What should we build in ${safeText(heroName)}?</h2>
     </div>`;
   return `${messageRows || emptyState}${activity}${renderSessionApprovals(session)}`;
 }
@@ -225,11 +227,13 @@ export function renderOrchestratorConsole(session) {
       <div class="chat-thread" id="chat-thread-${safeAttr(session.id)}"></div>
       <form id="orchestrator-message-form" data-session-id="${safeAttr(session.id)}" class="composer composer-shell">
         <div id="composer-attachments-${safeAttr(session.id)}" class="composer-attachments">${renderComposerAttachmentChips(session.id)}</div>
-        <textarea name="message" rows="1" placeholder="Message ${safeText(selectedExecutor)}…"></textarea>
+        <textarea name="message" rows="1" placeholder="Do anything"></textarea>
         <input type="file" id="composer-file-input" data-session-id="${safeAttr(session.id)}" multiple hidden />
         <input type="hidden" name="model" value="${safeAttr(selectedModel)}" />
         <input type="hidden" name="intelligenceProfile" value="${safeAttr(selectedIntelligence)}" />
         <input type="hidden" name="speed" value="standard" />
+        <input type="hidden" name="branch" value="" />
+        <input type="hidden" name="executionMode" value="local" />
         <div class="composer-bar">
           <button class="composer-attach" data-action="pickAttachment" data-session-id="${safeAttr(session.id)}" type="button" title="Attach screenshot or document" aria-label="Attach file">
             <svg viewBox="0 0 20 20" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 4.5v11M4.5 10h11"/></svg>
@@ -248,6 +252,7 @@ export function renderOrchestratorConsole(session) {
             <svg viewBox="0 0 20 20" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15.5V5M5.5 9.5L10 5l4.5 4.5"/></svg>
           </button>
         </div>
+        <div class="composer-context" id="composer-context-${safeAttr(session.id)}"></div>
       </form>
     </article>
   `;

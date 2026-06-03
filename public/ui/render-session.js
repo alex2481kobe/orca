@@ -5,6 +5,7 @@ import { writeHtml } from './dom.js';
 import { renderLaneExecutorGuidance } from './render-fragments.js';
 import { safeText, safeAttr } from './format.js';
 import { renderExecutorSidePanel, renderOrchestratorConsole, renderChatThreadInner, renderExecutorListInner } from './render-session-parts.js';
+import { hydrateComposerContext } from './composer-context.js';
 
 export function renderSession(project, session) {
   const sid = session.id;
@@ -79,4 +80,7 @@ export function renderSession(project, session) {
   const agentSel = document.querySelector('#orchestrator-message-form select[name="executorType"]');
   if (agentSel) agentSel.disabled = (session.orchestratorThread?.messages?.length || 0) > 0;
   renderLaneExecutorGuidance(document.getElementById('create-lane-form'));
+  // Fill the Codex-style context row (Local/Cloud + branch picker). Cached per
+  // session so the poll loop doesn't refetch; writeHtml skips identical HTML.
+  hydrateComposerContext(session);
 }
