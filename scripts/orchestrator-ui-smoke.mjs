@@ -124,12 +124,11 @@ try {
     await page.goto(`${base}${session.body.route}`, { waitUntil: 'networkidle', timeout: 20000 });
     await page.waitForSelector('#orchestrator-message-form textarea[name="message"]', { timeout: 15000 });
     await page.selectOption('#orchestrator-message-form select[name="executorType"]', 'mock');
-    // Model/intelligence options are now dynamic per executor. For 'mock' the
-    // preset/intelligence selects are "Default (CLI config)" only, so drive the
-    // model via the always-present free-text custom-model input and pick a mode
-    // that mock actually supports.
-    await page.fill('#orchestrator-message-form input[name="model"]', 'gpt-5');
+    // Mode is in the composer toolbar; the custom model lives in the "⋯" options
+    // popover, so open it before filling the model.
     await page.selectOption('#orchestrator-message-form select[name="permissionsProfile"]', 'plan');
+    await page.click('#orchestrator-message-form .composer-more > summary');
+    await page.fill('#orchestrator-message-form input[name="model"]', 'gpt-5');
     await page.fill('#orchestrator-message-form textarea[name="message"]', 'Start the launch verification lane from the dashboard chat.');
     const [turnResponse] = await Promise.all([
       page.waitForResponse((response) => response.url().includes('/orchestrator/messages'), { timeout: 15000 }),
@@ -139,9 +138,9 @@ try {
       fail('orchestrator message response', `${turnResponse.status()} ${await turnResponse.text()}`);
     }
     try {
+      // Codex-style chat: the turn renders user + assistant message bubbles.
       await page.waitForFunction(() =>
-        document.querySelectorAll('.orchestrator-message').length >= 2 &&
-        Boolean(document.querySelector('.agent-event-list')),
+        document.querySelectorAll('.chat-thread .msg').length >= 2,
       { timeout: 15000 });
     } catch (error) {
       const text = await page.evaluate(() => (document.body.textContent || '').slice(0, 4000));

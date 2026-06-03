@@ -1,7 +1,7 @@
 // Render view module (split from render-views.js).
 
 import { formatMeta, formatRelative, safeAttr, safeText, stateBadge } from './format.js';
-import { executorCapabilitiesFor, isLiveLaneState, isRestartableLaneState, laneDetailRoute, renderExecutorCapabilities } from './render-helpers.js';
+import { executorCapabilitiesFor, isLiveLaneState, isRestartableLaneState, laneDetailRoute, renderExecutorCapabilities, pendingAuditsForSession } from './render-helpers.js';
 import { activeOrchestratorLaneForSession, intelligenceOptionsFor, modelPresetOptionsFor, renderAgentEventTimeline, runModeOptionsFor } from './render-fragments.js';
 import { shell } from './state.js';
 import { renderAlert, writeHtml } from './dom.js';
@@ -158,13 +158,12 @@ export function renderOrchestratorConsole(session) {
   const thread = session.orchestratorThread || {};
   const messages = Array.isArray(thread.messages) ? thread.messages : [];
   const activeLane = activeOrchestratorLaneForSession(session);
-  const messageRows = messages.slice(-12).map((message) => {
+  const messageRows = messages.slice(-50).map((message) => {
     const role = String(message.role || 'system').toLowerCase();
-    const lane = message.laneId ? shell.lanes.find((item) => item.id === message.laneId) : null;
+    const isUser = role === 'user';
     return `
-      <div class="orchestrator-message ${safeAttr(role)}">
-        <div class="tiny muted">${safeText(role)}${lane ? ` · ${safeText(lane.state)}` : ''}</div>
-        <div>${safeText(message.content || '')}</div>
+      <div class="msg msg-${isUser ? 'user' : 'assistant'}">
+        <div class="msg-body">${safeText(message.content || '')}</div>
       </div>
     `;
   }).join('');
@@ -172,59 +171,51 @@ export function renderOrchestratorConsole(session) {
   const selectedModel = activeLane?.model || '';
   const selectedRunMode = activeLane?.permissionsProfile || 'plan';
   const selectedIntelligence = activeLane?.intelligenceProfile || 'high';
+  const emptyState = `
+    <div class="chat-empty">
+      <h2>${safeText(session.name)}</h2>
+      <p>Message the orchestrator to plan work, spawn executors, and review results.</p>
+    </div>`;
   return `
-    <article class="orchestrator-console">
-      <div class="orchestrator-header">
-        <div>
-          <h2>Orchestrator</h2>
-        </div>
-        <div class="lane-row">
-          <span class="tiny muted">${safeText(messages.length)} messages</span>
-          ${activeLane ? stateBadge(activeLane.state) : '<span class="tag">Idle</span>'}
-        </div>
+    <article class="chat">
+      <div class="chat-thread">
+        ${messageRows || emptyState}
+        ${renderSessionApprovals(session)}
       </div>
-      <details class="disclosure orchestrator-plan"${session.goal || session.plan ? ' open' : ''}>
-        <summary><span>Goal &amp; plan</span><small>${session.goal ? safeText(String(session.goal).slice(0, 60)) : 'not set'}</small></summary>
-        <div class="disclosure-body">
-          <form id="session-plan-form" data-session-id="${safeAttr(session.id)}">
-            <label>Goal
-              <input name="goal" value="${safeAttr(session.goal || '')}" placeholder="What are we trying to achieve?" />
-            </label>
-            <label>Plan
-              <textarea name="plan" rows="4" placeholder="Steps / approach">${safeText(session.plan || '')}</textarea>
-            </label>
-            <button class="secondary" data-action="saveSessionPlan" type="button">Save goal &amp; plan</button>
-          </form>
-        </div>
-      </details>
-      ${renderSessionApprovals(session)}
-      <div class="orchestrator-feed">
-        ${messageRows || '<div class="muted">No orchestration messages yet.</div>'}
-      </div>
-      ${renderOrchestratorTerminal(project, session, activeLane)}
-      ${renderExecutorCapabilities(activeLane?.executorCapabilities || executorCapabilitiesFor(selectedExecutor))}
-      <form id="orchestrator-message-form" data-session-id="${safeAttr(session.id)}" class="orchestrator-form composer-shell">
+      <form id="orchestrator-message-form" data-session-id="${safeAttr(session.id)}" class="composer composer-shell">
         <div id="composer-attachments-${safeAttr(session.id)}" class="composer-attachments">${renderComposerAttachmentChips(session.id)}</div>
-        <textarea name="message" rows="4" placeholder="Ask the orchestrator… (drop or paste files/screenshots to attach)"></textarea>
+        <textarea name="message" rows="1" placeholder="Message ${safeText(selectedExecutor)}…"></textarea>
         <input type="file" id="composer-file-input" data-session-id="${safeAttr(session.id)}" multiple hidden />
         <div class="composer-bar">
-          <button class="secondary composer-attach" data-action="pickAttachment" data-session-id="${safeAttr(session.id)}" type="button" title="Attach screenshot or document" aria-label="Attach file">📎</button>
-          <select name="executorType" aria-label="Agent">
+          <button class="composer-attach" data-action="pickAttachment" data-session-id="${safeAttr(session.id)}" type="button" title="Attach screenshot or document" aria-label="Attach file">
+            <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 7.5l-4.6 4.6a2 2 0 102.8 2.8l4.7-4.7a3.5 3.5 0 10-4.9-5l-4.7 4.7a5 5 0 107 7l3.7-3.7"/></svg>
+          </button>
+          <select name="executorType" class="composer-select" aria-label="Agent">
             ${cliExecutorOptions(selectedExecutor)}
             ${apiProviderOptions()}
             <option value="mock"${normalizeExecutorType(selectedExecutor) === 'mock' ? ' selected' : ''}>mock</option>
           </select>
-          <select name="modelPreset" aria-label="Model">
-            ${modelPresetOptionsFor(selectedExecutor, selectedModel)}
-          </select>
-          <input name="model" aria-label="Custom model" placeholder="custom model" />
-          <select name="intelligenceProfile" aria-label="Intelligence">
-            ${intelligenceOptionsFor(selectedExecutor, selectedIntelligence)}
-          </select>
-          <select name="permissionsProfile" aria-label="Mode">
+          <select name="permissionsProfile" class="composer-select" aria-label="Mode">
             ${runModeOptionsFor(selectedExecutor, selectedRunMode)}
           </select>
-          <button class="send-button" type="submit" aria-label="Send">Send</button>
+          <details class="composer-more">
+            <summary aria-label="More options" title="Model &amp; intelligence">⋯</summary>
+            <div class="composer-more-pop">
+              <label>Model
+                <select name="modelPreset">${modelPresetOptionsFor(selectedExecutor, selectedModel)}</select>
+              </label>
+              <label>Custom model
+                <input name="model" placeholder="exact model slug" />
+              </label>
+              <label>Intelligence
+                <select name="intelligenceProfile">${intelligenceOptionsFor(selectedExecutor, selectedIntelligence)}</select>
+              </label>
+            </div>
+          </details>
+          <span class="composer-spacer"></span>
+          <button class="composer-send" type="submit" aria-label="Send message">
+            <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 16V4M5 9l5-5 5 5"/></svg>
+          </button>
         </div>
       </form>
     </article>
@@ -274,17 +265,103 @@ export function renderExecutorSidePanel(session) {
   const executorLanes = shell.lanes
     .filter((lane) => lane.sessionId === session.id && lane.owner !== 'orchestrator')
     .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
+  const pendingAudits = pendingAuditsForSession(session.id);
+  const agentOptions = `<option value="mock">mock</option>${cliExecutorOptions()}${shell.executorProfiles?.cli ? '<option value="cli">cli</option>' : ''}${apiProviderOptions()}`;
   return `
-    <aside class="executor-side-panel" aria-label="Executor lanes">
-      <div class="executor-panel-titlebar">
-        <div>
-          <strong>Executors</strong>
-          <div class="tiny muted">${safeText(executorLanes.length)} lane${executorLanes.length === 1 ? '' : 's'}</div>
-        </div>
-        <button class="secondary" data-action="toggleExecutorPanel" type="button">Hide</button>
+    <aside class="info-panel" aria-label="Session info">
+      <div class="info-panel-head">
+        <strong>Session</strong>
+        <button class="info-close" data-action="toggleExecutorPanel" type="button" aria-label="Close panel">
+          <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg>
+        </button>
       </div>
-      <div class="executor-panel-list">
-        ${executorLanes.map(renderExecutorLanePanelItem).join('') || '<div class="muted">No executor lanes yet.</div>'}
+      <div class="info-panel-body">
+        <section class="info-section">
+          <h4 class="info-title">Goal &amp; plan</h4>
+          <form id="session-plan-form" data-session-id="${safeAttr(session.id)}">
+            <label>Goal
+              <input name="goal" value="${safeAttr(session.goal || '')}" placeholder="What are we trying to achieve?" />
+            </label>
+            <label>Plan
+              <textarea name="plan" rows="3" placeholder="Steps / approach">${safeText(session.plan || '')}</textarea>
+            </label>
+            <button class="secondary" data-action="saveSessionPlan" type="button">Save</button>
+          </form>
+        </section>
+
+        <section class="info-section">
+          <h4 class="info-title">Executors <span class="info-count">${safeText(executorLanes.length)}</span></h4>
+          <div class="executor-panel-list">
+            ${executorLanes.map(renderExecutorLanePanelItem).join('') || '<div class="muted tiny">No executor lanes yet.</div>'}
+          </div>
+        </section>
+
+        <section class="info-section">
+          <h4 class="info-title">New lane</h4>
+          <form id="create-lane-form" data-session-id="${safeAttr(session.id)}">
+            <label>Title
+              <input name="title" required placeholder="What should this lane do?" />
+            </label>
+            <label>Task
+              <textarea name="taskDescription" rows="2" placeholder="Describe the work"></textarea>
+            </label>
+            <label>Agent
+              <select name="executorType">${agentOptions}</select>
+            </label>
+            <div id="lane-command-guidance" class="tiny muted"></div>
+            <label>Mode
+              <select name="permissionsProfile">${runModeOptionsFor('mock', 'plan')}</select>
+            </label>
+            <details class="disclosure compact-disclosure">
+              <summary><span>Advanced</span></summary>
+              <div class="disclosure-body">
+                <label>Task prompt
+                  <textarea name="taskPrompt" rows="2" placeholder="Drives Codex/Claude/API when no explicit command"></textarea>
+                </label>
+                <label>Command
+                  <input name="command" placeholder="e.g., codex run --help" />
+                </label>
+                <label>Command args
+                  <input name="commandArgs" placeholder="quoted or tokenized args" />
+                </label>
+                <label>Executor binary
+                  <input name="executorBinary" placeholder="codex, claude, node, ./scripts/run.sh" />
+                </label>
+                <label>Working directory
+                  <input name="workdir" placeholder="workspace-relative or absolute path" />
+                </label>
+                <label>Model
+                  <input name="model" placeholder="leave blank for the CLI default" />
+                </label>
+                <label>Intelligence
+                  <select name="intelligenceProfile">${intelligenceOptionsFor('mock', 'high')}</select>
+                </label>
+                <label>Target URL
+                  <input name="targetUrl" placeholder="blank → the agent detects it" />
+                </label>
+                <label>Verification command
+                  <input name="verificationCommand" placeholder="blank → the agent learns it" />
+                </label>
+                <label>Branch
+                  <input name="branch" placeholder="feature/auth-cleanup" />
+                </label>
+                <label>MCP tools
+                  <select name="mcpToolIds" multiple size="3" data-mcp-picker="1"></select>
+                </label>
+                <input type="hidden" name="mcpToolIdsRaw" />
+              </div>
+            </details>
+            <button type="submit">Queue lane</button>
+          </form>
+        </section>
+
+        <section class="info-section">
+          <h4 class="info-title">Tools</h4>
+          <div class="info-tools">
+            <button class="secondary" data-action="auditDone" data-session-id="${safeAttr(session.id)}" type="button">Audit done lanes${pendingAudits.length ? ` (${pendingAudits.length})` : ''}</button>
+            <button class="secondary" data-action="refresh" type="button">Refresh</button>
+          </div>
+        </section>
       </div>
     </aside>
   `;
