@@ -11,67 +11,22 @@ const selected = (actual, expected) => String(actual || '') === String(expected 
 const checked = (value) => value ? 'checked' : '';
 
 export function renderSimpleSection(ctx) {
-  const { showMainHome, phoneUrl, phoneQr, accessModeSummary, projectRows, unreadNotifications } = ctx;
+  const { showMainHome } = ctx;
+  const hasProjects = (shell.projects || []).length > 0;
   return `
-    <section class="simple-section ${showMainHome ? '' : 'is-hidden'}">
-      <article class="card onboarding-card">
-        <div>
-          <div class="card-kicker">Phone and laptop setup</div>
-          <h3>Open Orca from another device</h3>
-          <p class="muted">Use a device on the same tailnet, open this private URL, then enter a one-time pairing code from this workstation. API tokens stay on trusted admin browsers.</p>
-          <code class="copy-url">${safeText(phoneUrl)}</code>
-          <div class="lane-row">
-            <button class="secondary" data-action="copyPhoneUrl" data-url="${safeAttr(phoneUrl)}" type="button">Copy link</button>
-            <button class="secondary" data-action="createPairingCode" type="button">Create pairing code</button>
-            <a class="secondary" href="#setup">Setup wizard</a>
-            <a class="secondary" href="#private-access">Tailscale setup</a>
-          </div>
-          <div class="tiny muted">Access preference: ${safeText(accessModeSummary)}</div>
-          <details class="disclosure compact-disclosure">
-            <summary><span>Add to Home Screen</span><small>iPhone/iPad</small></summary>
-            <div class="disclosure-body tiny muted">Open the private URL in Safari, tap Share, then tap Add to Home Screen. HTTPS Serve gives the best PWA behavior; HTTP over Tailscale is private but may show browser warnings.</div>
-          </details>
+    <section class="home-welcome ${showMainHome ? '' : 'is-hidden'}">
+      <div class="home-hero">
+        <h1 class="home-hero-title">Orca</h1>
+        <p class="home-hero-sub">${hasProjects ? 'Open a project from the sidebar, or start a new one.' : 'Create your first project to start orchestrating agents.'}</p>
+        <div class="home-hero-actions">
+          <a class="home-cta" href="/#create">
+            <span aria-hidden="true">+</span>
+            <span>New project</span>
+          </a>
         </div>
-        <div class="qr-wrap">${phoneQr}<span>Scan from phone</span></div>
-      </article>
-      <h3>Projects</h3>
-      <a class="simple-row" href="#setup">
-        <span class="row-icon">◎</span>
-        <span>Phone setup wizard</span>
-      </a>
-      <a class="simple-row" href="#create">
-        <span class="row-icon">＋</span>
-        <span>New project</span>
-      </a>
-      ${projectRows || '<div class="muted">No projects yet.</div>'}
-      <a class="simple-row" href="#private-access">
-        <span class="row-icon">◌</span>
-        <span>Private access</span>
-      </a>
-      <a class="simple-row" href="#providers">
-        <span class="row-icon">◇</span>
-        <span>Providers</span>
-      </a>
-      <a class="simple-row" href="#effective-settings">
-        <span class="row-icon">✓</span>
-        <span>Effective settings</span>
-      </a>
-      <a class="simple-row" href="#notifications">
-        <span class="row-icon">•</span>
-        <span>Notifications</span>
-        ${unreadNotifications ? `<small>${safeText(unreadNotifications)} unread</small>` : ''}
-      </a>
-      <a class="simple-row" href="#backup">
-        <span class="row-icon">⇄</span>
-        <span>Backup and support</span>
-      </a>
-    </section>
-    <div class="stat-grid compact-stats settings-stats is-hidden">
-      <div class="stat">
-        <b>${shell.projects.length}</b>
-        <span>Projects</span>
+        <a class="home-hero-link" href="/#pair">Pair a phone or laptop</a>
       </div>
-    </div>`;
+    </section>`;
 }
 
 export function renderPairPanel(ctx) {

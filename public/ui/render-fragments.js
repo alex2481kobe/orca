@@ -83,10 +83,9 @@ export function renderLaneExecutorGuidance(form) {
   const defaultArgs = Array.isArray(profile?.defaultArgs) ? profile.defaultArgs.join(' ') : '';
   const allowedBinaries = Array.isArray(profile?.allowedBinaries) ? profile.allowedBinaries : [];
   const allowedList = allowedBinaries.length ? `Allowed binaries: ${safeText(allowedBinaries.join(', '))}` : 'No curated binary allowlist available';
-  const visibleToolIds = scopedTools.map((tool) => safeText(tool.id || tool.name)).slice(0, 10).join(', ');
   const toolSummary = scopedTools.length
-    ? `Available MCP tools: ${visibleToolIds}${scopedTools.length > 10 ? ', ...' : ''}`
-    : 'No MCP tools currently available for this lane type.';
+    ? `${scopedTools.length} MCP tool${scopedTools.length === 1 ? '' : 's'} available`
+    : '';
 
   const defaultArgsText = defaultArgs ? ` ${safeText(defaultArgs)}` : '';
   const binaryHint = defaultBinary ? `Try ${defaultBinary}${defaultArgsText} for ${lowerType}-led lanes.` : '';
