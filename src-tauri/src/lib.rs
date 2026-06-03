@@ -574,6 +574,23 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
     install_update_for_app(app).await
 }
 
+/// Open the workstation's NATIVE OS folder picker (desktop only) and return the
+/// chosen absolute path, or None if the user cancelled. The web UI calls this via
+/// `window.__TAURI__.core.invoke('pick_directory')` and falls back to the jailed
+/// web picker on remote/browser where no OS dialog exists.
+#[tauri::command]
+async fn pick_directory(app: AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.dialog().file().pick_folder(move |path| {
+        let _ = tx.send(path);
+    });
+    let picked = rx.recv().map_err(|e| e.to_string())?;
+    Ok(picked
+        .and_then(|p| p.into_path().ok())
+        .map(|pb| pb.to_string_lossy().to_string()))
+}
+
 fn install_menu(app: &tauri::App) -> tauri::Result<()> {
     let open_dashboard =
         MenuItem::with_id(app, "open_dashboard", "Open Dashboard", true, None::<&str>)?;
@@ -689,6 +706,7 @@ pub fn run() {
         builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
     }
     builder
+        .plugin(tauri_plugin_dialog::init())
         .manage(DesktopHostState {
             host: Mutex::new(DesktopHost::new()),
         })
@@ -700,7 +718,8 @@ pub fn run() {
             copy_phone_url,
             create_pairing_code,
             check_for_updates,
-            install_update
+            install_update,
+            pick_directory
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {

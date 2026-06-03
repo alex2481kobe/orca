@@ -259,6 +259,22 @@ export async function handleCreateMcpTool(event) {
 // directory into a target input. Actions: browseWorkstation (open at roots),
 // workstationOpenDir (navigate, data-dir), workstationUseDir (pick, data-dir),
 // workstationPickerClose.
+// On the desktop (Tauri) shell, prefer the workstation's NATIVE OS folder dialog
+// — same as the codex app. Returns {available} so the caller can fall back to the
+// jailed web picker on remote/browser, where an OS dialog is impossible.
+async function tryNativeDirectoryPick() {
+  const tauri = (typeof window !== 'undefined') ? window.__TAURI__ : null;
+  const invoke = tauri?.core?.invoke || tauri?.invoke;
+  if (typeof invoke !== 'function') return { available: false, path: null };
+  try {
+    const picked = await invoke('pick_directory');
+    return { available: true, path: typeof picked === 'string' && picked ? picked : null };
+  } catch {
+    // Plugin missing / dialog error — fall back to the web picker rather than dead-end.
+    return { available: false, path: null };
+  }
+}
+
 export async function handleWorkstationPicker(target) {
   const action = target?.dataset?.action;
   const dir = target?.dataset?.dir || '';
@@ -268,6 +284,21 @@ export async function handleWorkstationPicker(target) {
     shell.workstationPicker = null;
     render();
     return;
+  }
+
+  // Opening the picker on desktop -> native OS dialog. (Navigation actions stay
+  // on the web picker so remote devices keep working.)
+  if (action === 'browseWorkstation') {
+    const native = await tryNativeDirectoryPick();
+    if (native.available) {
+      if (native.path) {
+        const input = document.getElementById(forInput);
+        if (input) input.value = native.path;
+        shell.workstationPicker = null;
+        render();
+      }
+      return; // desktop handled it (picked or cancelled) — don't open the web picker
+    }
   }
   if (action === 'workstationUseDir') {
     const input = document.getElementById(forInput);
