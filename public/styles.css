@@ -1732,21 +1732,70 @@ button,
 input,
 select,
 textarea {
-  border-radius: 9px;
+  border-radius: 8px;
   border: 1px solid var(--line);
-  background: rgba(12, 14, 12, 0.88);
+  background: var(--panel-soft);
   color: var(--text);
   padding: 0.5rem 0.65rem;
   font: inherit;
   -webkit-tap-highlight-color: transparent;
 }
 
-button {
-  background: #f3f0e8;
-  border: 0;
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+/* Custom-styled select: kill the native chrome, draw our own chevron. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
   cursor: pointer;
-  font-weight: 600;
-  color: #080907;
+  padding-right: 1.9rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 20 20' fill='none' stroke='%238e8e8e' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 7.5l5 5 5-5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.6rem center;
+}
+
+button {
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 550;
+  color: var(--text);
+  padding: 0.45rem 0.85rem;
+}
+
+button:hover {
+  background: var(--active);
+}
+
+button.secondary {
+  background: transparent;
+  color: var(--text);
+}
+
+button.secondary:hover {
+  background: var(--hover);
+}
+
+button.danger {
+  background: transparent;
+  border-color: rgba(240, 129, 106, 0.4);
+  color: var(--danger);
+}
+
+button.danger:hover {
+  background: rgba(240, 129, 106, 0.12);
 }
 
 button:focus-visible {
