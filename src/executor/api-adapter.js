@@ -174,6 +174,10 @@ export class ApiExecutorAdapter {
         signal: runtime.controller.signal,
         headers,
         body: JSON.stringify(body),
+        // The endpoint passed the SSRF/url-policy check, but a 3xx redirect could
+        // bounce the request to an internal address the policy would have blocked.
+        // Refuse to follow redirects so the validated endpoint is the only target.
+        redirect: 'error',
       });
       responseText = await response.text();
       if (responseText.length > (this.profile.maxResponseBytes || API_RESPONSE_BYTES)) {

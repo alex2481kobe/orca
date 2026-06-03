@@ -124,8 +124,11 @@ try {
     await page.goto(`${base}${session.body.route}`, { waitUntil: 'networkidle', timeout: 20000 });
     await page.waitForSelector('#orchestrator-message-form textarea[name="message"]', { timeout: 15000 });
     await page.selectOption('#orchestrator-message-form select[name="executorType"]', 'mock');
-    await page.selectOption('#orchestrator-message-form select[name="modelPreset"]', 'gpt-5');
-    await page.selectOption('#orchestrator-message-form select[name="intelligenceProfile"]', 'high');
+    // Model/intelligence options are now dynamic per executor. For 'mock' the
+    // preset/intelligence selects are "Default (CLI config)" only, so drive the
+    // model via the always-present free-text custom-model input and pick a mode
+    // that mock actually supports.
+    await page.fill('#orchestrator-message-form input[name="model"]', 'gpt-5');
     await page.selectOption('#orchestrator-message-form select[name="permissionsProfile"]', 'plan');
     await page.fill('#orchestrator-message-form textarea[name="message"]', 'Start the launch verification lane from the dashboard chat.');
     const [turnResponse] = await Promise.all([

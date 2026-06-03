@@ -191,10 +191,10 @@ export const schedulerMethods = {
             lane.state = RUNNING_STATE;
             this.setLaneExecutor(lane.id, executor);
           } else {
-            this.markLaneFailed(lane, workerResult?.reason || 'Failed to launch worker', 'scheduler', false);
+            await this.markLaneFailed(lane, workerResult?.reason || 'Failed to launch worker', 'scheduler', false);
           }
         } catch (error) {
-          this.markLaneFailed(lane, error?.message || 'Unhandled scheduler error', 'scheduler', false);
+          await this.markLaneFailed(lane, error?.message || 'Unhandled scheduler error', 'scheduler', false);
         }
         this.persistState();
       }

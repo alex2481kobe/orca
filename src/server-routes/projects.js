@@ -106,7 +106,14 @@ export async function handleProjectRoutes(ctx, req, res, method, parts) {
         }
       }
 
-      const linkId = parts[4] ? decodeURIComponent(parts[4]) : '';
+      let linkId = '';
+      if (parts[4]) {
+        try {
+          linkId = decodeURIComponent(parts[4]);
+        } catch {
+          return sendJson(res, 400, { error: 'Invalid URL encoding in quick link id.' });
+        }
+      }
       if (parts.length === 5 && method === 'PATCH') {
         const body = await parseJsonBody(req);
         if (body === null) return sendBodyError(req, res);

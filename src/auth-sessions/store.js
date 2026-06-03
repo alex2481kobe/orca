@@ -27,6 +27,19 @@ import {
 const MAX_PAIRING_CODES = 50;
 const MAX_SESSIONS = 100;
 
+// Expiry checks must fail CLOSED on a malformed/missing timestamp. Date.parse()
+// returns NaN for an unparseable string, and `NaN > now` / `NaN <= now` are both
+// false — so a naive `Date.parse(x) <= now` would treat a corrupted expiry as
+// "not expired" and accept it. These helpers treat any non-finite timestamp as
+// already expired.
+function notExpired(expiresAt, now = Date.now()) {
+  const ts = Date.parse(expiresAt);
+  return Number.isFinite(ts) && ts > now;
+}
+function isExpired(expiresAt, now = Date.now()) {
+  return !notExpired(expiresAt, now);
+}
+
 export class AuthSessionStore {
   constructor({
     stateFile = path.join(process.cwd(), '.orca', 'auth-sessions.json'),
@@ -107,10 +120,10 @@ export class AuthSessionStore {
     const beforePairings = this.state.pairingCodes.length;
     const beforeSessions = this.state.sessions.length;
     this.state.pairingCodes = this.state.pairingCodes.filter((item) =>
-      item && !item.usedAt && Date.parse(item.expiresAt) > now
+      item && !item.usedAt && notExpired(item.expiresAt, now)
     );
     this.state.sessions = this.state.sessions.filter((item) =>
-      item && !item.revokedAt && Date.parse(item.expiresAt) > now
+      item && !item.revokedAt && notExpired(item.expiresAt, now)
     );
     if (persist && (beforePairings !== this.state.pairingCodes.length || beforeSessions !== this.state.sessions.length)) {
       this.persist();
@@ -172,7 +185,7 @@ export class AuthSessionStore {
     if (!record) {
       throw { status: 401, message: 'Pairing code is invalid or expired.' };
     }
-    if (record.usedAt || Date.parse(record.expiresAt) <= Date.now()) {
+    if (record.usedAt || isExpired(record.expiresAt)) {
       throw { status: 401, message: 'Pairing code is invalid or expired.' };
     }
     const session = this._appendSession({
@@ -264,7 +277,7 @@ export class AuthSessionStore {
       revokedAt: session.revokedAt || null,
       pairedFromId: session.pairedFromId || null,
       userAgent: session.userAgent || '',
-      active: !session.revokedAt && Date.parse(session.expiresAt) > Date.now(),
+      active: !session.revokedAt && notExpired(session.expiresAt),
     };
   }
 
@@ -274,7 +287,7 @@ export class AuthSessionStore {
     this.pruneExpired();
     const tokenHash = hashSecret(normalized);
     const session = this.state.sessions.find((item) => hashesEqual(item.tokenHash, tokenHash));
-    if (!session || session.revokedAt || Date.parse(session.expiresAt) <= Date.now()) return null;
+    if (!session || session.revokedAt || isExpired(session.expiresAt)) return null;
     return this.publicSession(session);
   }
 

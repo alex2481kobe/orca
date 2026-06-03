@@ -196,8 +196,8 @@ export function renderLaneCard(lane) {
       <div class="lane-row">
         ${stopButton}
         ${retryButton}
-        <button class="secondary" data-action="captureEvidence" data-lane-id="${lane.id}" type="button">Capture evidence</button>
-        <button class="secondary" data-action="auditLane" data-lane-id="${lane.id}" type="button">${auditLabel}</button>
+        <button class="secondary" data-action="captureEvidence" data-lane-id="${safeAttr(lane.id)}" type="button">Capture evidence</button>
+        <button class="secondary" data-action="auditLane" data-lane-id="${safeAttr(lane.id)}" type="button">${auditLabel}</button>
       </div>
       <details class="disclosure compact-disclosure">
         <summary>More</summary>
@@ -207,8 +207,8 @@ export function renderLaneCard(lane) {
         <div class="muted tiny">Path: ${safeText(lane.artifactPath || '')}</div>
         <div class="lane-row">
           ${laneLink}
-          <button class="secondary" data-action="clearEvidence" data-lane-id="${lane.id}" type="button">Clear evidence</button>
-          <button class="secondary" data-action="showArtifacts" data-lane-id="${lane.id}" type="button">Artifacts</button>
+          <button class="secondary" data-action="clearEvidence" data-lane-id="${safeAttr(lane.id)}" type="button">Clear evidence</button>
+          <button class="secondary" data-action="showArtifacts" data-lane-id="${safeAttr(lane.id)}" type="button">Artifacts</button>
           <a class="secondary" href="${artifactsLink}" target="_blank" rel="noopener noreferrer">Artifact API</a>
           <a class="secondary" href="${evidenceLatestUrl}" target="_blank" rel="noopener noreferrer">Latest evidence</a>
         </div>

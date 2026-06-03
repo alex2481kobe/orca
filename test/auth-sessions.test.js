@@ -41,6 +41,33 @@ test('pairing codes create HttpOnly-session-compatible browser sessions without 
   }
 });
 
+test('expiry checks fail closed on a corrupted (non-ISO) timestamp', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-auth-nan-'));
+  try {
+    const store = new AuthSessionStore({
+      stateFile: path.join(tempDir, 'auth.json'),
+      pairingTtlMs: 60000,
+      sessionTtlMs: 60000,
+    });
+    const pairing = store.createPairingCode({ actor: 'test', label: 'phone' });
+    const paired = store.consumePairingCode(pairing.code, { label: 'p', userAgent: 'ua' });
+    const cookieHeader = `${SESSION_COOKIE_NAME}=${encodeURIComponent(paired.sessionToken)}`;
+    assert.ok(store.sessionFromCookieHeader(cookieHeader)); // valid baseline
+
+    // Corrupt the stored expiry to a string Date.parse() can't read -> NaN.
+    // A naive `Date.parse(x) <= now` would treat NaN as "not expired" and accept it.
+    for (const session of store.state.sessions) session.expiresAt = 'not-a-real-date';
+    assert.equal(store.sessionFromCookieHeader(cookieHeader), null, 'malformed expiry must be rejected, not accepted');
+
+    // Same for pairing codes.
+    const p2 = store.createPairingCode({ actor: 'test', label: 'phone2' });
+    for (const code of store.state.pairingCodes) code.expiresAt = 'garbage';
+    assert.throws(() => store.consumePairingCode(p2.code), (error) => error.status === 401);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
+  }
+});
+
 test('pairing codes expire and reject malformed values', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-auth-expiry-'));
   try {
