@@ -2194,14 +2194,37 @@ test('Worktree manager creates per-lane worktree under approved base and cleanup
   }
 });
 
-test('Session creation refuses repoRoot outside approved roots and non-git paths', async () => {
+test('Session creation refuses nonexistent or out-of-bounds repoRoot but accepts non-git dirs', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
     const project = registry.createProject({ name: 'WT Reject' }, { actor: 'test', approved: true });
+    // A path that does not exist is rejected.
     assert.throws(() => registry.createSession(project.id, {
       name: 'no repo',
       repoRoot: path.join(process.cwd(), 'not-a-repo'),
     }, { actor: 'test', approved: true }), (error) => error.status === 422);
+
+    // A plain (non-git) directory within approved roots is ACCEPTED — agents can
+    // spawn in any folder, git is not required (Codex behavior).
+    const plainDir = path.join(process.cwd(), 'plain-non-git-dir');
+    await fs.mkdir(plainDir, { recursive: true });
+    try {
+      const plainSession = registry.createSession(project.id, {
+        name: 'plain dir session',
+        repoRoot: plainDir,
+      }, { actor: 'test', approved: true });
+      assert.equal(registry.getSession(plainSession.id).repoRoot, plainDir);
+      // A lane in a non-git folder runs directly in the directory (no worktree).
+      const plainLane = registry.createLane(plainSession.id, {
+        title: 'plain lane',
+        executorType: 'mock',
+      }, { actor: 'test', approved: true });
+      assert.equal(plainLane.workdir, plainDir, 'non-git lane should run in the folder');
+      assert.equal(plainLane.worktreePath, plainDir, 'non-git lane has no separate worktree');
+      assert.ok(!plainLane.worktreePath.includes('worktrees'), 'non-git lane should not get an isolated worktree');
+    } finally {
+      await fs.rm(plainDir, { recursive: true, force: true });
+    }
 
     // Build a git repo OUTSIDE the approved boundary.
     const outsideRepo = await fs.mkdtemp(path.join(os.tmpdir(), 'outside-repo-'));

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { nowIso, clonePayload, normalizeSlug } from './registry-utils.js';
 import { sanitizeSettingsOverrides } from './effective-settings.js';
-import { describeRepoRoot } from './worktree-manager.js';
+import { directoryExists } from './worktree-manager.js';
 import {
   MAX_PROJECT_QUICK_LINKS,
   sanitizeQuickLinkText,
@@ -54,9 +54,9 @@ export const projectMethods = {
     let validatedRepoRoot = '';
     if (typeof repoRoot === 'string' && repoRoot.trim()) {
       const candidate = path.resolve(repoRoot.trim());
-      const descriptor = describeRepoRoot(candidate);
-      if (!descriptor.ok) {
-        throw { status: 422, message: `Project folder is not a git working tree: ${descriptor.reason}` };
+      // Any existing directory works — agents spawn in the folder (git not required).
+      if (!directoryExists(candidate)) {
+        throw { status: 422, message: `Project folder does not exist: ${candidate}` };
       }
       const approved = this.getApprovedRepoRoots();
       const within = approved.some((root) => candidate === root || candidate.startsWith(root + path.sep));

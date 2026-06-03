@@ -13,7 +13,7 @@ import {
 } from './registry-utils.js';
 import { FIRST_CLASS_CLI_EXECUTOR_TYPES } from './executor-factory.js';
 import { commandTargetsExecutorFirstToken } from './registry-reinstall.js';
-import { createLaneWorktree } from './worktree-manager.js';
+import { createLaneWorktree, describeRepoRoot } from './worktree-manager.js';
 import { sanitizeSettingsOverrides } from './effective-settings.js';
 import { validateNetworkUrl } from './url-policy.js';
 import { normalizeCritiqueMode } from './registry-lane-config.js';
@@ -79,7 +79,11 @@ export const laneCreateMethods = {
     let derivedRepoRoot = String(repoRoot || '').trim();
     const sessionRepoRoot = session.repoRoot ? String(session.repoRoot).trim() : '';
     const wantsShared = Boolean(sharedWorktree);
-    if (!wantsShared && sessionRepoRoot && !workdir) {
+    // Per-lane worktree isolation is only possible inside a git working tree.
+    // For non-git folders the agent still spawns — it just runs directly in the
+    // directory (no isolation), which is how Codex behaves in any folder.
+    const repoIsGit = sessionRepoRoot ? describeRepoRoot(sessionRepoRoot).ok : false;
+    if (!wantsShared && sessionRepoRoot && !workdir && repoIsGit) {
       const laneId = randomUUID();
       // Reserve the laneId via the create call below by reusing it for the worktree.
       const result = createLaneWorktree({
@@ -98,6 +102,10 @@ export const laneCreateMethods = {
       // Reuse this laneId for the lane object below (local, so a later throw in
       // this method can never leak it into a subsequent createLane call).
       reservedLaneId = laneId;
+    } else if (!wantsShared && sessionRepoRoot && !workdir && !repoIsGit) {
+      // Non-git folder: run the lane directly in the directory.
+      workdirOverride = sessionRepoRoot;
+      derivedRepoRoot = sessionRepoRoot;
     }
     const resolvedWorkdir = this.resolveLaneWorkdir(session, workdirOverride);
 

@@ -13,7 +13,7 @@ import {
   normalizeCritiqueMode,
 } from './registry-lane-config.js';
 import { sanitizeSettingsOverrides } from './effective-settings.js';
-import { describeRepoRoot } from './worktree-manager.js';
+import { directoryExists } from './worktree-manager.js';
 
 export const sessionMethods = {
   updateSession(locator, patch = {}, context = {}) {
@@ -241,9 +241,9 @@ export const sessionMethods = {
     let validatedRepoRoot = '';
     if (typeof repoRoot === 'string' && repoRoot.trim()) {
       const candidate = path.resolve(repoRoot.trim());
-      const descriptor = describeRepoRoot(candidate);
-      if (!descriptor.ok) {
-        throw { status: 422, message: `Session repoRoot is not a git working tree: ${descriptor.reason}` };
+      // Any existing directory works — agents spawn in the folder (git not required).
+      if (!directoryExists(candidate)) {
+        throw { status: 422, message: `Session repoRoot does not exist: ${candidate}` };
       }
       // Repo root must live under an approved boundary so we can never auto-worktree
       // into a directory the operator did not bless.

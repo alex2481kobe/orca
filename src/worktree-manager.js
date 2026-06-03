@@ -50,6 +50,17 @@ function escapeForJson(value) {
   return JSON.stringify(value);
 }
 
+// A directory-exists check (no git required). Agents can run in any folder; git
+// is only needed for per-lane worktree ISOLATION, which falls back gracefully.
+export function directoryExists(dir) {
+  if (!dir) return false;
+  try {
+    return fs.statSync(dir).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 export function describeRepoRoot(repoRoot) {
   if (!repoRoot) {
     return { ok: false, reason: 'No repo root configured.' };
