@@ -74,5 +74,9 @@ export function renderSession(project, session) {
   if (composer && document.activeElement !== composer) {
     composer.value = shell.composerDrafts?.[sid] || '';
   }
+  // Lock the agent once the session has traffic (sync here so it applies the
+  // moment the first message lands, without rebuilding the composer skeleton).
+  const agentSel = document.querySelector('#orchestrator-message-form select[name="executorType"]');
+  if (agentSel) agentSel.disabled = (session.orchestratorThread?.messages?.length || 0) > 0;
   renderLaneExecutorGuidance(document.getElementById('create-lane-form'));
 }

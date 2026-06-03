@@ -6,7 +6,7 @@ import { activeOrchestratorLaneForSession, intelligenceOptionsFor, renderAgentEv
 import { shell } from './state.js';
 import { renderAlert, writeHtml } from './dom.js';
 import { api } from './api.js';
-import { apiProviderOptions, cliExecutorOptions, normalizeExecutorType, defaultExecutorType } from './executor.js';
+import { apiProviderOptions, cliExecutorOptions, normalizeExecutorType, defaultExecutorType, anyCliInstalled, defaultModelFor } from './executor.js';
 import { renderComposerConfig } from './composer-config.js';
 
 export function renderOrchestratorTerminal(project, session, lane) {
@@ -185,8 +185,15 @@ export function renderOrchestratorConsole(session) {
   const activeLane = activeOrchestratorLaneForSession(session);
   // Default to an INSTALLED agent (the chosen leader if installed, else the first
   // installed CLI). Uninstalled agents still appear in the dropdown, greyed out.
-  const selectedExecutor = defaultExecutorType(thread.executorType || session.leader);
-  const selectedModel = activeLane?.model || '';
+  const messages = Array.isArray(thread.messages) ? thread.messages : [];
+  // Once a session has traffic it's locked to the agent it started with; before
+  // that, default to an installed agent.
+  const locked = messages.length > 0;
+  const selectedExecutor = locked
+    ? normalizeExecutorType(thread.executorType || session.leader || 'codex')
+    : defaultExecutorType(thread.executorType || session.leader);
+  // Auto-pick the agent's default model (like the terminal) when none chosen yet.
+  const selectedModel = activeLane?.model || defaultModelFor(selectedExecutor);
   const selectedRunMode = activeLane?.permissionsProfile || 'auto-edit';
   const selectedIntelligence = activeLane?.intelligenceProfile || 'high';
   return `
@@ -203,10 +210,10 @@ export function renderOrchestratorConsole(session) {
           <button class="composer-attach" data-action="pickAttachment" data-session-id="${safeAttr(session.id)}" type="button" title="Attach screenshot or document" aria-label="Attach file">
             <svg viewBox="0 0 20 20" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 4.5v11M4.5 10h11"/></svg>
           </button>
-          <select name="executorType" class="composer-select" aria-label="Agent">
+          <select name="executorType" class="composer-select" aria-label="Agent"${locked ? ' disabled' : ''}>
             ${cliExecutorOptions(selectedExecutor)}
             ${apiProviderOptions()}
-            <option value="mock"${normalizeExecutorType(selectedExecutor) === 'mock' ? ' selected' : ''}>mock</option>
+            ${anyCliInstalled() ? '' : `<option value="mock"${normalizeExecutorType(selectedExecutor) === 'mock' ? ' selected' : ''}>mock</option>`}
           </select>
           <select name="permissionsProfile" class="composer-select" aria-label="Mode">
             ${runModeOptionsFor(selectedExecutor, selectedRunMode)}

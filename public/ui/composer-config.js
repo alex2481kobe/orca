@@ -4,7 +4,7 @@
 // nothing hardcoded. The chosen values live on hidden form inputs (model,
 // intelligenceProfile, speed) so form submission / toObj keep working.
 
-import { getExecutorProfile, normalizeExecutorType } from './executor.js';
+import { getExecutorProfile, normalizeExecutorType, getExecutorScopedMcpTools } from './executor.js';
 import { safeText, safeAttr } from './format.js';
 
 // Pretty labels for effort levels (xhigh -> "Extra High"); anything else is title-cased.
@@ -33,6 +33,13 @@ export function configLabel({ model, intelligence }) {
   if (model) parts.push(shortModel(model));
   parts.push(reasonLabel(intelligence || 'high'));
   return parts.join(' ');
+}
+
+// Refresh the visible "{model} {reasoning}" label from the form's current hidden
+// values (called after the agent changes and resets the default model).
+export function refreshConfigLabel(scope) {
+  const cfg = scope && scope.querySelector ? scope.querySelector('.cfg') : null;
+  if (cfg) setLabel(cfg);
 }
 
 export function renderComposerConfig(executorType, state = {}) {
@@ -70,7 +77,17 @@ function mainView(cfg) {
     ${reasonRows}
     <div class="cfg-sep"></div>
     <button type="button" class="cfg-item cfg-row" data-sub="model"><span>${safeText(model ? shortModel(model) : 'Model')}</span><span class="cfg-arrow">›</span></button>
-    <button type="button" class="cfg-item cfg-row" data-sub="speed"><span>Speed</span><span class="cfg-arrow">›</span></button>`;
+    <button type="button" class="cfg-item cfg-row" data-sub="speed"><span>Speed</span><span class="cfg-arrow">›</span></button>
+    <button type="button" class="cfg-item cfg-row" data-sub="tools"><span>MCP tools</span><span class="cfg-arrow">›</span></button>`;
+}
+
+function toolsView(cfg) {
+  const ex = executorOf(cfg);
+  const tools = getExecutorScopedMcpTools(ex);
+  const rows = tools.length
+    ? tools.map((t) => `<div class="cfg-tool"><span>${safeText(t.name || t.id)}</span><span class="cfg-tool-on">enabled</span></div>`).join('')
+    : '<div class="cfg-note">No MCP tools scoped to this agent. Add them in Settings → MCP.</div>';
+  return `<button type="button" class="cfg-back">‹ MCP tools</button>${rows}`;
 }
 
 function modelView(cfg) {
@@ -99,7 +116,11 @@ function speedView(cfg) {
 
 function render(cfg, view = 'main') {
   const pop = cfg.querySelector('.cfg-pop');
-  pop.innerHTML = view === 'model' ? modelView(cfg) : view === 'speed' ? speedView(cfg) : mainView(cfg);
+  pop.dataset.view = view;
+  pop.innerHTML = view === 'model' ? modelView(cfg)
+    : view === 'speed' ? speedView(cfg)
+    : view === 'tools' ? toolsView(cfg)
+    : mainView(cfg);
 }
 
 function close() {
@@ -119,6 +140,19 @@ function open(cfg) {
 }
 
 export function initComposerConfig() {
+  // Submenus open on HOVER (no click needed); hovering the back row returns.
+  document.addEventListener('mouseover', (event) => {
+    if (!_open) return;
+    const row = event.target.closest?.('.cfg-row');
+    if (row && row.closest('.cfg') === _open) {
+      if (_open.querySelector('.cfg-pop')?.dataset.view !== row.dataset.sub) render(_open, row.dataset.sub);
+      return;
+    }
+    const back = event.target.closest?.('.cfg-back');
+    if (back && back.closest('.cfg') === _open) {
+      if (_open.querySelector('.cfg-pop')?.dataset.view !== 'main') render(_open, 'main');
+    }
+  });
   document.addEventListener('click', (event) => {
     const t = event.target;
     const cfg = t.closest?.('.cfg');

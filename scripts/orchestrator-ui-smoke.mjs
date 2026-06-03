@@ -84,6 +84,9 @@ try {
   process.env.ORCA_API_TOKEN = token;
   process.env.ORCA_CREDENTIAL_BACKEND = 'memory';
   process.env.ORCA_RATE_LIMIT_DISABLED = 'true';
+  // Run without real CLIs detected so the mock executor stays available in the UI
+  // (mock is hidden once a real first-class CLI is installed).
+  for (const v of ['ORCA_CODEX_BINARY', 'ORCA_CLAUDE_BINARY', 'ORCA_GEMINI_CLI_BINARY', 'ORCA_COMPOSER_CLI_BINARY']) process.env[v] = 'orca-absent-cli';
 
   const [{ chromium }, serverModule] = await Promise.all([
     import('playwright'),

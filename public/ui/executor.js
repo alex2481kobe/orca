@@ -80,24 +80,37 @@ export function leaderOptions(selected = 'codex') {
   return `${cliOpts}<option value="mixed"${mixedSelected}>Mixed</option>`;
 }
 
+// "Installed" means the CLI's binary was actually detected on the workstation.
+export function isExecutorInstalled(type) {
+  return Boolean(getExecutorProfile(type)?.capabilities?.binaryExists);
+}
+
+// Whether any real first-class CLI is installed (used to drop the mock fallback
+// from the UI once the operator has a genuine agent).
+export function anyCliInstalled() {
+  return FIRST_CLASS_CLI_EXECUTOR_TYPES.some((id) => isExecutorInstalled(id));
+}
+
+// The model a CLI defaults to (operator-configured ORCA_<CLI>_MODEL, else the
+// first model the CLI reports, else '' = the CLI's own built-in default).
+export function defaultModelFor(type) {
+  const node = getExecutorProfile(type)?.capabilities?.controls?.model;
+  if (!node) return '';
+  if (node.defaultValue) return node.defaultValue;
+  return Array.isArray(node.values) && node.values.length ? node.values[0] : '';
+}
+
 export function cliExecutorOptions(selected = '') {
-  const profiles = shell.executorProfiles || {};
   const normalized = normalizeExecutorType(selected);
-  // Show ALL first-class CLIs; ones that aren't installed are greyed out (disabled)
-  // rather than hidden, so the operator can see what's available.
+  // Show ALL first-class CLIs; ones whose binary isn't installed are greyed out
+  // (disabled) rather than hidden, so the operator sees what's available.
   return FIRST_CLASS_CLI_EXECUTOR_TYPES
     .map((id) => {
-      const profile = profiles[id];
-      const installed = Boolean(profile);
+      const installed = isExecutorInstalled(id);
       const selectedAttr = normalized === id ? ' selected' : '';
       const disabledAttr = installed ? '' : ' disabled';
       const suffix = installed ? '' : ' (not installed)';
-      // Models the CLI actually reports (dynamic; empty for free-text CLIs like
-      // codex) — used by the per-agent 3-dots model picker.
-      const models = Array.isArray(profile?.capabilities?.controls?.model?.values)
-        ? profile.capabilities.controls.model.values : [];
-      const modelsAttr = installed ? ` data-models="${safeAttr(models.join(','))}"` : '';
-      return `<option value="${safeAttr(id)}"${selectedAttr}${disabledAttr}${modelsAttr}>${safeText(id)}${suffix}</option>`;
+      return `<option value="${safeAttr(id)}"${selectedAttr}${disabledAttr}>${safeText(id)}${suffix}</option>`;
     })
     .join('');
 }
@@ -105,14 +118,12 @@ export function cliExecutorOptions(selected = '') {
 // The agent a new session/message should default to: the operator's chosen leader
 // when it's installed, else the first installed first-class CLI, else codex.
 export function firstInstalledExecutor() {
-  const profiles = shell.executorProfiles || {};
-  return FIRST_CLASS_CLI_EXECUTOR_TYPES.find((id) => profiles[id]) || 'codex';
+  return FIRST_CLASS_CLI_EXECUTOR_TYPES.find((id) => isExecutorInstalled(id)) || 'codex';
 }
 
 export function defaultExecutorType(preferred = '') {
-  const profiles = shell.executorProfiles || {};
   const norm = normalizeExecutorType(preferred);
-  if (norm && profiles[norm]) return norm;
+  if (norm && isExecutorInstalled(norm)) return norm;
   return firstInstalledExecutor();
 }
 

@@ -24,6 +24,7 @@ async function startServer() {
   process.env.PORT = '0'; process.env.ORCA_HOST = '127.0.0.1';
   process.env.ORCA_API_TOKEN = 'dd'; process.env.ORCA_CREDENTIAL_BACKEND = 'memory';
   process.env.ORCA_RATE_LIMIT_DISABLED = 'true'; token = 'dd';
+  for (const v of ['ORCA_CODEX_BINARY', 'ORCA_CLAUDE_BINARY', 'ORCA_GEMINI_CLI_BINARY', 'ORCA_COMPOSER_CLI_BINARY']) process.env[v] = 'orca-absent-cli';
   const mod = await import('../src/server.js');
   server = await mod.startServer(0, '127.0.0.1'); stopServer = mod.stopServer;
   base = `http://127.0.0.1:${server.address().port}`;

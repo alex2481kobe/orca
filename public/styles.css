@@ -2603,6 +2603,8 @@ pre {
 .cfg-speed { align-items: flex-start; flex-direction: column; gap: 0.15rem; }
 .cfg-speed-main { align-items: center; display: flex; gap: 0.4rem; }
 .cfg-speed-sub { color: var(--muted); font-size: 0.74rem; }
+.cfg-tool { align-items: center; color: var(--text); display: flex; font-size: 0.86rem; gap: 0.6rem; justify-content: space-between; padding: 0.4rem 0.6rem; }
+.cfg-tool-on { color: var(--ok, #5fb37a); font-size: 0.72rem; }
 
 /* ===== ChatGPT-style sidebar header + full-height shell ===== */
 .sidebar-head { align-items: center; display: flex; gap: 0.5rem; justify-content: space-between; padding: 0.4rem 0.3rem 0.7rem; }

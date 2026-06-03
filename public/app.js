@@ -15,7 +15,8 @@ import { refresh, showArtifacts, parseRoute, connectEventStream, startPolling } 
 import { handlePrivateAccessSettings, handleNotificationSettings, handleNotificationAction, handleCreatePrivateAccessTarget, handlePrivateAccessAction, handleProviderAction, handleAppBackupAction, handleCleanupSchedule, handleCreateMcpTool, handleCreateProject, handleCreateSession, handleAddProjectQuickLink, handleCreateLane, handleOrchestratorMessage, handleLaneControlsUpdate, handleAuditEventAction, handleWorkstationPicker, buildCleanupScheduleBody, buildMcpToolBody, buildApprovedActionBody, toObj } from './ui/handlers.js';
 import { handleLaneActions, handleSessionActions, handleSystemActions } from './ui/handlers-actions.js';
 import { initDropdowns, enhanceSelects } from './ui/dropdown.js';
-import { initComposerConfig } from './ui/composer-config.js';
+import { initComposerConfig, refreshConfigLabel } from './ui/composer-config.js';
+import { defaultModelFor } from './ui/executor.js';
 
 
 
@@ -319,8 +320,14 @@ document.addEventListener('change', (event) => {
   // Orchestrator composer: switching the agent re-derives its mode/intelligence/model
   // options from that executor's detected capabilities.
   if (event.target && event.target.name === 'executorType' && event.target.form && event.target.form.id === 'orchestrator-message-form') {
-    repopulateExecutorScopedControls(event.target.form);
-    enhanceSelects(event.target.form); // refresh the custom dropdowns for the rebuilt options
+    const form = event.target.form;
+    repopulateExecutorScopedControls(form);
+    enhanceSelects(form); // refresh the custom dropdowns for the rebuilt options
+    // Switching agent auto-picks that agent's default model (like the terminal)
+    // and refreshes the "{model} {reasoning}" label next to send.
+    const modelField = form.querySelector('input[name="model"]');
+    if (modelField) modelField.value = defaultModelFor(event.target.value) || '';
+    refreshConfigLabel(form);
   }
   if (event.target && event.target.id === 'composer-file-input') {
     const sessionId = event.target.dataset.sessionId;
