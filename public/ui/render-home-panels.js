@@ -20,10 +20,10 @@ export function renderSimpleSection(ctx) {
         <h1 class="home-hero-title">Orca</h1>
         <p class="home-hero-sub">${hasProjects ? 'Open a project from the sidebar, or start a new one.' : 'Create your first project to start orchestrating agents.'}</p>
         <div class="home-hero-actions">
-          <a class="home-cta" href="/#create">
+          <button class="home-cta" data-action="newProject" type="button">
             <span aria-hidden="true">+</span>
             <span>New project</span>
-          </a>
+          </button>
         </div>
         <a class="home-hero-link" href="/#pair">Pair a phone or laptop</a>
       </div>

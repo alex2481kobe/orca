@@ -6,7 +6,7 @@ import { safeAttr, safeText } from './format.js';
 import { api, browserAccessBlocked, setApiToken } from './api.js';
 import { isVerificationProject, renderBreadcrumbs, renderTopbarTitle } from './render-helpers.js';
 import { renderHome } from './render-home.js';
-import { renderProject } from './render-project.js';
+import { renderProject, renderWorkstationPickerPanel } from './render-project.js';
 import { loadEvidenceGallery, renderAuditLog, renderLane } from './render-lane.js';
 import { renderSession } from './render-session.js';
 import { restoreContentUiState } from './render-fragments.js';
@@ -99,6 +99,23 @@ export function renderAccessGate() {
   `);
 }
 
+// The new-project folder picker renders as a modal overlay (Codex-style: clicking
+// "New project" brings up the folder picker directly, not a form page).
+function renderPickerModal() {
+  if (!refs.pickerOverlay) return;
+  const picker = shell.workstationPicker;
+  if (!picker || !picker.open || picker.mode !== 'project') {
+    writeHtml(refs.pickerOverlay, '');
+    return;
+  }
+  writeHtml(refs.pickerOverlay, `
+    <div class="modal-overlay picker-overlay">
+      <div class="picker-modal">
+        ${renderWorkstationPickerPanel('__project__')}
+      </div>
+    </div>`);
+}
+
 export function render(uiState = null) {
   const project = shell.projects.find((value) => value.slug === shell.route.projectSlug || value.id === shell.route.projectSlug);
   const sessions = project ? shell.sessions : [];
@@ -109,6 +126,7 @@ export function render(uiState = null) {
   renderTopbarTitle(project, session, lane);
   renderStatusStrip();
   renderBlockers();
+  renderPickerModal();
   if (refs.content) refs.content.setAttribute('aria-busy', 'false');
   if (browserAccessBlocked()) {
     renderSidebarProjects();
@@ -203,10 +221,10 @@ export function renderSidebarProjects(activeProject) {
   const projects = shell.projects || [];
   if (!projects.length) {
     writeHtml(refs.sidebarProjects, `
-      <a class="sidebar-link sidebar-create-project" href="/#create">
+      <button class="sidebar-link sidebar-create-project" data-action="newProject" type="button">
         <span class="row-icon" aria-hidden="true">+</span>
         <span>New project</span>
-      </a>
+      </button>
       <div class="tiny muted">No projects yet.</div>
     `);
     return;
@@ -254,7 +272,7 @@ export function renderSidebarProjects(activeProject) {
             <span class="sidebar-project-name">${safeText(project.name)}</span>
             ${active ? `<span class="pill" title="${active} active lanes">${active}</span>` : ''}
           </a>
-          <a class="sidebar-project-new" href="${safeAttr(project.route)}#create-session" aria-label="New session in ${safeAttr(project.name)}" title="New session">${COMPOSE_ICON}</a>
+          <button class="sidebar-project-new" data-action="newSession" data-project-id="${safeAttr(project.id)}" aria-label="New session in ${safeAttr(project.name)}" title="New session" type="button">${COMPOSE_ICON}</button>
         </div>
         <div class="sidebar-sessions">
           ${sessionRows}
@@ -264,10 +282,10 @@ export function renderSidebarProjects(activeProject) {
   };
   const primaryProjects = orderItems(projects.filter((project) => !isVerificationProject(project)), storedOrder.projects);
   writeHtml(refs.sidebarProjects, `
-    <a class="sidebar-link sidebar-create-project" href="/#create">
+    <button class="sidebar-link sidebar-create-project" data-action="newProject" type="button">
       <span class="row-icon" aria-hidden="true">+</span>
       <span>New project</span>
-    </a>
+    </button>
     ${primaryProjects.map(renderSidebarProject).join('')}
   `);
 }

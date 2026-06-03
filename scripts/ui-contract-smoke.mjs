@@ -31,6 +31,8 @@ let server = null;
 let stopServer = null;
 
 const WIRED_ACTIONS = new Set([
+  'newSession',
+  'newProject',
   'ackAuditEvent',
   'applyAppImport',
   'archiveProject',

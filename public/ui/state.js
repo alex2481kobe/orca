@@ -47,6 +47,7 @@ export const refs = {
   sidebarProjects: document.getElementById('sidebar-projects'),
   topbarSubtitle: document.getElementById('topbar-subtitle'),
   topbarTitle: document.getElementById('topbar-title'),
+  pickerOverlay: document.getElementById('picker-overlay'),
 };
 // Audit queue is rendered inside refs.content for the new operator shell.
 refs.actions = refs.content;

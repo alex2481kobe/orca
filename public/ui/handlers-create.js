@@ -2,12 +2,12 @@
 
 import { buildApprovedActionBody, buildMcpToolBody, toObj } from './handlers-config.js';
 import { safeText } from './format.js';
-import { renderAlert } from './dom.js';
+import { renderAlert, safeNavigate, isLocalHostName } from './dom.js';
 import { api } from './api.js';
 import { refresh } from './controller.js';
 import { render, captureContentUiState } from './render-views.js';
 import { shell } from './state.js';
-import { executorTargetsBinary, executorTargetsCommand, findMcpTool, getExecutorScopedMcpTools, normalizeExecutorType, normalizeMcpToolScopes, parseCommandParts } from './executor.js';
+import { executorTargetsBinary, executorTargetsCommand, findMcpTool, getExecutorScopedMcpTools, normalizeExecutorType, normalizeMcpToolScopes, parseCommandParts, defaultExecutorType } from './executor.js';
 import { FIRST_CLASS_CLI_EXECUTOR_TYPES } from './constants.js';
 
 export async function handleCreateProject(event) {
@@ -29,11 +29,69 @@ export async function handleCreateProject(event) {
     approved: approval.approved,
   };
   const response = await api('/api/projects', { method: 'POST', body });
-  if (response.ok) {
-    renderAlert('Project created.');
+  if (response.ok && response.data) {
     await refresh();
+    // Land straight in an empty chat for the new project (configure agent/model in
+    // the composer and type) — no extra create-session form.
+    await createEmptyChat(response.data.id);
   } else {
     renderAlert(response.data?.error || 'Project creation failed.', 'bad');
+  }
+}
+
+// Create an empty "New chat" session and open its chat. You pick agent/model in the
+// composer and just type — Codex/ChatGPT-style, no create-session form.
+export async function createEmptyChat(projectId) {
+  const project = shell.projects.find((p) => p.id === projectId);
+  const leader = defaultExecutorType(project?.leader || '');
+  const response = await api(`/api/projects/${projectId}/sessions`, {
+    method: 'POST',
+    body: { name: 'New chat', leader, actor: 'dashboard', approved: true },
+  });
+  if (response.ok && response.data) {
+    safeNavigate(response.data.route); // makes the project active -> auto-expands
+    return response.data;
+  }
+  renderAlert(response.data?.error || 'Could not start a chat.', 'bad');
+  return null;
+}
+
+export async function handleNewSession(event) {
+  const projectId = event.currentTarget?.dataset?.projectId;
+  if (projectId) await createEmptyChat(projectId);
+}
+
+// "New project" opens the folder picker directly (Codex-style, no form). On the
+// trusted workstation it shows the local folder picker as a modal; on a remote
+// device (no local FS access) it falls back to the create-project form.
+export async function handleNewProject() {
+  if (!isLocalHostName(window.location.hostname)) { safeNavigate('/#create'); return; }
+  const projectPicker = (extra) => ({ open: true, mode: 'project', forInput: '__project__', error: null, ...extra });
+  shell.workstationPicker = projectPicker({ loading: true });
+  render();
+  const resp = await api('/api/system/dirs');
+  shell.workstationPicker = resp.ok && resp.data
+    ? projectPicker({ loading: false, ...resp.data })
+    : projectPicker({ loading: false, error: resp.data?.error || 'Could not list folders.' });
+  render();
+}
+
+// Create the project from the picked folder (name = folder basename) then drop
+// straight into an empty chat. Shared by the picker "Use this folder" action.
+export async function createProjectFromFolder(folder) {
+  shell.workstationPicker = null;
+  if (!folder) { render(); renderAlert('Pick a folder first.', 'bad'); return; }
+  const base = String(folder).replace(/[\\/]+$/, '').split(/[\\/]/).pop() || 'New project';
+  render();
+  const resp = await api('/api/projects', {
+    method: 'POST',
+    body: { name: base, owner: 'dashboard', actor: 'dashboard', approved: true, repoRoot: folder },
+  });
+  if (resp.ok && resp.data) {
+    await refresh();
+    await createEmptyChat(resp.data.id);
+  } else {
+    renderAlert(resp.data?.error || 'Project creation failed.', 'bad');
   }
 }
 
@@ -302,6 +360,11 @@ export async function handleWorkstationPicker(target) {
     }
   }
   if (action === 'workstationUseDir') {
+    // New-project picker: create the project from the chosen folder, not fill a field.
+    if (shell.workstationPicker?.mode === 'project') {
+      await createProjectFromFolder(dir || shell.workstationPicker?.path);
+      return;
+    }
     const input = document.getElementById(forInput);
     if (input && dir) {
       input.value = dir;
@@ -321,15 +384,18 @@ export async function handleWorkstationPicker(target) {
     return;
   }
 
-  // browseWorkstation (open) / workstationOpenDir (navigate)
-  shell.workstationPicker = { ...(shell.workstationPicker || {}), open: true, forInput, loading: true, error: null };
+  // browseWorkstation (open) / workstationOpenDir (navigate). Preserve `mode` so a
+  // new-project picker modal stays a modal while you navigate folders.
+  const mode = shell.workstationPicker?.mode;
+  shell.workstationPicker = { ...(shell.workstationPicker || {}), open: true, mode, forInput, loading: true, error: null };
   render();
   const resp = await api(`/api/system/dirs${dir ? `?path=${encodeURIComponent(dir)}` : ''}`);
   if (resp.ok && resp.data) {
-    shell.workstationPicker = { open: true, forInput, loading: false, error: null, ...resp.data };
+    shell.workstationPicker = { open: true, mode, forInput, loading: false, error: null, ...resp.data };
   } else {
     shell.workstationPicker = {
       open: true,
+      mode,
       forInput,
       loading: false,
       error: resp.data?.error || 'Could not list workstation directories.',

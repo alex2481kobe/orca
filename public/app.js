@@ -12,7 +12,7 @@ import { stateTagClass, getActionPolicy, needsApproval, confirmHighRiskAction, p
 import { renderHome } from './ui/render-home.js';
 import { renderLaneExecutorGuidance, repopulateExecutorScopedControls, captureContentUiState, restoreContentUiState, renderAccessGate, renderProject, renderLaneCard, renderAgentEventTimeline, modelPresetOptions, intelligenceOptions, runModeOptions, modelControlOptions, renderOrchestratorTerminal, renderApprovalRows, renderSessionApprovals, composerAttachmentsFor, renderComposerAttachmentChips, refreshComposerAttachments, readFileAsBase64, uploadComposerFiles, renderOrchestratorConsole, renderExecutorLanePanelItem, renderExecutorSidePanel, activeOrchestratorLaneForSession, renderSession, renderLane, renderAuditLog, loadEvidenceGallery, render, renderStatusStrip, renderBlockers, renderSidebarProjects, renderMobileManifest } from './ui/render-views.js';
 import { refresh, showArtifacts, parseRoute, connectEventStream, startPolling } from './ui/controller.js';
-import { handlePrivateAccessSettings, handleNotificationSettings, handleNotificationAction, handleCreatePrivateAccessTarget, handlePrivateAccessAction, handleProviderAction, handleAppBackupAction, handleCleanupSchedule, handleCreateMcpTool, handleCreateProject, handleCreateSession, handleAddProjectQuickLink, handleCreateLane, handleOrchestratorMessage, handleLaneControlsUpdate, handleAuditEventAction, handleWorkstationPicker, buildCleanupScheduleBody, buildMcpToolBody, buildApprovedActionBody, toObj } from './ui/handlers.js';
+import { handlePrivateAccessSettings, handleNotificationSettings, handleNotificationAction, handleCreatePrivateAccessTarget, handlePrivateAccessAction, handleProviderAction, handleAppBackupAction, handleCleanupSchedule, handleCreateMcpTool, handleCreateProject, handleCreateSession, handleAddProjectQuickLink, handleCreateLane, handleOrchestratorMessage, handleLaneControlsUpdate, handleAuditEventAction, handleWorkstationPicker, handleNewSession, handleNewProject, buildCleanupScheduleBody, buildMcpToolBody, buildApprovedActionBody, toObj } from './ui/handlers.js';
 import { handleLaneActions, handleSessionActions, handleSystemActions } from './ui/handlers-actions.js';
 import { initDropdowns, enhanceSelects } from './ui/dropdown.js';
 import { initComposerConfig, refreshConfigLabel } from './ui/composer-config.js';
@@ -500,6 +500,15 @@ document.addEventListener('click', async (event) => {
 
   if (['browseWorkstation', 'workstationOpenDir', 'workstationUseDir', 'workstationPickerClose'].includes(action)) {
     await handleWorkstationPicker(actionTarget);
+    return;
+  }
+
+  if (action === 'newSession') {
+    await handleNewSession({ currentTarget: actionTarget });
+    return;
+  }
+  if (action === 'newProject') {
+    await handleNewProject(actionTarget);
     return;
   }
 

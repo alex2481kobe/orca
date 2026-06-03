@@ -2631,6 +2631,14 @@ pre {
 .sidebar-reopen { display: none; }
 .breadcrumbs:empty { display: none; }
 
+/* New-project / new-session are <button>s now (open the picker / an empty chat). */
+button.sidebar-create-project, button.sidebar-link { background: none; border: 0; box-sizing: border-box; cursor: pointer; font: inherit; min-height: 2.15rem; padding: 0.42rem 0.55rem; text-align: left; width: 100%; }
+button.home-cta { cursor: pointer; font: inherit; }
+/* New-project folder picker modal. */
+.picker-overlay { z-index: 250; }
+.picker-modal { width: min(92vw, 540px); }
+.picker-modal .workstation-picker { margin: 0; max-height: 70vh; overflow-y: auto; width: 100%; }
+
 /* Project row: the whole line is the hover/active surface (incl. the trailing
    new-session icon); the name truncates before the icon so they never overlap. */
 .sidebar-project-line { align-items: center; border-radius: 9px; display: flex; }

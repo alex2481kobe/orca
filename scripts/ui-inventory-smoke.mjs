@@ -43,6 +43,8 @@ const fail = (label, info = '') => {
 };
 
 const WIRED_ACTIONS = new Set([
+  'newSession',
+  'newProject',
   'ackAuditEvent',
   'applyAppImport',
   'archiveProject',
