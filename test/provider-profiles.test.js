@@ -10,6 +10,33 @@ import {
   normalizeProfile,
 } from '../src/provider-profiles.js';
 
+test('concurrent ensureLoaded shares one load so callers never see unpopulated/default state', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-profile-race-'));
+  const stateFile = path.join(tempDir, 'providers.json');
+  try {
+    // Persist a distinctive value so we can tell loaded-from-disk apart from the
+    // constructor's default catalog.
+    const writer = new ProviderProfileStore({ stateFile, credentialStore: new CredentialStore({ backend: 'memory' }) });
+    await writer.updateProfile('openai-compatible', { allowedModels: ['race-marker-model'] }, { actor: 'test', approved: true });
+
+    // Fresh store with a deliberately slow load. Fire two concurrent ensureLoaded
+    // and capture the state the SECOND caller sees the moment it resolves. Before
+    // the fix (this.loaded set before the await), the second caller returned early
+    // and saw the constructor's default catalog, not the persisted marker.
+    const store = new ProviderProfileStore({ stateFile, credentialStore: new CredentialStore({ backend: 'memory' }) });
+    const orig = store._loadState.bind(store);
+    store._loadState = async () => { await new Promise((r) => setTimeout(r, 50)); return orig(); };
+    let secondCallerState = null;
+    const p1 = store.ensureLoaded();
+    const p2 = store.ensureLoaded().then(() => { secondCallerState = store.state; });
+    await Promise.all([p1, p2]);
+    const models = secondCallerState?.profiles?.['openai-compatible']?.allowedModels || [];
+    assert.ok(models.includes('race-marker-model'), 'concurrent caller must observe persisted state, not constructor defaults');
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
+  }
+});
+
 test('default provider catalog includes required first-class providers without managed installs', () => {
   const profiles = defaultProfiles();
   for (const id of ['codex', 'claude', 'gemini-cli', 'composer-cli', 'custom-cli', 'openai-compatible', 'gemini', 'kimi', 'deepseek', 'openrouter', 'composer']) {
