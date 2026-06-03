@@ -64,6 +64,38 @@ This whole flow (external-orchestrator bootstrap → session with orchestrator C
 + capacity → spawn/stop/retry/pause executor lanes → read-only events) is proven
 by `npm run smoke:orchestrator-lifecycle`.
 
+## Configurable agent flow (read it from `session.next_action`)
+
+The user (or you) can shape how work moves between agents via the layered `flow`
+settings group (defaults → project → session → lane). Every `next_action`
+envelope includes a `flow` block — **read it and obey it**; do not assume the
+default loop. Fields:
+
+- `flow.template`:
+  - `orchestrator-only` — you do the work yourself; do **not** spawn executors.
+  - `orchestrator-executor` — spawn executors; their results return to you.
+  - `orchestrator-executor-audit` — executor work must be audited before it
+    returns to you.
+- `flow.auditTier`: `orchestrator` (you audit) or `separate-auditor` (spawn a
+  dedicated auditor/mini-orchestrator lane to review, then report back to you).
+- `flow.fixRouting`: when an audit requests a fix, send it to `same-agent`
+  (`lane.retry`) or `new-agent` (`lane.create` a fresh executor). The envelope's
+  `nextRequiredTool` already reflects this.
+- `flow.maxAuditLoops` / `flow.loopsRemaining`: the audit→fix budget. When it hits
+  zero a lane is **escalated** to the user (`lane_audit_escalated`) — stop looping
+  and surface it.
+- `flow.requireAuditPass` / `flow.returnToOrchestratorAllowed`: if
+  `returnToOrchestratorAllowed` is false, the lane is **not** done — it must pass
+  an audit (`audit.accept`) before you treat the work as complete.
+
+## Filling in optional lane fields
+
+`targetUrl` (dev/preview URL) and `verificationCommand` are optional. If the user
+left them blank, **learn them and write them back** via `lane.controls.update`
+(model/permissions/intelligence/targetUrl/verificationCommand). e.g. once you know
+the dev server URL or how to verify the work, set them so evidence capture and
+audits can use them. `targetUrl` is SSRF-validated server-side.
+
 ## Live project links
 
 When a project has a running dev server, register it through

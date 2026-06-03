@@ -7,6 +7,7 @@ import { clientUrl, safeHref } from './dom.js';
 import { formatRelative, latestTimestamp, safeAttr, safeText } from './format.js';
 import { browserNotificationPermission, browserNotificationsSupported } from './notifications.js';
 import { qrSvgForText } from './qr.js';
+import { MCP_TOOL_SCOPE_ALLOWLIST } from './constants.js';
 import { activeHomePanel, executorCapabilitiesFor, isVerificationProject, renderExecutorCapabilities } from './render-helpers.js';
 import { refs, shell } from './state.js';
 
@@ -650,8 +651,8 @@ export function renderHome() {
             <input name="args" placeholder="comma separated args" />
           </label>
           <label>Scope
-            <input name="scope" placeholder="all,codex,claude" />
-            <div class="tiny muted">Allowed scopes: all, codex, claude, mock</div>
+            <input name="scope" placeholder="${safeAttr(MCP_TOOL_SCOPE_ALLOWLIST.slice(0, 3).join(','))}" />
+            <div class="tiny muted">Allowed scopes: ${safeText(MCP_TOOL_SCOPE_ALLOWLIST.join(', '))}</div>
           </label>
           <label>Notes
             <input name="notes" />
