@@ -2457,3 +2457,13 @@ pre {
 /* Settings/home panels: a single centered readable column (Codex-style). */
 .home-panels { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; max-width: 760px; margin: 1.5rem auto; padding: 0 1.25rem; }
 .home-panels > [data-panel-card] { width: 100%; }
+
+/* Project route = a clean centered "New session" form (no session list). */
+.create-shell { display: flex; justify-content: center; padding: 2.5rem 1.25rem; }
+.create-card { width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 0.85rem; }
+.create-head h2 { font-size: 1.25rem; margin: 0; }
+.create-head { margin-bottom: 0.4rem; }
+.create-card form { display: flex; flex-direction: column; gap: 0.7rem; }
+.create-card label { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; color: var(--muted); }
+.create-card label input, .create-card label select { color: var(--text); }
+.create-foot { border-top: 1px solid var(--line); margin-top: 0.5rem; padding-top: 0.85rem; }
