@@ -670,6 +670,18 @@ document.addEventListener('input', (event) => {
   if (sessionId) shell.composerDrafts[sessionId] = field.value;
 });
 
+// Enter sends the chat message; Shift+Enter inserts a newline.
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
+  const field = event.target;
+  if (!field || field.name !== 'message') return;
+  const form = field.closest?.('#orchestrator-message-form');
+  if (!form) return;
+  event.preventDefault();
+  if (typeof form.requestSubmit === 'function') form.requestSubmit();
+  else form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+});
+
 window.addEventListener('hashchange', () => {
   render();
 });

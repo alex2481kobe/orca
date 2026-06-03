@@ -131,9 +131,8 @@ try {
     };
     await pick('executorType', 'mock');
     await pick('permissionsProfile', 'plan');
-    // The custom model lives in the "⋯" options popover, so open it before filling.
-    await page.click('#orchestrator-message-form .composer-more > summary');
-    await page.fill('#orchestrator-message-form input[name="model"]', 'gpt-5');
+    // Model is carried on a hidden field (chosen per-agent); set it directly.
+    await page.$eval('#orchestrator-message-form input[name="model"]', (el, v) => { el.value = v; }, 'gpt-5');
     await page.fill('#orchestrator-message-form textarea[name="message"]', 'Start the launch verification lane from the dashboard chat.');
     const responsePromise = page.waitForResponse((response) => response.url().includes('/orchestrator/messages'), { timeout: 15000 });
     await page.click('#orchestrator-message-form button[type="submit"]');

@@ -354,8 +354,8 @@ export function intelligenceOptions(selected = 'high') {
   ].map(([value, label]) => `<option value="${safeAttr(value)}"${normalized === value ? ' selected' : ''}>${safeText(label)}</option>`).join('');
 }
 
-export function runModeOptions(selected = 'plan') {
-  const normalized = String(selected || 'plan').trim();
+export function runModeOptions(selected = 'auto-edit') {
+  const normalized = String(selected || 'auto-edit').trim();
   return [
     ['plan', 'Plan'],
     ['read-only', 'Read only'],
@@ -388,7 +388,7 @@ function executorControl(executorType, control) {
   return node && typeof node === 'object' ? node : null;
 }
 
-export function runModeOptionsFor(executorType, selected = 'plan') {
+export function runModeOptionsFor(executorType, selected = 'auto-edit') {
   const node = executorControl(executorType, 'permissions');
   if (!node || !Array.isArray(node.values) || !node.values.length) return runModeOptions(selected);
   return optionListHtml(node.values, selected);
@@ -397,12 +397,13 @@ export function runModeOptionsFor(executorType, selected = 'plan') {
 export function intelligenceOptionsFor(executorType, selected = 'high') {
   const node = executorControl(executorType, 'intelligence');
   if (!node) return intelligenceOptions(selected);
+  // Always offer the effort levels when the CLI declares them, even if it's a
+  // passthrough (config-driven) flag — the operator still wants to pick effort.
+  if (Array.isArray(node.values) && node.values.length) return optionListHtml(node.values, selected);
   if (node.supported === false || node.passthrough) {
-    // CLI has no effort/intelligence flag — defer to its own config.
     return '<option value="" selected>Default (CLI config)</option>';
   }
-  if (!Array.isArray(node.values) || !node.values.length) return intelligenceOptions(selected);
-  return optionListHtml(node.values, selected);
+  return intelligenceOptions(selected);
 }
 
 export function modelPresetOptionsFor(executorType, selected = '') {

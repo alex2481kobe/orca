@@ -2,11 +2,11 @@
 
 import { formatMeta, formatRelative, safeAttr, safeText, stateBadge } from './format.js';
 import { executorCapabilitiesFor, isLiveLaneState, isRestartableLaneState, laneDetailRoute, renderExecutorCapabilities, pendingAuditsForSession } from './render-helpers.js';
-import { activeOrchestratorLaneForSession, intelligenceOptionsFor, modelPresetOptionsFor, renderAgentEventTimeline, runModeOptionsFor } from './render-fragments.js';
+import { activeOrchestratorLaneForSession, intelligenceOptionsFor, renderAgentEventTimeline, runModeOptionsFor } from './render-fragments.js';
 import { shell } from './state.js';
 import { renderAlert, writeHtml } from './dom.js';
 import { api } from './api.js';
-import { apiProviderOptions, cliExecutorOptions, normalizeExecutorType } from './executor.js';
+import { apiProviderOptions, cliExecutorOptions, normalizeExecutorType, defaultExecutorType } from './executor.js';
 
 export function renderOrchestratorTerminal(project, session, lane) {
   if (!lane) {
@@ -182,9 +182,11 @@ export function renderChatThreadInner(session) {
 export function renderOrchestratorConsole(session) {
   const thread = session.orchestratorThread || {};
   const activeLane = activeOrchestratorLaneForSession(session);
-  const selectedExecutor = thread.executorType || session.leader || 'codex';
+  // Default to an INSTALLED agent (the chosen leader if installed, else the first
+  // installed CLI). Uninstalled agents still appear in the dropdown, greyed out.
+  const selectedExecutor = defaultExecutorType(thread.executorType || session.leader);
   const selectedModel = activeLane?.model || '';
-  const selectedRunMode = activeLane?.permissionsProfile || 'plan';
+  const selectedRunMode = activeLane?.permissionsProfile || 'auto-edit';
   const selectedIntelligence = activeLane?.intelligenceProfile || 'high';
   return `
     <article class="chat">
@@ -193,6 +195,7 @@ export function renderOrchestratorConsole(session) {
         <div id="composer-attachments-${safeAttr(session.id)}" class="composer-attachments">${renderComposerAttachmentChips(session.id)}</div>
         <textarea name="message" rows="1" placeholder="Message ${safeText(selectedExecutor)}…"></textarea>
         <input type="file" id="composer-file-input" data-session-id="${safeAttr(session.id)}" multiple hidden />
+        <input type="hidden" name="model" value="${safeAttr(selectedModel)}" />
         <div class="composer-bar">
           <button class="composer-attach" data-action="pickAttachment" data-session-id="${safeAttr(session.id)}" type="button" title="Attach screenshot or document" aria-label="Attach file">
             <svg viewBox="0 0 20 20" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 4.5v11M4.5 10h11"/></svg>
@@ -206,20 +209,9 @@ export function renderOrchestratorConsole(session) {
             ${runModeOptionsFor(selectedExecutor, selectedRunMode)}
           </select>
           <span class="composer-spacer"></span>
-          <details class="composer-more">
-            <summary aria-label="Model and intelligence" title="Model &amp; intelligence"><span class="composer-more-label">Model</span></summary>
-            <div class="composer-more-pop">
-              <label>Model
-                <select name="modelPreset">${modelPresetOptionsFor(selectedExecutor, selectedModel)}</select>
-              </label>
-              <label>Custom model
-                <input name="model" placeholder="exact model slug" />
-              </label>
-              <label>Intelligence
-                <select name="intelligenceProfile">${intelligenceOptionsFor(selectedExecutor, selectedIntelligence)}</select>
-              </label>
-            </div>
-          </details>
+          <select name="intelligenceProfile" class="composer-select" aria-label="Intelligence">
+            ${intelligenceOptionsFor(selectedExecutor, selectedIntelligence)}
+          </select>
           <button class="composer-send" type="submit" aria-label="Send message">
             <svg viewBox="0 0 20 20" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15.5V5M5.5 9.5L10 5l4.5 4.5"/></svg>
           </button>

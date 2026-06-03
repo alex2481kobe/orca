@@ -82,13 +82,32 @@ export function leaderOptions(selected = 'codex') {
 
 export function cliExecutorOptions(selected = '') {
   const profiles = shell.executorProfiles || {};
+  const normalized = normalizeExecutorType(selected);
+  // Show ALL first-class CLIs; ones that aren't installed are greyed out (disabled)
+  // rather than hidden, so the operator can see what's available.
   return FIRST_CLASS_CLI_EXECUTOR_TYPES
-    .filter((id) => profiles[id])
     .map((id) => {
-      const selectedAttr = normalizeExecutorType(selected) === id ? ' selected' : '';
-      return `<option value="${safeAttr(id)}"${selectedAttr}>${safeText(id)}</option>`;
+      const installed = Boolean(profiles[id]);
+      const selectedAttr = normalized === id ? ' selected' : '';
+      const disabledAttr = installed ? '' : ' disabled';
+      const suffix = installed ? '' : ' (not installed)';
+      return `<option value="${safeAttr(id)}"${selectedAttr}${disabledAttr}>${safeText(id)}${suffix}</option>`;
     })
     .join('');
+}
+
+// The agent a new session/message should default to: the operator's chosen leader
+// when it's installed, else the first installed first-class CLI, else codex.
+export function firstInstalledExecutor() {
+  const profiles = shell.executorProfiles || {};
+  return FIRST_CLASS_CLI_EXECUTOR_TYPES.find((id) => profiles[id]) || 'codex';
+}
+
+export function defaultExecutorType(preferred = '') {
+  const profiles = shell.executorProfiles || {};
+  const norm = normalizeExecutorType(preferred);
+  if (norm && profiles[norm]) return norm;
+  return firstInstalledExecutor();
 }
 
 export function getExecutorScopedMcpTools(executorType) {
