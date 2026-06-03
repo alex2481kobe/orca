@@ -5,7 +5,7 @@ import { safeText } from './format.js';
 import { renderAlert } from './dom.js';
 import { api } from './api.js';
 import { refresh } from './controller.js';
-import { render } from './render-views.js';
+import { render, captureContentUiState } from './render-views.js';
 import { shell } from './state.js';
 import { executorTargetsBinary, executorTargetsCommand, findMcpTool, getExecutorScopedMcpTools, normalizeExecutorType, normalizeMcpToolScopes, parseCommandParts } from './executor.js';
 import { FIRST_CLASS_CLI_EXECUTOR_TYPES } from './constants.js';
@@ -303,9 +303,20 @@ export async function handleWorkstationPicker(target) {
   }
   if (action === 'workstationUseDir') {
     const input = document.getElementById(forInput);
-    if (input && dir) input.value = dir;
+    if (input && dir) {
+      input.value = dir;
+      // Auto-fill the project/session name from the folder name (Codex-style, less
+      // friction) when the name hasn't been typed yet.
+      const ownerForm = input.closest('form');
+      const nameField = ownerForm?.querySelector('input[name="name"]');
+      if (nameField && !nameField.value.trim()) {
+        const base = String(dir).replace(/[\\/]+$/, '').split(/[\\/]/).pop() || '';
+        if (base) nameField.value = base;
+      }
+    }
     shell.workstationPicker = null;
-    render();
+    // Capture first so the just-set folder + name survive the re-render.
+    render(captureContentUiState());
     if (!dir) renderAlert('Pick a folder first.', 'bad');
     return;
   }
