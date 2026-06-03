@@ -40,6 +40,7 @@ export const laneCreateMethods = {
     model,
     permissionsProfile,
     intelligenceProfile,
+    speed,
     verificationCommand,
     expectedArtifacts,
     targetUrl,
@@ -179,6 +180,7 @@ export const laneCreateMethods = {
       ? permissionsProfile.trim().slice(0, 120) : '';
     const sanitizedIntelligenceProfile = typeof intelligenceProfile === 'string'
       ? intelligenceProfile.trim().slice(0, 80) : '';
+    const sanitizedSpeed = typeof speed === 'string' ? speed.trim().slice(0, 24) : '';
     const executorCapabilities = this.getExecutorCapabilities(normalizedExecutorType);
     const sanitizedVerificationCommand = typeof verificationCommand === 'string'
       ? verificationCommand.trim().slice(0, 1000) : '';
@@ -217,6 +219,7 @@ export const laneCreateMethods = {
       model: sanitizedModel,
       permissionsProfile: sanitizedPermissionsProfile,
       intelligenceProfile: sanitizedIntelligenceProfile,
+      speed: sanitizedSpeed,
       executorCapabilities,
       verificationCommand: sanitizedVerificationCommand,
       expectedArtifacts: expectedArtifactsList,

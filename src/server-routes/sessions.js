@@ -152,6 +152,7 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
           model: body.model,
           permissionsProfile: body.permissionsProfile,
           intelligenceProfile: body.intelligenceProfile,
+          speed: body.speed,
           targetUrl: body.targetUrl,
           attachments: body.attachments,
           baseUrl: origin,

@@ -131,6 +131,7 @@ export const orchestratorMethods = {
     model,
     permissionsProfile,
     intelligenceProfile,
+    speed,
     targetUrl,
     attachments = [],
     baseUrl = '',
@@ -202,6 +203,7 @@ export const orchestratorMethods = {
         model,
         permissionsProfile,
         intelligenceProfile,
+        speed,
         targetUrl,
       }, {
         actor: context.actor || 'dashboard',

@@ -27,6 +27,16 @@ function modelValues(executorType) {
   const node = getExecutorProfile(executorType)?.capabilities?.controls?.model;
   return Array.isArray(node?.values) ? node.values.filter(Boolean) : [];
 }
+// Rich catalog (slug + display name) when the CLI provides one (e.g. codex).
+function modelCatalog(executorType) {
+  const c = getExecutorProfile(executorType)?.capabilities?.controls?.model?.catalog;
+  return Array.isArray(c) && c.length ? c : null;
+}
+function modelItems(executorType) {
+  const cat = modelCatalog(executorType);
+  if (cat) return cat.map((m) => ({ v: m.slug, label: m.name || m.slug }));
+  return modelValues(executorType).map((v) => ({ v, label: shortModel(v) }));
+}
 
 export function configLabel({ model, intelligence }) {
   const parts = [];
@@ -85,9 +95,9 @@ function mainView(cfg) {
 // menu stays visible beside it, Codex-style).
 function modelBody(cfg) {
   const cur = val(cfg, 'model');
-  const vals = modelValues(executorOf(cfg));
-  const rows = vals.length
-    ? vals.map((m) => `<button type="button" class="cfg-item cfg-model${m === cur ? ' selected' : ''}" data-v="${safeAttr(m)}">${safeText(shortModel(m))}${m === cur ? '<span class="cfg-check">✓</span>' : ''}</button>`).join('')
+  const items = modelItems(executorOf(cfg));
+  const rows = items.length
+    ? items.map((it) => `<button type="button" class="cfg-item cfg-model${it.v === cur ? ' selected' : ''}" data-v="${safeAttr(it.v)}">${safeText(it.label)}${it.v === cur ? '<span class="cfg-check">✓</span>' : ''}</button>`).join('')
     : '<div class="cfg-note">No preset models reported — type one below.</div>';
   return `
     <div class="cfg-head">Model</div>

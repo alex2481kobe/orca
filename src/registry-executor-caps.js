@@ -54,6 +54,30 @@ function readCodexConfigDefault(key) {
     return null;
   }
 }
+
+// Codex caches its real model catalog (the interactive /model picker list) in
+// ~/.codex/models_cache.json — slug, display name, and per-model reasoning levels.
+// Read it so the UI shows codex's actual selectable models dynamically.
+function readCodexModelCatalog() {
+  try {
+    const home = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
+    const json = JSON.parse(readFileSync(path.join(home, 'models_cache.json'), 'utf8'));
+    const models = Array.isArray(json.models) ? json.models : [];
+    return models
+      .filter((m) => m && m.slug && m.visibility !== 'hide')
+      .slice(0, 32)
+      .map((m) => ({
+        slug: String(m.slug).slice(0, 120),
+        name: String(m.display_name || m.slug).slice(0, 120),
+        defaultEffort: m.default_reasoning_level ? String(m.default_reasoning_level).slice(0, 24) : null,
+        efforts: Array.isArray(m.supported_reasoning_levels)
+          ? m.supported_reasoning_levels.map((l) => l && l.effort).filter(Boolean).slice(0, 12)
+          : [],
+      }));
+  } catch {
+    return null;
+  }
+}
 import {
   FIRST_CLASS_CLI_EXECUTOR_TYPES,
   getApiProviderExecutorTypes,
@@ -195,7 +219,9 @@ export const executorCapabilityMethods = {
       // ORCA_<CLI>_MODELS. Free-text entry always remains available in the UI and
       // via the API, so any newer slug works even if not listed here.
       const modelHints = parseModelHints(helpText);
-      const modelValues = [...new Set([...modelHints, ...safeArray(profile.allowedModels)])].slice(0, 32);
+      const codexCatalog = type === 'codex' ? readCodexModelCatalog() : null;
+      const catalogSlugs = codexCatalog ? codexCatalog.map((m) => m.slug) : [];
+      const modelValues = [...new Set([...catalogSlugs, ...modelHints, ...safeArray(profile.allowedModels)])].slice(0, 32);
       const permissionChoices = parseHelpChoices(helpText, '--permission-mode');
       const outputChoices = parseHelpChoices(helpText, '--output-format');
       const effortChoices = parseHelpChoices(helpText, '--effort');
@@ -229,6 +255,7 @@ export const executorCapabilityMethods = {
             supported: supportsModel || modelValues.length > 0,
             values: modelValues,
             aliases: modelHints,
+            catalog: codexCatalog || null,
             freeText: true,
             defaultValue: String(process.env[`ORCA_${String(type).toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_MODEL`] || '').slice(0, 120)
               || (type === 'codex' ? readCodexConfigDefault('model') : null)

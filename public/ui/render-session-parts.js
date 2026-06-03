@@ -213,10 +213,13 @@ export function renderOrchestratorConsole(session) {
   const selectedExecutor = locked
     ? normalizeExecutorType(thread.executorType || session.leader || 'codex')
     : defaultExecutorType(thread.executorType || session.leader);
-  // Auto-pick the agent's default model (like the terminal) when none chosen yet.
-  const selectedModel = activeLane?.model || defaultModelFor(selectedExecutor);
-  const selectedRunMode = activeLane?.permissionsProfile || 'auto-edit';
-  const selectedIntelligence = activeLane?.intelligenceProfile || 'high';
+  // Reflect the active lane's settings ONLY when that lane is the same agent;
+  // otherwise show the selected agent's own defaults (fixes e.g. codex showing
+  // claude's 'opus' because a prior lane used it).
+  const laneMatches = activeLane && normalizeExecutorType(activeLane.executorType || '') === selectedExecutor;
+  const selectedModel = (laneMatches && activeLane.model) ? activeLane.model : defaultModelFor(selectedExecutor);
+  const selectedRunMode = (laneMatches && activeLane.permissionsProfile) || 'auto-edit';
+  const selectedIntelligence = (laneMatches && activeLane.intelligenceProfile) || 'high';
   return `
     <article class="chat">
       <div class="chat-thread" id="chat-thread-${safeAttr(session.id)}"></div>

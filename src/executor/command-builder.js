@@ -47,6 +47,11 @@ export function buildExecutorCommandArgs(label, lane) {
     case 'codex': {
       out.push('exec', '--json');
       if (model) out.push('--model', model);
+      // Reasoning effort (the "/model" effort level) -> -c model_reasoning_effort.
+      const codexEffort = ['low', 'medium', 'high', 'xhigh'].includes(intelligence.toLowerCase()) ? intelligence.toLowerCase() : '';
+      if (codexEffort) out.push('--config', `model_reasoning_effort="${codexEffort}"`);
+      // Speed (terminal "/fast") -> the fast_mode feature flag.
+      if (String(lane.speed || '').trim().toLowerCase() === 'fast') out.push('--config', 'features.fast_mode=true');
       // codex exec is non-interactive; governance is by sandbox policy.
       // force -> full-auto, plan/ask -> read-only, other governed modes ->
       // workspace-write (edit the workspace, no network/system escape).
