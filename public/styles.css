@@ -2455,6 +2455,10 @@ pre {
 /* Composer stays put; only the thread scrolls. Big, clearly visible toolbar icons. */
 .composer { flex: 0 0 auto; }
 .composer-attach, .composer-send { height: 2.6rem !important; width: 2.6rem !important; }
+/* flex:0 0 auto so the icon isn't shrunk along the button's main axis (that was
+   squishing every toolbar glyph to a sliver — width collapsed while height held). */
+.composer-attach svg, .composer-send svg, .info-toggle svg, .dd-trigger .dd-chevron,
+.sidebar-collapse svg, .sidebar-reopen svg, .sidebar-project-new svg { flex: 0 0 auto; }
 .composer-attach svg, .composer-send svg { height: 30px !important; width: 30px !important; }
 .composer-attach svg path, .composer-send svg path { stroke-width: 2.2; }
 .composer-bar { gap: 0.45rem; padding: 0.15rem 0.15rem 0; }
