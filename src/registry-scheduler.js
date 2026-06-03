@@ -3,10 +3,23 @@
 
 import fs from 'node:fs/promises';
 import { LANE_STATES } from './worker-contract.js';
-import { nowIso, sleep } from './registry-utils.js';
+import { nowIso } from './registry-utils.js';
 import { createExecutorAdapter } from './executor-factory.js';
 import { normalizeApprovedCapacity, normalizeSpawnPolicy } from './registry-lane-config.js';
 import { writeJsonFileAtomic } from './state-store.js';
+
+// The scheduler heartbeat must NOT, by itself, keep the Node process alive — a
+// listening HTTP server (the real entrypoint) is what should. Without unref(),
+// merely importing server.js (which constructs the registry and starts this
+// loop) spins a setTimeout chain that never lets the process exit — leaking a
+// zombie node process on every module load-check. unref() lets the process exit
+// when nothing else (no open socket) is holding the event loop.
+function schedulerSleep(ms) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    if (typeof timer?.unref === 'function') timer.unref();
+  });
+}
 
 const {
   QUEUED: QUEUED_STATE,
@@ -86,7 +99,7 @@ export const schedulerMethods = {
       this.persistState();
     }
     while (this._schedulerRunning) {
-      await sleep(this.heartbeatIntervalMs);
+      await schedulerSleep(this.heartbeatIntervalMs);
       await this.advanceLanes();
     }
   },
