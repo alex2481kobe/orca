@@ -14,6 +14,7 @@ import { renderLaneExecutorGuidance, repopulateExecutorScopedControls, captureCo
 import { refresh, showArtifacts, parseRoute, connectEventStream, startPolling } from './ui/controller.js';
 import { handlePrivateAccessSettings, handleNotificationSettings, handleNotificationAction, handleCreatePrivateAccessTarget, handlePrivateAccessAction, handleProviderAction, handleAppBackupAction, handleCleanupSchedule, handleCreateMcpTool, handleCreateProject, handleCreateSession, handleAddProjectQuickLink, handleCreateLane, handleOrchestratorMessage, handleLaneControlsUpdate, handleAuditEventAction, handleWorkstationPicker, buildCleanupScheduleBody, buildMcpToolBody, buildApprovedActionBody, toObj } from './ui/handlers.js';
 import { handleLaneActions, handleSessionActions, handleSystemActions } from './ui/handlers-actions.js';
+import { initDropdowns, enhanceSelects } from './ui/dropdown.js';
 
 
 
@@ -318,6 +319,7 @@ document.addEventListener('change', (event) => {
   // options from that executor's detected capabilities.
   if (event.target && event.target.name === 'executorType' && event.target.form && event.target.form.id === 'orchestrator-message-form') {
     repopulateExecutorScopedControls(event.target.form);
+    enhanceSelects(event.target.form); // refresh the custom dropdowns for the rebuilt options
   }
   if (event.target && event.target.id === 'composer-file-input') {
     const sessionId = event.target.dataset.sessionId;
@@ -689,6 +691,7 @@ window.addEventListener('popstate', () => {
 
 initializeApiToken();
 registerServiceWorker();
+initDropdowns();
 renderMobileManifest();
 setupSidebarReorder();
 // Connect the live SSE stream only after the initial load settles. A persistent

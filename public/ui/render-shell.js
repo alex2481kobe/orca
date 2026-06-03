@@ -10,6 +10,7 @@ import { renderProject } from './render-project.js';
 import { loadEvidenceGallery, renderAuditLog, renderLane } from './render-lane.js';
 import { renderSession } from './render-session.js';
 import { restoreContentUiState } from './render-fragments.js';
+import { enhanceSelects } from './dropdown.js';
 import { FIRST_CLASS_CLI_EXECUTOR_TYPES } from './constants.js';
 import { orderItems, readSidebarOrder, isProjectExpanded } from './sidebar.js';
 import { COMPOSE_ICON, FOLDER_ICON, PENCIL_ICON } from './constants.js';
@@ -132,6 +133,7 @@ export function render(uiState = null) {
   }
   renderAuditLog();
   restoreContentUiState(uiState);
+  enhanceSelects(refs.content);
 }
 
 export function renderStatusStrip() {

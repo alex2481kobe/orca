@@ -47,6 +47,7 @@
     "smoke:ui-contract": "node scripts/ui-contract-smoke.mjs",
     "smoke:disclosure": "node scripts/disclosure-persistence-smoke.mjs",
     "smoke:realtime": "node scripts/realtime-update-smoke.mjs",
+    "smoke:dropdown": "node scripts/dropdown-smoke.mjs",
     "smoke:workflow-policy": "node scripts/workflow-policy-smoke.mjs",
     "smoke:route-inventory": "node scripts/route-inventory-smoke.mjs",
     "smoke:route-security-matrix": "node scripts/route-security-matrix-smoke.mjs",

@@ -123,10 +123,15 @@ try {
     page.on('dialog', (dialog) => dialog.accept());
     await page.goto(`${base}${session.body.route}`, { waitUntil: 'networkidle', timeout: 20000 });
     await page.waitForSelector('#orchestrator-message-form textarea[name="message"]', { timeout: 15000 });
-    await page.selectOption('#orchestrator-message-form select[name="executorType"]', 'mock');
-    // Mode is in the composer toolbar; the custom model lives in the "⋯" options
-    // popover, so open it before filling the model.
-    await page.selectOption('#orchestrator-message-form select[name="permissionsProfile"]', 'plan');
+    // Selects are now custom dropdowns: click the trigger, then the option.
+    const pick = async (name, value) => {
+      const dd = page.locator(`#orchestrator-message-form .dd:has(select[name="${name}"])`);
+      await dd.locator('.dd-trigger').click();
+      await dd.locator(`.dd-opt[data-v="${value}"]`).click();
+    };
+    await pick('executorType', 'mock');
+    await pick('permissionsProfile', 'plan');
+    // The custom model lives in the "⋯" options popover, so open it before filling.
     await page.click('#orchestrator-message-form .composer-more > summary');
     await page.fill('#orchestrator-message-form input[name="model"]', 'gpt-5');
     await page.fill('#orchestrator-message-form textarea[name="message"]', 'Start the launch verification lane from the dashboard chat.');

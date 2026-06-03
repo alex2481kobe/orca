@@ -93,9 +93,15 @@ export function writeHtml(el, html) {
 }
 
 export function renderAlert(text, level = 'info') {
-  refs.alerts.innerHTML = `<div class="card ${level}">${safeText(text)}</div>`;
+  // Only surface real problems. Informational / success toasts ("X canceled",
+  // "X archived", "lane started"…) are noise and also caused a layout shift, so
+  // they are dropped — the UI already reflects the change. Errors still show, as a
+  // fixed overlay toast (never pushes content).
+  if (level !== 'bad' && level !== 'error') return;
+  if (!refs.alerts) return;
+  refs.alerts.innerHTML = `<div class="alert bad" role="alert">${safeText(text)}</div>`;
   clearTimeout(renderAlert.timer);
   renderAlert.timer = setTimeout(() => {
     if (refs.alerts) refs.alerts.innerHTML = '';
-  }, 3500);
+  }, 5000);
 }

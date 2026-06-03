@@ -341,6 +341,9 @@ async function checkRoute(page, viewport, screen) {
       ariaDisabled: button.getAttribute('aria-disabled') || '',
       ariaLabel: button.getAttribute('aria-label') || '',
       title: button.getAttribute('title') || '',
+      // Custom-dropdown trigger/option buttons are wired by the dropdown controller
+      // (delegated listener), not data-action — exempt from the dead-button check.
+      dropdown: Boolean(button.closest('.dd')),
     }));
     const visibleLinksWithoutHref = Array.from(document.querySelectorAll('a')).filter((link) => {
       const style = window.getComputedStyle(link);
@@ -394,6 +397,7 @@ async function checkRoute(page, viewport, screen) {
   const unwiredActions = result.orphanActions.filter((action) => !WIRED_ACTIONS.has(action));
   if (unwiredActions.length) fail(`${viewport.name}/${screen.name} unwired data-action`, [...new Set(unwiredActions)].join(', '));
   const deadButtons = result.visibleButtons.filter((button) => {
+    if (button.dropdown) return false; // wired via the dropdown controller
     if (button.disabled || button.ariaDisabled === 'true') return !button.title;
     if (button.action) return !WIRED_ACTIONS.has(button.action);
     return button.type !== 'submit';
