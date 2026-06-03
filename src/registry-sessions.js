@@ -233,6 +233,11 @@ export const sessionMethods = {
     const normalizedApprovedCapacity = normalizeApprovedCapacity(approvedCapacity, concurrencyLimit);
     const retention = Number.parseInt(artifactRetentionDays, 10) || 14;
     const sessionId = randomUUID();
+    // Inherit the project's folder when the session doesn't specify one — the
+    // user picks the working directory once when creating the project.
+    if ((!repoRoot || !String(repoRoot).trim()) && project.repoRoot) {
+      repoRoot = project.repoRoot;
+    }
     let validatedRepoRoot = '';
     if (typeof repoRoot === 'string' && repoRoot.trim()) {
       const candidate = path.resolve(repoRoot.trim());

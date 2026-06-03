@@ -6,6 +6,7 @@ import { safeAttr, safeText, formatRelative } from './format.js';
 import { browserNotificationsSupported } from './notifications.js';
 import { MCP_TOOL_SCOPE_ALLOWLIST } from './constants.js';
 import { shell } from './state.js';
+import { renderWorkstationPickerPanel } from './render-project.js';
 
 const selected = (actual, expected) => String(actual || '') === String(expected || '') ? 'selected' : '';
 const checked = (value) => value ? 'checked' : '';
@@ -690,7 +691,7 @@ export function renderBackupPanel() {
 export function renderCreateProjectPanel() {
   return `
       <div class="card control-card" data-panel-card="create">
-        <details class="disclosure">
+        <details class="disclosure" open>
           <summary>
             <span>Create project</span>
             <small>Add a new command surface</small>
@@ -700,12 +701,22 @@ export function renderCreateProjectPanel() {
           <label>Project name
             <input name="name" required placeholder="Project name" />
           </label>
-          <label>Slug
-            <input name="slug" placeholder="optional" />
+          <label>Folder (working directory)
+            <input id="project-repo-root" name="repoRoot" placeholder="Pick the project's folder…" autocomplete="off" />
           </label>
-          <label>Local quick link
-            <input name="quickLink" placeholder="http://localhost:3000" />
-          </label>
+          <button class="secondary" data-action="browseWorkstation" data-for-input="project-repo-root" type="button">Browse…</button>
+          ${renderWorkstationPickerPanel('project-repo-root')}
+          <details class="disclosure compact-disclosure">
+            <summary><span>More</span></summary>
+            <div class="disclosure-body">
+              <label>Slug
+                <input name="slug" placeholder="optional" />
+              </label>
+              <label>Local quick link
+                <input name="quickLink" placeholder="http://localhost:3000" />
+              </label>
+            </div>
+          </details>
           <button type="submit">Create project</button>
         </form>
           </div>

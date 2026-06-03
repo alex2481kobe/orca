@@ -1,9 +1,11 @@
 // Project CRUD + quick-link methods, as a prototype mixin for OrcaRegistry.
 // Extracted from registry.js.
 
+import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { nowIso, clonePayload, normalizeSlug } from './registry-utils.js';
 import { sanitizeSettingsOverrides } from './effective-settings.js';
+import { describeRepoRoot } from './worktree-manager.js';
 import {
   MAX_PROJECT_QUICK_LINKS,
   sanitizeQuickLinkText,
@@ -20,6 +22,7 @@ export const projectMethods = {
     policyProfile = 'default',
     owner = 'dashboard',
     settingsOverrides = {},
+    repoRoot = '',
   } = {}, context = {}) {
     const actor = context.actor || owner;
     const policyCheck = this.evaluateActionPolicy('createProject', context);
@@ -45,6 +48,24 @@ export const projectMethods = {
       throw { status: 409, message: `Project slug "${finalSlug}" already exists.` };
     }
 
+    // Optional working directory (the project's folder). Validated as a git
+    // working tree inside an approved repo root, exactly like a session repoRoot;
+    // sessions default to it so the user picks the folder once at project create.
+    let validatedRepoRoot = '';
+    if (typeof repoRoot === 'string' && repoRoot.trim()) {
+      const candidate = path.resolve(repoRoot.trim());
+      const descriptor = describeRepoRoot(candidate);
+      if (!descriptor.ok) {
+        throw { status: 422, message: `Project folder is not a git working tree: ${descriptor.reason}` };
+      }
+      const approved = this.getApprovedRepoRoots();
+      const within = approved.some((root) => candidate === root || candidate.startsWith(root + path.sep));
+      if (!within) {
+        throw { status: 422, message: `Project folder ${candidate} is outside the approved repo roots. Add it to ORCA_REPO_ROOTS or run the server from its parent.` };
+      }
+      validatedRepoRoot = candidate;
+    }
+
     const now = nowIso();
     const project = {
       id: randomUUID(),
@@ -53,6 +74,7 @@ export const projectMethods = {
       route: `/projects/${finalSlug}`,
       quickLinks: normalizeQuickLinks(quickLinks),
       policyProfile,
+      repoRoot: validatedRepoRoot,
       settingsOverrides: sanitizeSettingsOverrides(settingsOverrides),
       owner: actor,
       createdAt: now,

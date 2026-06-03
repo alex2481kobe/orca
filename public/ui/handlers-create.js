@@ -24,6 +24,7 @@ export async function handleCreateProject(event) {
     slug: payload.slug,
     owner: approval.actor,
     quickLinks: quick ? [{ label: 'Primary', url: quick }] : [],
+    ...(payload.repoRoot && String(payload.repoRoot).trim() ? { repoRoot: String(payload.repoRoot).trim() } : {}),
     actor: approval.actor,
     approved: approval.approved,
   };
