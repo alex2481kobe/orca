@@ -688,6 +688,44 @@ export function renderBackupPanel() {
       </article>`;
 }
 
+export function renderArchivePanel() {
+  const archive = shell.archive || { projects: [], sessions: [] };
+  const archivedProjects = Array.isArray(archive.projects) ? archive.projects : [];
+  const archivedSessions = Array.isArray(archive.sessions) ? archive.sessions : [];
+  const projectRows = archivedProjects.map((project) => `
+    <div class="archive-row">
+      <div>
+        <strong>${safeText(project.name)}</strong>
+        <div class="tiny muted">Project</div>
+      </div>
+      <button class="secondary" data-action="restoreProject" data-project-id="${safeAttr(project.id)}" type="button">Restore</button>
+    </div>
+  `).join('');
+  const sessionRows = archivedSessions.map((session) => `
+    <div class="archive-row">
+      <div>
+        <strong>${safeText(session.name)}</strong>
+        <div class="tiny muted">${safeText(session.projectName || 'Project')}</div>
+      </div>
+      <button class="secondary" data-action="restoreSession" data-session-id="${safeAttr(session.id)}" type="button">Restore</button>
+    </div>
+  `).join('');
+  const empty = !archivedProjects.length && !archivedSessions.length;
+  return `
+      <article class="card control-card" data-panel-card="system">
+        <details class="disclosure"${empty ? '' : ' open'}>
+          <summary>
+            <span>Archive</span>
+            <small>${safeText(archivedProjects.length + archivedSessions.length)} archived</small>
+          </summary>
+          <div class="disclosure-body">
+            <p class="muted">Archived projects and sessions are hidden from the sidebar but kept. Restore brings them back.</p>
+            ${empty ? '<div class="muted tiny">Nothing archived.</div>' : `<div class="archive-list">${projectRows}${sessionRows}</div>`}
+          </div>
+        </details>
+      </article>`;
+}
+
 export function renderCreateProjectPanel() {
   return `
       <div class="card control-card" data-panel-card="create">

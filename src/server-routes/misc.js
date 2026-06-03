@@ -64,6 +64,14 @@ export async function handleMiscRoutes(ctx, req, res, method, parts) {
     }
   }
 
+  if (parts[1] === 'archive' && parts.length === 2 && method === 'GET') {
+    try {
+      return sendJson(res, 200, registry.listArchived());
+    } catch (error) {
+      return sendJson(res, error.status || 500, { error: error.message || 'Could not list archived items.' });
+    }
+  }
+
   if (parts[1] === 'audit' && parts[2] === 'events' && method === 'GET') {
     const searchParams = getSearchParams(req.url || '/');
     if (!searchParams) {

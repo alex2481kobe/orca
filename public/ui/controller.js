@@ -183,6 +183,10 @@ export async function refresh(options = {}) {
         shell.lanes = allLanes;
       }
     }
+    const archiveResp = await api('/api/archive');
+    if (archiveResp.ok && archiveResp.data) {
+      shell.archive = archiveResp.data;
+    }
     if (requestId !== refreshRequestId) return;
     render(uiState);
   } finally {

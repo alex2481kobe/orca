@@ -584,6 +584,8 @@ document.addEventListener('click', async (event) => {
     'reinstallExecutorCli',
     'archiveProject',
     'archiveSession',
+    'restoreProject',
+    'restoreSession',
     'renameProject',
     'renameSession',
     // These are handled in handleSystemActions but were missing from the

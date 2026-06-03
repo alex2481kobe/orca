@@ -421,6 +421,32 @@ export async function handleSystemActions(event) {
     }
   }
 
+  if (action === 'restoreProject') {
+    const projectId = event.currentTarget.dataset.projectId;
+    if (!projectId) return;
+    const approval = await buildApprovedActionBody('updateProject', 'Restore this project to the active list?');
+    if (!approval.approved) return;
+    const response = await api(`/api/projects/${projectId}`, {
+      method: 'PATCH',
+      body: { actor: approval.actor, approved: approval.approved, state: 'active' },
+    });
+    if (response.ok) { renderAlert('Project restored.'); await refresh(); } else { renderAlert(response.data?.error || 'Could not restore project.', 'bad'); }
+    return;
+  }
+
+  if (action === 'restoreSession') {
+    const sessionId = event.currentTarget.dataset.sessionId;
+    if (!sessionId) return;
+    const approval = await buildApprovedActionBody('updateSession', 'Restore this session to the active list?');
+    if (!approval.approved) return;
+    const response = await api(`/api/sessions/${sessionId}`, {
+      method: 'PATCH',
+      body: { actor: approval.actor, approved: approval.approved, state: 'active' },
+    });
+    if (response.ok) { renderAlert('Session restored.'); await refresh(); } else { renderAlert(response.data?.error || 'Could not restore session.', 'bad'); }
+    return;
+  }
+
   if (action === 'archiveProject') {
     const projectId = event.currentTarget.dataset.projectId;
     const projectName = event.currentTarget.dataset.projectName || 'this project';

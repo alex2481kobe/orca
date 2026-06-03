@@ -310,7 +310,23 @@ export const sessionMethods = {
     if (!project) {
       throw { status: 404, message: 'Project not found.' };
     }
-    return clonePayload(this.sessions.filter((session) => session.projectId === project.id));
+    // Exclude archived sessions from the default list so they don't show in the
+    // sidebar; archived items are surfaced separately via listArchived().
+    return clonePayload(this.sessions.filter((session) => session.projectId === project.id && session.state !== 'archived'));
+  },
+
+  // Archived projects + sessions for the Settings -> Archive view (restore).
+  listArchived() {
+    const projects = this.projects
+      .filter((project) => project.state === 'archived')
+      .map((project) => clonePayload(project));
+    const sessions = this.sessions
+      .filter((session) => session.state === 'archived')
+      .map((session) => {
+        const project = this.projects.find((candidate) => candidate.id === session.projectId);
+        return { ...clonePayload(session), projectName: project?.name || 'Unknown project', projectSlug: project?.slug || '' };
+      });
+    return { projects, sessions };
   },
 
   getSession(locator) {

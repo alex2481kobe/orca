@@ -27,6 +27,7 @@ import {
   renderEffectiveSettingsPanel,
   renderNotificationsPanel,
   renderBackupPanel,
+  renderArchivePanel,
   renderCreateProjectPanel,
   renderProjectListPanel,
   renderSystemActionsPanel,
@@ -346,6 +347,7 @@ export function renderHome() {
       ${renderProvidersPanel(ctx)}
       ${renderEffectiveSettingsPanel(ctx)}
       ${renderNotificationsPanel(ctx)}
+      ${renderArchivePanel()}
       ${renderBackupPanel()}
       ${renderCreateProjectPanel()}
       ${renderProjectListPanel(ctx)}

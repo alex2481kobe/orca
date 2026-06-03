@@ -2448,3 +2448,8 @@ pre {
 .home-cta:hover { background: #fff; }
 .home-hero-link { color: var(--muted); font-size: 0.85rem; margin-top: 0.3rem; text-decoration: none; }
 .home-hero-link:hover { color: var(--text); text-decoration: underline; }
+
+/* Settings -> Archive list */
+.archive-list { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.5rem; }
+.archive-row { align-items: center; background: var(--panel-soft); border: 1px solid var(--line); border-radius: 8px; display: flex; gap: 0.75rem; justify-content: space-between; padding: 0.55rem 0.7rem; }
+.archive-row strong { font-size: 0.88rem; }
