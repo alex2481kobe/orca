@@ -359,11 +359,12 @@ body.sidebar-collapsed .sidebar-pair-label {
 }
 
 .sidebar-title {
-  font-size: 0.7rem;
-  letter-spacing: 0.1em;
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0;
   color: var(--muted);
-  margin-bottom: 0.85rem;
-  text-transform: uppercase;
+  margin-bottom: 0.5rem;
+  text-transform: none;
 }
 
 .sidebar-list {
@@ -2344,7 +2345,7 @@ pre {
 .msg-user { justify-content: flex-end; }
 .msg-assistant { justify-content: flex-start; }
 .msg-body { font-size: 0.93rem; line-height: 1.55; white-space: pre-wrap; }
-.msg-user .msg-body { background: var(--panel-soft); border: 1px solid var(--line); border-radius: 16px; max-width: 82%; padding: 0.6rem 0.9rem; }
+.msg-user .msg-body { background: #2f2f2f; border: 0; border-radius: 18px; max-width: 82%; padding: 0.6rem 0.95rem; }
 .msg-assistant .msg-body { color: var(--text); max-width: 100%; }
 
 /* Composer pill */
