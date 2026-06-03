@@ -655,6 +655,19 @@ document.addEventListener('keydown', (event) => {
   safeNavigate(navCard.dataset.href);
 });
 
+// Single source of truth for the chat composer: mirror every keystroke into
+// shell.composerDrafts so the draft survives ANY re-render. renderSession
+// rehydrates the textarea from this map, so a poll/SSE/structural rebuild can
+// never wipe what the operator is typing. (Architectural fix — drafts must not
+// live only in the DOM.)
+document.addEventListener('input', (event) => {
+  const field = event.target;
+  if (!field || field.name !== 'message') return;
+  const form = field.closest?.('#orchestrator-message-form');
+  const sessionId = form?.dataset?.sessionId;
+  if (sessionId) shell.composerDrafts[sessionId] = field.value;
+});
+
 window.addEventListener('hashchange', () => {
   render();
 });

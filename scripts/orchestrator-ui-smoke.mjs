@@ -132,8 +132,8 @@ try {
     await page.fill('#orchestrator-message-form textarea[name="message"]', 'Start the launch verification lane from the dashboard chat.');
     const responsePromise = page.waitForResponse((response) => response.url().includes('/orchestrator/messages'), { timeout: 15000 });
     await page.click('#orchestrator-message-form button[type="submit"]');
-    // High-risk actions now use a custom confirm modal (not the native dialog).
-    await page.click('.modal-overlay .modal-confirm', { timeout: 5000 });
+    // Sending a chat message no longer pops a confirm modal — the operator's send
+    // IS the approval (like a normal chat). The request fires straight through.
     const turnResponse = await responsePromise;
     if (turnResponse.status() !== 201) {
       fail('orchestrator message response', `${turnResponse.status()} ${await turnResponse.text()}`);

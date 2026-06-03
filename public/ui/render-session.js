@@ -57,5 +57,11 @@ export function renderSession(project, session) {
     const listEl = document.getElementById(`executor-list-${sid}`);
     if (listEl) writeHtml(listEl, renderExecutorListInner(session));
   }
+  // Rehydrate the composer from the draft store (source of truth). Only when the
+  // box is not focused, so we never disturb the caret of someone mid-type.
+  const composer = document.querySelector('#orchestrator-message-form textarea[name="message"]');
+  if (composer && document.activeElement !== composer) {
+    composer.value = shell.composerDrafts?.[sid] || '';
+  }
   renderLaneExecutorGuidance(document.getElementById('create-lane-form'));
 }

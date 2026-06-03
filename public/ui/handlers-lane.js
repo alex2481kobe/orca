@@ -23,14 +23,16 @@ export async function handleOrchestratorMessage(event) {
   const model = String(payload.model || '').trim() || String(payload.modelPreset || '').trim() || null;
   const intelligenceProfile = String(payload.intelligenceProfile || '').trim() || 'high';
   const permissionsProfile = String(payload.permissionsProfile || '').trim() || 'plan';
-  const approval = await buildApprovedActionBody(
-    'createLane',
-    `Start ${executorType} orchestrator?\nMode: ${permissionsProfile}\nModel: ${model || 'default'}\nIntelligence: ${intelligenceProfile}`,
-  );
-  if (!approval.approved) {
-    renderAlert('Orchestrator message canceled.');
-    return;
-  }
+  // Sending your own chat message IS the approval — a real chat doesn't pop a
+  // confirm modal on every message. The composer already shows mode/model, so the
+  // operator's send is the explicit, informed action.
+  const form = event.currentTarget;
+  // Optimistically clear the box immediately (and the draft store) so it feels
+  // like a normal chat; restore on failure.
+  const draft = message;
+  shell.composerDrafts[sessionId] = '';
+  const messageField = form.querySelector('textarea[name="message"]');
+  if (messageField) messageField.value = '';
   const response = await api(`/api/sessions/${sessionId}/orchestrator/messages`, {
     method: 'POST',
     body: {
@@ -40,17 +42,18 @@ export async function handleOrchestratorMessage(event) {
       permissionsProfile,
       intelligenceProfile,
       attachments,
-      actor: approval.actor,
-      approved: approval.approved,
+      actor: 'dashboard',
+      approved: true,
     },
   });
   if (response.ok) {
-    event.currentTarget.reset();
     composerAttachmentsFor(sessionId).length = 0; // clear attached files after send
-    renderAlert('Orchestrator lane started.');
     await refresh();
   } else {
-    renderAlert(response.data?.error || 'Could not start orchestrator lane.', 'bad');
+    // Put the draft back so nothing is lost on error.
+    shell.composerDrafts[sessionId] = draft;
+    if (messageField) messageField.value = draft;
+    renderAlert(response.data?.error || 'Could not send message.', 'bad');
   }
 }
 

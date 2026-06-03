@@ -29,8 +29,13 @@ export const shell = {
   notifications: null,
   authSessions: null,
   lastPairing: null,
-  executorPanelOpen: true,
+  executorPanelOpen: false,
   workstationPicker: null,
+  // Per-session chat composer drafts, keyed by sessionId. The single source of
+  // truth for the message box — the DOM textarea is rehydrated from here on every
+  // render, so NO re-render (poll, SSE, structural rebuild, modal, route change)
+  // can ever clear what the operator is typing.
+  composerDrafts: {},
 };
 
 export const refs = {
