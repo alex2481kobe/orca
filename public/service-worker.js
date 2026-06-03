@@ -1,4 +1,4 @@
-const CACHE_NAME = 'orca-static-v48';
+const CACHE_NAME = 'orca-static-v49';
 const STATIC_ASSETS = [
   '/',
   '/styles.css',
@@ -89,8 +89,11 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;
   if (isSensitiveUrl(url)) return;
 
+  // A top-level navigation (document request, or a deep-link SPA route) gets the
+  // app-shell fallback when offline. Everything else is an addressable asset.
+  const isNavigation = request.mode === 'navigate' || isAppShellDocument(request);
   const cacheKey = cacheKeyForStaticAsset(url);
-  if (!cacheKey && !isAppShellDocument(request)) return;
+  if (!cacheKey && !isNavigation) return;
 
   event.respondWith(
     fetch(request)
@@ -101,6 +104,24 @@ self.addEventListener('fetch', (event) => {
         }
         return response;
       })
-      .catch(() => caches.match(cacheKey || '/').then((cached) => cached || caches.match('/'))),
+      .catch(async () => {
+        // Network failed. Serve the exact asset from cache when we have it.
+        if (cacheKey) {
+          const cached = await caches.match(cacheKey);
+          if (cached) return cached;
+        }
+        // App-shell fallback applies ONLY to document navigations. Never return
+        // index.html for a script/style/icon request — the browser would parse
+        // HTML as the wrong type, crashing module imports and blanking (which on
+        // iOS can auto-close) a standalone PWA.
+        if (isNavigation) {
+          const shell = await caches.match('/');
+          if (shell) return shell;
+        }
+        // Nothing usable cached: return an explicit error rather than resolving
+        // respondWith() to undefined (which surfaces as a hard network error and
+        // can blank/close a standalone window).
+        return new Response('Offline', { status: 504, statusText: 'Offline' });
+      }),
   );
 });

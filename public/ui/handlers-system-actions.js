@@ -1,6 +1,6 @@
 // Split from handlers-actions.js.
 
-import { authRequiredMessage, renderAlert } from './dom.js';
+import { authRequiredMessage, renderAlert, safeNavigate } from './dom.js';
 import { confirmDialog, promptDialog } from './dialog.js';
 import { api, setApiToken } from './api.js';
 import { refresh } from './controller.js';
@@ -471,7 +471,7 @@ export async function handleSystemActions(event) {
     });
     if (response.ok) {
       renderAlert('Project archived.');
-      window.location.href = '/#projects';
+      safeNavigate('/#projects');
       return;
     }
     renderAlert(response.status === 401 ? authRequiredMessage() : (response.data?.error || 'Could not archive project.'), 'bad');
@@ -543,9 +543,9 @@ export async function handleSystemActions(event) {
       const currentSession = shell.sessions.find((value) => value.id === sessionId);
       const project = currentSession ? shell.projects.find((value) => value.id === currentSession.projectId) : null;
       if (project?.route) {
-        window.location.href = project.route;
+        safeNavigate(project.route);
       } else {
-        window.location.href = '/#projects';
+        safeNavigate('/#projects');
       }
       return;
     }

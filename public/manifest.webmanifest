@@ -7,8 +7,8 @@
   "scope": "/",
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone", "browser"],
-  "background_color": "#10110f",
-  "theme_color": "#10110f",
+  "background_color": "#212121",
+  "theme_color": "#212121",
   "orientation": "any",
   "categories": ["productivity", "developer", "utilities"],
   "shortcuts": [

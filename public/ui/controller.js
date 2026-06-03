@@ -222,31 +222,79 @@ export function scheduleStreamRefresh() {
   _streamRefreshTimer = setTimeout(() => { _streamRefreshTimer = null; refresh({ background: true }); }, 150);
 }
 
+// Live-connection + poll lifecycle state. Kept at module scope so we never open a
+// second EventSource, never stack reconnect timers, and never run two poll loops.
+// Both the SSE stream and the poll loop pause while the tab/PWA is backgrounded —
+// otherwise a phone PWA keeps a 500ms timer + a long-lived stream alive forever,
+// draining battery and stacking reconnect attempts (a real leak on mobile).
+let _activeEventSource = null;
+let _streamRetryTimer = null;
+let _streamPausedForVisibility = false;
+let _pollTimer = null;
+let _visibilityWired = false;
+let _reopenStream = null;
+
+function closeEventStream() {
+  if (_streamRetryTimer) { clearTimeout(_streamRetryTimer); _streamRetryTimer = null; }
+  if (_activeEventSource) {
+    try { _activeEventSource.close(); } catch { /* ignore */ }
+    _activeEventSource = null;
+  }
+}
+
+function wireVisibilityPause() {
+  if (_visibilityWired || typeof document === 'undefined') return;
+  _visibilityWired = true;
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      // Backgrounded: stop the stream and suppress reconnects until we return.
+      _streamPausedForVisibility = true;
+      closeEventStream();
+    } else {
+      // Foregrounded: reopen the stream and refresh promptly so we aren't stale.
+      _streamPausedForVisibility = false;
+      if (_reopenStream) _reopenStream();
+      refresh({ background: true });
+    }
+  });
+}
+
 export function connectEventStream() {
   if (typeof EventSource === 'undefined') return;
   let retryMs = 2000;
   const open = () => {
+    if (_activeEventSource) return; // already connected — never stack streams
+    if (typeof document !== 'undefined' && document.hidden) return; // don't open while hidden
     let es;
     try {
       es = new EventSource('/api/streams/events');
     } catch {
       return;
     }
+    _activeEventSource = es;
     es.addEventListener('update', scheduleStreamRefresh);
     es.addEventListener('snapshot', scheduleStreamRefresh);
     es.onerror = () => {
       try { es.close(); } catch { /* ignore */ }
+      if (_activeEventSource === es) _activeEventSource = null;
+      if (_streamPausedForVisibility) return; // intentionally paused; visibility will reopen
       // Reconnect with backoff; the polling timer keeps the UI fresh meanwhile.
       retryMs = Math.min(retryMs * 2, 30000);
-      window.setTimeout(open, retryMs);
+      if (_streamRetryTimer) clearTimeout(_streamRetryTimer);
+      _streamRetryTimer = window.setTimeout(() => { _streamRetryTimer = null; open(); }, retryMs);
     };
     es.onopen = () => { retryMs = 2000; };
   };
+  _reopenStream = open;
+  wireVisibilityPause();
   open();
 }
 
 export function startPolling() {
-  setInterval(() => {
+  if (_pollTimer) return; // guard against a second poll loop
+  wireVisibilityPause();
+  _pollTimer = setInterval(() => {
+    if (typeof document !== 'undefined' && document.hidden) return; // pause work while backgrounded
     const cadenceMs = hasLiveOrchestratorConsole() ? 1000 : 3000;
     if (Date.now() - lastRefreshAt >= cadenceMs) {
       refresh({ background: true });
