@@ -2451,11 +2451,13 @@ pre {
 .composer-more-pop { right: 0; left: auto; }
 /* Composer stays put; only the thread scrolls. Bigger, clearer toolbar icons. */
 .composer { flex: 0 0 auto; }
-.composer-attach, .composer-send { height: 2.25rem; width: 2.25rem; }
-.composer-attach svg, .composer-send svg { height: 21px; width: 21px; }
-.composer-bar { gap: 0.4rem; padding: 0.1rem 0.15rem 0; }
-.composer-select { font-size: 0.86rem; }
-.composer-more > summary { font-size: 0.84rem; height: 1.95rem; }
+.composer-attach, .composer-send { height: 2.5rem !important; width: 2.5rem !important; }
+.composer-attach svg, .composer-send svg { height: 26px !important; width: 26px !important; }
+.composer-attach svg path, .composer-send svg path { stroke-width: 2.1; }
+.composer-bar { gap: 0.45rem; padding: 0.15rem 0.15rem 0; }
+.composer-select { font-size: 0.9rem; }
+.composer-select svg, .composer-bar select { background-size: 1.1em; }
+.composer-more > summary { font-size: 0.88rem; height: 2.1rem; }
 
 /* Collapsible info-panel sections (e.g. New lane) keep the panel short. */
 .info-disclosure > summary {
@@ -2493,6 +2495,32 @@ pre {
 .lane-detail-shell .card-grid { display: flex; flex-direction: column; gap: 0; }
 .lane-detail-shell .card-grid > .card { border-bottom: 1px solid var(--line); padding: 0.55rem 0; }
 .lane-detail-shell .card-grid > .card:last-child { border-bottom: 0; }
+
+/* ===== Settings / home panels: flat Codex-style, no cards-on-cards ===== */
+.home-panels { max-width: 760px; margin: 0 auto; gap: 0; }
+.home-panels > .card,
+.home-panels > details.card,
+.home-panels .card,
+.home-panels details.card,
+.home-panels .control-card {
+  background: transparent !important; border: 0 !important; border-radius: 0 !important;
+  box-shadow: none !important; padding: 0;
+}
+/* hairline divider between top-level settings sections */
+.home-panels > [data-panel-card] + [data-panel-card] {
+  border-top: 1px solid var(--line); margin-top: 1.4rem; padding-top: 1.4rem;
+}
+/* nested blocks (e.g. "Pair a phone", "Paired devices") become flat sub-sections */
+.home-panels .card .card { margin-top: 1rem; }
+.home-panels .card h3 { font-size: 1.05rem; }
+.home-panels .onboarding-card {
+  background: transparent !important; border: 0 !important; border-radius: 0 !important;
+  box-shadow: none !important; padding: 0;
+}
+.home-panels .provider-row {
+  background: transparent !important; border: 0 !important; border-bottom: 1px solid var(--line) !important;
+  border-radius: 0 !important; box-shadow: none !important; padding: 0.6rem 0;
+}
 
 /* ===== ChatGPT-style sidebar header + full-height shell ===== */
 .sidebar-head { align-items: center; display: flex; gap: 0.5rem; justify-content: space-between; padding: 0.4rem 0.3rem 0.7rem; }
