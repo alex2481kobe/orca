@@ -246,20 +246,19 @@ export function renderSidebarProjects(activeProject) {
     }).join('');
     return `
       <div class="sidebar-project-group ${expanded ? 'expanded' : 'collapsed'}" draggable="true" data-reorder-kind="project" data-project-id="${safeAttr(project.id)}">
-        <a class="sidebar-project ${isActiveProject ? 'active' : ''}" href="${safeAttr(project.route)}" data-route-project="${safeAttr(project.slug)}" data-project-id="${safeAttr(project.id)}" data-project-toggle="1">
-          <span class="sidebar-chevron" aria-hidden="true">
-            <svg viewBox="0 0 20 20" focusable="false"><path d="M7.5 5l5 5-5 5"></path></svg>
-          </span>
-          ${FOLDER_ICON}
-          <span class="sidebar-project-name">${safeText(project.name)}</span>
-          ${active ? `<span class="pill" title="${active} active lanes">${active}</span>` : ''}
-        </a>
+        <div class="sidebar-project-line">
+          <a class="sidebar-project ${isActiveProject ? 'active' : ''}" href="${safeAttr(project.route)}" data-route-project="${safeAttr(project.slug)}" data-project-id="${safeAttr(project.id)}" data-project-toggle="1">
+            <span class="sidebar-chevron" aria-hidden="true">
+              <svg viewBox="0 0 20 20" focusable="false"><path d="M7.5 5l5 5-5 5"></path></svg>
+            </span>
+            ${FOLDER_ICON}
+            <span class="sidebar-project-name">${safeText(project.name)}</span>
+            ${active ? `<span class="pill" title="${active} active lanes">${active}</span>` : ''}
+          </a>
+          <a class="sidebar-project-new" href="${safeAttr(project.route)}#create-session" aria-label="New session in ${safeAttr(project.name)}" title="New session">${COMPOSE_ICON}</a>
+        </div>
         <div class="sidebar-sessions">
           ${sessionRows}
-          <a class="sidebar-new-session" href="${safeAttr(project.route)}#create-session">
-            <span class="sidebar-new-session-plus" aria-hidden="true">+</span>
-            <span>New session</span>
-          </a>
         </div>
       </div>
     `;

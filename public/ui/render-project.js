@@ -49,11 +49,6 @@ export function renderProject(project) {
           <label>Max parallel lanes
             <input name="laneConcurrencyLimit" type="number" min="1" max="64" value="1" />
           </label>
-          <label>Working directory
-            <input id="session-repo-root" name="repoRoot" placeholder="Inherits the project folder if blank" autocomplete="off" />
-          </label>
-          <button class="secondary" data-action="browseWorkstation" data-for-input="session-repo-root" type="button">Browse…</button>
-          ${renderWorkstationPickerPanel('session-repo-root')}
           <details class="disclosure compact-disclosure">
             <summary><span>Agent flow</span></summary>
             <div class="disclosure-body">
@@ -62,12 +57,6 @@ export function renderProject(project) {
                   <option value="orchestrator-executor">Orchestrator → executor → orchestrator</option>
                   <option value="orchestrator-executor-audit">Orchestrator → executor → audit → orchestrator</option>
                   <option value="orchestrator-only">Orchestrator only (no executors)</option>
-                </select>
-              </label>
-              <label>Who audits
-                <select name="flowAuditTier">
-                  <option value="orchestrator">Main orchestrator audits</option>
-                  <option value="separate-auditor">Separate auditor / mini-orchestrator</option>
                 </select>
               </label>
               <label>On fix request, send work to
@@ -79,14 +68,11 @@ export function renderProject(project) {
               <label>Max audit to fix loops
                 <input name="flowMaxAuditLoops" type="number" min="0" max="10" value="2" />
               </label>
-              <label class="check-inline"><input type="checkbox" name="flowRequireAuditPass" /> Require an audit to pass before returning to the orchestrator</label>
+              <label class="check-row"><span>Require an audit to pass before returning to the orchestrator</span><input type="checkbox" name="flowRequireAuditPass" checked /></label>
             </div>
           </details>
           <button type="submit">Create session</button>
         </form>
-        <div class="create-foot">
-          <button class="danger" data-action="archiveProject" data-project-id="${safeAttr(project.id)}" data-project-name="${safeAttr(project.name)}" type="button">Archive project</button>
-        </div>
       </div>
     </section>
   `);

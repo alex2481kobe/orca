@@ -361,7 +361,10 @@ async function inspectPage(page, viewport, screenName) {
   if (viewport.width > 880 && result.sidebarRect && result.sidebarRect.y > 1) {
     fail(`${viewport.name}/${screenName} sidebar does not extend to top`, JSON.stringify(result.sidebarRect));
   }
-  if (result.titleRect && result.toggleRect && result.titleRect.x < result.toggleRect.right + 8) {
+  // The global top bar is hidden on desktop (brand + collapse now live in the
+  // sidebar header, ChatGPT-style); only assert overlap when it's actually visible.
+  if (result.titleRect && result.toggleRect && result.titleRect.width > 0 && result.toggleRect.width > 0
+    && result.titleRect.x < result.toggleRect.right + 8) {
     fail(`${viewport.name}/${screenName} title overlaps collapse toggle`, JSON.stringify({ title: result.titleRect, toggle: result.toggleRect }));
   }
   return result;
@@ -454,7 +457,8 @@ async function checkRuntimeContract(pw) {
         await waitForApp(page);
         const expanded = await inspectPage(page, viewport, route.name);
         if (viewport.width > 880 && route.name === 'project') {
-          await page.click('#mobile-nav-toggle');
+          // Desktop collapse now lives in the sidebar header (ChatGPT-style).
+          await page.click('.sidebar-collapse');
           await page.waitForTimeout(120);
           const collapsed = await inspectPage(page, viewport, `${route.name}-collapsed`);
           summary.push({ viewport: viewport.name, route: `${route.name}-collapsed`, result: collapsed });
