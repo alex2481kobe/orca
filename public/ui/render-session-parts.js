@@ -160,21 +160,42 @@ export async function uploadComposerFiles(sessionId, fileList) {
 export function renderChatThreadInner(session) {
   const thread = session.orchestratorThread || {};
   const messages = Array.isArray(thread.messages) ? thread.messages : [];
+  const lane = activeOrchestratorLaneForSession(session);
+  const hasActivity = Boolean(lane && Array.isArray(lane.agentEvents) && lane.agentEvents.length);
   const messageRows = messages.slice(-50).map((message) => {
     const role = String(message.role || 'system').toLowerCase();
     const isUser = role === 'user';
+    // The canned "Started … orchestrator lane" stub is superseded by the live
+    // transcript rendered below, so hide it once real activity exists.
+    if (!isUser && hasActivity && /orchestrator lane/i.test(message.content || '')) return '';
     return `
       <div class="msg msg-${isUser ? 'user' : 'assistant'}">
         <div class="msg-body">${safeText(message.content || '')}</div>
       </div>
     `;
   }).join('');
+  // Live transcript: the orchestrator agent's actual work — the tools it runs and
+  // its streamed output — updating in place as agentEvents arrive (poll/SSE), so
+  // the chat shows thinking/tool-use/output like the Codex app instead of a stub.
+  let activity = '';
+  if (hasActivity) {
+    const working = isLiveLaneState(lane.state);
+    activity = `
+      <div class="msg msg-assistant">
+        <div class="msg-body">
+          <div class="chat-activity">
+            ${working ? '<div class="chat-activity-status"><span class="chat-spinner" aria-hidden="true"></span>Working…</div>' : ''}
+            ${renderAgentEventTimeline(lane, { limit: 80 })}
+          </div>
+        </div>
+      </div>`;
+  }
   const emptyState = `
     <div class="chat-empty">
       <h2>${safeText(session.name)}</h2>
       <p>Message the orchestrator to plan work, spawn executors, and review results.</p>
     </div>`;
-  return `${messageRows || emptyState}${renderSessionApprovals(session)}`;
+  return `${messageRows || emptyState}${activity}${renderSessionApprovals(session)}`;
 }
 
 // Stable chat-column skeleton: an EMPTY thread mount + the composer. The thread is
