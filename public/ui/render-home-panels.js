@@ -722,6 +722,11 @@ export function renderBackupPanel() {
               </div>
             </details>
             <pre id="app-export-output" aria-live="polite"></pre>
+            <div class="about-links">
+              <a href="https://github.com/alex2481kobe/orca" target="_blank" rel="noreferrer noopener">Source</a>
+              <span aria-hidden="true">·</span>
+              <a href="https://github.com/alex2481kobe/orca/blob/main/LICENSE" target="_blank" rel="noreferrer noopener">AGPL License</a>
+            </div>
           </div>
         </details>
       </article>`;

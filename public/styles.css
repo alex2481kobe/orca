@@ -1,20 +1,23 @@
 :root {
-  --bg: #10110f;
-  --bg-soft: #181916;
-  --panel: #191b18;
-  --panel-soft: #20231f;
-  --line: #33372f;
-  --line-soft: #262922;
-  --text: #f5f1e8;
-  --muted: #a8a398;
-  --accent: #d8bf8f;
-  --accent-strong: #f0d8a8;
-  --danger: #ff9d7a;
-  --ok: #8bd59d;
-  --warn: #e6bc6a;
+  --bg: #212121;
+  --bg-soft: #262626;
+  --sidebar: #171717;
+  --panel: #2a2a2a;
+  --panel-soft: #303030;
+  --line: rgba(255, 255, 255, 0.08);
+  --line-soft: rgba(255, 255, 255, 0.05);
+  --hover: rgba(255, 255, 255, 0.055);
+  --active: rgba(255, 255, 255, 0.09);
+  --text: #ececec;
+  --muted: #8e8e8e;
+  --accent: #b4b4b4;
+  --accent-strong: #ffffff;
+  --danger: #f0816a;
+  --ok: #7fbf8f;
+  --warn: #d8a657;
   --bad: #ef8377;
   --shell-gap: 1rem;
-  --sidebar-width: 240px;
+  --sidebar-width: 248px;
   --topbar-height: 45px;
   --safe-area-top: env(safe-area-inset-top);
   --safe-area-bottom: env(safe-area-inset-bottom);
@@ -27,11 +30,8 @@
 
 body {
   margin: 0;
-  font-family: "Avenir Next", "Sora", "Space Grotesk", "Segoe UI", sans-serif;
-  background:
-    radial-gradient(circle at 18% 8%, rgba(216, 191, 143, 0.13), transparent 30%),
-    radial-gradient(circle at 82% 0%, rgba(107, 133, 112, 0.16), transparent 28%),
-    linear-gradient(145deg, #151611 0%, var(--bg) 44%, #080907 100%);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  background: var(--bg);
   color: var(--text);
   min-height: 100dvh;
   min-height: 100vh;
@@ -71,10 +71,9 @@ a {
   position: sticky;
   top: 0;
   z-index: 20;
-  background: linear-gradient(180deg, rgba(16, 17, 15, 0.97), rgba(16, 17, 15, 0.88));
+  background: var(--bg);
   border-bottom: 1px solid var(--line);
   padding: 0.65rem 1rem;
-  backdrop-filter: blur(8px);
 }
 
 .topbar-row {
@@ -284,7 +283,7 @@ body.sidebar-collapsed .ops-shell {
 
 .ops-sidebar {
   align-self: stretch;
-  background: rgba(19, 20, 17, 0.92);
+  background: var(--sidebar);
   border-right: 1px solid var(--line-soft);
   border-radius: 0;
   display: flex;
@@ -317,27 +316,30 @@ body.sidebar-collapsed .ops-sidebar {
 
 .sidebar-pair-button {
   align-items: center;
-  background: rgba(216, 191, 143, 0.12);
-  border: 1px solid var(--accent);
-  border-radius: 10px;
-  color: var(--accent-strong);
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: var(--muted);
   display: grid;
-  gap: 0.5rem;
-  grid-template-columns: auto minmax(0, 1fr);
-  padding: 0.55rem 0.6rem;
-  font-size: 0.9rem;
-  font-weight: 600;
+  gap: 0.6rem;
+  grid-template-columns: 1.1rem minmax(0, 1fr);
+  padding: 0.42rem 0.55rem;
+  font-size: 0.875rem;
+  font-weight: 500;
   text-decoration: none;
   width: 100%;
 }
 
 .sidebar-pair-button:hover {
-  background: rgba(216, 191, 143, 0.2);
+  background: var(--hover);
+  color: var(--text);
 }
 
 .sidebar-pair-icon {
-  font-size: 1.05rem;
+  color: var(--muted);
+  font-size: 1rem;
   line-height: 1;
+  text-align: center;
 }
 
 .sidebar-pair-label {
@@ -390,7 +392,7 @@ body.sidebar-collapsed .sidebar-pair-label {
 }
 
 .sidebar-link:hover {
-  background: transparent;
+  background: var(--hover);
   border-color: transparent;
 }
 
@@ -402,25 +404,79 @@ body.sidebar-collapsed .sidebar-pair-label {
   color: var(--muted);
 }
 
-.sidebar-project-line {
-  align-items: center;
-  border-radius: 9px;
-  display: grid;
-  gap: 0;
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-
-.sidebar-project-line:hover,
-.sidebar-project-line:focus-within {
-  background: rgba(255, 255, 255, 0.055);
-}
-
 .sidebar-project-group {
   cursor: grab;
 }
 
 .sidebar-project-group:active {
   cursor: grabbing;
+}
+
+/* Project row — folder + name; dimmer than its sessions. Toggles the accordion. */
+.sidebar-project {
+  align-items: center;
+  border-radius: 8px;
+  color: var(--muted);
+  cursor: pointer;
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: 0.8rem auto minmax(0, 1fr) auto;
+  padding: 0.4rem 0.55rem;
+  text-decoration: none;
+}
+
+.sidebar-project:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.sidebar-project.active {
+  color: var(--text);
+}
+
+.sidebar-project-name {
+  font-size: 0.85rem;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-chevron {
+  align-items: center;
+  color: var(--muted);
+  display: inline-flex;
+  justify-content: center;
+  transition: transform 0.15s ease;
+}
+
+.sidebar-chevron svg {
+  fill: none;
+  height: 12px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+  width: 12px;
+}
+
+.sidebar-project-group.expanded .sidebar-chevron {
+  transform: rotate(90deg);
+}
+
+/* Session list — hidden when the project is collapsed. */
+.sidebar-sessions {
+  display: grid;
+  gap: 1px;
+  margin: 1px 0 3px;
+}
+
+.sidebar-project-group.collapsed .sidebar-sessions {
+  display: none;
+}
+
+.sidebar-empty {
+  padding: 0.15rem 0.55rem 0.25rem 1.95rem;
 }
 
 
@@ -530,13 +586,14 @@ body.sidebar-collapsed .sidebar-pair-label {
 
 .sidebar-thread {
   align-items: center;
-  border-radius: 9px;
-  color: var(--muted);
+  border-radius: 8px;
+  color: var(--text);
   display: flex;
+  font-size: 0.875rem;
   gap: 0.4rem;
   justify-content: flex-start;
-  min-height: 1.9rem;
-  padding: 0.18rem 3.9rem 0.18rem 2.1rem;
+  min-height: 1.85rem;
+  padding: 0.2rem 3.4rem 0.2rem 1.95rem;
   text-decoration: none;
   width: 100%;
 }
@@ -547,9 +604,8 @@ body.sidebar-collapsed .sidebar-pair-label {
   white-space: nowrap;
 }
 
-.sidebar-thread.active,
-.sidebar-thread:hover {
-  background: transparent;
+.sidebar-thread.active {
+  background: var(--active);
   color: var(--text);
 }
 
@@ -627,7 +683,7 @@ body.sidebar-collapsed .sidebar-pair-label {
 }
 .sidebar-rename {
   position: absolute;
-  right: 2rem;
+  right: 1.85rem;
   top: 50%;
   transform: translateY(-50%);
 }
@@ -770,7 +826,7 @@ body.sidebar-collapsed .sidebar-project-line {
 
 /* Panels and cards */
 .panel {
-  background: linear-gradient(160deg, rgba(31, 34, 29, 0.88), rgba(18, 20, 17, 0.86));
+  background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 0.85rem;
@@ -779,7 +835,7 @@ body.sidebar-collapsed .sidebar-project-line {
 }
 
 .panel-elevated {
-  background: linear-gradient(180deg, rgba(34, 37, 31, 0.94), rgba(19, 20, 17, 0.94));
+  background: var(--panel);
 }
 
 .breadcrumbs,
@@ -831,7 +887,7 @@ body.sidebar-collapsed .sidebar-project-line {
 
 .home-hero {
   align-items: end;
-  background: linear-gradient(135deg, rgba(25, 27, 23, 0.94), rgba(14, 15, 13, 0.9));
+  background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 18px;
   display: grid;
@@ -1168,7 +1224,7 @@ body.sidebar-collapsed .sidebar-project-line {
 }
 
 .orchestrator-console {
-  background: linear-gradient(180deg, rgba(32, 35, 31, 0.94), rgba(18, 20, 17, 0.94));
+  background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
   display: grid;
@@ -1774,12 +1830,12 @@ a.secondary {
 }
 
 button.warn {
-  background: linear-gradient(120deg, #ff9f5a, #e06b53);
+  background: #3a3a3a;
   color: #2a0f04;
 }
 
 button.danger {
-  background: linear-gradient(120deg, #c74f4f, #f05f5f);
+  background: #7a352e;
   color: #2a0707;
 }
 
@@ -2149,3 +2205,20 @@ pre {
 }
 .attach-chip button { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 0; font-size: 0.95rem; line-height: 1; }
 .composer-attach { font-size: 1rem; }
+
+/* About / legal links inside Settings (moved out of the sidebar footer). */
+.about-links {
+  color: var(--muted);
+  display: flex;
+  gap: 0.6rem;
+  font-size: 0.8rem;
+  margin-top: 0.9rem;
+}
+.about-links a {
+  color: var(--muted);
+  text-decoration: none;
+}
+.about-links a:hover {
+  color: var(--text);
+  text-decoration: underline;
+}

@@ -37,17 +37,36 @@ export function safeHref(value) {
 }
 
 // Only navigate to safe destinations (blocks javascript:/data: from server data).
+// Client-side (SPA) navigation. Same-origin path routes are pushed onto history
+// and re-rendered in place via a popstate event — NEVER a full window reload
+// (that blanked the UI on every project/session click). Hash routes drive the
+// home-panel switch via hashchange. External http(s) links open in a new tab.
 export function safeNavigate(value) {
   const raw = String(value ?? '').trim();
   if (!raw) return;
-  if (raw.startsWith('/') || raw.startsWith('#')) {
-    window.location.href = raw;
+  if (raw.startsWith('#')) {
+    window.location.hash = raw;
+    return;
+  }
+  const goPath = (pathWithRest) => {
+    const current = window.location.pathname + window.location.search + window.location.hash;
+    if (pathWithRest !== current) {
+      window.history.pushState({}, '', pathWithRest);
+    }
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  };
+  if (raw.startsWith('/')) {
+    goPath(raw);
     return;
   }
   try {
     const parsed = new URL(raw, window.location.origin);
+    if (parsed.origin === window.location.origin) {
+      goPath(parsed.pathname + parsed.search + parsed.hash);
+      return;
+    }
     if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
-      window.location.href = parsed.toString();
+      window.open(parsed.toString(), '_blank', 'noopener,noreferrer');
     }
   } catch {
     /* refuse unsafe navigation */

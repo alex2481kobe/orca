@@ -11,7 +11,7 @@ import { loadEvidenceGallery, renderAuditLog, renderLane } from './render-lane.j
 import { renderSession } from './render-session.js';
 import { restoreContentUiState } from './render-fragments.js';
 import { FIRST_CLASS_CLI_EXECUTOR_TYPES } from './constants.js';
-import { orderItems, readSidebarOrder } from './sidebar.js';
+import { orderItems, readSidebarOrder, isProjectExpanded } from './sidebar.js';
 import { COMPOSE_ICON, FOLDER_ICON, PENCIL_ICON } from './constants.js';
 
 export function renderAccessGate() {
@@ -206,6 +206,13 @@ export function renderSidebarProjects(activeProject) {
     return;
   }
   const storedOrder = readSidebarOrder();
+  const archiveIcon = `
+    <svg viewBox="0 0 20 20" focusable="false" aria-hidden="true">
+      <path d="M3.2 6.5h13.6"></path>
+      <path d="M5 6.5v9.2c0 .8.6 1.4 1.4 1.4h7.2c.8 0 1.4-.6 1.4-1.4V6.5"></path>
+      <path d="M7.2 3.3h5.6l.8 3.2H6.4l.8-3.2Z"></path>
+      <path d="M8 10h4"></path>
+    </svg>`;
   const renderSidebarProject = (project) => {
     const projectSessions = orderItems(
       (shell.sessions || []).filter((session) => session.projectId === project.id),
@@ -213,7 +220,11 @@ export function renderSidebarProjects(activeProject) {
     );
     const lanes = (shell.lanes || []).filter((lane) => lane.projectId === project.id);
     const active = lanes.filter((lane) => ['running', 'starting', 'queued'].includes(lane.state)).length;
-    const sessionRows = projectSessions.slice(0, 4).map((session) => {
+    const isActiveProject = shell.route.projectSlug === project.slug || shell.route.projectSlug === project.id;
+    const expanded = isProjectExpanded(project.id, isActiveProject);
+    // Icons (rename + archive) live on SESSIONS only; the project row is just a
+    // folder + name that expands/collapses its sessions.
+    const sessionRows = projectSessions.slice(0, 12).map((session) => {
       const isCurrentSession = shell.route.sessionId === session.id;
       return `
         <div class="sidebar-session-line" draggable="true" data-reorder-kind="session" data-project-id="${safeAttr(project.id)}" data-session-id="${safeAttr(session.id)}">
@@ -224,38 +235,24 @@ export function renderSidebarProjects(activeProject) {
             ${PENCIL_ICON}
           </button>
           <button class="sidebar-archive" type="button" data-action="archiveSession" data-session-id="${safeAttr(session.id)}" data-session-name="${safeAttr(session.name)}" aria-label="Archive ${safeAttr(session.name)} session" title="Archive session">
-            <svg viewBox="0 0 20 20" focusable="false" aria-hidden="true">
-              <path d="M3.2 6.5h13.6"></path>
-              <path d="M5 6.5v9.2c0 .8.6 1.4 1.4 1.4h7.2c.8 0 1.4-.6 1.4-1.4V6.5"></path>
-              <path d="M7.2 3.3h5.6l.8 3.2H6.4l.8-3.2Z"></path>
-              <path d="M8 10h4"></path>
-            </svg>
+            ${archiveIcon}
           </button>
         </div>
       `;
     }).join('');
     return `
-      <div class="sidebar-project-group" draggable="true" data-reorder-kind="project" data-project-id="${safeAttr(project.id)}">
-        <div class="sidebar-project-line">
-          <a class="sidebar-link" href="${safeAttr(project.route)}" data-route-project="${safeAttr(project.slug)}">
-            ${FOLDER_ICON}
-            <span>${safeText(project.name)}</span>
-            ${active ? `<span class="pill" title="${active} active lanes">${active}</span>` : ''}
-          </a>
-          <a class="sidebar-compose" href="${safeAttr(project.route)}#create-session" aria-label="Create session in ${safeAttr(project.name)}">${COMPOSE_ICON}</a>
-          <button class="sidebar-project-rename" data-action="renameProject" data-project-id="${safeAttr(project.id)}" data-project-name="${safeAttr(project.name)}" type="button" aria-label="Rename ${safeAttr(project.name)} project" title="Rename project">
-            ${PENCIL_ICON}
-          </button>
-          <button class="sidebar-project-archive" data-action="archiveProject" data-project-id="${safeAttr(project.id)}" data-project-name="${safeAttr(project.name)}" type="button" aria-label="Archive ${safeAttr(project.name)} project">
-            <svg viewBox="0 0 20 20" focusable="false" aria-hidden="true">
-              <path d="M3.2 6.5h13.6"></path>
-              <path d="M5 6.5v9.2c0 .8.6 1.4 1.4 1.4h7.2c.8 0 1.4-.6 1.4-1.4V6.5"></path>
-              <path d="M7.2 3.3h5.6l.8 3.2H6.4l.8-3.2Z"></path>
-              <path d="M8 10h4"></path>
-            </svg>
-          </button>
+      <div class="sidebar-project-group ${expanded ? 'expanded' : 'collapsed'}" draggable="true" data-reorder-kind="project" data-project-id="${safeAttr(project.id)}">
+        <a class="sidebar-project ${isActiveProject ? 'active' : ''}" href="${safeAttr(project.route)}" data-route-project="${safeAttr(project.slug)}" data-project-id="${safeAttr(project.id)}" data-project-toggle="1">
+          <span class="sidebar-chevron" aria-hidden="true">
+            <svg viewBox="0 0 20 20" focusable="false"><path d="M7.5 5l5 5-5 5"></path></svg>
+          </span>
+          ${FOLDER_ICON}
+          <span class="sidebar-project-name">${safeText(project.name)}</span>
+          ${active ? `<span class="pill" title="${active} active lanes">${active}</span>` : ''}
+        </a>
+        <div class="sidebar-sessions">
+          ${sessionRows || '<div class="tiny muted sidebar-empty">No sessions yet.</div>'}
         </div>
-        ${sessionRows || '<div class="tiny muted sidebar-empty">No sessions yet.</div>'}
       </div>
     `;
   };

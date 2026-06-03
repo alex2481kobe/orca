@@ -6,7 +6,7 @@ import { clientUrl, safeHref, safeNavigate, authRequiredMessage, isLocalHostName
 import { browserNotificationsSupported, browserNotificationPermission, readSeenBrowserNotifications, writeSeenBrowserNotifications, requestBrowserNotificationPermission, maybeShowBrowserNotifications } from './ui/notifications.js';
 import { normalizeExecutorType, parseCommandParts, executorTargetsCommand, executorTargetsBinary, getExecutorProfile, getProviderProfile, isApiExecutorType, apiProviderOptions, cliExecutorOptions, getExecutorScopedMcpTools, findMcpTool, normalizeMcpToolScopes } from './ui/executor.js';
 import { accessModeLabel, effectiveAccessMode, exactUrlForAccessMode, fallbackUrlForAccessMode, effectiveProjectQuickLinkUrl, quickLinkHealthLabel, preferredPhoneUrl } from './ui/access-mode.js';
-import { readSidebarOrder, writeSidebarOrder, orderItems, moveId } from './ui/sidebar.js';
+import { readSidebarOrder, writeSidebarOrder, orderItems, moveId, toggleProjectExpanded } from './ui/sidebar.js';
 import { api, initializeApiToken, isTrustedAdminClientHost, browserAccessBlocked, setApiToken, currentActiveProject, clearProtectedWorkspaceState, lockClientAuthState, maybeLockFromResponse } from './ui/api.js';
 import { stateTagClass, getActionPolicy, needsApproval, confirmHighRiskAction, pendingAuditsForLane, pendingAuditsForSession, laneDetailRoute, isVerificationProject, activeHomePanel, renderBreadcrumbs, renderTopbarTitle, agentEventTone, agentEventLabel, isLiveLaneState, isRestartableLaneState, executorCapabilitiesFor, renderExecutorCapabilities, capabilityList } from './ui/render-helpers.js';
 import { renderHome } from './ui/render-home.js';
@@ -516,6 +516,19 @@ document.addEventListener('click', async (event) => {
   // Always drop focus from any tapped control so nothing stays highlighted.
   clearStickyInteractiveState(event.target);
 
+  // Internal links navigate via the SPA router (no full reload). A project row
+  // also toggles its session accordion. External links (target set) fall through.
+  const internalAnchor = !action ? event.target?.closest?.('a[href^="/"]:not([target])') : null;
+  if (internalAnchor) {
+    event.preventDefault();
+    if (internalAnchor.dataset.projectToggle && internalAnchor.dataset.projectId) {
+      toggleProjectExpanded(internalAnchor.dataset.projectId, internalAnchor.classList.contains('active'));
+    }
+    closeMobileNavPanel();
+    safeNavigate(internalAnchor.getAttribute('href'));
+    return;
+  }
+
   if (!action) {
     const navCard = event.target?.closest?.('[data-href]');
     const interactive = event.target?.closest?.('a, button, input, select, textarea, label, summary');
@@ -638,6 +651,14 @@ document.addEventListener('keydown', (event) => {
 
 window.addEventListener('hashchange', () => {
   render();
+});
+
+// SPA navigation: pushState changes (from safeNavigate) re-render in place using
+// already-loaded data, then refresh in the background. No full window reload.
+window.addEventListener('popstate', () => {
+  shell.route = parseRoute();
+  render(captureContentUiState());
+  refresh().catch(() => {});
 });
 
 

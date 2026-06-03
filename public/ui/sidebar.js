@@ -18,6 +18,33 @@ export function writeSidebarOrder(order) {
   window.localStorage.setItem(SIDEBAR_ORDER_STORAGE_KEY, JSON.stringify(order));
 }
 
+// Per-project expand/collapse state for the sidebar accordion. Stored as an
+// explicit map; absent => use the default (active project expanded, rest closed).
+const SIDEBAR_COLLAPSE_KEY = 'orca.sidebar.collapsed.v1';
+
+export function readCollapsedMap() {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(SIDEBAR_COLLAPSE_KEY) || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function isProjectExpanded(projectId, isActive) {
+  const map = readCollapsedMap();
+  if (Object.prototype.hasOwnProperty.call(map, projectId)) return map[projectId] === true;
+  return Boolean(isActive);
+}
+
+export function toggleProjectExpanded(projectId, isActive) {
+  const map = readCollapsedMap();
+  const current = Object.prototype.hasOwnProperty.call(map, projectId) ? map[projectId] === true : Boolean(isActive);
+  map[projectId] = !current;
+  window.localStorage.setItem(SIDEBAR_COLLAPSE_KEY, JSON.stringify(map));
+  return map[projectId];
+}
+
 export function orderItems(items, ids) {
   const positions = new Map((ids || []).map((id, index) => [id, index]));
   return [...items].sort((a, b) => {
