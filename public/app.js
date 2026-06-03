@@ -521,8 +521,12 @@ document.addEventListener('click', async (event) => {
   const internalAnchor = !action ? event.target?.closest?.('a[href^="/"]:not([target])') : null;
   if (internalAnchor) {
     event.preventDefault();
+    // A project row ONLY expands/collapses its sessions in the sidebar — it no
+    // longer navigates to a project page. Sessions (and other links) navigate.
     if (internalAnchor.dataset.projectToggle && internalAnchor.dataset.projectId) {
-      toggleProjectExpanded(internalAnchor.dataset.projectId, internalAnchor.classList.contains('active'));
+      toggleProjectExpanded(internalAnchor.dataset.projectId, false);
+      render(captureContentUiState());
+      return;
     }
     closeMobileNavPanel();
     safeNavigate(internalAnchor.getAttribute('href'));

@@ -251,7 +251,11 @@ export function renderSidebarProjects(activeProject) {
           ${active ? `<span class="pill" title="${active} active lanes">${active}</span>` : ''}
         </a>
         <div class="sidebar-sessions">
-          ${sessionRows || '<div class="tiny muted sidebar-empty">No sessions yet.</div>'}
+          ${sessionRows}
+          <a class="sidebar-new-session" href="${safeAttr(project.route)}#create-session">
+            <span class="sidebar-new-session-plus" aria-hidden="true">+</span>
+            <span>New session</span>
+          </a>
         </div>
       </div>
     `;

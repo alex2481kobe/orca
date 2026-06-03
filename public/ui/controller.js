@@ -38,8 +38,19 @@ export function abortRefreshFromUnauthorized(response, requestId, uiState) {
   return true;
 }
 
-export async function refresh() {
+function isEditingContent() {
+  const el = typeof document !== 'undefined' ? document.activeElement : null;
+  if (!el) return false;
+  const editable = el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable;
+  if (!editable) return false;
+  return Boolean(el.closest && el.closest('.ops-main'));
+}
+
+export async function refresh(options = {}) {
   if (refreshInFlight) return;
+  // A background poll/stream refresh must not yank focus or re-render the form a
+  // user is actively editing. Values are preserved on explicit renders anyway.
+  if (options.background && isEditingContent()) return;
   refreshInFlight = true;
   lastRefreshAt = Date.now();
   const requestId = ++refreshRequestId;
@@ -204,7 +215,7 @@ export function hasLiveOrchestratorConsole() {
 
 export function scheduleStreamRefresh() {
   if (_streamRefreshTimer) return;
-  _streamRefreshTimer = setTimeout(() => { _streamRefreshTimer = null; refresh(); }, 150);
+  _streamRefreshTimer = setTimeout(() => { _streamRefreshTimer = null; refresh({ background: true }); }, 150);
 }
 
 export function connectEventStream() {
@@ -234,7 +245,7 @@ export function startPolling() {
   setInterval(() => {
     const cadenceMs = hasLiveOrchestratorConsole() ? 1000 : 3000;
     if (Date.now() - lastRefreshAt >= cadenceMs) {
-      refresh();
+      refresh({ background: true });
     }
   }, 500);
 }

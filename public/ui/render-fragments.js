@@ -139,11 +139,41 @@ export function renderLaneExecutorGuidance(form) {
   profileEl.textContent = toolSummary;
 }
 
+// A stable-ish key for a form control so its in-progress value survives a
+// background re-render (the cause of "I change it and it changes back").
+function controlKey(el) {
+  const form = el.closest('form');
+  const formId = form?.id || form?.getAttribute('data-session-id') || form?.getAttribute('data-lane-id') || '';
+  const name = el.name || el.id || '';
+  if (!name) return null;
+  return `${formId}::${el.tagName}::${name}`;
+}
+
 export function captureContentUiState() {
   if (!refs.content) return null;
+  // Snapshot unsaved values of editable controls so a poll/SSE re-render does not
+  // revert what the user just typed or selected before they hit save.
+  const controlValues = {};
+  let focusKey = null;
+  let focusStart = null;
+  let focusEnd = null;
+  refs.content.querySelectorAll('input, textarea, select').forEach((el) => {
+    if (el.type === 'file' || el.type === 'password') return;
+    const key = controlKey(el);
+    if (!key) return;
+    controlValues[key] = el.type === 'checkbox' || el.type === 'radio' ? el.checked : el.value;
+    if (el === document.activeElement) {
+      focusKey = key;
+      try { focusStart = el.selectionStart; focusEnd = el.selectionEnd; } catch { /* not a text field */ }
+    }
+  });
   return {
     detailsOpen: Array.from(refs.content.querySelectorAll('details')).map((detail) => detail.open),
     projectToolsOpen: Boolean(refs.content.querySelector('.project-shell.tools-open')),
+    controlValues,
+    focusKey,
+    focusStart,
+    focusEnd,
   };
 }
 
@@ -157,6 +187,25 @@ export function restoreContentUiState(state) {
   const projectShell = refs.content.querySelector('.project-shell');
   if (projectShell && state.projectToolsOpen) {
     projectShell.classList.add('tools-open');
+  }
+  if (state.controlValues) {
+    refs.content.querySelectorAll('input, textarea, select').forEach((el) => {
+      if (el.type === 'file' || el.type === 'password') return;
+      const key = controlKey(el);
+      if (!key || !(key in state.controlValues)) return;
+      const value = state.controlValues[key];
+      if (el.type === 'checkbox' || el.type === 'radio') {
+        el.checked = Boolean(value);
+      } else if (el.value !== value) {
+        el.value = value;
+      }
+      if (key === state.focusKey && typeof el.focus === 'function') {
+        el.focus();
+        if (state.focusStart != null && typeof el.setSelectionRange === 'function') {
+          try { el.setSelectionRange(state.focusStart, state.focusEnd); } catch { /* non-text */ }
+        }
+      }
+    });
   }
 }
 

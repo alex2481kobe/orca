@@ -2222,3 +2222,25 @@ pre {
   color: var(--text);
   text-decoration: underline;
 }
+
+/* "+ New session" row under an expanded project (indented like sessions). */
+.sidebar-new-session {
+  align-items: center;
+  border-radius: 8px;
+  color: var(--muted);
+  display: flex;
+  font-size: 0.85rem;
+  gap: 0.4rem;
+  min-height: 1.7rem;
+  padding: 0.15rem 0.55rem 0.15rem 1.95rem;
+  text-decoration: none;
+}
+.sidebar-new-session:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.sidebar-new-session-plus {
+  display: inline-flex;
+  justify-content: center;
+  width: 1rem;
+}
