@@ -3,7 +3,7 @@
 
 import { accessModeLabel, effectiveAccessMode, effectiveProjectQuickLinkUrl, fallbackUrlForAccessMode, preferredPhoneUrl } from './access-mode.js';
 import { api, setApiToken } from './api.js';
-import { clientUrl, safeHref } from './dom.js';
+import { clientUrl, safeHref, writeHtml } from './dom.js';
 import { formatRelative, latestTimestamp, safeAttr, safeText } from './format.js';
 import { browserNotificationPermission, browserNotificationsSupported } from './notifications.js';
 import { qrSvgForText } from './qr.js';
@@ -330,7 +330,7 @@ export function renderHome() {
     artifactCleanupUrl,
   };
 
-  refs.content.innerHTML = `
+  writeHtml(refs.content, `
     ${renderSimpleSection(ctx)}
     <section class="grid-2 home-panels" data-active-panel="${safeAttr(panel)}">
       ${renderPairPanel(ctx)}
@@ -353,5 +353,5 @@ export function renderHome() {
       ${renderProjectListPanel(ctx)}
       ${renderSystemActionsPanel(ctx)}
     </section>
-  `;
+  `);
 }

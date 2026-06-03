@@ -138,6 +138,19 @@ export function renderLaneExecutorGuidance(form) {
   profileEl.textContent = toolSummary;
 }
 
+// A stable identity for a <details> disclosure so its open/closed state survives
+// a background re-render even if the *number* of disclosures on the page changes
+// (positional index was fragile: a lane appearing would shift indices and snap an
+// open disclosure shut — one cause of "it opens then auto-closes"). Keyed by an
+// explicit data-uikey when present, else the summary text.
+function disclosureKey(detail, index) {
+  const explicit = detail.dataset ? detail.dataset.uikey : '';
+  if (explicit) return `k:${explicit}`;
+  const summary = detail.querySelector('summary');
+  const text = (summary && summary.textContent ? summary.textContent : '').replace(/\s+/g, ' ').trim();
+  return text ? `s:${text}` : `i:${index}`;
+}
+
 // A stable-ish key for a form control so its in-progress value survives a
 // background re-render (the cause of "I change it and it changes back").
 function controlKey(el) {
@@ -166,8 +179,12 @@ export function captureContentUiState() {
       try { focusStart = el.selectionStart; focusEnd = el.selectionEnd; } catch { /* not a text field */ }
     }
   });
+  const detailsOpen = {};
+  Array.from(refs.content.querySelectorAll('details')).forEach((detail, index) => {
+    detailsOpen[disclosureKey(detail, index)] = detail.open;
+  });
   return {
-    detailsOpen: Array.from(refs.content.querySelectorAll('details')).map((detail) => detail.open),
+    detailsOpen,
     projectToolsOpen: Boolean(refs.content.querySelector('.project-shell.tools-open')),
     controlValues,
     focusKey,
@@ -178,9 +195,11 @@ export function captureContentUiState() {
 
 export function restoreContentUiState(state) {
   if (!state || !refs.content) return;
+  const detailsOpen = state.detailsOpen || {};
   Array.from(refs.content.querySelectorAll('details')).forEach((detail, index) => {
-    if (index < state.detailsOpen.length) {
-      detail.open = state.detailsOpen[index];
+    const key = disclosureKey(detail, index);
+    if (key in detailsOpen) {
+      detail.open = detailsOpen[key];
     }
   });
   const projectShell = refs.content.querySelector('.project-shell');

@@ -19,7 +19,7 @@ export function renderAccessGate() {
   const workstationAdmin = isLocalHostName(window.location.hostname) && !narrowClient;
   const browserLabel = narrowClient ? 'phone browser' : 'laptop browser';
   if (!workstationAdmin) {
-    refs.content.innerHTML = `
+    writeHtml(refs.content, `
       <section class="project-shell">
         <article class="card control-card auth-gate">
           <div class="card-kicker">Pair this device</div>
@@ -58,10 +58,10 @@ export function renderAccessGate() {
           </details>
         </article>
       </section>
-    `;
+    `);
     return;
   }
-  refs.content.innerHTML = `
+  writeHtml(refs.content, `
     <section class="project-shell">
       <article class="card control-card auth-gate">
         <div class="card-kicker">Workstation admin</div>
@@ -95,7 +95,7 @@ export function renderAccessGate() {
         </div>
       </article>
     </section>
-  `;
+  `);
 }
 
 export function render(uiState = null) {
@@ -113,6 +113,10 @@ export function render(uiState = null) {
     renderSidebarProjects();
     if (refs.topbarTitle) refs.topbarTitle.textContent = 'Orca';
     renderAccessGate();
+    // Was missing: without this, every background poll re-rendered the access /
+    // pairing gate and snapped open disclosures (e.g. "Add to Home Screen") shut —
+    // the "opens then auto-closes" bug on the pairing screen.
+    restoreContentUiState(uiState);
     return;
   }
   renderSidebarProjects(project);
@@ -121,7 +125,7 @@ export function render(uiState = null) {
   } else if (!session) {
     renderProject(project);
   } else if (shell.route.laneId) {
-    refs.content.innerHTML = renderLane(project, session, lane);
+    writeHtml(refs.content, renderLane(project, session, lane));
     if (lane) loadEvidenceGallery(lane.id);
   } else {
     renderSession(project, session);

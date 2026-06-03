@@ -1,12 +1,13 @@
 // Session view — a Codex-style chat column with a collapsible right info panel.
 
 import { refs, shell } from './state.js';
+import { writeHtml } from './dom.js';
 import { renderLaneExecutorGuidance } from './render-fragments.js';
 import { safeText } from './format.js';
 import { renderExecutorSidePanel, renderOrchestratorConsole } from './render-session-parts.js';
 
 export function renderSession(project, session) {
-  refs.content.innerHTML = `
+  writeHtml(refs.content, `
     <section class="session-shell ${shell.executorPanelOpen ? 'info-open' : ''}">
       <header class="session-topbar">
         <div class="session-crumb">
@@ -29,6 +30,6 @@ export function renderSession(project, session) {
         ${shell.executorPanelOpen ? renderExecutorSidePanel(session) : ''}
       </div>
     </section>
-  `;
+  `);
   renderLaneExecutorGuidance(document.getElementById('create-lane-form'));
 }

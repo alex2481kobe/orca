@@ -2,7 +2,7 @@
 
 import { refs, shell } from './state.js';
 import { formatRelative, latestTimestamp, safeAttr, safeText } from './format.js';
-import { clientUrl, safeHref } from './dom.js';
+import { clientUrl, safeHref, writeHtml } from './dom.js';
 import { effectiveProjectQuickLinkUrl, quickLinkHealthLabel } from './access-mode.js';
 import { leaderOptions } from './executor.js';
 
@@ -32,7 +32,7 @@ export function renderWorkstationPickerPanel(forInput) {
 }
 
 export function renderProject(project) {
-  refs.content.innerHTML = `
+  writeHtml(refs.content, `
     <section class="create-shell">
       <div class="create-card">
         <header class="create-head">
@@ -89,5 +89,5 @@ export function renderProject(project) {
         </div>
       </div>
     </section>
-  `;
+  `);
 }

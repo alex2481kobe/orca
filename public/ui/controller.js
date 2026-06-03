@@ -188,7 +188,12 @@ export async function refresh(options = {}) {
       shell.archive = archiveResp.data;
     }
     if (requestId !== refreshRequestId) return;
-    render(uiState);
+    // Capture ephemeral UI state (open disclosures/popovers, focus, in-progress
+    // values) RIGHT before rendering — not the `uiState` snapshot taken at the top
+    // of refresh(). The await chain above can take a second+, during which the
+    // user may open a popover or start typing; restoring the stale top-of-refresh
+    // snapshot would slam those shut ("opens then auto-closes").
+    render(captureContentUiState());
   } finally {
     refreshInFlight = false;
   }
