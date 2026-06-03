@@ -290,6 +290,7 @@ body.sidebar-collapsed .ops-shell {
   flex-direction: column;
   height: calc(100dvh - var(--topbar-height));
   height: calc(100vh - var(--topbar-height));
+  overflow-x: hidden;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
@@ -413,27 +414,24 @@ body.sidebar-collapsed .sidebar-pair-label {
   cursor: grabbing;
 }
 
-/* Project row — folder + name; dimmer than its sessions. Toggles the accordion. */
+/* Project row — folder + name; dimmer than its sessions. Toggles the accordion.
+   Hover highlight + active state live on the whole row line (.sidebar-project-line),
+   so the row and its trailing new-session icon highlight as ONE unit. The project
+   text stays greyed even when its session is open. */
 .sidebar-project {
   align-items: center;
-  border-radius: 8px;
+  background: transparent;
   color: var(--muted);
   cursor: pointer;
   display: grid;
   gap: 0.5rem;
-  grid-template-columns: 0.8rem auto minmax(0, 1fr) auto;
-  padding: 0.4rem 0.55rem;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 0.4rem 0.2rem 0.4rem 0.55rem;
   text-decoration: none;
 }
 
-.sidebar-project:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-
-.sidebar-project.active {
-  color: var(--text);
-}
+.sidebar-project:hover { background: transparent; }
+.sidebar-project-line:hover .sidebar-project { color: var(--text); }
 
 .sidebar-project-name {
   font-size: 0.85rem;
@@ -2309,18 +2307,22 @@ pre {
 .session-topbar {
   align-items: center;
   border-bottom: 1px solid var(--line);
-  display: flex;
+  display: grid;
   gap: 1rem;
-  justify-content: space-between;
+  grid-template-columns: 1fr auto 1fr;
   padding: 0.55rem 1rem;
 }
+.session-topbar-side { align-items: center; display: flex; min-width: 0; }
+.session-topbar-side.session-tools { justify-content: flex-end; }
 .session-crumb {
   align-items: center;
   color: var(--muted);
   display: flex;
   font-size: 0.85rem;
   gap: 0.4rem;
+  justify-self: center;
   min-width: 0;
+  max-width: 100%;
 }
 .crumb-session { color: var(--text); font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .crumb-sep { color: var(--muted); }
@@ -2331,14 +2333,17 @@ pre {
 .info-toggle { color: var(--text); opacity: 0.7; }
 .info-toggle:hover, .info-toggle.active { background: var(--hover); color: var(--text); opacity: 1; }
 
-.session-workbench { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); align-items: stretch; flex: 1; min-height: 0; }
-.session-shell.info-open .session-workbench { grid-template-columns: minmax(0, 1fr) 360px; }
-/* Grid items must fill the row so the chat thread can grow and pin the composer
-   to the bottom (some inherited rule was leaving them at content height). */
-.session-workbench > .chat-column,
-.session-workbench > .info-col { height: 100%; min-height: 0; align-self: stretch; }
-.info-col { display: flex; min-height: 0; }
-.info-col > .info-panel { flex: 1; min-height: 0; }
+/* Flex workbench so the info panel can slide open/closed by animating its width
+   (Codex-style smooth open/close) instead of a hard grid-column switch. */
+.session-workbench { display: flex; align-items: stretch; flex: 1; min-height: 0; overflow: hidden; }
+.session-workbench > .chat-column { flex: 1 1 auto; min-width: 0; height: 100%; }
+.session-workbench > .info-col {
+  flex: 0 0 auto; height: 100%; min-height: 0; overflow: hidden; width: 0;
+  transition: width 0.24s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.session-shell.info-open .session-workbench > .info-col { width: 360px; }
+/* Fixed inner width so the panel content doesn't squish while the width animates. */
+.info-col > .info-panel { display: flex; flex-direction: column; min-height: 0; width: 360px; }
 
 .chat-column { display: flex; min-height: 0; min-width: 0; }
 .chat { display: flex; flex: 1; flex-direction: column; min-height: 0; width: 100%; }
@@ -2436,6 +2441,13 @@ pre {
 .composer-more > summary:hover { border-color: var(--text); color: var(--text); }
 .composer-more[open] > summary { border-color: var(--text); color: var(--text); }
 .composer-more-pop { right: 0; left: auto; }
+/* Composer stays put; only the thread scrolls. Bigger, clearer toolbar icons. */
+.composer { flex: 0 0 auto; }
+.composer-attach, .composer-send { height: 2.25rem; width: 2.25rem; }
+.composer-attach svg, .composer-send svg { height: 21px; width: 21px; }
+.composer-bar { gap: 0.4rem; padding: 0.1rem 0.15rem 0; }
+.composer-select { font-size: 0.86rem; }
+.composer-more > summary { font-size: 0.84rem; height: 1.95rem; }
 
 /* Collapsible info-panel sections (e.g. New lane) keep the panel short. */
 .info-disclosure > summary {
@@ -2477,6 +2489,7 @@ pre {
 /* ===== ChatGPT-style sidebar header + full-height shell ===== */
 .sidebar-head { align-items: center; display: flex; gap: 0.5rem; justify-content: space-between; padding: 0.4rem 0.3rem 0.7rem; }
 .sidebar-brand { color: var(--text); font-size: 1.02rem; font-weight: 600; padding-left: 0.35rem; }
+.sidebar-brand-logo { display: block; height: 28px; width: auto; margin-left: 0.2rem; }
 .sidebar-collapse, .sidebar-reopen {
   align-items: center; background: transparent; border: 0; border-radius: 8px; color: var(--muted);
   cursor: pointer; display: inline-flex; flex: 0 0 auto; height: 2rem; justify-content: center; width: 2rem;
@@ -2485,23 +2498,35 @@ pre {
 .sidebar-reopen { display: none; }
 .breadcrumbs:empty { display: none; }
 
-/* Project row: name truncates before the new-session compose icon (never overlaps). */
-.sidebar-project-line { align-items: center; display: flex; }
+/* Project row: the whole line is the hover/active surface (incl. the trailing
+   new-session icon); the name truncates before the icon so they never overlap. */
+.sidebar-project-line { align-items: center; border-radius: 9px; display: flex; }
+.sidebar-project-line:hover { background: rgba(255, 255, 255, 0.045); }
 .sidebar-project-line > .sidebar-project { flex: 1 1 auto; min-width: 0; }
+/* New-session icon: hidden until the row is hovered, but it ALWAYS occupies its
+   slot so the project name truncates at the same point (a consistent text↔icon
+   gap, matching the text↔pencil gap on session rows). */
+.sidebar-project-line > .sidebar-project { padding-right: 0.5rem; }
 .sidebar-project-new {
   align-items: center; border-radius: 8px; color: var(--muted); display: inline-flex; flex: 0 0 auto;
-  height: 1.9rem; justify-content: center; opacity: 0.55; text-decoration: none; width: 1.9rem;
-  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+  height: 1.9rem; justify-content: center; margin-right: 0.18rem; opacity: 0; text-decoration: none; width: 1.9rem;
+  transition: opacity 0.12s ease, color 0.12s ease;
 }
 .sidebar-project-line:hover .sidebar-project-new,
-.sidebar-project-new:focus-visible { opacity: 1; }
-.sidebar-project-new:hover { background: var(--hover); color: var(--text); outline: none; }
+.sidebar-project-new:focus-visible { opacity: 0.7; }
+/* Brightens ONLY on its own hover; never gets its own background box. */
+.sidebar-project-new:hover { color: var(--text); opacity: 1; outline: none; }
 .sidebar-project-new svg { fill: none; height: 16px; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.6; width: 16px; }
+/* Session text aligns under the project name and never crowds the pencil; the
+   text↔pencil gap now matches the pencil↔archive gap. */
+.sidebar-thread { padding-left: 2.55rem; padding-right: 4rem; }
+/* Flex child must be allowed to shrink for the ellipsis to kick in. */
+.sidebar-thread span { flex: 1 1 auto; min-width: 0; }
 
 @media (min-width: 881px) {
   .app-topbar { display: none; }
-  .ops-shell { min-height: 100dvh; min-height: 100vh; }
-  .ops-sidebar { height: 100dvh; height: 100vh; padding-top: 0.5rem; }
+  .ops-shell { min-height: 100dvh; min-height: 100vh; transition: grid-template-columns 0.24s cubic-bezier(0.4, 0, 0.2, 1); }
+  .ops-sidebar { height: 100dvh; height: 100vh; padding-top: 0.5rem; transition: transform 0.24s cubic-bezier(0.4, 0, 0.2, 1); }
   .ops-main { padding-top: 1.5rem; }
   .session-shell { height: 100dvh; height: 100vh; }
   body:has(.session-shell) .ops-main { padding: 0; }

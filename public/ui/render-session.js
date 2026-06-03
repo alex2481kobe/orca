@@ -15,32 +15,46 @@ export function renderSession(project, session) {
   // typing in and the info-panel forms keep their exact DOM nodes; we only touch
   // the volatile mounts below. This is what keeps a paired/workstation page static
   // and updating in real time instead of whole-page refreshing.
-  const structuralKey = `${sid}::${panelOpen ? 'panel' : 'nopanel'}`;
+  // Structural key is the SESSION only — NOT the panel state. Opening/closing the
+  // info panel must not rebuild the DOM (that would be instant + lose the composer);
+  // instead we toggle the .info-open class and let CSS animate the panel width.
+  const structuralKey = sid;
   const existing = refs.content.querySelector('.session-shell');
   if (!existing || existing.getAttribute('data-structural-key') !== structuralKey) {
     writeHtml(refs.content, `
-      <section class="session-shell ${panelOpen ? 'info-open' : ''}" data-structural-key="${safeAttr(structuralKey)}">
+      <section class="session-shell" data-structural-key="${safeAttr(structuralKey)}">
         <header class="session-topbar">
+          <div class="session-topbar-side"></div>
           <div class="session-crumb">
             <span class="crumb-project">${safeText(project.name)}</span>
             <span class="crumb-sep">/</span>
             <span class="crumb-session">${safeText(session.name)}</span>
           </div>
-          <button class="info-toggle ${panelOpen ? 'active' : ''}" data-action="toggleExecutorPanel" type="button" aria-label="Toggle agents panel" title="Agents & tools">
-            <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="2.5" y="3.5" width="15" height="13" rx="2.2"></rect>
-              <path d="M12.5 3.5v13"></path>
-            </svg>
-          </button>
+          <div class="session-topbar-side session-tools">
+            <button class="info-toggle" data-action="toggleExecutorPanel" type="button" aria-label="Toggle agents panel" title="Agents & tools">
+              <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2.5" y="3.5" width="15" height="13" rx="2.2"></rect>
+                <path d="M12.5 3.5v13"></path>
+              </svg>
+            </button>
+          </div>
         </header>
         <div class="session-workbench">
           <div class="chat-column">
             ${renderOrchestratorConsole(session)}
           </div>
-          ${panelOpen ? `<div class="info-col" id="info-col-${safeAttr(sid)}">${renderExecutorSidePanel(session)}</div>` : ''}
+          <div class="info-col" id="info-col-${safeAttr(sid)}">${renderExecutorSidePanel(session)}</div>
         </div>
       </section>
     `);
+  }
+
+  // Sync the open state on the existing shell (animated via CSS — see .info-open).
+  const shellEl = refs.content.querySelector('.session-shell');
+  if (shellEl) {
+    shellEl.classList.toggle('info-open', panelOpen);
+    const toggleBtn = shellEl.querySelector('.info-toggle');
+    if (toggleBtn) toggleBtn.classList.toggle('active', panelOpen);
   }
 
   // Targeted real-time updates: fill the volatile mounts. Each writeHtml is a
@@ -52,10 +66,8 @@ export function renderSession(project, session) {
     const changed = writeHtml(threadEl, renderChatThreadInner(session));
     if (changed && nearBottom) threadEl.scrollTop = threadEl.scrollHeight;
   }
-  if (panelOpen) {
-    const listEl = document.getElementById(`executor-list-${sid}`);
-    if (listEl) writeHtml(listEl, renderExecutorListInner(session));
-  }
+  const listEl = document.getElementById(`executor-list-${sid}`);
+  if (listEl) writeHtml(listEl, renderExecutorListInner(session));
   // Rehydrate the composer from the draft store (source of truth). Only when the
   // box is not focused, so we never disturb the caret of someone mid-type.
   const composer = document.querySelector('#orchestrator-message-form textarea[name="message"]');

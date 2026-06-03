@@ -248,9 +248,6 @@ export function renderSidebarProjects(activeProject) {
       <div class="sidebar-project-group ${expanded ? 'expanded' : 'collapsed'}" draggable="true" data-reorder-kind="project" data-project-id="${safeAttr(project.id)}">
         <div class="sidebar-project-line">
           <a class="sidebar-project ${isActiveProject ? 'active' : ''}" href="${safeAttr(project.route)}" data-route-project="${safeAttr(project.slug)}" data-project-id="${safeAttr(project.id)}" data-project-toggle="1">
-            <span class="sidebar-chevron" aria-hidden="true">
-              <svg viewBox="0 0 20 20" focusable="false"><path d="M7.5 5l5 5-5 5"></path></svg>
-            </span>
             ${FOLDER_ICON}
             <span class="sidebar-project-name">${safeText(project.name)}</span>
             ${active ? `<span class="pill" title="${active} active lanes">${active}</span>` : ''}
