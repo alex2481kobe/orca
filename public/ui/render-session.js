@@ -26,11 +26,10 @@ export function renderSession(project, session) {
             <span class="crumb-sep">/</span>
             <span class="crumb-session">${safeText(session.name)}</span>
           </div>
-          <button class="info-toggle ${panelOpen ? 'active' : ''}" data-action="toggleExecutorPanel" type="button" aria-label="Session info" title="Session info">
-            <svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="10" cy="10" r="7.2"></circle>
-              <path d="M10 9v4.2"></path>
-              <circle cx="10" cy="6.6" r="0.2"></circle>
+          <button class="info-toggle ${panelOpen ? 'active' : ''}" data-action="toggleExecutorPanel" type="button" aria-label="Toggle agents panel" title="Agents & tools">
+            <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2.5" y="3.5" width="15" height="13" rx="2.2"></rect>
+              <path d="M12.5 3.5v13"></path>
             </svg>
           </button>
         </header>

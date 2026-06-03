@@ -195,7 +195,7 @@ export function renderOrchestratorConsole(session) {
         <input type="file" id="composer-file-input" data-session-id="${safeAttr(session.id)}" multiple hidden />
         <div class="composer-bar">
           <button class="composer-attach" data-action="pickAttachment" data-session-id="${safeAttr(session.id)}" type="button" title="Attach screenshot or document" aria-label="Attach file">
-            <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 7.5l-4.6 4.6a2 2 0 102.8 2.8l4.7-4.7a3.5 3.5 0 10-4.9-5l-4.7 4.7a5 5 0 107 7l3.7-3.7"/></svg>
+            <svg viewBox="0 0 20 20" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 4.5v11M4.5 10h11"/></svg>
           </button>
           <select name="executorType" class="composer-select" aria-label="Agent">
             ${cliExecutorOptions(selectedExecutor)}
@@ -205,8 +205,9 @@ export function renderOrchestratorConsole(session) {
           <select name="permissionsProfile" class="composer-select" aria-label="Mode">
             ${runModeOptionsFor(selectedExecutor, selectedRunMode)}
           </select>
+          <span class="composer-spacer"></span>
           <details class="composer-more">
-            <summary aria-label="More options" title="Model &amp; intelligence">⋯</summary>
+            <summary aria-label="Model and intelligence" title="Model &amp; intelligence"><span class="composer-more-label">Model</span></summary>
             <div class="composer-more-pop">
               <label>Model
                 <select name="modelPreset">${modelPresetOptionsFor(selectedExecutor, selectedModel)}</select>
@@ -219,9 +220,8 @@ export function renderOrchestratorConsole(session) {
               </label>
             </div>
           </details>
-          <span class="composer-spacer"></span>
           <button class="composer-send" type="submit" aria-label="Send message">
-            <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 16V4M5 9l5-5 5 5"/></svg>
+            <svg viewBox="0 0 20 20" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15.5V5M5.5 9.5L10 5l4.5 4.5"/></svg>
           </button>
         </div>
       </form>
@@ -313,7 +313,8 @@ export function renderExecutorSidePanel(session) {
         </section>
 
         <section class="info-section">
-          <h4 class="info-title">New lane</h4>
+          <details class="info-disclosure">
+            <summary><span class="info-title">New lane</span><span class="info-disclosure-add">+</span></summary>
           <form id="create-lane-form" data-session-id="${safeAttr(session.id)}">
             <label>Title
               <input name="title" required placeholder="What should this lane do?" />
@@ -369,6 +370,7 @@ export function renderExecutorSidePanel(session) {
             </details>
             <button type="submit">Queue lane</button>
           </form>
+          </details>
         </section>
 
         <section class="info-section">
