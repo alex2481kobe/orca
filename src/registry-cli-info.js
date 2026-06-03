@@ -89,6 +89,37 @@ export function parseHelpChoices(helpText, flagName) {
     .slice(0, 32);
 }
 
+// Extract model aliases / example names a CLI documents in its `--model` help
+// block. Claude, for example, prints: "Provide an alias for the latest model
+// (e.g. 'sonnet' or 'opus') or a model's full name (e.g. 'claude-opus-4-8')."
+// Aliases like 'opus'/'sonnet' never go stale (they resolve to the latest), so
+// detecting them here keeps the model picker current without hardcoding version
+// numbers. Returns [] for CLIs that document no examples (free-text still works).
+export function parseModelHints(helpText) {
+  const lines = String(helpText || '').split(/\r?\n/);
+  const startIdx = lines.findIndex((line) => /(^|\s)(-[a-z],\s*)?--model(\s|<|=)/i.test(line) && !/--fallback-model/i.test(line));
+  if (startIdx < 0) return [];
+  const block = [lines[startIdx]];
+  for (let i = startIdx + 1; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (!line.trim()) break; // blank line ends the option block
+    if (/^\s*-{1,2}[a-z]/i.test(line)) break; // next option starts
+    if (!/^\s/.test(line)) break; // dedented prose, no longer this option
+    block.push(line);
+  }
+  const text = block.join(' ');
+  // Match a single model-like token inside quotes. Requiring the whole quoted
+  // span to be one valid token avoids desync from stray apostrophes in prose
+  // (e.g. "model's full name") that would otherwise swallow real examples.
+  const STOP = new Set(['e.g', 'eg', 'i.e', 'the', 'an', 'or', 'for', 'of', 'to', 'and', 'model', 'alias', 'name', 'full', 'latest', 'current', 'session']);
+  const tokens = [];
+  for (const match of text.matchAll(/['"`]([a-z][a-z0-9._-]{1,39})['"`]/gi)) {
+    const token = match[1].trim();
+    if (!STOP.has(token.toLowerCase())) tokens.push(token);
+  }
+  return tokens.filter((token, index, all) => all.indexOf(token) === index).slice(0, 16);
+}
+
 export function compactCapabilities(capabilities) {
   if (!capabilities || typeof capabilities !== 'object') return null;
   return {

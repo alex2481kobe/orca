@@ -61,7 +61,12 @@ export function renderLaneExecutorGuidance(form) {
       modelInput.setAttribute('list', 'lane-model-options');
     }
     listEl.innerHTML = controls.model.values.map((value) => `<option value="${safeAttr(value)}"></option>`).join('');
-    if (controls.model.defaultValue && !modelInput.value) modelInput.placeholder = `${controls.model.defaultValue} (CLI default)`;
+    if (!modelInput.value) {
+      const suggestions = (controls.model.aliases?.length ? controls.model.aliases : controls.model.values).slice(0, 3);
+      if (controls.model.defaultValue) modelInput.placeholder = `${controls.model.defaultValue} (CLI default)`;
+      else if (suggestions.length) modelInput.placeholder = `e.g. ${suggestions.join(', ')} — or blank for CLI default`;
+      else modelInput.placeholder = "leave blank for the CLI's default model";
+    }
   }
   const capabilitySummary = (() => {
     const bits = [];
@@ -262,16 +267,12 @@ export function renderAgentEventTimeline(lane, { limit = 80, compact = false } =
 
 export function modelPresetOptions(selected = '') {
   const normalized = String(selected || '').trim();
-  const options = [
-    ['', 'Default'],
-    ['gpt-5.5', 'GPT-5.5'],
-    ['gpt-5', 'GPT-5'],
-    ['claude-sonnet-4-5', 'Claude Sonnet 4.5'],
-    ['claude-opus-4-7', 'Claude Opus 4.7'],
-    ['gemini-2.5-pro', 'Gemini 2.5 Pro'],
-    ['gemini-2.5-flash', 'Gemini 2.5 Flash'],
-    ['cursor-default', 'Cursor default'],
-  ];
+  // No hardcoded model version numbers — they go stale (e.g. Opus 4.7 -> 4.8).
+  // Real per-CLI values come from detected capabilities (modelPresetOptionsFor);
+  // this fallback only offers Default and preserves a custom selection so a
+  // typed model (any current slug) is never dropped.
+  const options = [['', 'Default (CLI config)']];
+  if (normalized && !options.some(([value]) => value === normalized)) options.push([normalized, normalized]);
   return options.map(([value, label]) => `<option value="${safeAttr(value)}"${normalized === value ? ' selected' : ''}>${safeText(label)}</option>`).join('');
 }
 

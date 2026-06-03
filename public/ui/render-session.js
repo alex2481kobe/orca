@@ -63,7 +63,7 @@ export function renderSession(project, session) {
               <textarea name="taskPrompt" rows="3" placeholder="e.g., Plan the cleanup ramp"></textarea>
             </label>
             <label>Model / profile
-              <input name="model" placeholder="e.g., gpt-5 or claude-opus-4-7" />
+              <input name="model" placeholder="leave blank for the CLI's default model" />
             </label>
             <label>Intelligence
               <select name="intelligenceProfile">

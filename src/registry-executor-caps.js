@@ -25,6 +25,7 @@ import {
   getCliHelp,
   helpHas,
   parseHelpChoices,
+  parseModelHints,
   compactCapabilities,
 } from './registry-cli-info.js';
 import {
@@ -172,6 +173,12 @@ export const executorCapabilityMethods = {
       const supportsPermissionMode = helpHas(helpText, /(?:^|\s)--permission-mode(?:\s|[=<])/m);
       const supportsApprovalMode = helpHas(helpText, /(?:^|\s)--approval-mode(?:\s|[=<])/m);
       const supportsEffort = helpHas(helpText, /(?:^|\s)--effort(?:\s|[=<])/m);
+      // Model values: aliases/examples the CLI documents in --help (e.g. claude's
+      // 'opus'/'sonnet'/'claude-opus-4-8') merged with any operator-configured
+      // ORCA_<CLI>_MODELS. Free-text entry always remains available in the UI and
+      // via the API, so any newer slug works even if not listed here.
+      const modelHints = parseModelHints(helpText);
+      const modelValues = [...new Set([...modelHints, ...safeArray(profile.allowedModels)])].slice(0, 32);
       const permissionChoices = parseHelpChoices(helpText, '--permission-mode');
       const outputChoices = parseHelpChoices(helpText, '--output-format');
       const effortChoices = parseHelpChoices(helpText, '--effort');
@@ -202,8 +209,10 @@ export const executorCapabilityMethods = {
         roles: ['orchestrator', 'executor', 'auditor', 'critique'],
         controls: {
           model: {
-            supported: supportsModel || safeArray(profile.allowedModels).length > 0,
-            values: safeArray(profile.allowedModels),
+            supported: supportsModel || modelValues.length > 0,
+            values: modelValues,
+            aliases: modelHints,
+            freeText: true,
             defaultValue: String(process.env[`ORCA_${String(type).toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_MODEL`] || '').slice(0, 120) || null,
           },
           permissions: {
@@ -270,7 +279,7 @@ export const executorCapabilityMethods = {
       version: null,
       roles: ['orchestrator', 'executor', 'auditor', 'critique'],
       controls: {
-        model: { supported: true, values: safeArray(profile.allowedModels), defaultValue: profile.defaultModel || null },
+        model: { supported: true, values: safeArray(profile.allowedModels), freeText: true, defaultValue: profile.defaultModel || null },
         permissions: { supported: false, values: ['restricted'] },
         intelligence: { supported: false, values: ['low', 'medium', 'high', 'xhigh', 'max'], passthrough: true },
         structuredOutput: { supported: Boolean(profile.streaming), formats: profile.streaming ? ['provider-stream'] : ['provider-json'] },
