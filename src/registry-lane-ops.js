@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { LANE_STATES } from './worker-contract.js';
 import { nowIso, clonePayload, safeArray } from './registry-utils.js';
 import { removeLaneWorktree } from './worktree-manager.js';
+import { validateNetworkUrl } from './url-policy.js';
 
 const {
   QUEUED: QUEUED_STATE,
@@ -153,6 +154,8 @@ export const laneOpsMethods = {
     model,
     permissionsProfile,
     intelligenceProfile,
+    targetUrl,
+    verificationCommand,
   } = {}, context = {}) {
     const lane = this.getLane(laneLocator);
     if (!lane) {
@@ -173,16 +176,32 @@ export const laneOpsMethods = {
       model: lane.model || '',
       permissionsProfile: lane.permissionsProfile || '',
       intelligenceProfile: lane.intelligenceProfile || '',
+      targetUrl: lane.targetUrl || '',
+      verificationCommand: lane.verificationCommand || '',
     };
+    // targetUrl and verificationCommand are optional and may be set by the USER
+    // or learned/set by an AGENT later (executor/orchestrator) — when the user
+    // leaves them blank at create time, the agent fills them in via this path.
+    let nextTargetUrl = before.targetUrl;
+    if (typeof targetUrl === 'string') {
+      const trimmed = targetUrl.trim();
+      nextTargetUrl = trimmed
+        ? validateNetworkUrl(trimmed, { field: 'targetUrl', allowSensitive: false }).url
+        : '';
+    }
     const next = {
       model: typeof model === 'string' ? model.trim().slice(0, 120) : before.model,
       permissionsProfile: typeof permissionsProfile === 'string' ? permissionsProfile.trim().slice(0, 120) : before.permissionsProfile,
       intelligenceProfile: typeof intelligenceProfile === 'string' ? intelligenceProfile.trim().slice(0, 80) : before.intelligenceProfile,
+      targetUrl: nextTargetUrl,
+      verificationCommand: typeof verificationCommand === 'string' ? verificationCommand.trim().slice(0, 1000) : before.verificationCommand,
     };
 
     lane.model = next.model;
     lane.permissionsProfile = next.permissionsProfile;
     lane.intelligenceProfile = next.intelligenceProfile;
+    lane.targetUrl = next.targetUrl;
+    lane.verificationCommand = next.verificationCommand;
     lane.executorCapabilities = this.getExecutorCapabilities(lane.executorType);
     lane.updatedAt = nowIso();
     this.appendLaneLog(

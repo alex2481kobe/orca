@@ -34,6 +34,25 @@ export const DEFAULT_EFFECTIVE_SETTINGS = {
     auditAssignment: 'orchestrator-audits-first',
     autoAdvance: 'immediate',
   },
+  // Configurable agent-flow engine: how work moves between the main orchestrator,
+  // executors, and the audit tier. Layered like every other setting (defaults ->
+  // project -> session -> lane), so users AND agents can shape the flow per scope.
+  flow: {
+    // orchestrator-only      : orchestrator does the work itself, no executor lanes
+    // orchestrator-executor  : orchestrator spawns executors; results return to orchestrator
+    // orchestrator-executor-audit : executor work is audited before returning to the orchestrator
+    template: 'orchestrator-executor',
+    // After an executor submits, who audits: the main orchestrator, or a separate
+    // auditor/mini-orchestrator tier. (Pairs with critique.auditAssignment.)
+    auditTier: 'orchestrator',
+    // When an audit requests fixes: send them back to the same executor, or a fresh one.
+    fixRouting: 'same-agent',
+    // How many audit -> fix -> re-audit loops are allowed before escalating to the user.
+    maxAuditLoops: 2,
+    // If true, a lane cannot be reported done / returned to the orchestrator until
+    // an audit accepts it.
+    requireAuditPass: false,
+  },
   evidence: {
     screenshotRequiredForVisual: true,
     videoDefault: false,
@@ -88,6 +107,13 @@ const SCHEMA = {
     waiverMode: { type: 'enum', allowed: ['orchestrator-within-policy', 'approval-required', 'forbidden'] },
     auditAssignment: { type: 'enum', allowed: ['orchestrator-audits-first', 'separate-auditor-allowed', 'separate-auditor-required'] },
     autoAdvance: { type: 'enum', allowed: ['immediate', 'approval-required', 'off'] },
+  },
+  flow: {
+    template: { type: 'enum', allowed: ['orchestrator-only', 'orchestrator-executor', 'orchestrator-executor-audit'] },
+    auditTier: { type: 'enum', allowed: ['orchestrator', 'separate-auditor'] },
+    fixRouting: { type: 'enum', allowed: ['same-agent', 'new-agent'] },
+    maxAuditLoops: { type: 'integer', min: 0, max: 10 },
+    requireAuditPass: { type: 'boolean' },
   },
   evidence: {
     screenshotRequiredForVisual: { type: 'boolean' },

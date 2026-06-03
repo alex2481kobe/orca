@@ -38,6 +38,51 @@ function createProjectSessionLane(registry, laneBody = {}, sessionBody = {}) {
   return { project, session, lane };
 }
 
+test('agent-flow: audit mandatory + fix loop budget + routing per config', async () => {
+  await withRegistry(async (registry) => {
+    // Default flow: audit is optional.
+    const plain = createProjectSessionLane(registry);
+    assert.equal(registry.auditRequiredForLane(registry.getLane(plain.lane.id)), false);
+
+    // Configure an audit flow with a small loop budget and new-agent fix routing.
+    const project = registry.createProject({ name: 'Flow Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, {
+      name: 'Flow Session',
+      settingsOverrides: { flow: { template: 'orchestrator-executor-audit', fixRouting: 'new-agent', maxAuditLoops: 1, requireAuditPass: true } },
+    }, { actor: 'test', approved: true });
+    const lane = registry.createLane(session.id, { title: 'Flow Lane', executorType: 'mock' }, { actor: 'test', approved: true });
+    const laneObj = registry.getLane(lane.id);
+    assert.equal(registry.auditRequiredForLane(laneObj), true);
+
+    // Drive the lane to ready_for_audit, then request a fix (loop 1, budget left 0 -> escalate next).
+    registry.markLaneCompleted(laneObj);
+    registry.queueLaneAudit(lane.id, { actor: 'auditor', approved: true });
+    const fix1 = registry.requestLaneFix(lane.id, { actor: 'auditor', findings: ['lint'], nextTask: 'fix lint' });
+    assert.equal(fix1.lane.auditLoopCount, 1);
+    assert.equal(fix1.audit.fixRouting, 'new-agent');
+    assert.equal(fix1.audit.loopsRemaining, 0);
+
+    // nextAction reflects the flow: fix routed to a new agent => lane.create.
+    const env = buildNextActionEnvelope(registry, { role: 'orchestrator', projectId: project.id, sessionId: session.id, laneId: lane.id });
+    assert.equal(env.nextRequiredTool, 'lane.create');
+    assert.equal(env.flow.template, 'orchestrator-executor-audit');
+    assert.equal(env.flow.requireAuditPass, true);
+    assert.equal(env.flow.returnToOrchestratorAllowed, false); // can't return to orch until audit passes
+
+    // Second fix exhausts the budget -> escalation.
+    const fix2 = registry.requestLaneFix(lane.id, { actor: 'auditor', findings: ['still broken'] });
+    assert.equal(fix2.lane.auditState, 'escalated');
+    assert.equal(fix2.audit.escalated, true);
+
+    // Accepting the audit resets the loop budget and allows return to orchestrator.
+    registry.acceptLaneAudit(lane.id, { actor: 'auditor' });
+    const accepted = registry.getLane(lane.id);
+    assert.equal(accepted.auditLoopCount, 0);
+    const envAfter = buildNextActionEnvelope(registry, { role: 'orchestrator', projectId: project.id, sessionId: session.id, laneId: lane.id });
+    assert.equal(envAfter.flow.returnToOrchestratorAllowed, true);
+  });
+});
+
 test('required critique blocks audit until current findings are recorded', async () => {
   await withRegistry(async (registry) => {
     const { project, session, lane } = createProjectSessionLane(registry, {

@@ -56,11 +56,14 @@ function evidenceFreshForLane(registry, lane) {
   return Boolean(lane.lastEvidence && lane.lastEvidenceCaptureAt);
 }
 
-function chooseNextTool({ registry, role, project, session, lane, auditQueued }) {
+function chooseNextTool({ registry, role, project, session, lane, auditQueued, flow }) {
   const normalizedRole = normalizeRole(role);
   if (!project) return 'project.list';
   if (!session) return 'project.describe';
   if (!lane) {
+    // orchestrator-only flow: the orchestrator does the work itself — don't push
+    // toward spawning executor lanes.
+    if (flow?.template === 'orchestrator-only') return 'session.next_action';
     return normalizedRole === 'orchestrator' || normalizedRole === 'dashboard'
       ? 'lane.create'
       : 'session.describe';
@@ -74,7 +77,11 @@ function chooseNextTool({ registry, role, project, session, lane, auditQueued })
     return lane.critiqueNonce ? 'critique.findings.record' : 'critique.bundle.create';
   }
   if (lane.state === 'done' || lane.state === 'ready_for_audit') return auditQueued ? 'audit.findings.record' : 'audit.queue_one';
-  if (lane.state === 'fix_requested') return 'lane.retry';
+  if (lane.state === 'fix_requested') {
+    // Route the fix per the configurable flow: a fresh agent (new lane) or the
+    // same agent (retry this lane).
+    return flow?.fixRouting === 'new-agent' ? 'lane.create' : 'lane.retry';
+  }
   if (lane.state === 'failed') return 'lane.retry';
   if (lane.state === 'stopped') return 'lane.retry';
   return 'session.next_action';
@@ -125,6 +132,9 @@ export function buildNextActionEnvelope(registry, {
     : (session ? (registry?.lanes || []).find((item) => item.sessionId === session.id) || null : null);
   const allowedTools = availableToolIdsForRole(normalizedRole);
   const auditQueued = lane ? Boolean(latestPendingAudit(registry, lane.id)) : false;
+  const flowConfig = (lane && typeof registry?.getLaneFlowConfig === 'function')
+    ? registry.getLaneFlowConfig(lane)
+    : { template: 'orchestrator-executor', auditTier: 'orchestrator', fixRouting: 'same-agent', maxAuditLoops: 2, requireAuditPass: false };
   const nextRequiredTool = chooseNextTool({
     registry,
     role: normalizedRole,
@@ -132,6 +142,7 @@ export function buildNextActionEnvelope(registry, {
     session,
     lane,
     auditQueued,
+    flow: flowConfig,
   });
   const nextTool = findTool(nextRequiredTool);
   const critiqueRequired = critiqueRequiredForLane(registry, lane);
@@ -143,6 +154,25 @@ export function buildNextActionEnvelope(registry, {
   // reality (was reporting satisfied=true for them).
   const auditRequired = Boolean(lane && ['done', 'ready_for_audit', 'auditing', 'fix_requested'].includes(lane.state));
   const auditSatisfied = Boolean(lane && (lane.auditState === 'accepted' || lane.state === 'accepted'));
+  // Configurable agent-flow view: what the flow demands and how much fix-loop
+  // budget remains. auditMandatory means the lane cannot be returned to the main
+  // orchestrator as complete until an audit accepts it.
+  const auditMandatory = Boolean(lane && typeof registry?.auditRequiredForLane === 'function' && registry.auditRequiredForLane(lane));
+  const auditLoopCount = Number.isInteger(lane?.auditLoopCount) ? lane.auditLoopCount : 0;
+  const loopsRemaining = Math.max(0, (Number.isInteger(flowConfig.maxAuditLoops) ? flowConfig.maxAuditLoops : 2) - auditLoopCount);
+  const returnToOrchestratorAllowed = !auditMandatory || auditSatisfied;
+  const flow = {
+    template: flowConfig.template,
+    auditTier: flowConfig.auditTier,
+    fixRouting: flowConfig.fixRouting,
+    maxAuditLoops: flowConfig.maxAuditLoops,
+    requireAuditPass: flowConfig.requireAuditPass,
+    auditMandatory,
+    auditLoopCount,
+    loopsRemaining,
+    escalated: lane?.auditState === 'escalated',
+    returnToOrchestratorAllowed,
+  };
 
   return {
     contractVersion: CONTRACT_VERSION,
@@ -168,6 +198,7 @@ export function buildNextActionEnvelope(registry, {
     critiqueSatisfied,
     auditRequired,
     auditSatisfied: auditRequired ? auditSatisfied : true,
+    flow,
     capacity: buildCapacity(registry, session),
     executorCapabilities: typeof registry?.getExecutorCapabilitiesMatrix === 'function'
       ? registry.getExecutorCapabilitiesMatrix()

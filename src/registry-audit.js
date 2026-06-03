@@ -13,7 +13,35 @@ const {
   DONE: DONE_STATE,
 } = LANE_STATES;
 
+const FLOW_DEFAULTS = {
+  template: 'orchestrator-executor',
+  auditTier: 'orchestrator',
+  fixRouting: 'same-agent',
+  maxAuditLoops: 2,
+  requireAuditPass: false,
+};
+
 export const auditMethods = {
+  // Resolve the layered agent-flow config (defaults -> project -> session -> lane)
+  // for a lane. Falls back to safe defaults if settings can't be resolved.
+  getLaneFlowConfig(lane) {
+    if (!lane) return { ...FLOW_DEFAULTS };
+    try {
+      const effective = this.getEffectiveSettings({ laneId: lane.id });
+      return { ...FLOW_DEFAULTS, ...(effective?.settings?.flow || {}) };
+    } catch {
+      return { ...FLOW_DEFAULTS };
+    }
+  },
+
+  // Whether an executor lane's work MUST be audited before it can be reported
+  // done / returned to the main orchestrator. Driven by the configurable flow:
+  // the audit template or an explicit requireAuditPass both make audit mandatory.
+  auditRequiredForLane(lane) {
+    const flow = this.getLaneFlowConfig(lane);
+    return Boolean(flow.requireAuditPass) || flow.template === 'orchestrator-executor-audit';
+  },
+
   queueLaneAudit(laneLocator, context = {}) {
     const lane = this.getLane(laneLocator);
     if (!lane) {
@@ -150,6 +178,7 @@ export const auditMethods = {
     }
     lane.auditState = 'accepted';
     lane.state = ACCEPTED_STATE;
+    lane.auditLoopCount = 0; // work passed audit — reset the fix-loop budget
     lane.updatedAt = nowIso();
     const record = {
       id: randomUUID(),
@@ -187,7 +216,14 @@ export const auditMethods = {
   } = {}) {
     const lane = this.getLane(laneLocator);
     if (!lane) throw { status: 404, message: 'Lane not found.' };
-    lane.auditState = 'fix_requested';
+    const flow = this.getLaneFlowConfig(lane);
+    // Count audit -> fix loops; once the configured budget is exhausted, escalate
+    // to the user instead of looping forever.
+    const loop = (Number.isInteger(lane.auditLoopCount) ? lane.auditLoopCount : 0) + 1;
+    lane.auditLoopCount = loop;
+    const loopsRemaining = Math.max(0, (Number.isInteger(flow.maxAuditLoops) ? flow.maxAuditLoops : 2) - loop);
+    const escalated = loopsRemaining <= 0;
+    lane.auditState = escalated ? 'escalated' : 'fix_requested';
     lane.state = FIX_REQUESTED_STATE;
     lane.updatedAt = nowIso();
     const record = {
@@ -195,18 +231,25 @@ export const auditMethods = {
       actor: String(actor || 'dashboard').slice(0, 120),
       findings: safeArray(findings).map((item) => String(item || '').trim()).filter(Boolean).slice(0, 100),
       nextTask: String(nextTask || '').trim().slice(0, 2000),
+      // Where the fix should go next, per the configurable flow.
+      fixRouting: flow.fixRouting === 'new-agent' ? 'new-agent' : 'same-agent',
+      loop,
+      loopsRemaining,
+      escalated,
       recordedAt: nowIso(),
     };
     lane.auditFindings = [...safeArray(lane.auditFindings), record].slice(-50);
     this.recordAudit({
-      type: 'lane_audit_fix_requested',
+      type: escalated ? 'lane_audit_escalated' : 'lane_audit_fix_requested',
       actor: record.actor,
       projectId: lane.projectId,
       sessionId: lane.sessionId,
       laneId: lane.id,
-      summary: `Audit requested fix pass for lane ${lane.title}`,
-      status: 'pending',
-      followUpQueued: true,
+      summary: escalated
+        ? `Audit loop budget exhausted (${loop}) — escalating lane ${lane.title} to the user`
+        : `Audit requested fix pass ${loop} for lane ${lane.title} (${record.fixRouting})`,
+      status: escalated ? 'failed' : 'pending',
+      followUpQueued: !escalated,
       evidence: record,
     });
     this.persistState();

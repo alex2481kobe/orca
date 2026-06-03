@@ -42,6 +42,35 @@ test('effective settings expose locked product defaults without secrets', () => 
   assert.equal(effective.settings.urlOpening.defaultMode, 'external');
   assert.equal(effective.settings.mobile.pwaStaticCacheOnly, true);
   assert.equal(JSON.stringify(effective).includes('apiKey'), false);
+  // Agent-flow engine defaults.
+  assert.equal(effective.settings.flow.template, 'orchestrator-executor');
+  assert.equal(effective.settings.flow.auditTier, 'orchestrator');
+  assert.equal(effective.settings.flow.fixRouting, 'same-agent');
+  assert.equal(effective.settings.flow.maxAuditLoops, 2);
+  assert.equal(effective.settings.flow.requireAuditPass, false);
+});
+
+test('agent-flow settings layer and validate per scope', () => {
+  const effective = buildEffectiveSettings({
+    session: {
+      id: 's1',
+      settingsOverrides: { flow: { template: 'orchestrator-executor-audit', auditTier: 'separate-auditor', requireAuditPass: true } },
+    },
+    lane: {
+      id: 'l1',
+      sessionId: 's1',
+      settingsOverrides: { flow: { fixRouting: 'new-agent', maxAuditLoops: 4 } },
+    },
+  });
+  assert.equal(effective.settings.flow.template, 'orchestrator-executor-audit');
+  assert.equal(effective.settings.flow.auditTier, 'separate-auditor');
+  assert.equal(effective.settings.flow.requireAuditPass, true);
+  assert.equal(effective.settings.flow.fixRouting, 'new-agent');
+  assert.equal(effective.settings.flow.maxAuditLoops, 4);
+
+  // Invalid flow values are rejected by the sanitizer.
+  assert.throws(() => sanitizeSettingsOverrides({ flow: { template: 'nonsense' } }), (e) => e.status === 422);
+  assert.throws(() => sanitizeSettingsOverrides({ flow: { maxAuditLoops: 99 } }), (e) => e.status === 422);
 });
 
 test('effective settings precedence applies project, session, lane, and action overrides', () => {

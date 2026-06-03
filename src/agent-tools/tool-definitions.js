@@ -150,7 +150,7 @@ export const TOOL_DEFINITIONS = [
     route: '/api/lanes/{laneId}/controls',
     implemented: true,
     mutating: true,
-    summary: 'Update model, permissions mode, or intelligence controls for a lane.',
+    summary: 'Update a lane\'s controls: model, permissions mode, intelligence, and — when the user left them blank — the targetUrl (dev/preview URL) and verificationCommand the agent has learned for this work.',
   },
   {
     id: 'lane.archive',

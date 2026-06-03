@@ -76,15 +76,21 @@ export function renderSession(project, session) {
               </select>
             </label>
             <div class="tiny muted">Orca snapshots the selected executor's detected capabilities when the lane is queued.</div>
-            <label>Target URL
-              <input name="targetUrl" placeholder="https://localhost:5173" />
-            </label>
-            <label>Branch (for worktree lanes)
-              <input name="branch" placeholder="feature/auth-cleanup" />
-            </label>
-            <label>Verification command
-              <input name="verificationCommand" placeholder="e.g., npm run smoke" />
-            </label>
+            <details class="disclosure compact-disclosure">
+              <summary><span>Advanced (optional)</span><small>leave blank — the agent fills these in</small></summary>
+              <div class="disclosure-body">
+                <label>Target URL
+                  <input name="targetUrl" placeholder="blank → the agent detects the dev/preview URL" />
+                </label>
+                <label>Verification command
+                  <input name="verificationCommand" placeholder="blank → the agent learns how to verify (e.g. npm run smoke)" />
+                </label>
+                <label>Branch (for worktree lanes)
+                  <input name="branch" placeholder="feature/auth-cleanup" />
+                </label>
+                <div class="tiny muted">If you leave Target URL or Verification command blank, the executor detects and writes them back to the lane as it works.</div>
+              </div>
+            </details>
             <label>MCP tools
               <select name="mcpToolIds" multiple size="4" data-mcp-picker="1"></select>
               <span class="tiny muted">Tap to select; long-press on phone to multi-select. IDs are also accepted comma-separated.</span>

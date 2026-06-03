@@ -108,6 +108,35 @@ test('cleanup schedule and cleanup artifacts use retention + approval', async ()
   }
 });
 
+test('updateLaneControls lets user or agent set targetUrl + verificationCommand (and validates the URL)', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+
+  try {
+    const project = registry.createProject({ name: 'Controls Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Controls Session' }, { actor: 'test', approved: true });
+    // User leaves targetUrl + verificationCommand blank at create time.
+    const lane = registry.createLane(session.id, { title: 'work', executorType: 'mock' }, { approved: true, actor: 'test' });
+    assert.equal(registry.getLane(lane.id).targetUrl, '');
+    assert.equal(registry.getLane(lane.id).verificationCommand, '');
+
+    // An agent later learns and writes them back via the controls path.
+    const updated = registry.updateLaneControls(lane.id, {
+      targetUrl: 'http://localhost:5173',
+      verificationCommand: 'npm run smoke',
+    }, { actor: 'executor', approved: true });
+    assert.equal(updated.targetUrl, 'http://localhost:5173/');
+    assert.equal(updated.verificationCommand, 'npm run smoke');
+
+    // A bad / SSRF-y URL is rejected, leaving the lane unchanged.
+    assert.throws(
+      () => registry.updateLaneControls(lane.id, { targetUrl: 'http://169.254.169.254/latest' }, { actor: 'executor', approved: true }),
+      (error) => error.status === 422 || error.status === 400,
+    );
+  } finally {
+    await cleanup();
+  }
+});
+
 test('project and session mutations require policy approval', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
 
