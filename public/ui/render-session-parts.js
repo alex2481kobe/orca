@@ -5,7 +5,7 @@ import { executorCapabilitiesFor, isLiveLaneState, isRestartableLaneState, laneD
 import { activeOrchestratorLaneForSession, intelligenceOptionsFor, modelPresetOptionsFor, renderAgentEventTimeline, runModeOptionsFor } from './render-fragments.js';
 import { shell } from './state.js';
 import { renderAlert, writeHtml } from './dom.js';
-import { api, currentActiveProject } from './api.js';
+import { api } from './api.js';
 import { apiProviderOptions, cliExecutorOptions, normalizeExecutorType } from './executor.js';
 
 export function renderOrchestratorTerminal(project, session, lane) {
@@ -153,11 +153,12 @@ export async function uploadComposerFiles(sessionId, fileList) {
   refreshComposerAttachments(sessionId);
 }
 
-export function renderOrchestratorConsole(session) {
-  const project = shell.projects.find((value) => value.id === session.projectId) || currentActiveProject();
+// Volatile chat content only (messages + approvals). Rendered into the stable
+// #chat-thread-<id> mount so a new message updates ONLY the thread — the composer,
+// info panel, sidebar, and topbar are never rebuilt by a chat update.
+export function renderChatThreadInner(session) {
   const thread = session.orchestratorThread || {};
   const messages = Array.isArray(thread.messages) ? thread.messages : [];
-  const activeLane = activeOrchestratorLaneForSession(session);
   const messageRows = messages.slice(-50).map((message) => {
     const role = String(message.role || 'system').toLowerCase();
     const isUser = role === 'user';
@@ -167,21 +168,27 @@ export function renderOrchestratorConsole(session) {
       </div>
     `;
   }).join('');
-  const selectedExecutor = thread.executorType || session.leader || 'codex';
-  const selectedModel = activeLane?.model || '';
-  const selectedRunMode = activeLane?.permissionsProfile || 'plan';
-  const selectedIntelligence = activeLane?.intelligenceProfile || 'high';
   const emptyState = `
     <div class="chat-empty">
       <h2>${safeText(session.name)}</h2>
       <p>Message the orchestrator to plan work, spawn executors, and review results.</p>
     </div>`;
+  return `${messageRows || emptyState}${renderSessionApprovals(session)}`;
+}
+
+// Stable chat-column skeleton: an EMPTY thread mount + the composer. The thread is
+// filled separately via writeHtml(#chat-thread-<id>) so this skeleton stays
+// byte-identical across chat updates and is skipped by skip-if-identical.
+export function renderOrchestratorConsole(session) {
+  const thread = session.orchestratorThread || {};
+  const activeLane = activeOrchestratorLaneForSession(session);
+  const selectedExecutor = thread.executorType || session.leader || 'codex';
+  const selectedModel = activeLane?.model || '';
+  const selectedRunMode = activeLane?.permissionsProfile || 'plan';
+  const selectedIntelligence = activeLane?.intelligenceProfile || 'high';
   return `
     <article class="chat">
-      <div class="chat-thread">
-        ${messageRows || emptyState}
-        ${renderSessionApprovals(session)}
-      </div>
+      <div class="chat-thread" id="chat-thread-${safeAttr(session.id)}"></div>
       <form id="orchestrator-message-form" data-session-id="${safeAttr(session.id)}" class="composer composer-shell">
         <div id="composer-attachments-${safeAttr(session.id)}" class="composer-attachments">${renderComposerAttachmentChips(session.id)}</div>
         <textarea name="message" rows="1" placeholder="Message ${safeText(selectedExecutor)}…"></textarea>
@@ -260,10 +267,22 @@ export function renderExecutorLanePanelItem(lane) {
   `;
 }
 
-export function renderExecutorSidePanel(session) {
-  const executorLanes = shell.lanes
+// Volatile executor-lane list only (states + relative times). Rendered into the
+// stable #executor-list-<id> mount so a lane-state tick updates ONLY this list,
+// not the goal/plan or new-lane forms the operator may be editing.
+export function executorLanesForSession(session) {
+  return shell.lanes
     .filter((lane) => lane.sessionId === session.id && lane.owner !== 'orchestrator')
     .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
+}
+
+export function renderExecutorListInner(session) {
+  const executorLanes = executorLanesForSession(session);
+  return executorLanes.map(renderExecutorLanePanelItem).join('') || '<div class="muted tiny">No executor lanes yet.</div>';
+}
+
+export function renderExecutorSidePanel(session) {
+  const executorLanes = executorLanesForSession(session);
   const pendingAudits = pendingAuditsForSession(session.id);
   const agentOptions = `<option value="mock">mock</option>${cliExecutorOptions()}${shell.executorProfiles?.cli ? '<option value="cli">cli</option>' : ''}${apiProviderOptions()}`;
   return `
@@ -290,9 +309,7 @@ export function renderExecutorSidePanel(session) {
 
         <section class="info-section">
           <h4 class="info-title">Executors <span class="info-count">${safeText(executorLanes.length)}</span></h4>
-          <div class="executor-panel-list">
-            ${executorLanes.map(renderExecutorLanePanelItem).join('') || '<div class="muted tiny">No executor lanes yet.</div>'}
-          </div>
+          <div class="executor-panel-list" id="executor-list-${safeAttr(session.id)}"></div>
         </section>
 
         <section class="info-section">

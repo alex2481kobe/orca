@@ -36,7 +36,11 @@ export function formatRelative(timeString) {
   const timestamp = new Date(timeString).getTime();
   if (!Number.isFinite(timestamp)) return 'unknown';
   const deltaSeconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
-  if (deltaSeconds < 60) return `${deltaSeconds}s ago`;
+  // Coarse "just now" under a minute instead of a per-second count. A per-second
+  // "Ns ago" changes the rendered HTML every tick, forcing its region to rebuild
+  // on every poll and defeating skip-if-identical — the opposite of keeping
+  // paired/workstation pages static and updating only the region that changed.
+  if (deltaSeconds < 60) return 'just now';
   const deltaMinutes = Math.round(deltaSeconds / 60);
   if (deltaMinutes < 60) return `${deltaMinutes}m ago`;
   const deltaHours = Math.round(deltaMinutes / 60);

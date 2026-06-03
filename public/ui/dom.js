@@ -81,11 +81,15 @@ export function isLocalHostName(hostname) {
   return ['localhost', '127.0.0.1', '::1'].includes(String(hostname || '').toLowerCase());
 }
 
+// Returns true only when the DOM was actually rewritten (HTML differed from the
+// last write), so callers can react to real changes — e.g. auto-scroll the chat
+// thread only when new content arrived, not on every idle poll.
 export function writeHtml(el, html) {
-  if (!el) return;
-  if (el.__lastHtml === html) return;
+  if (!el) return false;
+  if (el.__lastHtml === html) return false;
   el.__lastHtml = html;
   el.innerHTML = html;
+  return true;
 }
 
 export function renderAlert(text, level = 'info') {
