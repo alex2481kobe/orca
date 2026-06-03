@@ -103,6 +103,35 @@ export function renderProject(project) {
               <label>Max parallel lanes (executor capacity cap)
                 <input name="laneConcurrencyLimit" type="number" min="1" max="64" value="1" />
               </label>
+              <details class="disclosure compact-disclosure">
+                <summary><span>Agent flow</span><small>how work moves between agents</small></summary>
+                <div class="disclosure-body">
+                  <label>Flow
+                    <select name="flowTemplate">
+                      <option value="orchestrator-executor">Orchestrator → executor → orchestrator</option>
+                      <option value="orchestrator-executor-audit">Orchestrator → executor → audit → orchestrator</option>
+                      <option value="orchestrator-only">Orchestrator only (no executors)</option>
+                    </select>
+                  </label>
+                  <label>Who audits
+                    <select name="flowAuditTier">
+                      <option value="orchestrator">Main orchestrator audits</option>
+                      <option value="separate-auditor">Separate auditor / mini-orchestrator</option>
+                    </select>
+                  </label>
+                  <label>On fix request, send work to
+                    <select name="flowFixRouting">
+                      <option value="same-agent">The same agent (retry)</option>
+                      <option value="new-agent">A fresh agent (new lane)</option>
+                    </select>
+                  </label>
+                  <label>Max audit→fix loops before escalating to you
+                    <input name="flowMaxAuditLoops" type="number" min="0" max="10" value="2" />
+                  </label>
+                  <label class="check-inline"><input type="checkbox" name="flowRequireAuditPass" /> Require an audit to pass before work returns to the orchestrator</label>
+                  <div class="tiny muted">Defaults to a simple orchestrator → executor loop. The audit flow adds a review tier; agents follow this automatically via their next-action guidance.</div>
+                </div>
+              </details>
               <label>Working directory (workstation repo)
                 <input id="session-repo-root" name="repoRoot" placeholder="Pick a folder on the workstation…" autocomplete="off" />
               </label>
