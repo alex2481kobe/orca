@@ -59,8 +59,12 @@ export function apiProviderOptions() {
     .map((profile) => {
       const id = safeAttr(profile.id);
       const label = safeText(profile.displayName || profile.id);
-      const suffix = profile.enabled === false ? ' (setup)' : '';
-      return `<option value="${id}">${label}${suffix}</option>`;
+      // Not-yet-configured providers are greyed out (disabled) — set them up in
+      // Settings before they can be selected as an agent.
+      const notReady = profile.enabled === false;
+      const suffix = notReady ? ' (setup)' : '';
+      const disabledAttr = notReady ? ' disabled' : '';
+      return `<option value="${id}"${disabledAttr}>${label}${suffix}</option>`;
     })
     .join('');
 }

@@ -2584,6 +2584,14 @@ pre {
   min-width: 230px; overflow-y: auto; padding: 0.35rem; position: absolute; right: 0; z-index: 90;
 }
 .cfg-pop[hidden] { display: none; }
+/* Submenu flyout — appears beside the main menu (Codex-style), positioned by JS. */
+.cfg-flyout {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; gap: 1px;
+  max-height: 320px; min-width: 210px; overflow-y: auto; padding: 0.35rem; position: absolute; z-index: 91;
+}
+.cfg-flyout[hidden] { display: none; }
+.cfg-row.active { background: var(--hover); }
 .cfg-head { color: var(--muted); font-size: 0.7rem; letter-spacing: 0.06em; padding: 0.45rem 0.6rem 0.2rem; text-transform: uppercase; }
 .cfg-item {
   align-items: center; background: transparent; border: 0; border-radius: 8px; color: var(--text); cursor: pointer;

@@ -3,6 +3,8 @@
 // cache (module-scoped, shared across instances — it's just a probe cache).
 
 import fs from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import {
@@ -37,6 +39,21 @@ import {
   shouldPreferSourceReinstall,
   commandTargetsExecutorFirstToken,
 } from './registry-reinstall.js';
+
+// Codex stores its default model + reasoning effort in ~/.codex/config.toml. Read
+// them so the UI default matches the terminal (e.g. "gpt-5.5 high"). The full
+// selectable model list lives in the codex binary (the /model picker) and isn't
+// exposed non-interactively, so model entry stays free-text + this detected default.
+function readCodexConfigDefault(key) {
+  try {
+    const home = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
+    const txt = readFileSync(path.join(home, 'config.toml'), 'utf8');
+    const m = new RegExp(`^\\s*${key}\\s*=\\s*"([^"]+)"`, 'm').exec(txt);
+    return m ? m[1].slice(0, 120) : null;
+  } catch {
+    return null;
+  }
+}
 import {
   FIRST_CLASS_CLI_EXECUTOR_TYPES,
   getApiProviderExecutorTypes,
@@ -213,7 +230,9 @@ export const executorCapabilityMethods = {
             values: modelValues,
             aliases: modelHints,
             freeText: true,
-            defaultValue: String(process.env[`ORCA_${String(type).toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_MODEL`] || '').slice(0, 120) || null,
+            defaultValue: String(process.env[`ORCA_${String(type).toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_MODEL`] || '').slice(0, 120)
+              || (type === 'codex' ? readCodexConfigDefault('model') : null)
+              || null,
           },
           permissions: {
             supported: true,

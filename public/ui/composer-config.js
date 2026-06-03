@@ -4,7 +4,7 @@
 // nothing hardcoded. The chosen values live on hidden form inputs (model,
 // intelligenceProfile, speed) so form submission / toObj keep working.
 
-import { getExecutorProfile, normalizeExecutorType, getExecutorScopedMcpTools } from './executor.js';
+import { getExecutorProfile, normalizeExecutorType } from './executor.js';
 import { safeText, safeAttr } from './format.js';
 
 // Pretty labels for effort levels (xhigh -> "Extra High"); anything else is title-cased.
@@ -50,6 +50,7 @@ export function renderComposerConfig(executorType, state = {}) {
         <svg class="cfg-caret" viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8l5 5 5-5"/></svg>
       </button>
       <div class="cfg-pop" role="menu" hidden></div>
+      <div class="cfg-flyout" role="menu" hidden></div>
     </div>`;
 }
 
@@ -77,62 +78,73 @@ function mainView(cfg) {
     ${reasonRows}
     <div class="cfg-sep"></div>
     <button type="button" class="cfg-item cfg-row" data-sub="model"><span>${safeText(model ? shortModel(model) : 'Model')}</span><span class="cfg-arrow">›</span></button>
-    <button type="button" class="cfg-item cfg-row" data-sub="speed"><span>Speed</span><span class="cfg-arrow">›</span></button>
-    <button type="button" class="cfg-item cfg-row" data-sub="tools"><span>MCP tools</span><span class="cfg-arrow">›</span></button>`;
+    <button type="button" class="cfg-item cfg-row" data-sub="speed"><span>Speed</span><span class="cfg-arrow">›</span></button>`;
 }
 
-function toolsView(cfg) {
-  const ex = executorOf(cfg);
-  const tools = getExecutorScopedMcpTools(ex);
-  const rows = tools.length
-    ? tools.map((t) => `<div class="cfg-tool"><span>${safeText(t.name || t.id)}</span><span class="cfg-tool-on">enabled</span></div>`).join('')
-    : '<div class="cfg-note">No MCP tools scoped to this agent. Add them in Settings → MCP.</div>';
-  return `<button type="button" class="cfg-back">‹ MCP tools</button>${rows}`;
-}
-
-function modelView(cfg) {
-  const ex = executorOf(cfg);
+// Submenu bodies are rendered into the side flyout (no back button — the main
+// menu stays visible beside it, Codex-style).
+function modelBody(cfg) {
   const cur = val(cfg, 'model');
-  const vals = modelValues(ex);
+  const vals = modelValues(executorOf(cfg));
   const rows = vals.length
     ? vals.map((m) => `<button type="button" class="cfg-item cfg-model${m === cur ? ' selected' : ''}" data-v="${safeAttr(m)}">${safeText(shortModel(m))}${m === cur ? '<span class="cfg-check">✓</span>' : ''}</button>`).join('')
-    : '<div class="cfg-note">No preset models for this agent — type one below.</div>';
+    : '<div class="cfg-note">No preset models reported — type one below.</div>';
   return `
-    <button type="button" class="cfg-back">‹ Model</button>
+    <div class="cfg-head">Model</div>
     ${rows}
     <div class="cfg-free">
       <input type="text" class="cfg-model-input" placeholder="model slug (e.g. gpt-5.5)" value="${safeAttr(cur)}" aria-label="Custom model" />
       <button type="button" class="cfg-model-use">Use</button>
     </div>`;
 }
-
-function speedView(cfg) {
+function speedBody(cfg) {
   const cur = val(cfg, 'speed') || 'standard';
-  const rows = SPEED_OPTIONS.map((o) =>
+  return `<div class="cfg-head">Speed</div>` + SPEED_OPTIONS.map((o) =>
     `<button type="button" class="cfg-item cfg-speed${o.v === cur ? ' selected' : ''}" data-v="${o.v}"><span class="cfg-speed-main">${safeText(o.label)}${o.v === cur ? '<span class="cfg-check">✓</span>' : ''}</span><span class="cfg-speed-sub">${safeText(o.sub)}</span></button>`,
   ).join('');
-  return `<button type="button" class="cfg-back">‹ Speed</button>${rows}`;
 }
 
-function render(cfg, view = 'main') {
+function renderMain(cfg) {
   const pop = cfg.querySelector('.cfg-pop');
-  pop.dataset.view = view;
-  pop.innerHTML = view === 'model' ? modelView(cfg)
-    : view === 'speed' ? speedView(cfg)
-    : view === 'tools' ? toolsView(cfg)
-    : mainView(cfg);
+  pop.innerHTML = mainView(cfg);
+}
+
+function hideFlyout(cfg) {
+  const fly = cfg.querySelector('.cfg-flyout');
+  if (fly) { fly.hidden = true; fly.dataset.sub = ''; }
+  cfg.querySelectorAll('.cfg-row.active').forEach((r) => r.classList.remove('active'));
+}
+
+// Show a submenu to the LEFT of the main popover, aligned to the hovered row.
+function showFlyout(cfg, row) {
+  const sub = row.dataset.sub;
+  const fly = cfg.querySelector('.cfg-flyout');
+  if (!fly) return;
+  if (fly.dataset.sub !== sub) {
+    fly.innerHTML = sub === 'model' ? modelBody(cfg) : speedBody(cfg);
+    fly.dataset.sub = sub;
+  }
+  fly.hidden = false;
+  cfg.querySelectorAll('.cfg-row').forEach((r) => r.classList.toggle('active', r === row));
+  const cfgRect = cfg.getBoundingClientRect();
+  const popRect = cfg.querySelector('.cfg-pop').getBoundingClientRect();
+  const rowRect = row.getBoundingClientRect();
+  // Right edge of the flyout sits just left of the popover; bottom aligned to the row.
+  fly.style.right = `${Math.round(cfgRect.right - popRect.left + 6)}px`;
+  fly.style.bottom = `${Math.round(cfgRect.bottom - rowRect.bottom)}px`;
 }
 
 function close() {
   if (!_open) return;
   _open.querySelector('.cfg-pop').hidden = true;
+  hideFlyout(_open);
   _open.classList.remove('cfg-active');
   _open.querySelector('.cfg-trigger').setAttribute('aria-expanded', 'false');
   _open = null;
 }
 function open(cfg) {
   close();
-  render(cfg, 'main');
+  renderMain(cfg);
   cfg.querySelector('.cfg-pop').hidden = false;
   cfg.classList.add('cfg-active');
   cfg.querySelector('.cfg-trigger').setAttribute('aria-expanded', 'true');
@@ -140,23 +152,19 @@ function open(cfg) {
 }
 
 export function initComposerConfig() {
-  // Submenus open on HOVER (no click needed); hovering the back row returns.
+  // Submenus open on HOVER and appear beside the menu (flyout), not replacing it.
   document.addEventListener('mouseover', (event) => {
     if (!_open) return;
+    if (event.target.closest?.('.cfg-flyout')) return; // stay open while in the flyout
     const row = event.target.closest?.('.cfg-row');
-    if (row && row.closest('.cfg') === _open) {
-      if (_open.querySelector('.cfg-pop')?.dataset.view !== row.dataset.sub) render(_open, row.dataset.sub);
-      return;
-    }
-    const back = event.target.closest?.('.cfg-back');
-    if (back && back.closest('.cfg') === _open) {
-      if (_open.querySelector('.cfg-pop')?.dataset.view !== 'main') render(_open, 'main');
-    }
+    if (row && row.closest('.cfg') === _open) { showFlyout(_open, row); return; }
+    // Hovering anything else in the main menu (e.g. a reasoning row) closes the flyout.
+    if (event.target.closest?.('.cfg-pop')) hideFlyout(_open);
   });
   document.addEventListener('click', (event) => {
     const t = event.target;
     const cfg = t.closest?.('.cfg');
-    if (!cfg) { if (!t.closest?.('.cfg-pop')) close(); return; }
+    if (!cfg) { close(); return; }
 
     if (t.closest('.cfg-trigger')) {
       event.preventDefault();
@@ -167,31 +175,28 @@ export function initComposerConfig() {
     if (reason) {
       event.preventDefault();
       const f = field(cfg, 'intelligenceProfile'); if (f) f.value = reason.dataset.v;
-      setLabel(cfg); render(cfg, 'main');
+      setLabel(cfg); renderMain(cfg); hideFlyout(cfg);
       return;
     }
-    const row = t.closest('.cfg-row');
-    if (row) { event.preventDefault(); render(cfg, row.dataset.sub); return; }
-    if (t.closest('.cfg-back')) { event.preventDefault(); render(cfg, 'main'); return; }
     const model = t.closest('.cfg-model');
     if (model) {
       event.preventDefault();
       const f = field(cfg, 'model'); if (f) f.value = model.dataset.v;
-      setLabel(cfg); render(cfg, 'main');
+      setLabel(cfg); close();
       return;
     }
     if (t.closest('.cfg-model-use')) {
       event.preventDefault();
       const input = cfg.querySelector('.cfg-model-input');
       const f = field(cfg, 'model'); if (f) f.value = (input?.value || '').trim();
-      setLabel(cfg); render(cfg, 'main');
+      setLabel(cfg); close();
       return;
     }
     const speed = t.closest('.cfg-speed');
     if (speed) {
       event.preventDefault();
       const f = field(cfg, 'speed'); if (f) f.value = speed.dataset.v;
-      render(cfg, 'main');
+      close();
       return;
     }
   });
@@ -202,11 +207,11 @@ export function initComposerConfig() {
       event.stopPropagation();
       const cfg = event.target.closest('.cfg');
       const f = field(cfg, 'model'); if (f) f.value = event.target.value.trim();
-      setLabel(cfg); render(cfg, 'main');
+      setLabel(cfg); close();
     }
   });
   document.addEventListener('scroll', (event) => {
-    if (event.target?.closest?.('.cfg-pop')) return;
+    if (event.target?.closest?.('.cfg-pop') || event.target?.closest?.('.cfg-flyout')) return;
     close();
   }, true);
 }
