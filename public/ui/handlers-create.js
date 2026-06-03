@@ -13,7 +13,7 @@ import { FIRST_CLASS_CLI_EXECUTOR_TYPES } from './constants.js';
 export async function handleCreateProject(event) {
   event.preventDefault();
   const payload = toObj(event.currentTarget);
-  const approval = buildApprovedActionBody('createProject', `Create project ${safeText(payload.name || '').trim() || 'new project'}?`);
+  const approval = await buildApprovedActionBody('createProject', `Create project ${safeText(payload.name || '').trim() || 'new project'}?`);
   if (!approval.approved) {
     renderAlert('Project creation canceled.');
     return;
@@ -40,7 +40,7 @@ export async function handleCreateSession(event) {
   event.preventDefault();
   const projectId = event.currentTarget.dataset.projectId;
   const payload = toObj(event.currentTarget);
-  const approval = buildApprovedActionBody(
+  const approval = await buildApprovedActionBody(
     'createSession',
     `Create session "${String(payload.name || '').trim() || 'new session'}" for this project?`,
   );
@@ -89,7 +89,7 @@ export async function handleAddProjectQuickLink(event) {
   }
 
   const project = shell.projects.find((value) => value.id === projectId);
-  const approval = buildApprovedActionBody('updateProject', `Save live link "${label}" for ${project?.name || 'project'}?`);
+  const approval = await buildApprovedActionBody('updateProject', `Save live link "${label}" for ${project?.name || 'project'}?`);
   if (!approval.approved) {
     renderAlert('Quick link addition canceled.');
     return;
@@ -124,7 +124,7 @@ export async function handleCreateLane(event) {
   const sessionId = event.currentTarget.dataset.sessionId;
   const payload = toObj(event.currentTarget);
   const executorType = normalizeExecutorType(payload.executorType || 'mock');
-  const approval = buildApprovedActionBody(
+  const approval = await buildApprovedActionBody(
     'createLane',
     `Queue lane "${String(payload.title || '').trim() || 'new lane'}" as ${executorType || 'mock'}-led lane?`,
   );
@@ -230,7 +230,7 @@ export async function handleCreateMcpTool(event) {
     renderAlert('MCP command must be a single executable token.', 'bad');
     return;
   }
-  const approval = buildApprovedActionBody('manageMcpTools', `Create MCP tool ${safeText(payload.name || 'new tool')}?`);
+  const approval = await buildApprovedActionBody('manageMcpTools', `Create MCP tool ${safeText(payload.name || 'new tool')}?`);
   if (!approval.approved) {
     renderAlert('MCP tool creation canceled.');
     return;

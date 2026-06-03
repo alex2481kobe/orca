@@ -3,6 +3,7 @@
 // Extracted from app.js.
 
 import { shell, refs } from './state.js';
+import { confirmDialog, promptDialog } from './dialog.js';
 import { safeText, formatMeta } from './format.js';
 
 export function laneDetailRoute(project, session, lane) {
@@ -42,11 +43,11 @@ export function needsApproval(actionKey) {
   return Boolean(getActionPolicy(actionKey).requiresApproval);
 }
 
-export function confirmHighRiskAction(message, actionKey) {
+export async function confirmHighRiskAction(message, actionKey) {
   const policy = getActionPolicy(actionKey);
   if (!policy.requiresApproval) return true;
   const policyMessage = policy.message || 'This action requires explicit approval.';
-  return window.confirm(`${message}\n${policyMessage}`);
+  return confirmDialog(`${message}\n${policyMessage}`, { confirmLabel: 'Continue' });
 }
 
 export function pendingAuditsForLane(laneId) {

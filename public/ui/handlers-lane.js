@@ -23,7 +23,7 @@ export async function handleOrchestratorMessage(event) {
   const model = String(payload.model || '').trim() || String(payload.modelPreset || '').trim() || null;
   const intelligenceProfile = String(payload.intelligenceProfile || '').trim() || 'high';
   const permissionsProfile = String(payload.permissionsProfile || '').trim() || 'plan';
-  const approval = buildApprovedActionBody(
+  const approval = await buildApprovedActionBody(
     'createLane',
     `Start ${executorType} orchestrator?\nMode: ${permissionsProfile}\nModel: ${model || 'default'}\nIntelligence: ${intelligenceProfile}`,
   );
@@ -67,7 +67,7 @@ export async function handleLaneControlsUpdate(event) {
   const model = String(payload.model || '').trim();
   const intelligenceProfile = String(payload.intelligenceProfile || '').trim();
   const permissionsProfile = String(payload.permissionsProfile || '').trim();
-  const approval = buildApprovedActionBody(
+  const approval = await buildApprovedActionBody(
     'updateLaneControls',
     `Update controls for ${lane.title}?\nMode: ${permissionsProfile || 'default'}\nModel: ${model || 'default'}\nIntelligence: ${intelligenceProfile || 'default'}`,
   );

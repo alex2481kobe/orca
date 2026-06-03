@@ -2401,3 +2401,35 @@ pre {
 .info-title { color: var(--muted); font-size: 0.7rem; letter-spacing: 0.07em; margin: 0; text-transform: uppercase; }
 .info-count { background: var(--active); border-radius: 999px; color: var(--muted); font-size: 0.7rem; margin-left: 0.3rem; padding: 0 0.4rem; }
 .info-tools { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+
+/* ===== Custom modal dialogs (confirm / prompt) ===== */
+.modal-overlay {
+  align-items: center;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 1rem;
+  position: fixed;
+  z-index: 200;
+}
+.modal {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  max-width: 420px;
+  padding: 1.25rem;
+  width: 100%;
+}
+.modal-title { font-size: 1rem; margin: 0; }
+.modal-message { color: var(--text); font-size: 0.9rem; line-height: 1.5; white-space: pre-line; }
+.modal-input { width: 100%; }
+.modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.25rem; }
+.modal-confirm { background: var(--text); border: 0; color: #1a1a1a; padding: 0.5rem 1rem; }
+.modal-confirm:hover { background: #fff; }
+.modal-confirm.danger { background: var(--danger); color: #1a1a1a; }
+.modal-confirm.danger:hover { background: #ff9d86; }

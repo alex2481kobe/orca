@@ -1,6 +1,7 @@
 // Split from handlers-config.js.
 
 import { api } from './api.js';
+import { confirmDialog, promptDialog } from './dialog.js';
 import { authRequiredMessage, renderAlert } from './dom.js';
 import { refresh } from './controller.js';
 import { browserNotificationPermission, maybeShowBrowserNotifications, requestBrowserNotificationPermission } from './notifications.js';
@@ -86,7 +87,7 @@ export async function handlePrivateAccessAction(event) {
     return;
   }
   if (action === 'deletePrivateAccessTarget') {
-    if (!window.confirm('Remove this private access target?')) return;
+    if (!await confirmDialog('Remove this private access target?')) return;
     const response = await api(`/api/private-access/targets/${encodeURIComponent(targetId)}`, {
       method: 'DELETE',
       body: { actor: 'dashboard' },
@@ -108,7 +109,7 @@ export async function handleNotificationSettings(event) {
   if (browserEnabled && browserNotificationPermission() === 'default') {
     await requestBrowserNotificationPermission();
   }
-  const approval = buildApprovedActionBody('manageNotifications', 'Update notification delivery settings?');
+  const approval = await buildApprovedActionBody('manageNotifications', 'Update notification delivery settings?');
   if (!approval.approved) {
     renderAlert('Notification settings update canceled.');
     return;

@@ -13,7 +13,7 @@ export async function handleSessionActions(event) {
   }
   if (action === 'auditDone') {
     const sessionId = event.currentTarget.dataset.sessionId;
-    const approved = confirmHighRiskAction('Queue audit for finished lanes in this session?', 'auditDoneLanes');
+    const approved = await confirmHighRiskAction('Queue audit for finished lanes in this session?', 'auditDoneLanes');
     if (!approved) {
       renderAlert('Session audit request canceled.');
       return;

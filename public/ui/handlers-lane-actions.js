@@ -1,6 +1,7 @@
 // Split from handlers-actions.js.
 
 import { refresh, showArtifacts } from './controller.js';
+import { confirmDialog, promptDialog } from './dialog.js';
 import { confirmHighRiskAction, isLiveLaneState } from './render-helpers.js';
 import { api } from './api.js';
 import { renderAlert } from './dom.js';
@@ -18,7 +19,7 @@ export async function handleLaneActions(event) {
     const presetId = event.currentTarget.dataset.presetId;
     const label = event.currentTarget.dataset.presetLabel || 'saved preview';
     if (!presetId) return;
-    const approved = confirmHighRiskAction(`Capture screenshot for ${label}?`, 'captureEvidence');
+    const approved = await confirmHighRiskAction(`Capture screenshot for ${label}?`, 'captureEvidence');
     const response = await api(`/api/lanes/${laneId}/evidence`, {
       method: 'POST',
       body: { approved, actor: 'dashboard', presetId, modes: ['screenshot'] },
@@ -32,7 +33,7 @@ export async function handleLaneActions(event) {
     return;
   }
   if (action === 'removeWorktree') {
-    if (!confirmHighRiskAction(`Remove the git worktree for lane ${laneId}? Branch is kept.`, 'cleanupArtifacts')) {
+    if (!await confirmHighRiskAction(`Remove the git worktree for lane ${laneId}? Branch is kept.`, 'cleanupArtifacts')) {
       renderAlert('Worktree removal canceled.');
       return;
     }
@@ -50,7 +51,7 @@ export async function handleLaneActions(event) {
   }
   if (action === 'restartLane') {
     const lane = shell.lanes.find((item) => item.id === laneId);
-    const approved = confirmHighRiskAction('Restart this agent process?', 'retryLane');
+    const approved = await confirmHighRiskAction('Restart this agent process?', 'retryLane');
     if (!approved) {
       renderAlert('Lane restart canceled.');
       return;
@@ -96,13 +97,13 @@ export async function handleLaneActions(event) {
     clearEvidence: 'clearEvidenceArtifacts',
   }[action];
   const policy = shell.policy[policyKey] || { requiresApproval: false };
-  const approved = confirmHighRiskAction('This is a higher-risk action. Continue?', policyKey);
+  const approved = await confirmHighRiskAction('This is a higher-risk action. Continue?', policyKey);
 
   if (action === 'captureEvidence') {
     const modes = [];
-    if (window.confirm('Capture screenshot?')) modes.push('screenshot');
-    if (window.confirm('Capture trace (more expensive)?')) modes.push('trace');
-    if (window.confirm('Capture video (heavier)?')) modes.push('video');
+    if (await confirmDialog('Capture screenshot?')) modes.push('screenshot');
+    if (await confirmDialog('Capture trace (more expensive)?')) modes.push('trace');
+    if (await confirmDialog('Capture video (heavier)?')) modes.push('video');
     const response = await api(endpoint.url, {
       method: endpoint.method,
       body: {
@@ -123,7 +124,7 @@ export async function handleLaneActions(event) {
   }
 
   if (action === 'clearEvidence') {
-    const confirmed = window.confirm('Clear evidence files for this lane?');
+    const confirmed = await confirmDialog('Clear evidence files for this lane?');
     if (!confirmed) {
       renderAlert('Evidence clear canceled.');
       return;

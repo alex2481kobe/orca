@@ -130,10 +130,11 @@ try {
     await page.click('#orchestrator-message-form .composer-more > summary');
     await page.fill('#orchestrator-message-form input[name="model"]', 'gpt-5');
     await page.fill('#orchestrator-message-form textarea[name="message"]', 'Start the launch verification lane from the dashboard chat.');
-    const [turnResponse] = await Promise.all([
-      page.waitForResponse((response) => response.url().includes('/orchestrator/messages'), { timeout: 15000 }),
-      page.click('#orchestrator-message-form button[type="submit"]'),
-    ]);
+    const responsePromise = page.waitForResponse((response) => response.url().includes('/orchestrator/messages'), { timeout: 15000 });
+    await page.click('#orchestrator-message-form button[type="submit"]');
+    // High-risk actions now use a custom confirm modal (not the native dialog).
+    await page.click('.modal-overlay .modal-confirm', { timeout: 5000 });
+    const turnResponse = await responsePromise;
     if (turnResponse.status() !== 201) {
       fail('orchestrator message response', `${turnResponse.status()} ${await turnResponse.text()}`);
     }

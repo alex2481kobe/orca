@@ -1,6 +1,7 @@
 // Split from handlers-config.js.
 
 import { api } from './api.js';
+import { confirmDialog, promptDialog } from './dialog.js';
 import { shell } from './state.js';
 import { renderAlert } from './dom.js';
 import { render } from './render-shell.js';
@@ -25,7 +26,7 @@ export async function handleProviderAction(event) {
   }
   if (action === 'toggleProviderEnabled') {
     const nextEnabled = event.currentTarget.dataset.enabled === 'true';
-    const approval = buildApprovedActionBody('manageExecutorCli', `${nextEnabled ? 'Enable' : 'Disable'} provider ${providerId}?`);
+    const approval = await buildApprovedActionBody('manageExecutorCli', `${nextEnabled ? 'Enable' : 'Disable'} provider ${providerId}?`);
     if (!approval.approved) return;
     const response = await api(`/api/providers/${encodeURIComponent(providerId)}`, {
       method: 'PATCH',
@@ -44,9 +45,9 @@ export async function handleProviderAction(event) {
     return;
   }
   if (action === 'setProviderSecret') {
-    const secret = window.prompt(`Enter API key/secret for ${providerId}. It will be sent once and never shown again.`);
+    const secret = await promptDialog(`Enter API key/secret for ${providerId}. It will be sent once and never shown again.`);
     if (!secret) return;
-    const approval = buildApprovedActionBody('manageExecutorCli', `Store secret for provider ${providerId}?`);
+    const approval = await buildApprovedActionBody('manageExecutorCli', `Store secret for provider ${providerId}?`);
     if (!approval.approved) return;
     const response = await api(`/api/providers/${encodeURIComponent(providerId)}/secret`, {
       method: 'POST',
@@ -65,9 +66,9 @@ export async function handleProviderAction(event) {
     return;
   }
   if (action === 'deleteProviderSecret') {
-    const confirmed = window.confirm(`Delete stored secret for ${providerId}? Env fallback may still be used if configured.`);
+    const confirmed = await confirmDialog(`Delete stored secret for ${providerId}? Env fallback may still be used if configured.`);
     if (!confirmed) return;
-    const approval = buildApprovedActionBody('manageExecutorCli', `Delete secret for provider ${providerId}?`);
+    const approval = await buildApprovedActionBody('manageExecutorCli', `Delete secret for provider ${providerId}?`);
     if (!approval.approved) return;
     const response = await api(`/api/providers/${encodeURIComponent(providerId)}/secret`, {
       method: 'DELETE',
@@ -149,12 +150,12 @@ export async function handleAppBackupAction(event) {
   }
 
   if (action === 'applyAppImport') {
-    const confirmed = window.confirm('Apply this app backup non-destructively? Existing IDs are skipped and active lanes are imported as stopped.');
+    const confirmed = await confirmDialog('Apply this app backup non-destructively? Existing IDs are skipped and active lanes are imported as stopped.');
     if (!confirmed) {
       renderAlert('App import canceled.');
       return;
     }
-    const approval = buildApprovedActionBody('manageAppBackups', 'Approve app backup import?');
+    const approval = await buildApprovedActionBody('manageAppBackups', 'Approve app backup import?');
     if (!approval.approved) {
       renderAlert('App import canceled.');
       return;
@@ -189,7 +190,7 @@ export async function handleCleanupSchedule(event) {
   const targetSession = payload.sessionId || 'all sessions';
   const dryRunMode = payload.dryRun ? 'Dry-run' : 'Live';
   const confirmMessage = `Update cleanup schedule?\nCurrent: ${currentState}\nNext: ${scheduled.toLowerCase()}, ${interval}h, retention ${retention}, ${targetSession}, ${dryRunMode}.`;
-  const approval = buildApprovedActionBody('manageCleanupSchedule', confirmMessage);
+  const approval = await buildApprovedActionBody('manageCleanupSchedule', confirmMessage);
   if (!approval.approved) {
     renderAlert('Cleanup schedule update canceled.');
     return;
@@ -263,10 +264,10 @@ export function buildMcpToolBody(formData) {
   return payload;
 }
 
-export function buildApprovedActionBody(policyKey = 'manageMcpTools', message = 'This is a higher-risk action. Continue?') {
+export async function buildApprovedActionBody(policyKey = 'manageMcpTools', message = 'This is a higher-risk action. Continue?') {
   return {
     actor: 'dashboard',
-    approved: confirmHighRiskAction(message, policyKey),
+    approved: await confirmHighRiskAction(message, policyKey),
   };
 }
 

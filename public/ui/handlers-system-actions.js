@@ -1,6 +1,7 @@
 // Split from handlers-actions.js.
 
 import { authRequiredMessage, renderAlert } from './dom.js';
+import { confirmDialog, promptDialog } from './dialog.js';
 import { api, setApiToken } from './api.js';
 import { refresh } from './controller.js';
 import { shell } from './state.js';
@@ -138,7 +139,7 @@ export async function handleSystemActions(event) {
     }
     const plan = dry.data?.plan;
     const desc = plan ? `${plan.backend} — ${plan.estimatedDownload}` : 'capture backend';
-    if (!window.confirm(`Set up evidence capture: ${desc}.\n\nThis installs a browser backend on this machine. Proceed?`)) {
+    if (!await confirmDialog(`Set up evidence capture: ${desc}.\n\nThis installs a browser backend on this machine. Proceed?`)) {
       return;
     }
     renderAlert('Setting up capture backend… this can take a minute.');
@@ -191,7 +192,7 @@ export async function handleSystemActions(event) {
   if (action === 'revokeBrowserSession') {
     const sessionId = event.currentTarget.dataset.sessionId;
     if (!sessionId) return;
-    const confirmed = window.confirm('Revoke this paired browser session?');
+    const confirmed = await confirmDialog('Revoke this paired browser session?');
     if (!confirmed) {
       renderAlert('Session revoke canceled.');
       return;
@@ -212,9 +213,9 @@ export async function handleSystemActions(event) {
     return;
   }
   if (action === 'cleanupArtifacts') {
-    const dryRun = window.confirm('Run cleanup as dry run first? Press Cancel to perform deletion.');
-    const confirmed = !dryRun ? window.confirm('This will permanently delete archived artifacts. Continue?') : true;
-    const approval = buildApprovedActionBody(
+    const dryRun = await confirmDialog('Run cleanup as dry run first? Press Cancel to perform deletion.');
+    const confirmed = !dryRun ? await confirmDialog('This will permanently delete archived artifacts. Continue?') : true;
+    const approval = await buildApprovedActionBody(
       'cleanupArtifacts',
       `Run artifact cleanup${dryRun ? ' (dry-run mode)' : ' now'}?`,
     );
@@ -253,12 +254,12 @@ export async function handleSystemActions(event) {
     const appliedSession = schedule.sessionId ? `session ${safeText(schedule.sessionId)}` : 'all sessions';
     const retention = schedule.olderThanDays ? `${safeText(schedule.olderThanDays)} day(s)` : 'session defaults';
     const defaultDryRun = schedule.dryRun ? 'on' : 'off';
-    const confirmRun = window.confirm(`Run cleanup now using current schedule: ${appliedSession}, retention ${retention}, dry-run default ${defaultDryRun}?`);
+    const confirmRun = await confirmDialog(`Run cleanup now using current schedule: ${appliedSession}, retention ${retention}, dry-run default ${defaultDryRun}?`);
     if (!confirmRun) {
       renderAlert('Cleanup run canceled.');
       return;
     }
-    const approval = buildApprovedActionBody(
+    const approval = await buildApprovedActionBody(
       'cleanupArtifacts',
       `Run cleanup now using schedule for ${appliedSession}?`,
     );
@@ -277,7 +278,7 @@ export async function handleSystemActions(event) {
     };
 
     const runNowApi = event.currentTarget.dataset.url || '/api/artifacts/cleanup/run-now';
-    const runDryFirst = window.confirm('Run cleanup as dry-run first, then optionally run deletion?');
+    const runDryFirst = await confirmDialog('Run cleanup as dry-run first, then optionally run deletion?');
 
     if (runDryFirst) {
       const dryRunResponse = await api(runNowApi, {
@@ -302,7 +303,7 @@ export async function handleSystemActions(event) {
         return;
       }
 
-      const confirmDelete = window.confirm(`Delete ${dryRunResponse.data?.candidates} candidate artifacts now?`);
+      const confirmDelete = await confirmDialog(`Delete ${dryRunResponse.data?.candidates} candidate artifacts now?`);
       if (!confirmDelete) {
         renderAlert('Cleanup deletion canceled after dry run.');
         await refresh();
@@ -311,7 +312,7 @@ export async function handleSystemActions(event) {
       runNowBody.confirmed = true;
       runNowBody.dryRun = false;
     } else {
-      const confirmed = window.confirm('Run cleanup now and permanently delete matching artifacts?');
+      const confirmed = await confirmDialog('Run cleanup now and permanently delete matching artifacts?');
       if (!confirmed) {
         renderAlert('Cleanup run canceled.');
         return;
@@ -345,12 +346,12 @@ export async function handleSystemActions(event) {
   if (action === 'deleteMcpTool') {
     const toolId = event.currentTarget.dataset.toolId;
     if (!toolId) return;
-    const confirmed = window.confirm(`Delete MCP tool ${toolId}?`);
+    const confirmed = await confirmDialog(`Delete MCP tool ${toolId}?`);
     if (!confirmed) {
       renderAlert('Delete canceled.');
       return;
     }
-    const approval = buildApprovedActionBody('manageMcpTools');
+    const approval = await buildApprovedActionBody('manageMcpTools');
     if (!approval.approved) {
       renderAlert('Deletion canceled.');
       return;
@@ -373,12 +374,12 @@ export async function handleSystemActions(event) {
     const projectId = event.currentTarget.dataset.projectId;
     const linkId = event.currentTarget.dataset.linkId;
     if (!projectId || !linkId) return;
-    const confirmed = window.confirm('Remove this live link from the project?');
+    const confirmed = await confirmDialog('Remove this live link from the project?');
     if (!confirmed) {
       renderAlert('Live link removal canceled.');
       return;
     }
-    const approval = buildApprovedActionBody('updateProject');
+    const approval = await buildApprovedActionBody('updateProject');
     if (!approval.approved) {
       renderAlert('Live link removal canceled.');
       return;
@@ -424,12 +425,12 @@ export async function handleSystemActions(event) {
     const projectId = event.currentTarget.dataset.projectId;
     const projectName = event.currentTarget.dataset.projectName || 'this project';
     if (!projectId) return;
-    const confirmed = window.confirm(`Archive ${projectName}? It will disappear from the default project list, but its saved state is retained.`);
+    const confirmed = await confirmDialog(`Archive ${projectName}? It will disappear from the default project list, but its saved state is retained.`);
     if (!confirmed) {
       renderAlert('Project archive canceled.');
       return;
     }
-    const approval = buildApprovedActionBody('updateProject', `Archive ${projectName}?`);
+    const approval = await buildApprovedActionBody('updateProject', `Archive ${projectName}?`);
     if (!approval.approved) {
       renderAlert('Project archive canceled.');
       return;
@@ -458,7 +459,7 @@ export async function handleSystemActions(event) {
       renderAlert('Project not found.');
       return;
     }
-    const nextName = window.prompt(`Rename ${projectName}`, project.name || '');
+    const nextName = await promptDialog(`Rename ${projectName}`, project.name || '');
     if (nextName === null) {
       renderAlert('Project rename canceled.');
       return;
@@ -468,7 +469,7 @@ export async function handleSystemActions(event) {
       renderAlert('Project rename canceled.');
       return;
     }
-    const approval = buildApprovedActionBody('updateProject', `Rename project ${project.name} to ${name}?`);
+    const approval = await buildApprovedActionBody('updateProject', `Rename project ${project.name} to ${name}?`);
     if (!approval.approved) {
       renderAlert('Project rename canceled.');
       return;
@@ -493,12 +494,12 @@ export async function handleSystemActions(event) {
     const sessionId = event.currentTarget.dataset.sessionId;
     const sessionName = event.currentTarget.dataset.sessionName || 'this session';
     if (!sessionId) return;
-    const confirmed = window.confirm(`Archive ${sessionName}? It will disappear from the default session list, but its saved state is retained.`);
+    const confirmed = await confirmDialog(`Archive ${sessionName}? It will disappear from the default session list, but its saved state is retained.`);
     if (!confirmed) {
       renderAlert('Session archive canceled.');
       return;
     }
-    const approval = buildApprovedActionBody('updateSession', `Archive ${sessionName}?`);
+    const approval = await buildApprovedActionBody('updateSession', `Archive ${sessionName}?`);
     if (!approval.approved) {
       renderAlert('Session archive canceled.');
       return;
@@ -533,7 +534,7 @@ export async function handleSystemActions(event) {
       renderAlert('Session not found.');
       return;
     }
-    const nextName = window.prompt(`Rename ${sessionName}`, session.name || '');
+    const nextName = await promptDialog(`Rename ${sessionName}`, session.name || '');
     if (nextName === null) {
       renderAlert('Session rename canceled.');
       return;
@@ -543,7 +544,7 @@ export async function handleSystemActions(event) {
       renderAlert('Session rename canceled.');
       return;
     }
-    const approval = buildApprovedActionBody('updateSession', `Rename session ${session.name} to ${name}?`);
+    const approval = await buildApprovedActionBody('updateSession', `Rename session ${session.name} to ${name}?`);
     if (!approval.approved) {
       renderAlert('Session rename canceled.');
       return;
@@ -573,23 +574,23 @@ export async function handleSystemActions(event) {
       return;
     }
 
-    const command = window.prompt('Update MCP command', tool.command || '');
+    const command = await promptDialog('Update MCP command', tool.command || '');
     if (command === null) return;
-    const args = window.prompt('Update MCP args (comma separated)', (tool.args || []).join(', '));
+    const args = await promptDialog('Update MCP args (comma separated)', (tool.args || []).join(', '));
     if (args === null) return;
-    const scope = window.prompt('Update scope (comma separated)', (tool.scope || ['all']).join(', '));
+    const scope = await promptDialog('Update scope (comma separated)', (tool.scope || ['all']).join(', '));
     if (scope === null) return;
     const normalizedScope = normalizeMcpToolScopes(scope);
     if (normalizedScope.error) {
       renderAlert(normalizedScope.error, 'bad');
       return;
     }
-    const notes = window.prompt('Update notes', tool.notes || '');
+    const notes = await promptDialog('Update notes', tool.notes || '');
     if (notes === null) return;
-    const enabled = window.prompt('Enable this MCP tool? (yes/no)', tool.enabled ? 'yes' : 'no');
+    const enabled = await promptDialog('Enable this MCP tool? (yes/no)', tool.enabled ? 'yes' : 'no');
     if (enabled === null) return;
     const normalizedEnabled = ['yes', 'y', 'true', '1', 'on'].includes(enabled.trim().toLowerCase());
-    const approval = buildApprovedActionBody('manageMcpTools');
+    const approval = await buildApprovedActionBody('manageMcpTools');
     if (!approval.approved) {
       renderAlert('MCP tool edit canceled.');
       return;
@@ -644,12 +645,12 @@ export async function handleSystemActions(event) {
       return;
     }
     const planLabel = sourceMode ? 'source reinstall' : 'managed reinstall';
-    const confirmedPlan = window.confirm(`Plan ${executorType.toUpperCase()} CLI ${planLabel} now?`);
+    const confirmedPlan = await confirmDialog(`Plan ${executorType.toUpperCase()} CLI ${planLabel} now?`);
     if (!confirmedPlan) {
       renderAlert('Executor CLI action canceled.');
       return;
     }
-    const approval = buildApprovedActionBody(
+    const approval = await buildApprovedActionBody(
       'manageExecutorCli',
       `Approve ${executorType.toUpperCase()} CLI ${planLabel}?`,
     );
@@ -658,13 +659,13 @@ export async function handleSystemActions(event) {
       return;
     }
     const overridePrompt = `Optional custom reinstall command for ${executorType.toUpperCase()} (space-separated string):\n\nLeave blank to use ${sourceMode ? 'the trusted source-managed command' : 'the managed default command'}.`;
-    const overrideCommand = sourceMode ? null : window.prompt(overridePrompt);
+    const overrideCommand = sourceMode ? null : await promptDialog(overridePrompt);
     if (sourceMode && overrideCommand && overrideCommand.trim()) {
       renderAlert('Source mode cannot be combined with a custom command override.', 'bad');
       return;
     }
     const parsedOverride = overrideCommand && overrideCommand.trim() ? overrideCommand.trim() : null;
-    const execute = window.confirm(`${sourceMode ? 'Run source reinstall' : 'Run managed reinstall'} now (not dry-run)?\nChoose Cancel to only show the planned command.`);
+    const execute = await confirmDialog(`${sourceMode ? 'Run source reinstall' : 'Run managed reinstall'} now (not dry-run)?\nChoose Cancel to only show the planned command.`);
     const confirmedExecute = execute;
     const response = await api(`/api/executors/${encodeURIComponent(executorType)}/cli/reinstall`, {
       method: 'POST',
