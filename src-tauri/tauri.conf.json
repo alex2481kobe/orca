@@ -46,9 +46,6 @@
     ],
     "android": {
       "debugApplicationIdSuffix": ".debug"
-    },
-    "iOS": {
-      "developmentTeam": "NQMGF6QLD7"
     }
   }
 }

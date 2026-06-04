@@ -49,7 +49,28 @@ fn run_mobile() {
 }
 ```
 
-## GOTCHA: Homebrew Rust shadows rustup (causes "PhaseScriptExecution failed")
+## GOTCHA #1 (the big one): build from the TERMINAL, not Xcode's ▶ button
+
+Tauri **dev** builds cannot be launched from Xcode's Run button. The Xcode
+"Build Rust Code" phase runs `tauri ios xcode-script`, which reads a
+`…/T/app.orca.desktop-server-addr` file that **only `tauri ios dev` writes** when
+it starts the dev server. Build straight from Xcode and that file is missing, so
+the CLI panics (`tauri-cli/src/mobile/mod.rs: failed to read missing addr file`)
+→ **"Command PhaseScriptExecution failed with a nonzero exit code."**
+
+Correct workflow (verified building + launching on the simulator):
+
+```bash
+source "$HOME/.cargo/env"
+npm run tauri ios dev          # live dev: drives Xcode, writes the addr file
+#   ...pick your simulator or connected device
+npm run tauri ios build        # installable / device / TestFlight (bundled assets, no dev server)
+```
+
+Use Xcode **only** to set signing (Team) once — don't press ▶ there for dev.
+Let Xcode/automatic-signing pick the team; we don't hardcode it in the project.
+
+## GOTCHA #2: Homebrew Rust shadows rustup (also "PhaseScriptExecution failed")
 
 This Mac had **Homebrew Rust** installed, which puts `cargo`/`rustc` in
 `/opt/homebrew/bin` — *ahead* of rustup's `~/.cargo/bin` on PATH. Homebrew Rust
