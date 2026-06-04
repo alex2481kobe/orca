@@ -2,14 +2,14 @@
 /*
  * Disclosure / popover persistence smoke (regression for "opens then auto-closes").
  *
- * Reproduces the reported bug: tapping a <details> disclosure (e.g. the
- * "Add to Home Screen" help on the phone pairing screen) opened, then a
- * background poll/SSE re-render snapped it shut within ~1-3s.
+ * Reproduces the reported bug: an open <details> disclosure or a half-typed input
+ * on a screen that re-renders from a background poll/SSE got wiped within ~1-3s
+ * ("opens then auto-closes" / "input reverts").
  *
- * The test opens disclosures and an in-progress text field, then waits through
- * SEVERAL background refresh cycles (well past the 1-3s poll cadence) and asserts
- * the disclosure is STILL open and the typed value is retained — on the unpaired
- * access/pairing gate AND on a paired project view.
+ * Case 1 (unpaired phone access/pairing gate): the gate has no disclosures, so we
+ * assert the in-progress pairing-label input survives several background refresh
+ * cycles. Case 2 (paired project view): we assert BOTH a disclosure stays open and
+ * a typed input is retained across the same window.
  */
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -103,26 +103,16 @@ async function run() {
   const browser = await pw.chromium.launch({ headless: true });
 
   try {
-    // ---- Case 1: unpaired phone access/pairing gate, "Add to Home Screen" details
+    // ---- Case 1: unpaired phone access/pairing gate, in-progress input survives.
     const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
     const gate = await phone.newPage();
     await gate.goto(base, { waitUntil: 'networkidle', timeout: 20000 });
     await waitForApp(gate);
 
-    const summaryText = 'Add to Home Screen';
-    const present = await detailsOpenState(gate, summaryText);
-    if (present === null) fail('access gate: "Add to Home Screen" disclosure not found');
+    // The gate must actually be the pairing gate (the regression is specific to it).
+    if (!(await gate.$('#pairing-label-input'))) fail('access gate: pairing-label input not found');
 
-    // Open it (click summary) and verify open.
-    await gate.evaluate((t) => {
-      const all = Array.from(document.querySelectorAll('#content details'));
-      const d = all.find((x) => (x.querySelector('summary')?.textContent || '').includes(t));
-      d.querySelector('summary').click();
-    }, summaryText);
-    if ((await detailsOpenState(gate, summaryText)) !== true) fail('access gate: disclosure did not open on click');
-    log('access-gate', 'disclosure opened');
-
-    // Also type into the pairing label field to verify in-progress input survives.
+    // Type into the pairing label field to verify in-progress input survives.
     await gate.fill('#pairing-label-input', 'my pixel 8');
     // Blur focus so background refreshes are NOT suppressed by the isEditingContent
     // guard — otherwise no re-render fires and the test can't observe the bug.
@@ -132,13 +122,12 @@ async function run() {
     // Wait across multiple poll cycles — the regression window.
     await gate.waitForTimeout(POLL_WAIT_MS);
 
-    if ((await detailsOpenState(gate, summaryText)) !== true) fail('REGRESSION: access-gate disclosure auto-closed after background refresh');
     const labelVal = await gate.inputValue('#pairing-label-input');
     if (labelVal !== 'my pixel 8') fail(`REGRESSION: pairing label reverted to "${labelVal}"`);
     const shotDir = path.resolve(previousCwd, 'artifacts', 'disclosure');
     await fs.mkdir(shotDir, { recursive: true });
     await gate.screenshot({ path: path.join(shotDir, 'access-gate-open-after-wait.png'), fullPage: true });
-    log('access-gate', `disclosure still open + input retained after ${POLL_WAIT_MS}ms ✓`);
+    log('access-gate', `pairing input retained after ${POLL_WAIT_MS}ms ✓`);
     await gate.close();
     await phone.close();
 

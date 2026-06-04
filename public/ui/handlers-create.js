@@ -10,35 +10,6 @@ import { shell, makeDraftSession } from './state.js';
 import { executorTargetsBinary, executorTargetsCommand, findMcpTool, getExecutorScopedMcpTools, normalizeExecutorType, normalizeMcpToolScopes, parseCommandParts, defaultExecutorType } from './executor.js';
 import { FIRST_CLASS_CLI_EXECUTOR_TYPES } from './constants.js';
 
-export async function handleCreateProject(event) {
-  event.preventDefault();
-  const payload = toObj(event.currentTarget);
-  const approval = await buildApprovedActionBody('createProject', `Create project ${safeText(payload.name || '').trim() || 'new project'}?`);
-  if (!approval.approved) {
-    renderAlert('Project creation canceled.');
-    return;
-  }
-  const quick = (payload.quickLink || '').trim();
-  const body = {
-    name: payload.name,
-    slug: payload.slug,
-    owner: approval.actor,
-    quickLinks: quick ? [{ label: 'Primary', url: quick }] : [],
-    ...(payload.repoRoot && String(payload.repoRoot).trim() ? { repoRoot: String(payload.repoRoot).trim() } : {}),
-    actor: approval.actor,
-    approved: approval.approved,
-  };
-  const response = await api('/api/projects', { method: 'POST', body });
-  if (response.ok && response.data) {
-    await refresh();
-    // Land straight in an empty chat for the new project (configure agent/model in
-    // the composer and type) — no extra create-session form.
-    await createEmptyChat(response.data.id);
-  } else {
-    renderAlert(response.data?.error || 'Project creation failed.', 'bad');
-  }
-}
-
 // Open an empty "New chat" — a client-only DRAFT (no server session yet). You pick
 // agent/model and just type; the real session is created on the first send. An
 // untouched draft never persists (it never hits the server), so it never shows up
@@ -97,9 +68,10 @@ export async function handleNewSession(event) {
   if (projectId) await createEmptyChat(projectId);
 }
 
-// "New project" opens the folder picker directly (Codex-style, no form). On the
-// trusted workstation it shows the local folder picker as a modal; on a remote
-// device (no local FS access) it falls back to the create-project form.
+// "New project" opens the folder picker directly (Codex-style, no form). Desktop
+// (Tauri) gets the OS-native dialog; every other device (phone, laptop, the
+// workstation browser) gets the jailed web picker, which browses the
+// WORKSTATION's folders via /api/system/dirs. There is no separate form anymore.
 export async function handleNewProject() {
   // Always open the folder picker (the web picker browses the WORKSTATION's folders
   // via /api/system/dirs, so it works from any device — phone, laptop, or the

@@ -19,7 +19,6 @@ export async function handlePrivateAccessSettings(event) {
       preferredMode: formData.get('preferredMode'),
       openTarget: formData.get('openTarget'),
       notificationMode: formData.get('notificationMode'),
-      pwaMode: formData.has('pwaMode') ? 'enabled' : 'disabled',
     },
   });
   if (response.ok) {

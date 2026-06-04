@@ -6,7 +6,6 @@ import { safeAttr, safeText, formatRelative } from './format.js';
 import { browserNotificationsSupported } from './notifications.js';
 import { MCP_TOOL_SCOPE_ALLOWLIST } from './constants.js';
 import { shell } from './state.js';
-import { renderWorkstationPickerPanel } from './render-project.js';
 
 const selected = (actual, expected) => String(actual || '') === String(expected || '') ? 'selected' : '';
 const checked = (value) => value ? 'checked' : '';
@@ -131,7 +130,7 @@ export function renderSetupPanel(ctx) {
   return `
       <article class="card control-card setup-wizard" id="section-setup" data-panel-card="setup">
         <div class="card-kicker">First-run wizard</div>
-        <h3>Connect phone or PWA</h3>
+        <h3>Connect a phone or laptop</h3>
         <p class="muted">The secure flow is tailnet access first, then Orca pairing. Tailnet membership alone is not enough to control the dashboard.</p>
         <div class="setup-steps">
           <div class="setup-step ${tailnet.binaryAvailable ? 'ok' : 'warn'}">
@@ -172,7 +171,7 @@ export function renderSetupPanel(ctx) {
         <details class="disclosure compact-disclosure">
           <summary><span>HTTP vs HTTPS Serve</span><small>${safeText(accessModeSummary)}</small></summary>
           <div class="disclosure-body">
-            <p>HTTP over Tailscale is private inside the encrypted tailnet and avoids certificate transparency metadata. HTTPS Serve improves Safari/PWA behavior and secure-cookie semantics, but can publish the machine/tailnet DNS name in public certificate logs.</p>
+            <p>HTTP over Tailscale is private inside the encrypted tailnet and avoids certificate transparency metadata. HTTPS Serve improves Safari behavior and secure-cookie semantics, but can publish the machine/tailnet DNS name in public certificate logs.</p>
             <form id="setup-private-access-settings-form">
               <label>Access mode
                 <select name="preferredMode">
@@ -223,7 +222,7 @@ export function renderTokenPanel(ctx) {
         <h3>API token</h3>
         <div class="tiny muted">${tokenConfigured ? 'Token configured for this tab.' : 'No raw token stored in this tab.'}</div>
         <div class="tiny">Browser session: <span class="tag ${browserPaired ? 'ok' : 'warn'}">${browserPaired ? 'paired' : 'not paired'}</span></div>
-        <p class="muted">Use browser pairing for phone/PWA access when possible. It stores an HttpOnly session cookie instead of exposing the API token to page scripts.</p>
+        <p class="muted">Use browser pairing for phone and laptop access when possible. It stores an HttpOnly session cookie instead of exposing the API token to page scripts.</p>
         <label>Token
           <input id="api-token-input" type="password" placeholder="Enter token" autocomplete="off" />
         </label>
@@ -239,7 +238,7 @@ export function renderTokenPanel(ctx) {
         </details>
         <details class="disclosure compact-disclosure">
           <summary><span>Packaged app credential storage</span><small>Tauri scope</small></summary>
-          <div class="disclosure-body tiny muted">In the future desktop app, the server API token should be generated on first run and stored in the OS credential store by the app shell. Browser/PWA users should use pairing; API tokens are for automation and emergency manual setup.</div>
+          <div class="disclosure-body tiny muted">In the future desktop app, the server API token should be generated on first run and stored in the OS credential store by the app shell. Phone and laptop browsers should use pairing; API tokens are for automation and emergency manual setup.</div>
         </details>
         <details class="disclosure">
           <summary><span>Pair this browser</span><small>one-time code</small></summary>
@@ -484,7 +483,7 @@ export function renderPrivateAccessPanel(ctx) {
               <div class="tiny muted">One tap runs Tailscale Serve (HTTP, tailnet-only) so a phone/laptop can open Orca — no commands to copy. You can still do it manually in Terminal if you prefer.</div>
               <div class="lane-row"><button class="btn" data-action="setupTailscaleServe" type="button">Set up Tailscale Serve</button></div>
             </div>`)}
-            <p><strong>HTTP is recommended.</strong> Over Tailscale it is fully private and encrypted, just as secure as HTTPS, and it keeps your machine/tailnet name out of public certificate-transparency logs. Only switch to HTTPS Serve if you specifically need browser secure-context/PWA features.</p>
+            <p><strong>HTTP is recommended.</strong> Over Tailscale it is fully private and encrypted, just as secure as HTTPS, and it keeps your machine/tailnet name out of public certificate-transparency logs. Only switch to HTTPS Serve if you specifically need browser secure-context features.</p>
             <form id="private-access-settings-form">
               <label>Access mode
                 <select name="preferredMode">
@@ -523,7 +522,7 @@ export function renderPrivateAccessPanel(ctx) {
                 </div>
                 <div class="card">
                   <h3>Optional: enable HTTPS Serve</h3>
-                  <p>Most people don't need this — HTTP over Tailscale is already private and secure. To use HTTPS: (1) enable <strong>HTTPS Certificates</strong> in your Tailscale admin console (DNS → HTTPS Certificates), then (2) run the serve command below in Terminal. HTTPS is only useful for Safari/PWA secure-context features, and it can publish this Mac's tailnet DNS name in certificate-transparency logs — rename the host in Tailscale admin first if that matters.</p>
+                  <p>Most people don't need this — HTTP over Tailscale is already private and secure. To use HTTPS: (1) enable <strong>HTTPS Certificates</strong> in your Tailscale admin console (DNS → HTTPS Certificates), then (2) run the serve command below in Terminal. HTTPS is only useful for Safari secure-context features, and it can publish this Mac's tailnet DNS name in certificate-transparency logs — rename the host in Tailscale admin first if that matters.</p>
                   <div class="tiny muted">These are commands you run yourself in Terminal — Orca never runs them for you.</div>
                   <div class="lane-row">
                     <button class="btn-ghost" data-action="copyPrivateAccessCommand" data-command="tailscale serve --bg --https=443 http://127.0.0.1:3000" type="button">Copy enable-HTTPS Terminal command</button>
@@ -734,42 +733,6 @@ export function renderArchivePanel() {
           </div>
         </details>
       </article>`;
-}
-
-export function renderCreateProjectPanel() {
-  return `
-      <div class="card control-card" data-panel-card="create">
-        <details class="disclosure">
-          <summary>
-            <span>Create project</span>
-            <small>Add a new command surface</small>
-          </summary>
-          <div class="disclosure-body">
-        <form id="create-project-form">
-          <label>Project name
-            <input name="name" required placeholder="Project name" />
-          </label>
-          <label>Folder (working directory)
-            <input id="project-repo-root" name="repoRoot" placeholder="Pick the project's folder…" autocomplete="off" />
-          </label>
-          <button class="secondary" data-action="browseWorkstation" data-for-input="project-repo-root" type="button">Browse…</button>
-          ${renderWorkstationPickerPanel('project-repo-root')}
-          <details class="disclosure compact-disclosure">
-            <summary><span>More</span></summary>
-            <div class="disclosure-body">
-              <label>Slug
-                <input name="slug" placeholder="optional" />
-              </label>
-              <label>Local quick link
-                <input name="quickLink" placeholder="http://localhost:3000" />
-              </label>
-            </div>
-          </details>
-          <button type="submit">Create project</button>
-        </form>
-          </div>
-        </details>
-      </div>`;
 }
 
 export function renderProjectListPanel(ctx) {

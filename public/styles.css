@@ -962,9 +962,8 @@ body.sidebar-collapsed .sidebar-project-line {
 }
 
 .home-panels[data-active-panel="overview"] > [data-panel-card]:not([data-panel-card="projects"]),
-.home-panels[data-active-panel="projects"] > [data-panel-card]:not([data-panel-card="projects"]):not([data-panel-card="create"]),
+.home-panels[data-active-panel="projects"] > [data-panel-card]:not([data-panel-card="projects"]),
 .home-panels[data-active-panel="setup"] > [data-panel-card]:not([data-panel-card="setup"]),
-.home-panels[data-active-panel="create"] > [data-panel-card]:not([data-panel-card="create"]),
 .home-panels[data-active-panel="token"] > [data-panel-card]:not([data-panel-card="token"]),
 .home-panels[data-active-panel="system"] > [data-panel-card]:not([data-panel-card="system"]),
 .home-panels[data-active-panel="mcp"] > [data-panel-card]:not([data-panel-card="mcp"]),
@@ -2060,18 +2059,17 @@ pre {
 
 /* Responsive: collapse sidebar to drawer on phones */
 @media (max-width: 880px) {
+  /* Mobile mirrors desktop: NO topbar at all. The drawer carries the brand
+     (dolphin mark) and the floating reopen button opens it. The legacy topbar
+     only ever showed a redundant "Orca" title, so drop the whole thing. */
   .app-topbar {
-    grid-template-columns: 3.5rem minmax(0, 1fr) 1rem;
+    display: none;
   }
   body.nav-open .sidebar-backdrop {
     display: block;
   }
   .sidebar-backdrop {
     touch-action: none;
-  }
-  .app-topbar-title {
-    justify-content: flex-start;
-    padding-left: 0.25rem;
   }
   .ops-shell {
     grid-template-columns: 1fr;
@@ -2122,8 +2120,9 @@ pre {
   body.sidebar-collapsed .sidebar-compose {
     display: inline-flex;
   }
+  /* No topbar anymore — just enough top room for the floating reopen button. */
   .ops-main {
-    padding: calc(45px + 1rem) 1rem 2rem;
+    padding: 3rem 1rem 2rem;
   }
 
   .project-side-panel {
@@ -2152,10 +2151,8 @@ pre {
     display: inline-flex;
     opacity: 1;
   }
-  /* Use the SAME collapse controls as desktop on mobile: drop the legacy topbar
-     hamburger and use the floating reopen (to open) + the in-drawer collapse (to
-     close). No more two near-identical collapse buttons. */
-  .shell-toggle { display: none; }
+  /* Same collapse controls as desktop: floating reopen (to open) + in-drawer
+     collapse (to close). The legacy topbar hamburger is gone with the topbar. */
   #sidebar-reopen.sidebar-reopen {
     display: inline-flex; position: fixed; left: 0.55rem; top: 0.45rem; z-index: 70;
     background: var(--panel); border: 1px solid var(--line); color: var(--text);

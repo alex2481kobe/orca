@@ -66,7 +66,11 @@ export function renderAccessGate() {
             </div>
             <div class="setup-step warn">
               <span>3</span>
-              <div><strong>Pair this browser</strong><small>Chrome, Safari, and installed PWAs each keep their own session.</small></div>
+              <div><strong>Pair this browser</strong><small>Each browser on this device keeps its own session.</small></div>
+            </div>
+            <div class="setup-step">
+              <span>4</span>
+              <div><strong>Add Orca to your Home Screen</strong><small>After pairing, in Safari tap Share, then "Add to Home Screen" to open Orca like an app. (Android: Chrome menu, then "Add to Home screen".)</small></div>
             </div>
           </div>
           <div class="card">
@@ -82,10 +86,6 @@ export function renderAccessGate() {
               <button data-action="pairBrowserSession" type="button">Pair device</button>
             </div>
           </div>
-          <details class="disclosure compact-disclosure">
-            <summary><span>Add to Home Screen after pairing</span><small>PWA</small></summary>
-            <div class="disclosure-body tiny muted">After this device is paired, open the private URL in Safari, tap Share, then Add to Home Screen. HTTPS Serve gives the cleanest installed-app behavior; HTTP over Tailscale remains private but may show browser warnings.</div>
-          </details>
         </article>
       </section>
     `);
@@ -171,8 +171,8 @@ export function render(uiState = null) {
     if (refs.topbarTitle) refs.topbarTitle.textContent = 'Orca';
     renderAccessGate();
     // Was missing: without this, every background poll re-rendered the access /
-    // pairing gate and snapped open disclosures (e.g. "Add to Home Screen") shut —
-    // the "opens then auto-closes" bug on the pairing screen.
+    // pairing gate and wiped half-typed inputs (e.g. the pairing code) and any
+    // open disclosures — the "opens then auto-closes" bug on the pairing screen.
     restoreContentUiState(uiState);
     return;
   }

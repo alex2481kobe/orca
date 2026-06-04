@@ -28,7 +28,6 @@ import {
   renderNotificationsPanel,
   renderBackupPanel,
   renderArchivePanel,
-  renderCreateProjectPanel,
   renderProjectListPanel,
   renderSystemActionsPanel,
 } from './render-home-panels.js';
@@ -353,7 +352,6 @@ export function renderHome() {
       ${renderNotificationsPanel(ctx)}
       ${renderArchivePanel()}
       ${renderBackupPanel()}
-      ${renderCreateProjectPanel()}
       ${renderProjectListPanel(ctx)}
       ${renderSystemActionsPanel(ctx)}
     </section>
