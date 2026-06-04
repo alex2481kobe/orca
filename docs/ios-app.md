@@ -49,6 +49,28 @@ fn run_mobile() {
 }
 ```
 
+## GOTCHA: Homebrew Rust shadows rustup (causes "PhaseScriptExecution failed")
+
+This Mac had **Homebrew Rust** installed, which puts `cargo`/`rustc` in
+`/opt/homebrew/bin` — *ahead* of rustup's `~/.cargo/bin` on PATH. Homebrew Rust
+only ships the host `std`, not the iOS ones, so the Xcode "Build Rust Code" phase
+fails with `error[E0463]: can't find crate for std` → surfaced as
+**"Command PhaseScriptExecution failed with a nonzero exit code."**
+
+Fix (already applied): unlink Homebrew Rust so rustup's cargo is the only one.
+
+```bash
+brew unlink rust          # reversible: brew link rust
+which cargo                # must be ~/.cargo/bin/cargo (rustup), NOT /opt/homebrew/bin
+cargo --version           # rustup's (1.96+), which has the iOS std targets
+```
+
+If you build from **Xcode directly** (not the `tauri` CLI in a terminal), make
+sure `~/.cargo/bin` is on Xcode's PATH too (rustup adds it to your shell profile;
+launching Xcode from a terminal `open -a Xcode` inherits it). Building via
+`npm run tauri ios dev/build` from a terminal that sourced `~/.cargo/env` is the
+reliable path.
+
 ## One-time toolchain setup (on the Mac)
 
 Tauri iOS needs rustup (for the iOS cross-compile targets) and CocoaPods. This
