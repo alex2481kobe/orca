@@ -25,7 +25,6 @@ export function renderSession(project, session) {
     writeHtml(refs.content, `
       <section class="session-shell" data-structural-key="${safeAttr(structuralKey)}">
         <header class="session-topbar">
-          <div class="session-topbar-side"></div>
           <div class="session-crumb">
             <span class="crumb-project">${safeText(project.name)}</span>
             <span class="crumb-sep">/</span>
