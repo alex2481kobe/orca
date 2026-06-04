@@ -60,6 +60,16 @@ export async function handleProjectRoutes(ctx, req, res, method, parts) {
           });
         }
       }
+      if (method === 'DELETE') {
+        const body = await parseJsonBody(req).catch(() => ({}));
+        if (rejectSpoofedActor(body || {}, res)) return;
+        try {
+          const result = await registry.deleteProject(project.id, { actor: (body && body.actor) || 'dashboard' });
+          return sendJson(res, 200, result);
+        } catch (error) {
+          return sendJson(res, error.status || 500, { error: error.message || 'Could not delete project.' });
+        }
+      }
       return sendJson(res, 405, { error: 'Method not allowed.' });
     }
 

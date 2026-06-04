@@ -447,6 +447,28 @@ export async function handleSystemActions(event) {
     return;
   }
 
+  if (action === 'deleteSessionPermanent') {
+    const sessionId = event.currentTarget.dataset.sessionId;
+    const sessionName = event.currentTarget.dataset.sessionName || 'this session';
+    if (!sessionId) return;
+    const approval = await buildApprovedActionBody('updateSession', `Permanently delete ${sessionName}? This cannot be undone — its chat, lanes, and workspace are removed for good.`);
+    if (!approval.approved) return;
+    const response = await api(`/api/sessions/${sessionId}`, { method: 'DELETE', body: { actor: approval.actor, approved: approval.approved } });
+    if (response.ok) { renderAlert('Session permanently deleted.'); await refresh(); } else { renderAlert(response.data?.error || 'Could not delete session.', 'bad'); }
+    return;
+  }
+
+  if (action === 'deleteProjectPermanent') {
+    const projectId = event.currentTarget.dataset.projectId;
+    const projectName = event.currentTarget.dataset.projectName || 'this project';
+    if (!projectId) return;
+    const approval = await buildApprovedActionBody('updateProject', `Permanently delete ${projectName} and ALL its sessions? This cannot be undone.`);
+    if (!approval.approved) return;
+    const response = await api(`/api/projects/${projectId}`, { method: 'DELETE', body: { actor: approval.actor, approved: approval.approved } });
+    if (response.ok) { renderAlert('Project permanently deleted.'); await refresh(); } else { renderAlert(response.data?.error || 'Could not delete project.', 'bad'); }
+    return;
+  }
+
   if (action === 'archiveProject') {
     const projectId = event.currentTarget.dataset.projectId;
     const projectName = event.currentTarget.dataset.projectName || 'this project';

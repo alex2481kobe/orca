@@ -677,32 +677,38 @@ export function renderArchivePanel() {
   const archivedSessions = Array.isArray(archive.sessions) ? archive.sessions : [];
   const projectRows = archivedProjects.map((project) => `
     <div class="archive-row">
-      <div>
+      <div class="archive-row-info">
         <strong>${safeText(project.name)}</strong>
         <div class="tiny muted">Project</div>
       </div>
-      <button class="secondary" data-action="restoreProject" data-project-id="${safeAttr(project.id)}" type="button">Restore</button>
+      <div class="archive-row-actions">
+        <button class="btn-ghost" data-action="restoreProject" data-project-id="${safeAttr(project.id)}" type="button">Restore</button>
+        <button class="device-revoke" data-action="deleteProjectPermanent" data-project-id="${safeAttr(project.id)}" data-project-name="${safeAttr(project.name)}" type="button">Delete permanently</button>
+      </div>
     </div>
   `).join('');
   const sessionRows = archivedSessions.map((session) => `
     <div class="archive-row">
-      <div>
+      <div class="archive-row-info">
         <strong>${safeText(session.name)}</strong>
         <div class="tiny muted">${safeText(session.projectName || 'Project')}</div>
       </div>
-      <button class="secondary" data-action="restoreSession" data-session-id="${safeAttr(session.id)}" type="button">Restore</button>
+      <div class="archive-row-actions">
+        <button class="btn-ghost" data-action="restoreSession" data-session-id="${safeAttr(session.id)}" type="button">Restore</button>
+        <button class="device-revoke" data-action="deleteSessionPermanent" data-session-id="${safeAttr(session.id)}" data-session-name="${safeAttr(session.name)}" type="button">Delete permanently</button>
+      </div>
     </div>
   `).join('');
   const empty = !archivedProjects.length && !archivedSessions.length;
   return `
       <article class="card control-card" data-panel-card="system">
-        <details class="disclosure"${empty ? '' : ' open'}>
+        <details class="disclosure">
           <summary>
             <span>Archive</span>
             <small>${safeText(archivedProjects.length + archivedSessions.length)} archived</small>
           </summary>
           <div class="disclosure-body">
-            <p class="muted">Archived projects and sessions are hidden from the sidebar but kept. Restore brings them back.</p>
+            <p class="muted">Archived projects and sessions are hidden from the sidebar but kept. Restore brings them back; delete removes them for good.</p>
             ${empty ? '<div class="muted tiny">Nothing archived.</div>' : `<div class="archive-list">${projectRows}${sessionRows}</div>`}
           </div>
         </details>

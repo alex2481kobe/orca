@@ -45,6 +45,17 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
       }
     }
 
+    if (parts.length === 3 && method === 'DELETE') {
+      const body = await parseJsonBody(req).catch(() => ({}));
+      if (rejectSpoofedActor(body || {}, res)) return;
+      try {
+        const result = await registry.deleteSession(session.id, { actor: (body && body.actor) || 'dashboard' });
+        return sendJson(res, 200, result);
+      } catch (error) {
+        return sendJson(res, error.status || 500, { error: error.message || 'Could not delete session.' });
+      }
+    }
+
     if (parts.length === 4 && parts[3] === 'capacity' && method === 'GET') {
       try {
         return sendJson(res, 200, registry.getSessionCapacity(session.id));

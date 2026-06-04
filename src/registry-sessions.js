@@ -333,6 +333,65 @@ export const sessionMethods = {
     return this.sessions.find((session) => session.id === locator);
   },
 
+  // Permanently delete an ARCHIVED session: drop its lanes (best-effort worktree
+  // cleanup), remove its on-disk workspace, and erase the record. Refuses to touch
+  // a non-archived session so an active chat can't be nuked by accident.
+  async deleteSession(sessionLocator, { actor = 'dashboard' } = {}) {
+    const session = this.getSession(sessionLocator);
+    if (!session) throw { status: 404, message: 'Session not found.' };
+    if (session.state !== 'archived') {
+      throw { status: 422, message: 'Archive the session before permanently deleting it.' };
+    }
+    const laneIds = (this.lanes || []).filter((lane) => lane.sessionId === session.id).map((lane) => lane.id);
+    for (const laneId of laneIds) {
+      if (typeof this.removeLaneWorktree === 'function') {
+        try { await this.removeLaneWorktree(laneId, { actor, approved: true, removeBranch: false }); } catch { /* best effort */ }
+      }
+    }
+    this.lanes = (this.lanes || []).filter((lane) => lane.sessionId !== session.id);
+    if (session.worktreeRoot) {
+      try { await fs.rm(session.worktreeRoot, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
+    this.sessions = this.sessions.filter((entry) => entry.id !== session.id);
+    this.recordAudit({
+      type: 'session_deleted',
+      actor,
+      projectId: session.projectId,
+      sessionId: session.id,
+      summary: `Permanently deleted session "${session.name}"`,
+      evidence: { sessionId: session.id, lanesRemoved: laneIds.length },
+      status: 'passed',
+    });
+    this.persistState();
+    return { deleted: true, id: session.id };
+  },
+
+  // Permanently delete an ARCHIVED project and everything under it.
+  async deleteProject(projectLocator, { actor = 'dashboard' } = {}) {
+    const project = this.projects.find((entry) => entry.id === projectLocator || entry.slug === projectLocator);
+    if (!project) throw { status: 404, message: 'Project not found.' };
+    if (project.state !== 'archived') {
+      throw { status: 422, message: 'Archive the project before permanently deleting it.' };
+    }
+    const sessionIds = this.sessions.filter((session) => session.projectId === project.id).map((session) => session.id);
+    for (const sessionId of sessionIds) {
+      const session = this.getSession(sessionId);
+      if (session && session.state !== 'archived') session.state = 'archived';
+      try { await this.deleteSession(sessionId, { actor }); } catch { /* best effort per session */ }
+    }
+    this.projects = this.projects.filter((entry) => entry.id !== project.id);
+    this.recordAudit({
+      type: 'project_deleted',
+      actor,
+      projectId: project.id,
+      summary: `Permanently deleted project "${project.name}"`,
+      evidence: { projectId: project.id, sessionsRemoved: sessionIds.length },
+      status: 'passed',
+    });
+    this.persistState();
+    return { deleted: true, id: project.id };
+  },
+
   // Branch + worktree state for a session's repoRoot, for the composer git picker.
   // Non-git (or no) repoRoot returns { isGit:false } — the agent still runs there.
   getSessionGitInfo(sessionLocator) {

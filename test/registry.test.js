@@ -2668,3 +2668,20 @@ test('evidence lookups resolve mode helpers (getLatestEvidence/getEvidenceFiles 
     await cleanup();
   }
 });
+
+test('deleteSession permanently removes an archived session and refuses active ones', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const project = registry.createProject({ name: 'Del' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Chat' }, { actor: 'test', approved: true });
+    // Refuses while active.
+    await assert.rejects(() => registry.deleteSession(session.id, { actor: 'test' }), (e) => e.status === 422);
+    // Archive, then permanently delete.
+    await registry.updateSession(session.id, { state: 'archived' }, { actor: 'test', approved: true });
+    const result = await registry.deleteSession(session.id, { actor: 'test' });
+    assert.equal(result.deleted, true);
+    assert.equal(registry.getSession(session.id), undefined, 'session record is gone');
+  } finally {
+    await cleanup();
+  }
+});
