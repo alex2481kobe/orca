@@ -1,3 +1,7 @@
+// On mobile the whole desktop server/tray/updater layer is compiled but unused
+// (the mobile entry is a thin webview client), so quiet the expected dead-code.
+#![cfg_attr(mobile, allow(dead_code, unused_imports))]
+
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -10,11 +14,14 @@ use std::{
     sync::Mutex,
     time::Duration,
 };
-use tauri::{
-    menu::{Menu, MenuItem},
-    tray::TrayIconBuilder,
-    AppHandle, Manager, State,
-};
+use tauri::{AppHandle, Manager, State};
+// menu / tray / updater are desktop-only — these modules and the updater plugin
+// don't exist on iOS, so gate every use of them.
+#[cfg(desktop)]
+use tauri::menu::{Menu, MenuItem};
+#[cfg(desktop)]
+use tauri::tray::TrayIconBuilder;
+#[cfg(desktop)]
 use tauri_plugin_updater::UpdaterExt;
 
 pub mod native_capture;
@@ -519,6 +526,7 @@ fn create_pairing_code(
     with_host(&state, |host| host.create_pairing_code(label))
 }
 
+#[cfg(desktop)]
 async fn check_for_updates_for_app(app: AppHandle) -> Result<UpdateCheckResponse, String> {
     let current_version = app.package_info().version.to_string();
     let update = app
@@ -545,6 +553,7 @@ async fn check_for_updates_for_app(app: AppHandle) -> Result<UpdateCheckResponse
     })
 }
 
+#[cfg(desktop)]
 async fn install_update_for_app(app: AppHandle) -> Result<(), String> {
     let update = app
         .updater()
@@ -564,11 +573,13 @@ async fn install_update_for_app(app: AppHandle) -> Result<(), String> {
     app.restart();
 }
 
+#[cfg(desktop)]
 #[tauri::command]
 async fn check_for_updates(app: AppHandle) -> Result<UpdateCheckResponse, String> {
     check_for_updates_for_app(app).await
 }
 
+#[cfg(desktop)]
 #[tauri::command]
 async fn install_update(app: AppHandle) -> Result<(), String> {
     install_update_for_app(app).await
@@ -578,6 +589,7 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
 /// chosen absolute path, or None if the user cancelled. The web UI calls this via
 /// `window.__TAURI__.core.invoke('pick_directory')` and falls back to the jailed
 /// web picker on remote/browser where no OS dialog exists.
+#[cfg(desktop)]
 #[tauri::command]
 async fn pick_directory(app: AppHandle) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
@@ -591,6 +603,7 @@ async fn pick_directory(app: AppHandle) -> Result<Option<String>, String> {
         .map(|pb| pb.to_string_lossy().to_string()))
 }
 
+#[cfg(desktop)]
 fn install_menu(app: &tauri::App) -> tauri::Result<()> {
     let open_dashboard =
         MenuItem::with_id(app, "open_dashboard", "Open Dashboard", true, None::<&str>)?;
@@ -639,6 +652,7 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
+#[cfg(desktop)]
 fn handle_menu_event(app: &AppHandle, id: &str) {
     let state = app.state::<DesktopHostState>();
     match id {
@@ -699,6 +713,26 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(desktop)]
+    run_desktop();
+    #[cfg(mobile)]
+    run_mobile();
+}
+
+// iOS/Android: a thin client. No local Node server, tray, menu, native capture,
+// or updater (none of which exist on mobile). The webview loads the bundled
+// client, which shows the "Connect to a workstation" gate and then navigates to
+// the workstation's tailnet URL — from there it's the normal paired remote client.
+#[cfg(mobile)]
+fn run_mobile() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .run(tauri::generate_context!())
+        .expect("error while running Orca (mobile)");
+}
+
+#[cfg(desktop)]
+fn run_desktop() {
     let mut builder = tauri::Builder::default();
     // The updater plugin requires release updater config; allow disabling it for
     // dev/test runs (ORCA_DISABLE_UPDATER=1) so the app can boot without it.

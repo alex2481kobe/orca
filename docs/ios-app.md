@@ -110,7 +110,28 @@ build will surface any remaining `#[cfg(desktop)]` gaps — fix and rebuild.
 ## Status
 
 - [x] Frontend connect-to-workstation flow does a full cross-origin navigation.
-- [ ] Rust `#[cfg(desktop)]` gating + `run_mobile()` (needs iOS toolchain to verify the compile).
-- [ ] `tauri ios init` scaffold.
+- [x] Rust `#[cfg(desktop)]` gating + `run_mobile()` — **compiles for `aarch64-apple-ios`, `-sim`, and desktop** (verified with `cargo check`).
+- [x] `tauri ios init` scaffold — `src-tauri/gen/apple/orca-desktop.xcodeproj` generated and committed.
+- [x] Toolchain installed: rustup + iOS targets + CocoaPods + libimobiledevice.
+- [ ] First simulator/device run (`npm run tauri ios dev`).
 - [ ] On-device viewport verification (the whole point).
-- [ ] Signing + TestFlight.
+- [ ] Signing (set your Team + bundle id in Xcode) + TestFlight.
+
+## Next: run it
+
+```bash
+# Make sure rustup's cargo is on PATH (it has the iOS targets):
+source "$HOME/.cargo/env"
+
+# Simulator (no signing needed):
+npm run tauri ios dev          # pick a simulator when prompted
+
+# Real device / TestFlight (signing needed):
+#  open src-tauri/gen/apple/orca-desktop.xcodeproj in Xcode,
+#  Signing & Capabilities -> select your Team, set a bundle id (e.g. app.orca.ios),
+#  then:
+npm run tauri ios build
+```
+
+If the first run errors, it's almost always (a) PATH not pointing at rustup's
+cargo, or (b) signing not set for a *device* build (simulator needs none).
