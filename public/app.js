@@ -18,6 +18,7 @@ import { initDropdowns, enhanceSelects } from './ui/dropdown.js';
 import { initComposerConfig, refreshConfigLabel } from './ui/composer-config.js';
 import { initComposerContext } from './ui/composer-context.js';
 import { initSlashCommands } from './ui/slash-commands.js';
+import { initMobileShell } from './ui/mobile-shell.js';
 import { defaultModelFor } from './ui/executor.js';
 
 
@@ -731,6 +732,7 @@ initDropdowns();
 initComposerConfig();
 initComposerContext();
 initSlashCommands();
+initMobileShell();
 renderMobileManifest();
 setupSidebarReorder();
 // Live countdown for one-time pairing codes (ticks every second; never touched by
