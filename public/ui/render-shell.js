@@ -1,6 +1,29 @@
 // Render view module (split from render-views.js).
 
-import { isLocalHostName, writeHtml, installToHomeHint } from './dom.js';
+import { isWorkstation, isIosWeb, writeHtml, installToHomeHint } from './dom.js';
+
+// App Store download badge (Apple-style) shown to iOS users on the WEB client,
+// nudging them to the native app. Mock link until the App Store listing is live.
+const APP_STORE_URL = 'https://apps.apple.com/app/orca/id000000000';
+function renderIosAppPromo() {
+  if (!isIosWeb()) return '';
+  return `
+    <section class="ios-promo">
+      <img class="ios-promo-icon" src="/icon-512.png" alt="Orca" width="56" height="56" />
+      <div class="ios-promo-text">
+        <strong>Orca for iPhone</strong>
+        <span>Get the native app — faster, full-screen, opens from your Home Screen.</span>
+      </div>
+      <a class="appstore-badge" href="${APP_STORE_URL}" target="_blank" rel="noopener noreferrer" aria-label="Download Orca on the App Store">
+        <svg viewBox="0 0 120 40" width="135" height="45" role="img" aria-hidden="true">
+          <rect x="0.5" y="0.5" width="119" height="39" rx="7" fill="#000" stroke="#a6a6a6"/>
+          <path fill="#fff" d="M24.77 20.3c-.02-2.35 1.92-3.48 2-3.53-1.09-1.6-2.79-1.82-3.4-1.84-1.43-.15-2.81.85-3.54.85-.74 0-1.86-.84-3.06-.81-1.55.02-2.99.91-3.79 2.31-1.64 2.84-.42 7.02 1.15 9.32.78 1.13 1.7 2.39 2.9 2.34 1.17-.05 1.61-.75 3.02-.75 1.4 0 1.8.75 3.03.73 1.25-.02 2.04-1.14 2.8-2.27.91-1.3 1.28-2.57 1.29-2.64-.03-.01-2.46-.94-2.49-3.74zM22.45 12.4c.65-.79 1.09-1.88.97-2.98-.94.04-2.07.63-2.74 1.4-.6.69-1.13 1.79-.99 2.85 1.05.08 2.12-.53 2.76-1.27z"/>
+          <text x="34" y="15.5" fill="#fff" font-family="-apple-system,Helvetica,Arial,sans-serif" font-size="7">Download on the</text>
+          <text x="34" y="30" fill="#fff" font-family="-apple-system,Helvetica,Arial,sans-serif" font-size="15" font-weight="600">App Store</text>
+        </svg>
+      </a>
+    </section>`;
+}
 import { refs, shell, makeDraftSession } from './state.js';
 import { safeAttr, safeText } from './format.js';
 import { api, browserAccessBlocked, setApiToken } from './api.js';
@@ -17,7 +40,7 @@ import { COMPOSE_ICON, FOLDER_ICON, PENCIL_ICON } from './constants.js';
 
 export function renderAccessGate() {
   const narrowClient = window.matchMedia('(max-width: 880px)').matches;
-  const workstationAdmin = isLocalHostName(window.location.hostname) && !narrowClient;
+  const workstationAdmin = isWorkstation() && !narrowClient;
   const browserLabel = narrowClient ? 'phone browser' : 'laptop browser';
   // Instruction tailored to the browser THIS device is on (null once installed).
   const homeHint = installToHomeHint();
@@ -52,6 +75,7 @@ export function renderAccessGate() {
     writeHtml(refs.content, `
       <section class="project-shell">
         <article class="card control-card auth-gate">
+          ${renderIosAppPromo()}
           ${connectCard}
           <section class="gate-section">
             <div class="card-kicker">Pair this device</div>
@@ -210,7 +234,7 @@ function updatePairLabel() {
   const section = label.closest('.sidebar-pair-section');
   // Pairing is a WORKSTATION-only concern. On a paired remote device (not the
   // local workstation) hide the whole pairing affordance entirely.
-  const onWorkstation = isLocalHostName(window.location.hostname);
+  const onWorkstation = isWorkstation();
   if (section) section.hidden = !onWorkstation;
   if (!onWorkstation) return;
   // Count only real paired REMOTE devices — never the local workstation browser.

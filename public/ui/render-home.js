@@ -3,7 +3,7 @@
 
 import { accessModeLabel, effectiveAccessMode, effectiveProjectQuickLinkUrl, fallbackUrlForAccessMode, preferredPhoneUrl } from './access-mode.js';
 import { api, setApiToken } from './api.js';
-import { clientUrl, isLocalHostName, safeHref, writeHtml } from './dom.js';
+import { clientUrl, isWorkstation, safeHref, writeHtml } from './dom.js';
 import { formatRelative, latestTimestamp, safeAttr, safeText } from './format.js';
 import { browserNotificationPermission, browserNotificationsSupported } from './notifications.js';
 import { qrSvgForText } from './qr.js';
@@ -340,8 +340,8 @@ export function renderHome() {
   // them, so they're hidden there. Remote Settings = Access + Notifications +
   // Archive (+ Pair). Detection: the workstation is reached over localhost; remote
   // devices reach Orca over the tailnet host.
-  const isWorkstation = isLocalHostName(window.location.hostname);
-  const workstationOnly = (markup) => (isWorkstation ? markup : '');
+  const onWorkstation = isWorkstation();
+  const workstationOnly = (markup) => (onWorkstation ? markup : '');
 
   writeHtml(refs.content, `
     ${renderSimpleSection(ctx)}

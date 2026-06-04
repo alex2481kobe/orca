@@ -81,6 +81,33 @@ export function isLocalHostName(hostname) {
   return ['localhost', '127.0.0.1', '::1'].includes(String(hostname || '').toLowerCase());
 }
 
+// The installed MOBILE app (Tauri on iOS/Android). Its webview is served from
+// tauri://localhost, so the hostname looks local — but it is a REMOTE client
+// (the workstation/server is on another machine), never the workstation itself.
+export function isMobileApp() {
+  if (typeof window === 'undefined') return false;
+  const ua = (window.navigator && window.navigator.userAgent) || '';
+  return Boolean(window.__TAURI__) && /iPhone|iPad|iPod|Android/i.test(ua);
+}
+
+// True only on the trusted workstation: a localhost origin that is NOT the mobile
+// app. Drives workstation-only UI (host management) vs remote/mobile clients.
+export function isWorkstation() {
+  if (typeof window === 'undefined') return false;
+  return isLocalHostName(window.location.hostname) && !isMobileApp();
+}
+
+// Visiting in a mobile-Safari/Chrome on iOS in a BROWSER (not the installed app)
+// — the case where we suggest downloading the native iOS app.
+export function isIosWeb() {
+  if (typeof window === 'undefined') return false;
+  if (window.__TAURI__) return false;
+  const ua = (window.navigator && window.navigator.userAgent) || '';
+  const iOS = /iPhone|iPad|iPod/.test(ua)
+    || (/Macintosh/.test(ua) && (window.navigator?.maxTouchPoints || 0) > 1);
+  return iOS;
+}
+
 // Best-effort detection of the CURRENT device's browser + platform from the UA.
 // Used to show one accurate "Add to Home Screen" instruction for the browser the
 // user is actually on, instead of a generic iPhone/Android list. Order matters:
