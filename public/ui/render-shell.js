@@ -34,59 +34,59 @@ export function renderAccessGate() {
       const recentRows = (Array.isArray(recentWorkstations) ? recentWorkstations : []).slice(0, 5)
         .map((url) => `<button class="btn-ghost" data-action="connectWorkstation" data-url="${safeAttr(url)}" type="button">${safeText(url)}</button>`).join('');
       connectCard = `
-          <div class="card-kicker">Using the Orca app on this device</div>
-          <h3>Connect to your workstation</h3>
-          <p>Installed the Orca app on this laptop/computer? Point it at your workstation over Tailscale — you don't have to use a browser. (You can still just open the workstation URL in a browser if you prefer.)</p>
-          <div class="card">
-            <h3>Connect to a workstation</h3>
-            <p class="tiny muted">Both devices must be on the same Tailscale tailnet. Enter your workstation's Tailscale URL (e.g. http://your-mac.your-tailnet.ts.net).</p>
-            <label>Workstation URL
-              <input id="workstation-url-input" inputmode="url" placeholder="http://your-mac.your-tailnet.ts.net" />
-            </label>
-            <div class="lane-row">
-              <button class="btn" data-action="connectWorkstation" type="button">Connect</button>
+          <section class="gate-section">
+            <div class="card-kicker">Using the Orca app on this device</div>
+            <h3>Connect to your workstation</h3>
+            <p>Installed the Orca app on this laptop or computer? Point it at your workstation over Tailscale — both devices just need to be on the same tailnet. (You can also open the workstation URL in a browser if you prefer.)</p>
+            <div class="gate-form">
+              <label>Workstation URL
+                <input id="workstation-url-input" inputmode="url" placeholder="http://your-mac.your-tailnet.ts.net" />
+              </label>
+              <div class="lane-row">
+                <button class="btn" data-action="connectWorkstation" type="button">Connect</button>
+              </div>
+              ${recentRows ? `<div class="tiny muted">Recent workstations</div><div class="lane-row" style="flex-wrap:wrap">${recentRows}</div>` : ''}
             </div>
-            ${recentRows ? `<div class="tiny muted" style="margin-top:0.5rem">Recent workstations</div><div class="lane-row" style="flex-wrap:wrap">${recentRows}</div>` : ''}
-          </div>`;
+          </section>`;
     }
     writeHtml(refs.content, `
       <section class="project-shell">
         <article class="card control-card auth-gate">
           ${connectCard}
-          <div class="card-kicker"${connectCard ? ' style="margin-top:1rem"' : ''}>${connectCard ? 'Then pair this device' : 'Pair this device'}</div>
-          <h3>Enter the code from your workstation</h3>
-          <p>No dashboard data is shown until this device is paired. On the trusted workstation, go to Settings -> Access and paired devices, create a one-time code, then enter it here.</p>
-          <div class="setup-steps">
-            <div class="setup-step ok">
-              <span>1</span>
-              <div><strong>Stay on the same tailnet</strong><small>This URL is private to devices allowed by your Tailscale ACLs.</small></div>
+          <section class="gate-section">
+            <div class="card-kicker">Pair this device</div>
+            <h3>Enter the code from your workstation</h3>
+            <p>No dashboard data is shown until this device is paired. On the trusted workstation, open Settings → Access and paired devices, create a one-time code, then enter it below.</p>
+            <div class="setup-steps">
+              <div class="setup-step ok">
+                <span>1</span>
+                <div><strong>Stay on the same tailnet</strong><small>This URL is private to devices allowed by your Tailscale ACLs.</small></div>
+              </div>
+              <div class="setup-step warn">
+                <span>2</span>
+                <div><strong>Get a one-time code</strong><small>The code is generated only from an already-authenticated workstation/admin browser.</small></div>
+              </div>
+              <div class="setup-step warn">
+                <span>3</span>
+                <div><strong>Pair this browser</strong><small>Each browser on this device keeps its own session.</small></div>
+              </div>
+              ${homeHint ? `<div class="setup-step">
+                <span>4</span>
+                <div><strong>Add Orca to your Home Screen</strong><small>After pairing, open Orca like an app: ${safeText(homeHint)}</small></div>
+              </div>` : ''}
             </div>
-            <div class="setup-step warn">
-              <span>2</span>
-              <div><strong>Get a one-time code</strong><small>The code is generated only from an already-authenticated workstation/admin browser.</small></div>
+            <div class="gate-form">
+              <label>Pairing code
+                <input id="pairing-code-input" autocomplete="one-time-code" placeholder="XXXX-XXXX-XXXX" />
+              </label>
+              <label>Device label
+                <input id="pairing-label-input" value="${safeAttr(browserLabel)}" />
+              </label>
+              <div class="lane-row">
+                <button data-action="pairBrowserSession" type="button">Pair device</button>
+              </div>
             </div>
-            <div class="setup-step warn">
-              <span>3</span>
-              <div><strong>Pair this browser</strong><small>Each browser on this device keeps its own session.</small></div>
-            </div>
-            ${homeHint ? `<div class="setup-step">
-              <span>4</span>
-              <div><strong>Add Orca to your Home Screen</strong><small>After pairing, open Orca like an app: ${safeText(homeHint)}</small></div>
-            </div>` : ''}
-          </div>
-          <div class="card">
-            <h3>Use pairing code</h3>
-            <p>Pairing creates a browser session cookie for this device. API tokens are not shown on unpaired phone or laptop screens.</p>
-            <label>Pairing code
-              <input id="pairing-code-input" autocomplete="one-time-code" placeholder="XXXX-XXXX-XXXX" />
-            </label>
-            <label>Device label
-              <input id="pairing-label-input" value="${safeAttr(browserLabel)}" />
-            </label>
-            <div class="lane-row">
-              <button data-action="pairBrowserSession" type="button">Pair device</button>
-            </div>
-          </div>
+          </section>
         </article>
       </section>
     `);
@@ -95,13 +95,11 @@ export function renderAccessGate() {
   writeHtml(refs.content, `
     <section class="project-shell">
       <article class="card control-card auth-gate">
-        <div class="card-kicker">Workstation admin</div>
-        <h3>Unlock setup and pairing</h3>
-        <p>Enter the server API token only on a trusted workstation/admin browser. After unlock, Settings shows QR setup, HTTP/HTTPS preference, paired devices, revocation, and one-time pairing codes for phone or laptop browsers.</p>
-        <div class="grid-2">
-          <div class="card">
-            <h3>Use API token</h3>
-            <p>The token stays in this browser session only. Remote clients should use one-time pairing codes instead.</p>
+        <section class="gate-section">
+          <div class="card-kicker">Workstation admin</div>
+          <h3>Unlock setup and pairing</h3>
+          <p>Enter the server API token only on a trusted workstation/admin browser. After unlock, Settings shows QR setup, HTTP/HTTPS preference, paired devices, revocation, and one-time pairing codes for phone or laptop browsers.</p>
+          <div class="gate-form">
             <label>API token
               <input id="api-token-input" type="password" autocomplete="off" placeholder="Paste token" />
             </label>
@@ -110,9 +108,12 @@ export function renderAccessGate() {
               <button class="secondary" data-action="clearApiToken" type="button">Clear</button>
             </div>
           </div>
-          <div class="card">
-            <h3>Use pairing code instead</h3>
-            <p>If another trusted browser already generated a one-time code, enter it here to create a browser session cookie.</p>
+        </section>
+        <section class="gate-section">
+          <div class="card-kicker">Already have a code?</div>
+          <h3>Use a pairing code instead</h3>
+          <p>If another trusted browser already generated a one-time code, enter it here to create a browser session cookie.</p>
+          <div class="gate-form">
             <label>Pairing code
               <input id="pairing-code-input" autocomplete="one-time-code" placeholder="XXXX-XXXX-XXXX" />
             </label>
@@ -123,7 +124,7 @@ export function renderAccessGate() {
               <button data-action="pairBrowserSession" type="button">Pair browser</button>
             </div>
           </div>
-        </div>
+        </section>
       </article>
     </section>
   `);
