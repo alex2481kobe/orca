@@ -113,9 +113,18 @@ build will surface any remaining `#[cfg(desktop)]` gaps — fix and rebuild.
 - [x] Rust `#[cfg(desktop)]` gating + `run_mobile()` — **compiles for `aarch64-apple-ios`, `-sim`, and desktop** (verified with `cargo check`).
 - [x] `tauri ios init` scaffold — `src-tauri/gen/apple/orca-desktop.xcodeproj` generated and committed.
 - [x] Toolchain installed: rustup + iOS targets + CocoaPods + libimobiledevice.
-- [ ] First simulator/device run (`npm run tauri ios dev`).
-- [ ] On-device viewport verification (the whole point).
+- [x] First **simulator run verified** — `npm run tauri ios dev "iPhone 17 Pro"` builds the
+      iOS Rust lib, assembles `Orca.app`, installs + launches it, and the client
+      renders **full-screen with correct safe-area handling and no "shifted up" gap**
+      (the native-viewport win). In the simulator it loads the host dev server, so it
+      shows the full home; a real device shows the Connect-to-workstation gate.
+- [ ] On-device run (needs signing).
 - [ ] Signing (set your Team + bundle id in Xcode) + TestFlight.
+
+Note: `tauri ios dev` injects a few build-time edits into `gen/apple` (PRODUCT_NAME
+quoting, a staged `assets/` copy of the frontend). `assets/` is gitignored; the
+trivial pbxproj/Info.plist reformatting can be reverted (`git checkout`) — it
+re-appears on each build and isn't worth committing.
 
 ## Next: run it
 
