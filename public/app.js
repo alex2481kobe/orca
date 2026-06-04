@@ -740,6 +740,12 @@ setupSidebarReorder();
 // Live countdown for one-time pairing codes (ticks every second; never touched by
 // the poll re-render so it stays smooth, and flips to an expired prompt at 0).
 setInterval(() => {
+  // Drop an expired one-time code so a stale code is never left on screen.
+  if (shell.lastPairing?.expiresAt && new Date(shell.lastPairing.expiresAt).getTime() - Date.now() <= 0) {
+    shell.lastPairing = null;
+    render();
+    return;
+  }
   document.querySelectorAll('.pairing-countdown[data-expires]').forEach((el) => {
     const ms = new Date(el.dataset.expires).getTime() - Date.now();
     if (!Number.isFinite(ms)) return;

@@ -101,8 +101,10 @@ export async function handleNewSession(event) {
 // trusted workstation it shows the local folder picker as a modal; on a remote
 // device (no local FS access) it falls back to the create-project form.
 export async function handleNewProject() {
-  if (!isLocalHostName(window.location.hostname)) { safeNavigate('/#create'); return; }
-  // Desktop (Tauri): use the real OS-native folder dialog, same as the Codex app.
+  // Always open the folder picker (the web picker browses the WORKSTATION's folders
+  // via /api/system/dirs, so it works from any device — phone, laptop, or the
+  // workstation itself — and replaces the old create-project form/screen).
+  // Desktop (Tauri) gets the real OS-native dialog; everything else gets the picker.
   const native = await tryNativeDirectoryPick();
   if (native.available) {
     if (native.path) await createProjectFromFolder(native.path);

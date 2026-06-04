@@ -61,8 +61,13 @@ export async function handleSystemActions(event) {
       },
     });
     if (response.ok) {
-      shell.lastPairing = response.data?.pairing || null;
-      renderAlert(`Pairing code: ${response.data?.pairing?.code || 'created'}`);
+      const pairing = response.data?.pairing || null;
+      // Remember how many devices were paired when this code was issued; once that
+      // count grows, the code was consumed and we stop showing it (codes are
+      // one-time). The countdown ticker clears it on expiry.
+      if (pairing) pairing.pairedCountAtCreate = (shell.authSessions || []).filter((s) => s && (s.paired || s.pairedFromId)).length;
+      shell.lastPairing = pairing;
+      renderAlert(`Pairing code: ${pairing?.code || 'created'}`);
       await refresh();
     } else {
       renderAlert(response.data?.error || 'Could not create pairing code.', 'bad');

@@ -114,6 +114,13 @@ export async function refresh(options = {}) {
     if (abortFromAuth(authSessionsResp)) return;
     if (authSessionsResp.ok && Array.isArray(authSessionsResp.data?.sessions)) {
       shell.authSessions = authSessionsResp.data.sessions;
+      // A one-time pairing code is consumed once a new device pairs: when the
+      // paired-device count grows past what it was when the code was issued, drop
+      // the displayed code so a used code is never shown.
+      if (shell.lastPairing && typeof shell.lastPairing.pairedCountAtCreate === 'number') {
+        const pairedNow = shell.authSessions.filter((s) => s && (s.paired || s.pairedFromId)).length;
+        if (pairedNow > shell.lastPairing.pairedCountAtCreate) shell.lastPairing = null;
+      }
     }
 
     if (shell.executorProfiles && typeof shell.executorProfiles === 'object') {

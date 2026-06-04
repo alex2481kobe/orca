@@ -20,13 +20,18 @@ export function renderAccessGate() {
   const workstationAdmin = isLocalHostName(window.location.hostname) && !narrowClient;
   const browserLabel = narrowClient ? 'phone browser' : 'laptop browser';
   if (!workstationAdmin) {
-    let recentWorkstations = [];
-    try { recentWorkstations = JSON.parse(localStorage.getItem('orca.workstations') || '[]'); } catch { recentWorkstations = []; }
-    const recentRows = (Array.isArray(recentWorkstations) ? recentWorkstations : []).slice(0, 5)
-      .map((url) => `<button class="btn-ghost" data-action="connectWorkstation" data-url="${safeAttr(url)}" type="button">${safeText(url)}</button>`).join('');
-    writeHtml(refs.content, `
-      <section class="project-shell">
-        <article class="card control-card auth-gate">
+    // The "Connect to a workstation" URL step is only for the DOWNLOADED desktop
+    // app (Tauri) or a desktop laptop — never a phone (a mobile browser already
+    // opened the workstation URL to get here, so it just needs the pairing code).
+    const isDesktopApp = typeof window !== 'undefined' && Boolean(window.__TAURI__);
+    const showConnect = isDesktopApp || !narrowClient;
+    let connectCard = '';
+    if (showConnect) {
+      let recentWorkstations = [];
+      try { recentWorkstations = JSON.parse(localStorage.getItem('orca.workstations') || '[]'); } catch { recentWorkstations = []; }
+      const recentRows = (Array.isArray(recentWorkstations) ? recentWorkstations : []).slice(0, 5)
+        .map((url) => `<button class="btn-ghost" data-action="connectWorkstation" data-url="${safeAttr(url)}" type="button">${safeText(url)}</button>`).join('');
+      connectCard = `
           <div class="card-kicker">Using the Orca app on this device</div>
           <h3>Connect to your workstation</h3>
           <p>Installed the Orca app on this laptop/computer? Point it at your workstation over Tailscale — you don't have to use a browser. (You can still just open the workstation URL in a browser if you prefer.)</p>
@@ -41,7 +46,13 @@ export function renderAccessGate() {
             </div>
             ${recentRows ? `<div class="tiny muted" style="margin-top:0.5rem">Recent workstations</div><div class="lane-row" style="flex-wrap:wrap">${recentRows}</div>` : ''}
           </div>
-          <div class="card-kicker" style="margin-top:1rem">Then pair this device</div>
+          <div class="card-kicker" style="margin-top:1rem">Then pair this device</div>`;
+    }
+    writeHtml(refs.content, `
+      <section class="project-shell">
+        <article class="card control-card auth-gate">
+          ${connectCard}
+          <div class="card-kicker">Pair this device</div>
           <h3>Enter the code from your workstation</h3>
           <p>No dashboard data is shown until this device is paired. On the trusted workstation, go to Settings -> Access and paired devices, create a one-time code, then enter it here.</p>
           <div class="setup-steps">
