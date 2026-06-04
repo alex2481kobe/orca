@@ -59,13 +59,13 @@ even when Xcode GUI shows the team fine):
 ```bash
 cd ~/Documents/Projects/web/command-deck/command-deck-client
 source "$HOME/.cargo/env"
-APPLE_DEVELOPMENT_TEAM=MTJ437X4B9 ORCA_HOST=0.0.0.0 npm run tauri ios dev "ar-iphone"
+APPLE_DEVELOPMENT_TEAM=<YOUR_APPLE_TEAM_ID> ORCA_HOST=0.0.0.0 npm run tauri ios dev "ar-iphone"
 ```
 
-- `APPLE_DEVELOPMENT_TEAM=MTJ437X4B9` = **Rod Software LLC** (env var, not hardcoded
-  in committed files). `ALEX RODRIGUEZ` teams are `NQMGF6QLD7` (paid/distribution)
-  and `52B7ZU52Z3` (dev). "Created by ALEX RODRIGUEZ" on a cert is normal — it's
-  who generated it, not the owning team.
+- `APPLE_DEVELOPMENT_TEAM` = your 10-char Apple Developer **Team ID** (find it in
+  Xcode → Signing & Capabilities, or developer.apple.com → Membership). Passed as
+  an env var so it's never hardcoded in committed files. A cert's "Created by
+  <person>" is normal — it's who generated it, not the owning team.
 - `ORCA_HOST=0.0.0.0` so the phone can reach the Mac's dev server over wifi
   (default bind is 127.0.0.1 → device can't connect → "Could not connect …").
 - Phone: enable **Developer Mode** (Settings → Privacy & Security), unlock it, same
