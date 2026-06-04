@@ -136,7 +136,7 @@ export async function loadEvidenceGallery(laneId) {
       if (!item) return `<div class="card"><strong>${mode}</strong><div class="tiny muted">none yet</div></div>`;
       const link = `<a class="secondary" href="${safeHref(item.url)}" target="_blank" rel="noopener noreferrer">Open</a>`;
       const preview = mode === 'screenshot'
-        ? `<img src="${safeHref(item.url)}" alt="${safeAttr(mode)}" style="max-width:100%;border-radius:8px;margin-top:0.4rem" loading="lazy" />`
+        ? `<img src="${safeHref(item.url)}" alt="${safeAttr(mode)}" style="max-width:100%;border-radius:var(--radius-sm);margin-top:0.4rem" loading="lazy" />`
         : '';
       return `<div class="card"><strong>${mode}</strong><div class="tiny">${safeText(item.name)} · ${safeText(item.at)}</div>${preview}<div style="margin-top:0.4rem">${link}</div></div>`;
     }).join('');
