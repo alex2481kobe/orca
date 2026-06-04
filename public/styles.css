@@ -2089,6 +2089,13 @@ pre {
   .app-topbar {
     display: none;
   }
+  /* Since there's no topbar, the height calcs must NOT reserve its height —
+     otherwise the layout is ~45px short of the screen. That gap is invisible in
+     a browser (the bottom toolbar covers it) but shows as dead space at the
+     bottom when installed to the Home Screen (standalone). Zero it out. */
+  :root {
+    --topbar-height: 0px;
+  }
   body.nav-open .sidebar-backdrop {
     display: block;
   }
