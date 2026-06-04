@@ -238,6 +238,7 @@ async function playwrightMode(pw) {
         'clearEvidence',
         'connectDesktopApp',
         'connectWorkstation',
+        'setTheme',
         'newProject',
         'newSession',
         'deleteSessionPermanent',

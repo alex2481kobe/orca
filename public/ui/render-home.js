@@ -28,6 +28,7 @@ import {
   renderNotificationsPanel,
   renderBackupPanel,
   renderArchivePanel,
+  renderAppearancePanel,
   renderProjectListPanel,
   renderSystemActionsPanel,
 } from './render-home-panels.js';
@@ -349,6 +350,7 @@ export function renderHome() {
       ${workstationOnly(renderDesktopControlPanel(ctx))}
       ${workstationOnly(renderSetupPanel(ctx))}
       ${workstationOnly(renderTokenPanel(ctx))}
+      ${renderAppearancePanel()}
       ${renderAccessPanel(ctx)}
       ${workstationOnly(renderExecutorProfilesPanel(ctx))}
       ${workstationOnly(renderCapturePanel(ctx))}

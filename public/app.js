@@ -19,6 +19,7 @@ import { initComposerConfig, refreshConfigLabel } from './ui/composer-config.js'
 import { initComposerContext } from './ui/composer-context.js';
 import { initSlashCommands } from './ui/slash-commands.js';
 import { initMobileShell } from './ui/mobile-shell.js';
+import { initTheme, setThemePref } from './ui/theme.js';
 import { defaultModelFor } from './ui/executor.js';
 
 
@@ -509,6 +510,12 @@ document.addEventListener('click', async (event) => {
     return;
   }
 
+  if (action === 'setTheme') {
+    setThemePref(actionTarget?.dataset?.themeMode || 'system');
+    render(captureContentUiState());
+    return;
+  }
+
   if (action === 'toggleNav') {
     const target = event.currentTarget || event.target;
     if (isMobileLayout()) {
@@ -725,6 +732,7 @@ initDropdowns();
 initComposerConfig();
 initComposerContext();
 initSlashCommands();
+initTheme();
 initMobileShell();
 renderMobileManifest();
 setupSidebarReorder();

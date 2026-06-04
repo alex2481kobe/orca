@@ -6,6 +6,21 @@ import { safeAttr, safeText, formatRelative } from './format.js';
 import { browserNotificationsSupported } from './notifications.js';
 import { MCP_TOOL_SCOPE_ALLOWLIST } from './constants.js';
 import { shell } from './state.js';
+import { getThemePref } from './theme.js';
+
+// Appearance (light/dark) control — per-device, shown on every device in Settings.
+export function renderAppearancePanel() {
+  const pref = getThemePref();
+  const opt = (mode, label) => `<button class="seg-btn${pref === mode ? ' is-on' : ''}" data-action="setTheme" data-theme-mode="${mode}" type="button" aria-pressed="${pref === mode}">${label}</button>`;
+  return `
+      <article class="card control-card" data-panel-card="system">
+        <h3>Appearance</h3>
+        <p class="muted">Light or dark theme. "System" follows your device setting.</p>
+        <div class="seg-control" role="group" aria-label="Appearance">
+          ${opt('system', 'System')}${opt('light', 'Light')}${opt('dark', 'Dark')}
+        </div>
+      </article>`;
+}
 
 const selected = (actual, expected) => String(actual || '') === String(expected || '') ? 'selected' : '';
 const checked = (value) => value ? 'checked' : '';

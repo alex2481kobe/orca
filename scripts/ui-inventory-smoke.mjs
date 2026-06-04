@@ -45,6 +45,7 @@ const fail = (label, info = '') => {
 const WIRED_ACTIONS = new Set([
   'newSession',
   'newProject',
+  'setTheme',
   'ackAuditEvent',
   'applyAppImport',
   'deleteSessionPermanent',

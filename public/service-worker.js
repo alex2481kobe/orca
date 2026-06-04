@@ -1,8 +1,10 @@
-const CACHE_NAME = 'orca-static-v102';
+const CACHE_NAME = 'orca-static-v103';
 const STATIC_ASSETS = [
   '/',
   '/styles.css',
   '/app.js',
+  '/theme-init.js',
+  '/ui/theme.js',
   '/ui/access-mode.js',
   '/ui/api.js',
   '/ui/composer-config.js',

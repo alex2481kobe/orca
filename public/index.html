@@ -3,7 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="color-scheme" content="dark" />
+    <!-- Set the theme before CSS paints to avoid a flash (external for CSP). -->
+    <script src="/theme-init.js"></script>
+    <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#212121" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -16,7 +18,7 @@
     <link rel="icon" type="image/png" sizes="256x256" href="/orca-mark.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <link rel="stylesheet" href="/styles.css?v=20260604-project-chat" />
+    <link rel="stylesheet" href="/styles.css?v=20260604-themes" />
   </head>
   <body data-app="orca">
     <header class="app-topbar">
@@ -54,6 +56,6 @@
         <div id="content" class="ops-content" aria-busy="true">Loading…</div>
       </section>
     </main>
-    <script type="module" src="/app.js?v=20260604-project-chat"></script>
+    <script type="module" src="/app.js?v=20260604-themes"></script>
   </body>
 </html>

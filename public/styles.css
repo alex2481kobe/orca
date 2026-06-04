@@ -30,10 +30,39 @@
   --topbar-height: 45px;
   --safe-area-top: env(safe-area-inset-top);
   --safe-area-bottom: env(safe-area-inset-bottom);
-  /* Dark ink for text/icons sitting on a light (--text / --accent-strong) fill,
-     e.g. the primary button label. */
+  /* Ink that contrasts the --text-colored fill (e.g. the primary button label).
+     Dark theme: --text is light, so ink is near-black. Flips in light theme. */
   --ink-on-light: #1a1a1a;
+  color-scheme: dark;
   --mono: "SFMono-Regular", "Cascadia Code", "Roboto Mono", Consolas, monospace;
+}
+
+/* ===== Light theme =====
+   JS resolves the Appearance setting (System/Light/Dark) and sets
+   data-theme="light" | "dark" on <html>. :root above is the dark default;
+   this overrides the semantic color tokens for light. Clean white surface,
+   ChatGPT/Codex-light style. Radius/spacing tokens are shared. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --bg-soft: #f7f7f8;
+  --sidebar: #f9f9f9;
+  --panel: #ffffff;
+  --panel-soft: #f0f0f1;
+  --line: rgba(0, 0, 0, 0.12);
+  --line-soft: rgba(0, 0, 0, 0.07);
+  --hover: rgba(0, 0, 0, 0.045);
+  --active: rgba(0, 0, 0, 0.08);
+  --text: #0d0d0d;
+  --muted: #6b6b76;
+  --accent: #5a5a5a;
+  --accent-strong: #000000;
+  --danger: #c0392b;
+  --ok: #2e7d4f;
+  --warn: #9a6a00;
+  --bad: #c0392b;
+  /* Primary buttons use --text as fill (near-black in light) → label is white. */
+  --ink-on-light: #ffffff;
 }
 
 * {
@@ -3046,4 +3075,32 @@ textarea:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
   border-color: var(--accent);
+}
+
+/* ===== Appearance segmented control (Settings) ===== */
+.seg-control {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+}
+.seg-btn {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.32rem 0.85rem;
+  border-radius: var(--radius-pill);
+  min-height: 2rem;
+}
+.seg-btn:hover { color: var(--text); }
+.seg-btn.is-on {
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
 }
