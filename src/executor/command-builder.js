@@ -66,14 +66,18 @@ export function buildExecutorCommandArgs(label, lane) {
     case 'claude': {
       out.push('--print');
       if (model) out.push('--model', model);
-      // "ultracode" is not a --effort value; it's a session setting (xhigh effort
-      // + standing dynamic-workflow orchestration). Enable it via --settings.
+      // Claude exposes "ultracode" (xhigh + dynamic-workflow orchestration) and
+      // "fast" as SESSION SETTINGS, not flags — collect them into one --settings.
+      // ("ultracode" is deliberately not a --effort value; the CLI rejects it.)
+      const claudeSettings = {};
       if (intelligence.toLowerCase() === 'ultracode') {
-        out.push('--settings', '{"ultracode":true}');
+        claudeSettings.ultracode = true;
       } else {
         const effort = claudeEffortLevel(intelligence);
         if (effort) out.push('--effort', effort);
       }
+      if (String(lane.speed || '').trim().toLowerCase() === 'fast') claudeSettings.fastMode = true;
+      if (Object.keys(claudeSettings).length) out.push('--settings', JSON.stringify(claudeSettings));
       if (permissions) out.push('--permission-mode', claudePermissionMode(permissions));
       if (lane.mcpConfigPath) out.push('--mcp-config', lane.mcpConfigPath);
       // Governed (non-bypass) lanes route Claude's permission prompts through the

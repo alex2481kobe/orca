@@ -2663,6 +2663,8 @@ pre {
 .ctx-wt { display: flex; gap: 0.5rem; justify-content: space-between; padding: 0.3rem 0.6rem; }
 .ctx-wt-branch { color: var(--text); font-size: 0.82rem; }
 .ctx-wt-path { color: var(--muted); font-size: 0.76rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctx-create { color: var(--text); gap: 0.5rem; }
+.ctx-create-plus { color: var(--muted); font-size: 1.05rem; line-height: 1; }
 .ctx-mode { align-items: flex-start; }
 .ctx-mode-main { display: flex; flex-direction: column; gap: 0.1rem; }
 .ctx-mode-sub { color: var(--muted); font-size: 0.74rem; }

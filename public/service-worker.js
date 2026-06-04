@@ -1,4 +1,4 @@
-const CACHE_NAME = 'orca-static-v69';
+const CACHE_NAME = 'orca-static-v70';
 const STATIC_ASSETS = [
   '/',
   '/styles.css',

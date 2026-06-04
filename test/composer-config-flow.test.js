@@ -125,12 +125,60 @@ test('claude ultracode maps to the --settings toggle, not --effort', async () =>
 test('claude exposes ultracode as a reasoning level in its capabilities', async () => {
   const { registry, cleanup } = await withRegistry();
   try {
-    const values = registry.getExecutorCapabilities('claude').controls.intelligence.values;
+    const claude = registry.getExecutorCapabilities('claude');
+    const values = claude.controls.intelligence.values;
     assert.ok(values.includes('ultracode'), 'claude reasoning includes ultracode');
-    assert.ok(values.includes('max'), 'claude reasoning includes max');
+    // "max" is parsed from claude --help, so only assert it when the binary is present.
+    if (claude.binaryExists) assert.ok(values.includes('max'), 'claude reasoning includes max');
     const codexValues = registry.getExecutorCapabilities('codex').controls.intelligence.values;
     assert.ok(!codexValues.includes('ultracode'), 'codex does NOT expose ultracode');
     assert.ok(!codexValues.includes('max'), 'codex does NOT expose max');
+  } finally {
+    await cleanup();
+  }
+});
+
+test('speed is dynamic: codex/claude expose fast, others do not', async () => {
+  const { registry, cleanup } = await withRegistry();
+  try {
+    assert.equal(registry.getExecutorCapabilities('codex').controls.speed.supported, true);
+    assert.equal(registry.getExecutorCapabilities('claude').controls.speed.supported, true);
+    // mock has no fast mode → Speed control hidden.
+    const mockSpeed = registry.getExecutorCapabilities('mock').controls.speed;
+    assert.ok(!mockSpeed || mockSpeed.supported !== true, 'mock has no fast speed');
+  } finally {
+    await cleanup();
+  }
+});
+
+test('codex fast speed → features.fast_mode flag', () => {
+  const lane = { taskPrompt: 'x', model: 'gpt-5.5', intelligenceProfile: 'high', speed: 'fast', permissionsProfile: 'auto-edit' };
+  const cmd = buildExecutorCommandArgs('codex', lane);
+  assert.ok(cmd.includes('features.fast_mode=true'), 'codex fast → fast_mode feature');
+});
+
+test('claude fast speed → fastMode setting, merged with ultracode when both set', () => {
+  // fast + normal effort: --effort high AND --settings {"fastMode":true}
+  const a = buildExecutorCommandArgs('claude', { taskPrompt: 'x', model: 'sonnet', intelligenceProfile: 'high', speed: 'fast', permissionsProfile: 'auto-edit' });
+  assert.equal(a[a.indexOf('--effort') + 1], 'high');
+  assert.equal(JSON.parse(a[a.indexOf('--settings') + 1]).fastMode, true);
+  // fast + ultracode: one settings object with both, no --effort.
+  const b = buildExecutorCommandArgs('claude', { taskPrompt: 'x', model: 'opus', intelligenceProfile: 'ultracode', speed: 'fast', permissionsProfile: 'auto-edit' });
+  const s = JSON.parse(b[b.indexOf('--settings') + 1]);
+  assert.equal(s.ultracode, true);
+  assert.equal(s.fastMode, true);
+  assert.ok(!b.includes('--effort'), 'ultracode does not pass --effort');
+});
+
+test('permission modes are sourced from capabilities (dynamic, per CLI)', async () => {
+  const { registry, cleanup } = await withRegistry();
+  try {
+    const codex = registry.getExecutorCapabilities('codex').controls.permissions;
+    const claude = registry.getExecutorCapabilities('claude').controls.permissions;
+    assert.ok(Array.isArray(codex.values) && codex.values.length, 'codex modes come from caps');
+    assert.ok(Array.isArray(claude.values) && claude.values.length, 'claude modes come from caps');
+    // Models are dynamic too: free-text entry is always allowed, codex carries a catalog when present.
+    assert.equal(registry.getExecutorCapabilities('codex').controls.model.freeText, true);
   } finally {
     await cleanup();
   }

@@ -1,43 +1,35 @@
-// Codex-style composer context row: the pills under the composer that show the
-// execution location (Local / Cloud) and — when the working folder is a git repo
-// — the working branch picker plus existing worktrees. Branch + mode live on the
-// form's hidden inputs (branch, executionMode) so submission/toObj keep working.
-// Git info is fetched once per session and cached on shell.gitInfo[sessionId].
+// Codex-style composer context row: when the working folder is a git repo, a
+// branch picker (select an existing branch, filter, or create a new one) plus a
+// view of existing worktrees. The chosen branch lives on the form's hidden
+// `branch` input so submission/toObj keep working. Git info is fetched once per
+// session and cached on shell.gitInfo[sessionId].
+//
+// (There is no Local/Cloud selector: neither the codex nor claude CLI exposes a
+// non-interactive "run in the cloud" mode, so surfacing one would be misleading.)
 
 import { shell } from './state.js';
 import { api } from './api.js';
 import { writeHtml } from './dom.js';
 import { safeText, safeAttr } from './format.js';
-import { getExecutorProfile, normalizeExecutorType } from './executor.js';
 
-const ICON_LOCAL = '<svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3.5" width="15" height="10" rx="1.6"/><path d="M7 16.5h6M10 13.5v3"/></svg>';
-const ICON_CLOUD = '<svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15.5a3.5 3.5 0 0 1-.3-6.99A4.5 4.5 0 0 1 14.4 8.2 3.2 3.2 0 0 1 14 15.5H6z"/></svg>';
 const ICON_BRANCH = '<svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="15" r="2"/><circle cx="14" cy="7" r="2"/><path d="M6 7v6M14 9c0 3-3 3.5-6 3.5"/></svg>';
 const ICON_CARET = '<svg class="ctx-caret" viewBox="0 0 20 20" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8l5 5 5-5"/></svg>';
 
 function gitInfoFor(sessionId) { return shell.gitInfo?.[sessionId] || null; }
 
-// The visible pills, rendered from cached git info + the form's current hidden
-// values. Returns '' until git info has loaded (hydrate fills it in).
+// The visible branch pill, rendered from cached git info + the form's current
+// hidden branch value. Returns '' for non-git folders (row hides itself).
 export function composerContextInner(session) {
-  const sid = session.id;
-  const git = gitInfoFor(sid);
+  const git = gitInfoFor(session.id);
+  if (!git || !git.isGit) return '';
   const form = document.getElementById('orchestrator-message-form');
-  const mode = form?.querySelector('input[name="executionMode"]')?.value || 'local';
   const branch = form?.querySelector('input[name="branch"]')?.value || '';
-  const modePill = `
-    <button type="button" class="ctx-pill" data-ctx-menu="mode" aria-haspopup="menu" aria-expanded="false">
-      ${mode === 'cloud' ? ICON_CLOUD : ICON_LOCAL}<span class="ctx-pill-label">${mode === 'cloud' ? 'Cloud' : 'Work locally'}</span>${ICON_CARET}
-    </button>`;
-  let branchPill = '';
-  if (git && git.isGit) {
-    const label = branch || git.currentBranch || 'branch';
-    branchPill = `
-      <button type="button" class="ctx-pill" data-ctx-menu="branch" aria-haspopup="menu" aria-expanded="false">
-        ${ICON_BRANCH}<span class="ctx-pill-label">${safeText(label)}</span>${ICON_CARET}
-      </button>`;
-  }
-  return `${modePill}${branchPill}<div class="ctx-pop" role="menu" hidden></div>`;
+  const label = branch || git.currentBranch || 'branch';
+  return `
+    <button type="button" class="ctx-pill" data-ctx-menu="branch" aria-haspopup="menu" aria-expanded="false">
+      ${ICON_BRANCH}<span class="ctx-pill-label">${safeText(label)}</span>${ICON_CARET}
+    </button>
+    <div class="ctx-pop" role="menu" hidden></div>`;
 }
 
 // Fetch (once) + render the context row into its stable mount. Safe to call on
@@ -63,8 +55,8 @@ let _open = null; // the .ctx-pill currently open
 
 function closeMenu() {
   if (!_open) return;
-  const cfgPop = _open.parentElement.querySelector('.ctx-pop');
-  if (cfgPop) cfgPop.hidden = true;
+  const pop = _open.parentElement.querySelector('.ctx-pop');
+  if (pop) pop.hidden = true;
   _open.setAttribute('aria-expanded', 'false');
   _open = null;
 }
@@ -72,6 +64,10 @@ function closeMenu() {
 function formOf(el) { return el.closest('form'); }
 function fieldOf(el, name) { return formOf(el)?.querySelector(`input[name="${name}"]`); }
 function sessionIdOf(el) { return formOf(el)?.getAttribute('data-session-id') || ''; }
+function shortPath(p) {
+  const parts = String(p || '').split(/[\\/]/).filter(Boolean);
+  return parts.length > 2 ? `…/${parts.slice(-2).join('/')}` : String(p || '');
+}
 
 function branchMenuBody(pill) {
   const sid = sessionIdOf(pill);
@@ -88,41 +84,30 @@ function branchMenuBody(pill) {
     : '';
   return `
     <div class="ctx-head">Branch</div>
-    <div class="ctx-search"><input type="text" class="ctx-filter" placeholder="Filter branches" aria-label="Filter branches" /></div>
+    <div class="ctx-search"><input type="text" class="ctx-filter" placeholder="Filter or create a branch" aria-label="Filter or create a branch" /></div>
+    <button type="button" class="ctx-item ctx-create" data-v="" hidden><span class="ctx-create-plus">+</span><span class="ctx-create-label"></span></button>
     <div class="ctx-scroll">${rows}</div>
     ${wtSection}`;
-}
-
-function modeMenuBody(pill) {
-  const sid = sessionIdOf(pill);
-  const cur = fieldOf(pill, 'executionMode')?.value || 'local';
-  const ex = normalizeExecutorType(formOf(pill)?.querySelector('select[name="executorType"]')?.value || '');
-  const cloud = getExecutorProfile(ex)?.capabilities?.controls?.cloud || {};
-  const cloudNote = cloud.detected
-    ? `${ex} cloud (${safeText(cloud.command || 'cloud')}) isn't a non-interactive run yet`
-    : `${ex || 'this agent'} has no cloud run mode`;
-  return `
-    <div class="ctx-head">Run location</div>
-    <button type="button" class="ctx-item ctx-mode${cur !== 'cloud' ? ' selected' : ''}" data-v="local">${ICON_LOCAL}<span class="ctx-mode-main"><span>Work locally</span><span class="ctx-mode-sub">Runs in this folder on your machine</span></span>${cur !== 'cloud' ? '<span class="ctx-check">✓</span>' : ''}</button>
-    <button type="button" class="ctx-item ctx-mode is-disabled" data-v="cloud" disabled aria-disabled="true">${ICON_CLOUD}<span class="ctx-mode-main"><span>Cloud</span><span class="ctx-mode-sub">${safeText(cloudNote)}</span></span></button>`;
-}
-
-function shortPath(p) {
-  const str = String(p || '');
-  const parts = str.split(/[\\/]/).filter(Boolean);
-  return parts.length > 2 ? `…/${parts.slice(-2).join('/')}` : str;
 }
 
 function openMenu(pill) {
   closeMenu();
   const pop = pill.parentElement.querySelector('.ctx-pop');
   if (!pop) return;
-  pop.innerHTML = pill.dataset.ctxMenu === 'branch' ? branchMenuBody(pill) : modeMenuBody(pill);
+  pop.innerHTML = branchMenuBody(pill);
   pop.hidden = false;
   pill.setAttribute('aria-expanded', 'true');
   _open = pill;
   const filter = pop.querySelector('.ctx-filter');
   if (filter) setTimeout(() => filter.focus(), 0);
+}
+
+function chooseBranch(pill, value) {
+  const f = fieldOf(pill, 'branch'); if (f) f.value = value || '';
+  const label = pill.querySelector('.ctx-pill-label');
+  const git = gitInfoFor(sessionIdOf(pill)) || {};
+  if (label) label.textContent = value || git.currentBranch || 'branch';
+  closeMenu();
 }
 
 export function initComposerContext() {
@@ -135,34 +120,48 @@ export function initComposerContext() {
       return;
     }
     if (!t.closest?.('.ctx-pop')) { closeMenu(); return; }
+    if (!_open) return;
 
+    const createRow = t.closest('.ctx-create');
+    if (createRow && createRow.dataset.v) { event.preventDefault(); chooseBranch(_open, createRow.dataset.v); return; }
     const branchRow = t.closest('.ctx-branch');
-    if (branchRow && _open) {
-      event.preventDefault();
-      const f = fieldOf(_open, 'branch'); if (f) f.value = branchRow.dataset.v || '';
-      const label = _open.querySelector('.ctx-pill-label'); if (label) label.textContent = branchRow.dataset.v || '';
-      closeMenu();
-      return;
-    }
-    const modeRow = t.closest('.ctx-mode');
-    if (modeRow && !modeRow.hasAttribute('disabled') && _open) {
-      event.preventDefault();
-      const f = fieldOf(_open, 'executionMode'); if (f) f.value = modeRow.dataset.v || 'local';
-      const label = _open.querySelector('.ctx-pill-label'); if (label) label.textContent = modeRow.dataset.v === 'cloud' ? 'Cloud' : 'Work locally';
-      closeMenu();
-      return;
-    }
+    if (branchRow) { event.preventDefault(); chooseBranch(_open, branchRow.dataset.v || ''); return; }
   });
-  // Live-filter the branch list.
+
+  // Live-filter the branch list, and offer "Create '<name>'" for a novel name.
   document.addEventListener('input', (event) => {
     if (!event.target.classList?.contains('ctx-filter')) return;
-    const q = event.target.value.trim().toLowerCase();
-    const scroll = event.target.closest('.ctx-pop')?.querySelector('.ctx-scroll');
-    if (!scroll) return;
-    scroll.querySelectorAll('.ctx-branch').forEach((row) => {
-      const hit = (row.dataset.v || '').toLowerCase().includes(q);
-      row.style.display = hit ? '' : 'none';
+    const pop = event.target.closest('.ctx-pop');
+    if (!pop) return;
+    const q = event.target.value.trim();
+    const lower = q.toLowerCase();
+    const rows = [...pop.querySelectorAll('.ctx-branch')];
+    let exact = false;
+    rows.forEach((row) => {
+      const v = (row.dataset.v || '').toLowerCase();
+      row.style.display = v.includes(lower) ? '' : 'none';
+      if (v === lower) exact = true;
     });
+    const create = pop.querySelector('.ctx-create');
+    if (create) {
+      if (q && !exact) {
+        create.dataset.v = q;
+        create.querySelector('.ctx-create-label').textContent = `Create “${q}”`;
+        create.hidden = false;
+      } else {
+        create.dataset.v = '';
+        create.hidden = true;
+      }
+    }
   });
-  document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeMenu(); });
+
+  // Enter in the filter creates/selects the typed branch.
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') { closeMenu(); return; }
+    if (event.key === 'Enter' && event.target.classList?.contains('ctx-filter') && _open) {
+      event.preventDefault();
+      const q = event.target.value.trim();
+      if (q) chooseBranch(_open, q);
+    }
+  });
 }

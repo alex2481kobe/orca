@@ -256,6 +256,11 @@ export const executorCapabilityMethods = {
       // surfaces Cloud per-CLI but keeps it non-runnable until that's wired.
       const cloudCommand = (type === 'codex' && helpHas(helpText, /^\s*cloud\s/m)) ? 'cloud'
         : ((type === 'claude' && helpHas(helpText, /^\s*ultrareview\s/m)) ? 'ultrareview' : null);
+      // Speed / "fast mode": codex exposes the stable `fast_mode` feature
+      // (-c features.fast_mode=true) and claude exposes a `fastMode` session
+      // setting. Both map to the terminal's "/fast" (≈1.5x). Other CLIs have no
+      // fast mode, so the Speed control is hidden for them.
+      const supportsFast = type === 'codex' || type === 'claude';
       const attachable = type === 'claude' && helpHas(helpText, /^\s*attach\s/m);
       const stoppable = type === 'claude' && helpHas(helpText, /^\s*stop\s/m);
       const logs = type === 'claude' && helpHas(helpText, /^\s*logs\s/m);
@@ -311,6 +316,13 @@ export const executorCapabilityMethods = {
             // No non-interactive cloud run exists for these CLIs yet, so a Cloud
             // run mode is surfaced but not yet selectable.
             runnable: false,
+          },
+          speed: {
+            supported: supportsFast,
+            values: supportsFast ? ['standard', 'fast'] : ['standard'],
+            fast: supportsFast,
+            nativeFlag: type === 'codex' ? '-c features.fast_mode=true'
+              : (type === 'claude' ? '--settings {"fastMode":true}' : null),
           },
         },
         invocation: {

@@ -233,7 +233,6 @@ export function renderOrchestratorConsole(session) {
         <input type="hidden" name="intelligenceProfile" value="${safeAttr(selectedIntelligence)}" />
         <input type="hidden" name="speed" value="standard" />
         <input type="hidden" name="branch" value="" />
-        <input type="hidden" name="executionMode" value="local" />
         <div class="composer-bar">
           <button class="composer-attach" data-action="pickAttachment" data-session-id="${safeAttr(session.id)}" type="button" title="Attach screenshot or document" aria-label="Attach file">
             <svg viewBox="0 0 20 20" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 4.5v11M4.5 10h11"/></svg>

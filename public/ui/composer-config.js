@@ -38,6 +38,12 @@ function defaultEffortFor(executorType, model) {
   const hit = cat && model ? cat.find((m) => m.slug === model) : null;
   return hit?.defaultEffort || '';
 }
+// Speed ("/fast") is only offered for CLIs that actually expose a fast mode
+// (codex fast_mode feature, claude fastMode setting) — read from capabilities.
+function speedSupported(executorType) {
+  const node = getExecutorProfile(executorType)?.capabilities?.controls?.speed;
+  return Boolean(node?.supported) && Array.isArray(node?.values) && node.values.includes('fast');
+}
 function modelValues(executorType) {
   const node = getExecutorProfile(executorType)?.capabilities?.controls?.model;
   return Array.isArray(node?.values) ? node.values.filter(Boolean) : [];
@@ -124,7 +130,7 @@ function mainView(cfg) {
     ${reasonRows}
     <div class="cfg-sep"></div>
     <button type="button" class="cfg-item cfg-row" data-sub="model"><span>${safeText(model ? shortModel(model) : 'Model')}</span><span class="cfg-arrow">›</span></button>
-    <button type="button" class="cfg-item cfg-row" data-sub="speed"><span>Speed</span><span class="cfg-arrow">›</span></button>`;
+    ${speedSupported(ex) ? '<button type="button" class="cfg-item cfg-row" data-sub="speed"><span>Speed</span><span class="cfg-arrow">›</span></button>' : ''}`;
 }
 
 // Submenu bodies are rendered into the side flyout (no back button — the main
