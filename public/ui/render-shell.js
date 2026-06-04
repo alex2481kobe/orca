@@ -47,14 +47,13 @@ export function renderAccessGate() {
               <button class="btn" data-action="connectWorkstation" type="button">Connect</button>
             </div>
             ${recentRows ? `<div class="tiny muted" style="margin-top:0.5rem">Recent workstations</div><div class="lane-row" style="flex-wrap:wrap">${recentRows}</div>` : ''}
-          </div>
-          <div class="card-kicker" style="margin-top:1rem">Then pair this device</div>`;
+          </div>`;
     }
     writeHtml(refs.content, `
       <section class="project-shell">
         <article class="card control-card auth-gate">
           ${connectCard}
-          <div class="card-kicker">Pair this device</div>
+          <div class="card-kicker"${connectCard ? ' style="margin-top:1rem"' : ''}>${connectCard ? 'Then pair this device' : 'Pair this device'}</div>
           <h3>Enter the code from your workstation</h3>
           <p>No dashboard data is shown until this device is paired. On the trusted workstation, go to Settings -> Access and paired devices, create a one-time code, then enter it here.</p>
           <div class="setup-steps">
