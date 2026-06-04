@@ -202,3 +202,20 @@ test('tool leases are scoped, hashed at rest, and enforce allowed tools', async 
     }), (error) => error.status === 403);
   });
 });
+
+test('Tailscale MCP tools are defined for agents (status + serve configure)', () => {
+  const status = findTool('tailscale.status');
+  assert.ok(status, 'tailscale.status tool exists');
+  assert.equal(status.method, 'GET');
+  assert.equal(status.route, '/api/private-access/tailnet');
+  assert.equal(status.implemented, true);
+  assert.equal(status.mutating, false);
+
+  const configure = findTool('tailscale.serve.configure');
+  assert.ok(configure, 'tailscale.serve.configure tool exists');
+  assert.equal(configure.method, 'POST');
+  assert.equal(configure.route, '/api/private-access/serve');
+  assert.equal(configure.implemented, true);
+  assert.equal(configure.mutating, true);
+  assert.ok(configure.roles.includes('orchestrator'), 'orchestrator can configure serve');
+});

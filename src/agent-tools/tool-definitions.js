@@ -572,6 +572,26 @@ export const TOOL_DEFINITIONS = [
     mutating: true,
     summary: 'Apply validated settings/profile import with approval.',
   },
+  {
+    id: 'tailscale.status',
+    group: 'tailscale',
+    roles: ['orchestrator', 'dashboard'],
+    method: 'GET',
+    route: '/api/private-access/tailnet',
+    implemented: true,
+    mutating: false,
+    summary: 'Read Tailscale state: installed, signed in, the device URL, and whether Serve is active (so an agent can tell if Orca is reachable from other devices).',
+  },
+  {
+    id: 'tailscale.serve.configure',
+    group: 'tailscale',
+    roles: ['orchestrator', 'dashboard'],
+    method: 'POST',
+    route: '/api/private-access/serve',
+    implemented: true,
+    mutating: true,
+    summary: 'Set up (action:"enable") or tear down (action:"disable") private Tailscale Serve so other devices can reach Orca. Runs the serve command for the user; never enables Funnel. Requires Tailscale installed + signed in.',
+  },
 ];
 
 export function publicTool(tool) {

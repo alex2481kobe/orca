@@ -84,8 +84,14 @@ export function renderPairPanel(ctx) {
           <div class="tiny muted">On the other device's access screen, paste the code. That pairs it — the device can now use Orca.</div>
         </div>
         <div class="pair-step">
-          <strong>4. Add Orca to the home screen (recommended on phones)</strong>
-          <div class="tiny muted">So it opens full-screen like an app and you don't re-type the URL: in <strong>Safari</strong> tap Share → Add to Home Screen; in <strong>Chrome</strong> open the menu → Install app / Add to Home screen. Launch Orca from the new icon.</div>
+          <strong>4. Install Orca as an app (phone or computer — recommended)</strong>
+          <div class="tiny muted">So it opens in its own window like a native app and you never re-type the URL:</div>
+          <ul class="setup-list">
+            <li><strong>iPhone/iPad:</strong> Safari → Share → Add to Home Screen.</li>
+            <li><strong>Android:</strong> Chrome → menu → Install app / Add to Home screen.</li>
+            <li><strong>Mac:</strong> Safari → File → Add to Dock, or Chrome/Edge → the Install icon in the address bar.</li>
+            <li><strong>Windows:</strong> Chrome/Edge → the Install icon in the address bar (or menu → Apps → Install).</li>
+          </ul>
         </div>
         <details class="disclosure compact-disclosure">
           <summary><span>Paired devices</span><small>${safeText((shell.authSessions || []).filter((s) => s && (s.paired || s.pairedFromId)).length)} device${(shell.authSessions || []).filter((s) => s && (s.paired || s.pairedFromId)).length === 1 ? '' : 's'}</small></summary>
@@ -196,14 +202,15 @@ export function renderSetupPanel(ctx) {
           </div>
         </details>
         <details class="disclosure compact-disclosure">
-          <summary><span>Add to Home Screen</span><small>install as an app</small></summary>
+          <summary><span>Install as an app</span><small>phone or computer</small></summary>
           <div class="disclosure-body">
-            <div class="tiny muted">Once the device is paired, you can install Orca to the home screen so it opens full-screen like a native app:</div>
-            <ol class="setup-list">
-              <li>Open your Orca URL in Safari or Chrome on the device.</li>
-              <li>Safari: tap Share → Add to Home Screen. Chrome: open the menu → Install app / Add to Home screen.</li>
-              <li>Launch Orca from the new home-screen icon — it opens full-screen.</li>
-            </ol>
+            <div class="tiny muted">Open your Orca URL on the device, then install it so it runs in its own window:</div>
+            <ul class="setup-list">
+              <li><strong>iPhone/iPad:</strong> Safari → Share → Add to Home Screen.</li>
+              <li><strong>Android:</strong> Chrome → menu → Install app / Add to Home screen.</li>
+              <li><strong>Mac:</strong> Safari → File → Add to Dock, or Chrome/Edge → the Install icon in the address bar.</li>
+              <li><strong>Windows:</strong> Chrome/Edge → the Install icon in the address bar.</li>
+            </ul>
           </div>
         </details>
       </article>`;

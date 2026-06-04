@@ -2685,3 +2685,21 @@ test('deleteSession permanently removes an archived session and refuses active o
     await cleanup();
   }
 });
+
+test('approved repo roots default to HOME, and the dir picker opens into it', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  const savedEnv = process.env.ORCA_REPO_ROOTS;
+  delete process.env.ORCA_REPO_ROOTS;
+  try {
+    const home = os.homedir();
+    const roots = registry.getApprovedRepoRoots();
+    assert.ok(roots.includes(path.resolve(home)), 'HOME is an approved browse root by default');
+    // The picker opens INTO a directory (lists folders), not a bare roots chooser.
+    const view = await registry.listWorkstationDirs({});
+    assert.ok(view.path, 'picker opens into a directory by default');
+    assert.ok(Array.isArray(view.entries), 'picker returns folder entries');
+  } finally {
+    if (savedEnv === undefined) delete process.env.ORCA_REPO_ROOTS; else process.env.ORCA_REPO_ROOTS = savedEnv;
+    await cleanup();
+  }
+});

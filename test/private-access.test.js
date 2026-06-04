@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import {
   PrivateAccessStore,
+  detectTailnetState,
   buildSetupPlan,
   fakeTailnetState,
   validateAccessUrl,
@@ -142,4 +143,22 @@ test('configureServe runs Serve commands and reflects detected state; refuses wh
   const offline = new PrivateAccessStore({ stateFile: null, runner: (bin, args) => (args[0] === 'version' ? { status: 0, stdout: '1.0' } : { status: 1, stdout: '' }) });
   const refused = offline.configureServe({ action: 'enable' });
   assert.equal(refused.ok, false);
+});
+
+test('detectTailnetState surfaces the real Serve URL (no :3000) and ignores non-Orca serve', () => {
+  const base = (serveStdout) => (bin, args) => {
+    if (args[0] === 'version') return { status: 0, stdout: '1.0' };
+    if (args[0] === 'status') return { status: 0, stdout: JSON.stringify({ Self: { DNSName: 'mac.tailnet.ts.net.' } }) };
+    if (args[0] === 'serve' && args[1] === 'status') return { status: 0, stdout: serveStdout };
+    return { status: 1, stdout: '' };
+  };
+  // Serve proxies our Orca port -> servedUrl is the port-80 tailnet name (no :3000).
+  const serving = detectTailnetState({ runner: base('http://mac.tailnet.ts.net (tailnet only)\n|-- / proxy http://localhost:3000') });
+  assert.equal(serving.serveConfigured, true);
+  assert.equal(serving.servedUrl, 'http://mac.tailnet.ts.net');
+  assert.ok(!serving.servedUrl.includes(':3000'), 'phone URL must not carry the loopback port');
+  // Serve proxies a different app -> not treated as ours.
+  const other = detectTailnetState({ runner: base('http://mac.tailnet.ts.net\n|-- / proxy http://localhost:9999') });
+  assert.equal(other.serveConfigured, false);
+  assert.equal(other.servedUrl, null);
 });
