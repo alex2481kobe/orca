@@ -22,3 +22,4 @@ tmp/
 *.swo
 *.swn
 .verify-out.txt
+tmp-visual/

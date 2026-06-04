@@ -2152,6 +2152,15 @@ pre {
     display: inline-flex;
     opacity: 1;
   }
+  /* Use the SAME collapse controls as desktop on mobile: drop the legacy topbar
+     hamburger and use the floating reopen (to open) + the in-drawer collapse (to
+     close). No more two near-identical collapse buttons. */
+  .shell-toggle { display: none; }
+  #sidebar-reopen.sidebar-reopen {
+    display: inline-flex; position: fixed; left: 0.55rem; top: 0.45rem; z-index: 70;
+    background: var(--panel); border: 1px solid var(--line); color: var(--text);
+  }
+  body.nav-open #sidebar-reopen.sidebar-reopen { display: none; }
 }
 
 @media (max-width: 720px) {
@@ -2191,10 +2200,22 @@ pre {
     display: grid;
   }
   .session-workbench,
-  .composer-bar,
   .lane-controls-form {
     grid-template-columns: 1fr;
   }
+  /* Mobile composer: never let Send get pushed off the right edge. The bar wraps
+     (so Send drops to its own row before it would clip), the spacer is removed so
+     items pack from the left, and the agent/mode/model chips shrink + truncate. */
+  .composer-bar { flex-wrap: wrap; gap: 0.3rem 0.4rem; }
+  .composer-spacer { display: none; }
+  .composer-send { margin-left: auto; }
+  .composer-attach, .composer-send { flex: 0 0 auto; }
+  .composer-bar .dd { min-width: 0; }
+  .dd-compact .dd-trigger { min-width: 0; padding: 0.3rem 0.4rem; }
+  .dd-compact .dd-value { display: inline-block; max-width: 6rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+  .cfg { min-width: 0; }
+  .cfg-label { max-width: 7rem; overflow: hidden; }
+  .cfg-lab-model { overflow: hidden; text-overflow: ellipsis; }
   .executor-side-panel {
     max-height: none;
     position: static;
