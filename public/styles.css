@@ -2646,6 +2646,11 @@ pre {
 .cfg-tool { align-items: center; color: var(--text); display: flex; font-size: 0.86rem; gap: 0.6rem; justify-content: space-between; padding: 0.4rem 0.6rem; }
 .cfg-tool-on { color: var(--ok, #5fb37a); font-size: 0.72rem; }
 
+/* One-line URL + copy button (pairing step 1); wraps the button below on narrow. */
+.url-row { align-items: center; display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.35rem 0; }
+.url-row .copy-url { flex: 1 1 12rem; margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.url-row .btn { flex: 0 0 auto; }
+
 /* ===== Shared button design language (consistent radii / sizing) ===== */
 .btn, .btn-ghost {
   align-items: center; border-radius: 10px; cursor: pointer; display: inline-flex; font: inherit;

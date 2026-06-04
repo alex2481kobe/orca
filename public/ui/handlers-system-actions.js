@@ -451,12 +451,8 @@ export async function handleSystemActions(event) {
     const projectId = event.currentTarget.dataset.projectId;
     const projectName = event.currentTarget.dataset.projectName || 'this project';
     if (!projectId) return;
-    const confirmed = await confirmDialog(`Archive ${projectName}? It will disappear from the default project list, but its saved state is retained.`);
-    if (!confirmed) {
-      renderAlert('Project archive canceled.');
-      return;
-    }
-    const approval = await buildApprovedActionBody('updateProject', `Archive ${projectName}?`);
+    // Single confirm only — buildApprovedActionBody already prompts.
+    const approval = await buildApprovedActionBody('updateProject', `Archive ${projectName}? It leaves the default list but its saved state is kept.`);
     if (!approval.approved) {
       renderAlert('Project archive canceled.');
       return;
@@ -520,12 +516,8 @@ export async function handleSystemActions(event) {
     const sessionId = event.currentTarget.dataset.sessionId;
     const sessionName = event.currentTarget.dataset.sessionName || 'this session';
     if (!sessionId) return;
-    const confirmed = await confirmDialog(`Archive ${sessionName}? It will disappear from the default session list, but its saved state is retained.`);
-    if (!confirmed) {
-      renderAlert('Session archive canceled.');
-      return;
-    }
-    const approval = await buildApprovedActionBody('updateSession', `Archive ${sessionName}?`);
+    // Single confirm only — buildApprovedActionBody already prompts.
+    const approval = await buildApprovedActionBody('updateSession', `Archive ${sessionName}? It leaves the default list but its saved state is kept (you can permanently delete it later).`);
     if (!approval.approved) {
       renderAlert('Session archive canceled.');
       return;

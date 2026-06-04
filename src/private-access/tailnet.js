@@ -149,19 +149,50 @@ export function detectTailnetState({ fakeState = null, runner = spawnSync } = {}
     parsed = null;
   }
   const hostname = parsed?.Self?.DNSName ? String(parsed.Self.DNSName).replace(/\.$/, '') : null;
+  // Read the ACTUAL Tailscale Serve config so we show the real reachable URL
+  // (e.g. http://host.ts.net with NO :3000 — Serve proxies port 80/443 to
+  // localhost:3000). Without this we'd show host.ts.net:3000, which a phone can't
+  // open because Orca only binds loopback.
+  const serve = readServeStatus(runner);
+  const setupStatus = parsed?.Self ? (serve.servedUrl ? 'serving' : 'setup_pending') : 'not_configured';
   return {
     provider: 'real-read-only',
     checkedAt: nowIso(),
     binaryAvailable: true,
     loggedIn: Boolean(parsed?.Self),
     hostname,
-    serveConfigured: false,
-    serveMode: null,
-    setupStatus: parsed?.Self ? 'setup_pending' : 'not_configured',
+    serveConfigured: Boolean(serve.servedUrl),
+    serveMode: serve.serveMode,
+    servedUrl: serve.servedUrl,
+    setupStatus,
     blockers: parsed?.Self ? [] : ['Tailscale is installed but login state could not be confirmed.'],
-    nextStep: parsed?.Self ? 'Configure Tailscale Serve from the dry-run command.' : 'Sign in to Tailscale.',
+    nextStep: parsed?.Self
+      ? (serve.servedUrl ? 'Tailscale Serve is active.' : 'Enable Tailscale Serve so other devices can reach Orca.')
+      : 'Sign in to Tailscale.',
     readOnly: true,
   };
+}
+
+// Parse `tailscale serve status` to find the URL Serve actually proxies to Orca
+// (localhost:3000). Returns { servedUrl, serveMode } or empties when not serving.
+function readServeStatus(runner) {
+  try {
+    const result = runner('tailscale', ['serve', 'status'], {
+      encoding: 'utf8', timeout: 1500, maxBuffer: 64 * 1024, windowsHide: true,
+    });
+    if (result.error || result.status !== 0) return { servedUrl: null, serveMode: null };
+    const text = String(result.stdout || '');
+    // Only treat it as ours if it proxies to our local Orca port.
+    const proxiesOrca = /proxy\s+https?:\/\/(localhost|127\.0\.0\.1):3000/i.test(text);
+    if (!proxiesOrca) return { servedUrl: null, serveMode: null };
+    const httpsMatch = text.match(/https:\/\/[^\s]+\.ts\.net[^\s]*/i);
+    const httpMatch = text.match(/http:\/\/[^\s]+\.ts\.net[^\s]*/i);
+    const url = (httpsMatch && httpsMatch[0]) || (httpMatch && httpMatch[0]) || null;
+    if (!url) return { servedUrl: null, serveMode: null };
+    return { servedUrl: url.replace(/\/$/, ''), serveMode: url.startsWith('https') ? 'tailnet-https-serve' : 'tailnet-http' };
+  } catch {
+    return { servedUrl: null, serveMode: null };
+  }
 }
 
 export async function boundedHealthCheck(url) {

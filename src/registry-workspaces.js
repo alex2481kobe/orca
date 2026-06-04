@@ -2,6 +2,7 @@
 // enforcement) as a prototype mixin for OrcaRegistry. Extracted from registry.js.
 
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ensureDirectorySync, isPathWithinBoundary } from './registry-utils.js';
@@ -92,7 +93,15 @@ export const workspaceMethods = {
       .map((value) => String(value || '').trim())
       .filter(Boolean)
       .map((value) => path.resolve(value));
-    return [process.cwd(), ...fromEnv];
+    // Local-first default: the operator's HOME directory is browsable so the
+    // folder picker can reach any project (e.g. ~/Documents/Projects/*), not just
+    // the directory Orca happened to launch from. Operators can still widen/narrow
+    // via ORCA_REPO_ROOTS. (Set ORCA_REPO_ROOTS to restrict back to specific dirs.)
+    const roots = [process.cwd(), ...fromEnv];
+    if (!env) {
+      try { const home = os.homedir(); if (home) roots.push(home); } catch { /* no home */ }
+    }
+    return [...new Set(roots.map((value) => path.resolve(value)))];
   },
 
   // Powers the workstation directory picker (desktop + remote). Jailed to the

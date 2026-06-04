@@ -39,11 +39,11 @@ export function renderPairPanel(ctx) {
   const step1 = tsReady ? `
           <div>
             <strong>1. Open this URL on the other device</strong>
-            <code class="copy-url">${safeText(phoneUrl)}</code>
-            <div class="lane-row">
+            <div class="url-row">
+              <code class="copy-url">${safeText(phoneUrl)}</code>
               <button class="btn" data-action="copyPhoneUrl" data-url="${safeAttr(phoneUrl)}" type="button">Copy link</button>
             </div>
-            <div class="tiny muted">This is your private Tailscale device URL (${safeText(accessModeSummary)}) — it works from any device signed in to your tailnet. localhost only works on this Mac.</div>
+            <div class="tiny muted">Your private Tailscale URL — open it from any device signed in to your tailnet.</div>
           </div>
           <div class="qr-wrap">${phoneQr}<span>Scan from phone or laptop</span></div>`
     : `
@@ -81,16 +81,12 @@ export function renderPairPanel(ctx) {
         </div>
         <div class="pair-step">
           <strong>3. Enter the code on the other device</strong>
-          <div class="tiny muted">On the laptop/phone access screen, paste the code to pair that browser. Paired devices get workflow access; API tokens stay on trusted admin browsers only.</div>
+          <div class="tiny muted">On the other device's access screen, paste the code. That pairs it — the device can now use Orca.</div>
         </div>
         <details class="disclosure compact-disclosure">
-          <summary><span>Paired devices</span><small>${safeText((shell.authSessions || []).filter((s) => s && (s.paired || s.pairedFromId)).length)} session${(shell.authSessions || []).filter((s) => s && (s.paired || s.pairedFromId)).length === 1 ? '' : 's'}</small></summary>
-          <div class="disclosure-body">${authSessionRows || '<div class="muted">No paired browser sessions yet.</div>'}</div>
+          <summary><span>Paired devices</span><small>${safeText((shell.authSessions || []).filter((s) => s && (s.paired || s.pairedFromId)).length)} device${(shell.authSessions || []).filter((s) => s && (s.paired || s.pairedFromId)).length === 1 ? '' : 's'}</small></summary>
+          <div class="disclosure-body">${authSessionRows || '<div class="muted">No paired devices yet.</div>'}</div>
         </details>
-        <div class="lane-row">
-          <a class="secondary" href="#setup">Full setup wizard</a>
-          <a class="secondary" href="#system">Access &amp; token settings</a>
-        </div>
       </article>`;
 }
 
@@ -163,12 +159,12 @@ export function renderSetupPanel(ctx) {
           </div>
           <div class="qr-wrap">${phoneQr}<span>Scan from trusted device</span></div>
         </div>
-        <details class="disclosure compact-disclosure" open>
+        <details class="disclosure compact-disclosure">
           <summary><span>HTTP vs HTTPS Serve</span><small>${safeText(accessModeSummary)}</small></summary>
           <div class="disclosure-body">
             <p>HTTP over Tailscale is private inside the encrypted tailnet and avoids certificate transparency metadata. HTTPS Serve improves Safari/PWA behavior and secure-cookie semantics, but can publish the machine/tailnet DNS name in public certificate logs.</p>
             <form id="setup-private-access-settings-form">
-              <label>Default access mode
+              <label>Access mode
                 <select name="preferredMode">
                   ${accessModeOptions}
                 </select>
@@ -186,7 +182,7 @@ export function renderSetupPanel(ctx) {
                   <option value="off" ${selected(privateSettings.notificationMode, 'off')}>Off</option>
                 </select>
               </label>
-              <label><input type="checkbox" name="pwaMode" ${checked(privateSettings.pwaMode !== 'disabled')}> Enable PWA static shell</label>
+              <label><input type="checkbox" name="pwaMode" ${checked(privateSettings.pwaMode !== 'disabled')}> Install Orca as an app (home-screen/PWA)</label>
               <button type="submit">Save access settings</button>
             </form>
             <div class="lane-row">
@@ -196,18 +192,14 @@ export function renderSetupPanel(ctx) {
             </div>
           </div>
         </details>
-        <details class="disclosure compact-disclosure" open>
-          <summary><span>Paired devices</span><small>${safeText((shell.authSessions || []).filter((s) => s && (s.paired || s.pairedFromId)).length)} session${(shell.authSessions || []).filter((s) => s && (s.paired || s.pairedFromId)).length === 1 ? '' : 's'}</small></summary>
-          <div class="disclosure-body">${authSessionRows || '<div class="muted">No paired browser sessions yet.</div>'}</div>
-        </details>
-        <details class="disclosure compact-disclosure" open>
-          <summary><span>Add to Home Screen</span><small>PWA</small></summary>
+        <details class="disclosure compact-disclosure">
+          <summary><span>Add to Home Screen</span><small>install as an app</small></summary>
           <div class="disclosure-body">
+            <div class="tiny muted">Once the device is paired, you can install Orca to the home screen so it opens full-screen like a native app:</div>
             <ol class="setup-list">
-              <li>Open the private URL in Safari on iPhone or Chrome on Android.</li>
-              <li>Pair the browser once with a one-time code from this workstation.</li>
-              <li>iPhone: tap Share, then Add to Home Screen. Android: tap browser menu, then Install app or Add to Home screen.</li>
-              <li>Later opens reuse the paired browser session until it expires or is revoked.</li>
+              <li>Open your Orca URL in Safari or Chrome on the device.</li>
+              <li>Safari: tap Share → Add to Home Screen. Chrome: open the menu → Install app / Add to Home screen.</li>
+              <li>Launch Orca from the new home-screen icon — it opens full-screen.</li>
             </ol>
           </div>
         </details>
@@ -231,7 +223,7 @@ export function renderTokenPanel(ctx) {
           <button class="secondary" data-action="createPairingCode" type="button">Create pairing code</button>
           ${browserPaired ? '<button class="secondary" data-action="logoutBrowserSession" type="button">Log out paired browser</button>' : ''}
         </div>
-        <details class="disclosure compact-disclosure" open>
+        <details class="disclosure compact-disclosure">
           <summary><span>Paired devices</span><small>${safeText((shell.authSessions || []).filter((s) => s && (s.paired || s.pairedFromId)).length)} session${(shell.authSessions || []).filter((s) => s && (s.paired || s.pairedFromId)).length === 1 ? '' : 's'}</small></summary>
           <div class="disclosure-body">${authSessionRows || '<div class="muted">No paired browser sessions yet.</div>'}</div>
         </details>
@@ -258,7 +250,7 @@ export function renderAccessPanel(ctx) {
   const { accessModeSummary, accessModeOptions, privateSettings, phoneUrl, phoneQr, authSessionRows } = ctx;
   return `
       <article class="card control-card" id="section-settings-access" data-panel-card="system">
-        <details class="disclosure" open>
+        <details class="disclosure">
           <summary>
             <span>Access and paired devices</span>
             <small>${safeText(accessModeSummary)}</small>
@@ -266,7 +258,7 @@ export function renderAccessPanel(ctx) {
           <div class="disclosure-body">
             <p class="muted">Settings is the trusted workstation surface for HTTP/HTTPS preference, one-time pairing, browser session revocation, and token rotation. Unpaired phone and laptop browsers only see the pairing screen.</p>
             <form id="settings-private-access-settings-form">
-              <label>Default access mode
+              <label>Access mode
                 <select name="preferredMode">
                   ${accessModeOptions}
                 </select>
@@ -284,7 +276,7 @@ export function renderAccessPanel(ctx) {
                   <option value="off" ${selected(privateSettings.notificationMode, 'off')}>Off</option>
                 </select>
               </label>
-              <label><input type="checkbox" name="pwaMode" ${checked(privateSettings.pwaMode !== 'disabled')}> Enable PWA static shell</label>
+              <label><input type="checkbox" name="pwaMode" ${checked(privateSettings.pwaMode !== 'disabled')}> Install Orca as an app (home-screen/PWA)</label>
               <button type="submit">Save access settings</button>
             </form>
             <div class="onboarding-card mini">
@@ -305,7 +297,7 @@ export function renderAccessPanel(ctx) {
               </div>
               <div class="qr-wrap">${phoneQr}<span>Trusted setup QR</span></div>
             </div>
-            <details class="disclosure compact-disclosure" open>
+            <details class="disclosure compact-disclosure">
               <summary><span>Paired devices</span><small>${safeText((shell.authSessions || []).filter((s) => s && (s.paired || s.pairedFromId)).length)} active</small></summary>
               <div class="disclosure-body">
                 <p class="tiny muted">Rotate session state by revoking old devices, clearing this browser token if needed, then creating a new one-time pairing code.</p>
@@ -440,7 +432,7 @@ export function renderPrivateAccessPanel(ctx) {
   const { accessModeSummary, tailnet, accessModeOptions, privateSettings, phoneUrl, commandRows, privateTargets, targetRows } = ctx;
   return `
       <article class="card control-card" id="section-private-access" data-panel-card="private-access">
-        <details class="disclosure" open>
+        <details class="disclosure">
           <summary>
             <span>Private access</span>
             <small>${safeText(accessModeSummary)} · ${safeText(tailnet.setupStatus || 'setup_pending')}</small>
@@ -494,10 +486,10 @@ export function renderPrivateAccessPanel(ctx) {
                   <option value="off" ${selected(privateSettings.notificationMode, 'off')}>Off</option>
                 </select>
               </label>
-              <label><input type="checkbox" name="pwaMode" ${checked(privateSettings.pwaMode !== 'disabled')}> Enable PWA static shell</label>
+              <label><input type="checkbox" name="pwaMode" ${checked(privateSettings.pwaMode !== 'disabled')}> Install Orca as an app (home-screen/PWA)</label>
               <button type="submit">Save private access settings</button>
             </form>
-            <details class="disclosure compact-disclosure" open>
+            <details class="disclosure compact-disclosure">
               <summary>
                 <span>Phone URL and HTTPS wizard</span>
                 <small>Tailscale Serve</small>
@@ -537,7 +529,7 @@ export function renderProvidersPanel(ctx) {
   const { providerProfiles, providerCatalog, providerRows } = ctx;
   return `
       <article class="card control-card" id="section-providers" data-panel-card="providers">
-        <details class="disclosure" open>
+        <details class="disclosure">
           <summary>
             <span>Provider profiles</span>
             <small>${safeText(providerProfiles.length)} configured · credentials ${safeText(providerCatalog.credentialBackend || 'unknown')}</small>
@@ -568,7 +560,7 @@ export function renderEffectiveSettingsPanel(ctx) {
   const { effectiveSummary, effectiveSources, effectiveSourcesText, effectiveSettingsText } = ctx;
   return `
       <article class="card control-card" id="section-effective-settings" data-panel-card="effective-settings">
-        <details class="disclosure" open>
+        <details class="disclosure">
           <summary>
             <span>Effective settings</span>
             <small>global -> project -> session -> lane -> action</small>
@@ -612,7 +604,7 @@ export function renderNotificationsPanel(ctx) {
   const { unreadNotifications, browserPermission, notificationSettings, notificationRows } = ctx;
   return `
       <article class="card control-card" id="section-notifications" data-panel-card="notifications">
-        <details class="disclosure" open>
+        <details class="disclosure">
           <summary>
             <span>Notifications</span>
             <small>${safeText(unreadNotifications)} unread · browser ${safeText(browserPermission)}</small>
@@ -647,7 +639,7 @@ export function renderNotificationsPanel(ctx) {
 export function renderBackupPanel() {
   return `
       <article class="card control-card" id="section-backup" data-panel-card="backup">
-        <details class="disclosure" open>
+        <details class="disclosure">
           <summary>
             <span>Backup and support</span>
             <small>Local-only export · redacted support bundle</small>
@@ -723,7 +715,7 @@ export function renderArchivePanel() {
 export function renderCreateProjectPanel() {
   return `
       <div class="card control-card" data-panel-card="create">
-        <details class="disclosure" open>
+        <details class="disclosure">
           <summary>
             <span>Create project</span>
             <small>Add a new command surface</small>

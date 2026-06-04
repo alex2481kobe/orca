@@ -55,8 +55,14 @@ export function quickLinkHealthLabel(status) {
 // This is the URL another device on the same tailnet actually uses — localhost
 // never works off-machine. Returns '' when Tailscale isn't set up.
 export function tailnetDeviceUrl(tailnet = {}, mode = 'tailnet-http') {
+  // The exact URL Tailscale Serve actually proxies to Orca is the only one a
+  // remote device can open (Serve listens on port 80/443 and forwards to
+  // localhost:3000 — there is no :3000 on the tailnet name). Prefer it.
+  if (tailnet.servedUrl) return tailnet.servedUrl;
   const host = String(tailnet.hostname || '').replace(/\.$/, '').trim();
   if (!host) return '';
+  // No Serve configured: a bare host:port only works if Orca binds the tailnet
+  // interface. We surface it as a best-effort, but the UI nudges to enable Serve.
   const port = (typeof window !== 'undefined' && window.location.port) ? window.location.port : '3000';
   if (mode === 'tailnet-https-serve') return `https://${host}`;
   return `http://${host}:${port}`;
