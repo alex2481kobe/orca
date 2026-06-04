@@ -43,6 +43,14 @@
   box-sizing: border-box;
 }
 
+/* Paint the app background on the root too, so the notch/home-indicator safe
+   zones are always filled even if the body is momentarily shorter than the
+   screen (standalone launch race). No bare gaps at the top/bottom edges. */
+html {
+  background: var(--bg);
+  min-height: 100%;
+}
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
@@ -2443,7 +2451,7 @@ pre {
 .chat-column { display: flex; min-height: 0; min-width: 0; }
 .chat { display: flex; flex: 1; flex-direction: column; min-height: 0; padding: 0 1rem; width: 100%; }
 .chat-thread { display: flex; flex: 1; flex-direction: column; gap: 1.5rem; overflow-y: auto; padding: 2rem 0 1rem; }
-.chat-thread > * { margin-left: auto; margin-right: auto; max-width: 768px; width: 100%; }
+.chat-thread > * { margin-left: auto; margin-right: auto; max-width: 768px; width: 100%; min-width: 0; }
 
 .chat-empty { color: var(--muted); margin: auto; padding: 3rem 1rem; text-align: center; }
 .chat-empty h2 { color: var(--text); font-size: 1.3rem; margin: 0 0 0.4rem; }
@@ -2452,7 +2460,7 @@ pre {
 .msg { display: flex; }
 .msg-user { justify-content: flex-end; }
 .msg-assistant { justify-content: flex-start; }
-.msg-body { font-size: 0.93rem; line-height: 1.55; white-space: pre-wrap; }
+.msg-body { font-size: 0.93rem; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
 .msg-user .msg-body { background: #363636; border: 0; border-radius: var(--radius-xl); max-width: 82%; padding: 0.6rem 0.95rem; }
 .msg-assistant .msg-body { color: var(--text); line-height: 1.6; max-width: 100%; }
 /* Live agent transcript (tools + streamed output) inside an assistant turn. */
@@ -3013,3 +3021,27 @@ button.home-cta { cursor: pointer; font: inherit; }
 .ptr-indicator.armed .ptr-spinner::after { border-top-color: var(--accent); }
 .ptr-indicator.refreshing .ptr-spinner::after { animation: ptr-spin 0.7s linear infinite; }
 @keyframes ptr-spin { to { transform: rotate(360deg); } }
+
+/* ===== Keyboard focus visibility =====
+   A clear focus ring for keyboard / assistive-tech users on every interactive
+   element. :focus-visible never fires for plain mouse clicks, so this doesn't
+   add rings on tap/click. Element/attribute specificity keeps it from fighting
+   the bespoke rings on .click-card / .simple-row (those win and keep their own). */
+a:focus-visible,
+button:focus-visible,
+summary:focus-visible,
+[role="button"]:focus-visible,
+[role="link"]:focus-visible,
+[data-action]:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}

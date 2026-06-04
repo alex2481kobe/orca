@@ -288,7 +288,7 @@ export function renderExecutorLanePanelItem(lane) {
         ${restartButton}
         <a class="secondary" href="${safeAttr(lane.route || '#')}">Open</a>
       </div>
-      <details class="disclosure compact-disclosure">
+      <details class="disclosure compact-disclosure" data-uikey="activity-${safeAttr(lane.id)}">
         <summary>Activity</summary>
         ${latestEvents}
       </details>

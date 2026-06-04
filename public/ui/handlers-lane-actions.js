@@ -20,6 +20,7 @@ export async function handleLaneActions(event) {
     const label = event.currentTarget.dataset.presetLabel || 'saved preview';
     if (!presetId) return;
     const approved = await confirmHighRiskAction(`Capture screenshot for ${label}?`, 'captureEvidence');
+    if (!approved) { renderAlert('Capture canceled.'); return; }
     const response = await api(`/api/lanes/${laneId}/evidence`, {
       method: 'POST',
       body: { approved, actor: 'dashboard', presetId, modes: ['screenshot'] },
@@ -98,6 +99,9 @@ export async function handleLaneActions(event) {
   }[action];
   const policy = shell.policy[policyKey] || { requiresApproval: false };
   const approved = await confirmHighRiskAction('This is a higher-risk action. Continue?', policyKey);
+  // Cancelling the confirm must abort — don't fall through to the per-mode prompts
+  // and a doomed approved:false request.
+  if (!approved) { renderAlert('Canceled.'); return; }
 
   if (action === 'captureEvidence') {
     const modes = [];

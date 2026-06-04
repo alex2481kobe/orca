@@ -32,21 +32,34 @@ export function initMobileShell() {
 
 function setupAppHeight() {
   const apply = () => {
+    // Use the FULL standalone screen height. innerHeight is the stable full-screen
+    // value in a standalone app; visualViewport.height shrinks when the keyboard is
+    // up and can be briefly wrong right after launch. Take the larger of the two so
+    // the layout always fills the screen (and never sticks at a too-short value that
+    // leaves a gap at the bottom / pushes content up).
     const vv = window.visualViewport;
-    const h = Math.round((vv && vv.height) || window.innerHeight || 0);
+    const h = Math.round(Math.max(window.innerHeight || 0, (vv && vv.height) || 0));
     if (h > 0) document.documentElement.style.setProperty('--app-height', `${h}px`);
   };
   apply();
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener('resize', apply);
-  }
+  // Re-apply across every event that can follow a wrong first measurement: iOS
+  // reports a stale height for a few frames after launch, rotation, tab restore,
+  // and app foregrounding. The delayed ticks catch the launch race ("sometimes
+  // pushed up").
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', apply);
   window.addEventListener('resize', apply);
+  window.addEventListener('pageshow', apply);
+  window.addEventListener('focus', apply);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) apply(); });
   window.addEventListener('orientationchange', () => {
     apply();
-    // iOS reports a stale height for a frame or two after rotation.
     window.setTimeout(apply, 200);
     window.setTimeout(apply, 500);
   });
+  window.setTimeout(apply, 100);
+  window.setTimeout(apply, 300);
+  window.setTimeout(apply, 600);
+  window.setTimeout(apply, 1200);
 }
 
 // The element that actually scrolls for the current view (the session thread has
