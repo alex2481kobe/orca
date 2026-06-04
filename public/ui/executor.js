@@ -74,9 +74,9 @@ export function leaderOptions(selected = 'codex') {
   const normalized = normalizeExecutorType(selected);
   const titleCase = (id) => id.split(/[-_]/).map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ');
   const available = FIRST_CLASS_CLI_EXECUTOR_TYPES.filter((id) => profiles[id]);
-  // Fall back to the canonical pair before profiles have loaded so the leader
-  // select is never empty.
-  const ids = available.length ? available : ['codex', 'claude'];
+  // Fall back to the full first-class list before profiles have loaded so the
+  // leader select is never empty (and never a stale hardcoded pair).
+  const ids = available.length ? available : [...FIRST_CLASS_CLI_EXECUTOR_TYPES];
   const cliOpts = ids
     .map((id) => `<option value="${safeAttr(id)}"${normalized === id ? ' selected' : ''}>${safeText(titleCase(id))}-led</option>`)
     .join('');
@@ -102,6 +102,27 @@ export function defaultModelFor(type) {
   if (!node) return '';
   if (node.defaultValue) return node.defaultValue;
   return Array.isArray(node.values) && node.values.length ? node.values[0] : '';
+}
+
+// All model identifiers a given agent knows about (preset values + catalog slugs).
+export function modelValuesForAgent(type) {
+  const node = getExecutorProfile(type)?.capabilities?.controls?.model;
+  const vals = Array.isArray(node?.values) ? node.values : [];
+  const cat = Array.isArray(node?.catalog) ? node.catalog.map((m) => m.slug) : [];
+  return [...new Set([...vals, ...cat].filter(Boolean))];
+}
+
+// True when `model` clearly belongs to a DIFFERENT installed agent (e.g. gpt-5.5
+// left over while claude is selected). Free-text models the current agent doesn't
+// list (e.g. opus-4-6) are NOT foreign — only models another agent advertises.
+export function isForeignModel(model, type) {
+  const m = String(model || '').trim();
+  if (!m) return false;
+  const current = normalizeExecutorType(type);
+  if (modelValuesForAgent(current).includes(m)) return false;
+  return FIRST_CLASS_CLI_EXECUTOR_TYPES.some(
+    (other) => normalizeExecutorType(other) !== current && modelValuesForAgent(other).includes(m),
+  );
 }
 
 export function cliExecutorOptions(selected = '') {

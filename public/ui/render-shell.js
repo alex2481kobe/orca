@@ -159,8 +159,21 @@ export function render(uiState = null) {
     renderSession(project, session);
   }
   renderAuditLog();
+  updatePairLabel();
   restoreContentUiState(uiState);
   enhanceSelects(refs.content);
+}
+
+// Reflect paired-device state on the sidebar link: "Pair a device" when none are
+// paired, "Paired devices · N" once one or more are (clicking still opens the
+// pairing view, where you generate codes to pair more / revoke existing).
+function updatePairLabel() {
+  const label = document.querySelector('.sidebar-pair-label');
+  if (!label) return;
+  const n = Array.isArray(shell.authSessions) ? shell.authSessions.length : 0;
+  label.textContent = n > 0 ? `Paired devices · ${n}` : 'Pair a device';
+  const link = label.closest('.sidebar-pair-button');
+  if (link) link.setAttribute('aria-label', n > 0 ? `${n} paired device${n === 1 ? '' : 's'} — pair another` : 'Pair a remote device');
 }
 
 export function renderStatusStrip() {
@@ -173,7 +186,7 @@ export function renderStatusStrip() {
   // Status tags for every first-class CLI executor we actually know about
   // (codex, claude, gemini-cli, composer-cli, …) rather than a fixed pair.
   const statusExecutorTypes = FIRST_CLASS_CLI_EXECUTOR_TYPES.filter((type) => cli[type] || profiles[type]);
-  const executorTags = (statusExecutorTypes.length ? statusExecutorTypes : ['codex', 'claude']).map((type) => {
+  const executorTags = (statusExecutorTypes.length ? statusExecutorTypes : [...FIRST_CLASS_CLI_EXECUTOR_TYPES]).map((type) => {
     const info = cli[type];
     if (!info) return '';
     const tone = info.binaryExists ? 'ok' : 'bad';

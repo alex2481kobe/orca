@@ -6,6 +6,8 @@ import { renderLaneExecutorGuidance } from './render-fragments.js';
 import { safeText, safeAttr } from './format.js';
 import { renderExecutorSidePanel, renderOrchestratorConsole, renderChatThreadInner, renderExecutorListInner } from './render-session-parts.js';
 import { hydrateComposerContext } from './composer-context.js';
+import { isForeignModel, defaultModelFor } from './executor.js';
+import { refreshConfigLabel } from './composer-config.js';
 
 export function renderSession(project, session) {
   const sid = session.id;
@@ -78,6 +80,17 @@ export function renderSession(project, session) {
   // moment the first message lands, without rebuilding the composer skeleton).
   const agentSel = document.querySelector('#orchestrator-message-form select[name="executorType"]');
   if (agentSel) agentSel.disabled = (session.orchestratorThread?.messages?.length || 0) > 0;
+  // Keep the shown model matched to the selected agent: if a different agent's
+  // model leaked in (e.g. gpt-5.5 while claude is selected), snap it back to this
+  // agent's default. Free-text models the agent doesn't list are left untouched.
+  const modelField = document.querySelector('#orchestrator-message-form input[name="model"]');
+  if (modelField && agentSel) {
+    const agent = agentSel.value;
+    if (isForeignModel(modelField.value, agent)) {
+      modelField.value = defaultModelFor(agent) || '';
+      refreshConfigLabel(document.getElementById('orchestrator-message-form'));
+    }
+  }
   renderLaneExecutorGuidance(document.getElementById('create-lane-form'));
   // Fill the Codex-style context row (Local/Cloud + branch picker). Cached per
   // session so the poll loop doesn't refetch; writeHtml skips identical HTML.

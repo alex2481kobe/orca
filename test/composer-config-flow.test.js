@@ -123,6 +123,45 @@ test('claude ultracode maps to the --settings toggle, not --effort', async () =>
   }
 });
 
+test('a custom free-text model is passed through to the executed command (both CLIs)', () => {
+  // Someone types an arbitrary model — it must reach --model verbatim.
+  const claude = buildExecutorCommandArgs('claude', { taskPrompt: 'x', model: 'opus-4-6', intelligenceProfile: 'high', permissionsProfile: 'auto-edit' });
+  assert.equal(claude[claude.indexOf('--model') + 1], 'opus-4-6', 'claude runs the custom model');
+  const codex = buildExecutorCommandArgs('codex', { taskPrompt: 'x', model: 'gpt-5.5-custom', intelligenceProfile: 'high', permissionsProfile: 'auto-edit' });
+  assert.equal(codex[codex.indexOf('--model') + 1], 'gpt-5.5-custom', 'codex runs the custom model');
+});
+
+test('a custom model entered in chat reaches the lane + command end-to-end', async () => {
+  const { registry, cleanup } = await withRegistry();
+  try {
+    const project = registry.createProject({ name: 'Custom Model' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'chat', leader: 'claude' }, { actor: 'test', approved: true });
+    await send(registry, session.id, { executorType: 'claude', model: 'opus-4-6', intelligenceProfile: 'high' });
+    const lane = latestOrchestratorLane(registry, session.id);
+    assert.equal(lane.model, 'opus-4-6', 'custom model stored on the lane');
+    assert.equal(buildExecutorCommandArgs('claude', lane).includes('opus-4-6'), true);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('codex reasoning includes minimal but never max in the executed command', () => {
+  const minimal = buildExecutorCommandArgs('codex', { taskPrompt: 'x', model: 'gpt-5.5', intelligenceProfile: 'minimal', permissionsProfile: 'auto-edit' });
+  assert.ok(minimal.includes('model_reasoning_effort="minimal"'), 'codex honors minimal effort');
+});
+
+test('claude defaults to opus (highest), not sonnet, when the binary is present', async () => {
+  const { registry, cleanup } = await withRegistry();
+  try {
+    const claude = registry.getExecutorCapabilities('claude');
+    if (claude.binaryExists && (claude.controls.model.values || []).includes('opus')) {
+      assert.equal(claude.controls.model.defaultValue, 'opus', 'claude default model is opus');
+    }
+  } finally {
+    await cleanup();
+  }
+});
+
 test('claude exposes ultracode as a reasoning level in its capabilities', async () => {
   const { registry, cleanup } = await withRegistry();
   try {

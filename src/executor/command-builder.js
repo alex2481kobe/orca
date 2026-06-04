@@ -47,8 +47,10 @@ export function buildExecutorCommandArgs(label, lane) {
     case 'codex': {
       out.push('exec', '--json');
       if (model) out.push('--model', model);
-      // Reasoning effort (the "/model" effort level) -> -c model_reasoning_effort.
-      const codexEffort = ['low', 'medium', 'high', 'xhigh'].includes(intelligence.toLowerCase()) ? intelligence.toLowerCase() : '';
+      // Reasoning effort (the "/reasoning" level) -> -c model_reasoning_effort.
+      // Codex's real effort set is minimal/low/medium/high/xhigh — include
+      // "minimal" (the old list dropped it) but never the claude-only "max".
+      const codexEffort = ['minimal', 'low', 'medium', 'high', 'xhigh'].includes(intelligence.toLowerCase()) ? intelligence.toLowerCase() : '';
       if (codexEffort) out.push('--config', `model_reasoning_effort="${codexEffort}"`);
       // Speed (terminal "/fast") -> the fast_mode feature flag.
       if (String(lane.speed || '').trim().toLowerCase() === 'fast') out.push('--config', 'features.fast_mode=true');

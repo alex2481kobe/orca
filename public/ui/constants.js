@@ -43,7 +43,7 @@ export const COMPOSE_ICON = `
 `;
 export const PENCIL_ICON = `
   <svg viewBox="0 0 20 20" focusable="false" aria-hidden="true">
-    <path d="m12.4 4.6 3 3"></path>
-    <path d="M13.6 3.4a1.7 1.7 0 0 1 2.4 2.4l-8.5 8.5-3.2.8.8-3.2 8.5-8.5Z"></path>
+    <path d="M4 16h3l8.3-8.3a1.5 1.5 0 0 0-2.1-2.1L4.9 13Z"></path>
+    <path d="m12.2 6.6 2.1 2.1"></path>
   </svg>
 `;

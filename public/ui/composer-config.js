@@ -140,12 +140,14 @@ function modelBody(cfg) {
   const items = modelItems(executorOf(cfg));
   const rows = items.length
     ? items.map((it) => `<button type="button" class="cfg-item cfg-model${it.v === cur ? ' selected' : ''}" data-v="${safeAttr(it.v)}">${safeText(it.label)}${it.v === cur ? '<span class="cfg-check">✓</span>' : ''}</button>`).join('')
-    : '<div class="cfg-note">No preset models reported — type one below.</div>';
+    : '<div class="cfg-note">No models detected — type a model name below.</div>';
+  // Example uses this agent's first known model so the hint is accurate per CLI.
+  const example = items[0]?.v ? shortModel(items[0].v) : (executorOf(cfg) === 'claude' ? 'opus' : 'gpt-5.5');
   return `
     <div class="cfg-head">Model</div>
     ${rows}
     <div class="cfg-free">
-      <input type="text" class="cfg-model-input" placeholder="model slug (e.g. gpt-5.5)" value="${safeAttr(cur)}" aria-label="Custom model" />
+      <input type="text" class="cfg-model-input" placeholder="Enter a model name (e.g. ${safeAttr(example)})" value="${safeAttr(cur)}" aria-label="Model name" />
       <button type="button" class="cfg-model-use">Use</button>
     </div>`;
 }

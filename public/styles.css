@@ -665,8 +665,10 @@ body.sidebar-collapsed .sidebar-pair-label {
 
 .sidebar-compose,
 .sidebar-project-archive,
-.sidebar-archive {
+.sidebar-archive,
+.sidebar-project-new {
   background: transparent !important;
+  border: 0 !important;
   border-color: transparent !important;
 }
 
@@ -2720,15 +2722,21 @@ button.home-cta { cursor: pointer; font: inherit; }
    gap, matching the text↔pencil gap on session rows). */
 .sidebar-project-line > .sidebar-project { padding-right: 0.5rem; }
 .sidebar-project-new {
-  align-items: center; border-radius: 8px; color: var(--muted); display: inline-flex; flex: 0 0 auto;
-  height: 1.9rem; justify-content: center; margin-right: 0.18rem; opacity: 0; text-decoration: none; width: 1.9rem;
+  align-items: center; border-radius: 8px; color: var(--muted); cursor: pointer; display: inline-flex; flex: 0 0 auto;
+  height: 2rem; justify-content: center; margin-right: 0.18rem; opacity: 0; padding: 0; text-decoration: none; width: 2rem;
   transition: opacity 0.12s ease, color 0.12s ease;
 }
 .sidebar-project-line:hover .sidebar-project-new,
 .sidebar-project-new:focus-visible { opacity: 0.7; }
-/* Brightens ONLY on its own hover; never gets its own background box. */
+/* Brightens ONLY on its own hover; bare icon, never a background box. */
 .sidebar-project-new:hover { color: var(--text); opacity: 1; outline: none; }
-.sidebar-project-new svg { fill: none; height: 16px; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.6; width: 16px; }
+/* All three sidebar action glyphs (new chat / rename / archive) share one size so
+   they read as a consistent, centered set. */
+.sidebar-project-new svg,
+.sidebar-project-rename svg, .sidebar-rename svg,
+.sidebar-project-archive svg, .sidebar-archive svg {
+  fill: none; height: 15px; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.6; width: 15px;
+}
 /* Session text aligns under the project name and never crowds the pencil; the
    text↔pencil gap now matches the pencil↔archive gap. */
 .sidebar-thread { padding-left: 2.55rem; padding-right: 4rem; }

@@ -283,6 +283,9 @@ export const executorCapabilityMethods = {
             freeText: true,
             defaultValue: String(process.env[`ORCA_${String(type).toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_MODEL`] || '').slice(0, 120)
               || (type === 'codex' ? readCodexConfigDefault('model') : null)
+              // Claude defaults to its highest tier (opus) rather than the first
+              // alias the help happens to list (sonnet).
+              || (type === 'claude' && modelValues.includes('opus') ? 'opus' : null)
               || null,
           },
           permissions: {

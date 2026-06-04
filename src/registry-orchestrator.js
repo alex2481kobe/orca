@@ -4,6 +4,7 @@
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { nowIso, clonePayload, normalizeExecutorType } from './registry-utils.js';
+import { FIRST_CLASS_CLI_EXECUTOR_TYPES } from './executor-factory.js';
 
 const MAX_ORCHESTRATOR_THREAD_MESSAGES = 500;
 
@@ -122,6 +123,12 @@ export const orchestratorMethods = {
     if (requested && supported.includes(requested)) return requested;
     const leader = normalizeExecutorType(session?.leader);
     if (leader && supported.includes(leader) && leader !== 'mock') return leader;
+    // Prefer the first INSTALLED first-class CLI rather than blindly defaulting to
+    // codex (which may not be installed); fall back to codex, then mock.
+    for (const type of FIRST_CLASS_CLI_EXECUTOR_TYPES) {
+      if (!supported.includes(type)) continue;
+      try { if (this.getExecutorCapabilities(type)?.binaryExists) return type; } catch { /* keep looking */ }
+    }
     return supported.includes('codex') ? 'codex' : 'mock';
   },
 
