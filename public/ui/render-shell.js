@@ -1,7 +1,7 @@
 // Render view module (split from render-views.js).
 
 import { isLocalHostName, writeHtml } from './dom.js';
-import { refs, shell } from './state.js';
+import { refs, shell, makeDraftSession } from './state.js';
 import { safeAttr, safeText } from './format.js';
 import { api, browserAccessBlocked, setApiToken } from './api.js';
 import { isVerificationProject, renderBreadcrumbs, renderTopbarTitle } from './render-helpers.js';
@@ -119,7 +119,16 @@ function renderPickerModal() {
 export function render(uiState = null) {
   const project = shell.projects.find((value) => value.slug === shell.route.projectSlug || value.id === shell.route.projectSlug);
   const sessions = project ? shell.sessions : [];
-  const session = sessions.find((value) => value.id === shell.route.sessionId);
+  let session = sessions.find((value) => value.id === shell.route.sessionId)
+    || (shell.draftSessions ? shell.draftSessions[shell.route.sessionId] : null);
+  // Reload landed on a draft route whose in-memory draft is gone: re-mint a fresh
+  // empty draft for the project so the user gets an empty chat (still unsaved)
+  // rather than a dead route — an untouched chat simply doesn't survive a reload.
+  if (!session && project && String(shell.route.sessionId || '').startsWith('draft-')) {
+    session = makeDraftSession(project);
+    shell.draftSessions = shell.draftSessions || {};
+    shell.draftSessions[session.id] = session;
+  }
   const lane = shell.lanes.find((value) => value.id === shell.route.laneId);
 
   renderBreadcrumbs(project, session);

@@ -36,7 +36,34 @@ export const shell = {
   // render, so NO re-render (poll, SSE, structural rebuild, modal, route change)
   // can ever clear what the operator is typing.
   composerDrafts: {},
+  // Client-only DRAFT chats, keyed by sentinel id `draft-<projectId>`. A "New chat"
+  // is a draft until the first message is sent — only then is a real server session
+  // created (see ensureRealSession). An untouched draft is never persisted, so it
+  // never clutters the sidebar or disk.
+  draftSessions: {},
+  // Branch/worktree info cache, keyed by session (or draft) id.
+  gitInfo: {},
 };
+
+// Build a client-only draft "New chat" session that looks enough like a real one
+// for the session view to render. Stable id per project so re-opening reuses it.
+export function makeDraftSession(project, leader) {
+  const now = new Date().toISOString();
+  const id = `draft-${project.id}`;
+  return {
+    id,
+    projectId: project.id,
+    name: 'New chat',
+    leader: leader || project.leader || '',
+    repoRoot: project.repoRoot || '',
+    route: `/projects/${project.slug || project.id}/sessions/${id}`,
+    state: 'active',
+    isDraft: true,
+    orchestratorThread: { messages: [], laneIds: [], activeLaneId: null },
+    createdAt: now,
+    updatedAt: now,
+  };
+}
 
 export const refs = {
   breadcrumbs: document.getElementById('breadcrumbs'),

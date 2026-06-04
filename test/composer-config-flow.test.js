@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { OrcaRegistry } from '../src/registry.js';
 import { buildExecutorCommandArgs } from '../src/executor/command-builder.js';
+import { detectSlashCommands } from '../src/registry-cli-info.js';
 
 // Proves the composer's model / reasoning / speed / branch choices are not just
 // UI: they flow chat → orchestrator lane → the ACTUAL executed CLI command, for
@@ -179,6 +180,29 @@ test('permission modes are sourced from capabilities (dynamic, per CLI)', async 
     assert.ok(Array.isArray(claude.values) && claude.values.length, 'claude modes come from caps');
     // Models are dynamic too: free-text entry is always allowed, codex carries a catalog when present.
     assert.equal(registry.getExecutorCapabilities('codex').controls.model.freeText, true);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('slash commands are detected per CLI with valid shape; unknown types get none', () => {
+  assert.deepEqual(detectSlashCommands('mock', 'mock'), [], 'no metadata → no slash commands');
+  const codex = detectSlashCommands('codex', 'codex'); // may be [] on a cold cache (async-warmed)
+  assert.ok(Array.isArray(codex));
+  const MAPPINGS = new Set(['apply-local', 'dashboard-action', 'send-to-agent', 'interactive-only']);
+  for (const c of codex) {
+    assert.ok(typeof c.command === 'string' && c.command.startsWith('/'), 'command is a /slug');
+    assert.ok(MAPPINGS.has(c.mapping), `valid mapping: ${c.mapping}`);
+    assert.ok(typeof c.description === 'string' && c.description.length, 'has a description');
+  }
+});
+
+test('slashCommands are exposed on CLI capabilities and absent for mock', async () => {
+  const { registry, cleanup } = await withRegistry();
+  try {
+    assert.ok(Array.isArray(registry.getExecutorCapabilities('codex').controls.slashCommands));
+    const mockSlash = registry.getExecutorCapabilities('mock').controls.slashCommands;
+    assert.ok(!mockSlash || mockSlash.length === 0, 'mock has no slash commands');
   } finally {
     await cleanup();
   }

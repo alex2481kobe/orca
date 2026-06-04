@@ -29,6 +29,7 @@ import {
   parseHelpChoices,
   parseEffortChoices,
   parseModelHints,
+  detectSlashCommands,
   compactCapabilities,
 } from './registry-cli-info.js';
 import {
@@ -324,6 +325,8 @@ export const executorCapabilityMethods = {
             nativeFlag: type === 'codex' ? '-c features.fast_mode=true'
               : (type === 'claude' ? '--settings {"fastMode":true}' : null),
           },
+          // The CLI's REAL slash commands, detected from the installed binary.
+          slashCommands: versionInfo.exists ? detectSlashCommands(type, binary) : [],
         },
         invocation: {
           canRunAsOrchestrator: true,

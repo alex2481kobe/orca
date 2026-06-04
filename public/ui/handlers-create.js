@@ -6,7 +6,7 @@ import { renderAlert, safeNavigate, isLocalHostName } from './dom.js';
 import { api } from './api.js';
 import { refresh } from './controller.js';
 import { render, captureContentUiState } from './render-views.js';
-import { shell } from './state.js';
+import { shell, makeDraftSession } from './state.js';
 import { executorTargetsBinary, executorTargetsCommand, findMcpTool, getExecutorScopedMcpTools, normalizeExecutorType, normalizeMcpToolScopes, parseCommandParts, defaultExecutorType } from './executor.js';
 import { FIRST_CLASS_CLI_EXECUTOR_TYPES } from './constants.js';
 
@@ -39,24 +39,57 @@ export async function handleCreateProject(event) {
   }
 }
 
-// Create an empty "New chat" session and open its chat. You pick agent/model in the
-// composer and just type — Codex/ChatGPT-style, no create-session form.
+// Open an empty "New chat" — a client-only DRAFT (no server session yet). You pick
+// agent/model and just type; the real session is created on the first send. An
+// untouched draft never persists (it never hits the server), so it never shows up
+// as a saved chat. Codex/ChatGPT-style.
 export async function createEmptyChat(projectId) {
   const project = shell.projects.find((p) => p.id === projectId);
-  const leader = defaultExecutorType(project?.leader || '');
-  const response = await api(`/api/projects/${projectId}/sessions`, {
+  if (!project) { renderAlert('Project not found.', 'bad'); return null; }
+  const leader = defaultExecutorType(project.leader || '');
+  const draft = makeDraftSession(project, leader);
+  shell.draftSessions = shell.draftSessions || {};
+  shell.draftSessions[draft.id] = draft;
+  safeNavigate(draft.route); // makes the project active -> auto-expands; renders the draft
+  return draft;
+}
+
+// Promote a draft session id to a real server session on first use (first message
+// or attachment). Returns the real session id (the same id if already real, or null
+// on failure). Migrates the composer draft text, attachments, and git cache from the
+// sentinel id to the real id so nothing typed/attached is lost.
+export async function ensureRealSession(sessionId) {
+  if (!sessionId || !String(sessionId).startsWith('draft-')) return sessionId;
+  const draft = shell.draftSessions?.[sessionId];
+  if (!draft) return sessionId;
+  const response = await api(`/api/projects/${draft.projectId}/sessions`, {
     method: 'POST',
-    body: { name: 'New chat', leader, actor: 'dashboard', approved: true },
+    body: {
+      name: 'New chat',
+      leader: draft.leader || undefined,
+      ...(draft.repoRoot ? { repoRoot: draft.repoRoot } : {}),
+      actor: 'dashboard',
+      approved: true,
+    },
   });
-  if (response.ok && response.data) {
-    // Load the new session into shell BEFORE navigating, so the route renders the
-    // fresh empty chat immediately instead of flashing the previously-open view.
-    await refresh();
-    safeNavigate(response.data.route); // makes the project active -> auto-expands
-    return response.data;
+  if (!response.ok || !response.data) {
+    renderAlert(response.data?.error || 'Could not start the chat.', 'bad');
+    return null;
   }
-  renderAlert(response.data?.error || 'Could not start a chat.', 'bad');
-  return null;
+  const real = response.data;
+  if (shell.composerDrafts && shell.composerDrafts[sessionId] != null) {
+    shell.composerDrafts[real.id] = shell.composerDrafts[sessionId];
+    delete shell.composerDrafts[sessionId];
+  }
+  shell.composerAttachments = shell.composerAttachments || {};
+  if (Array.isArray(shell.composerAttachments[sessionId]) && shell.composerAttachments[sessionId].length) {
+    shell.composerAttachments[real.id] = shell.composerAttachments[sessionId];
+  }
+  if (shell.composerAttachments) delete shell.composerAttachments[sessionId];
+  if (shell.gitInfo?.[sessionId]) shell.gitInfo[real.id] = shell.gitInfo[sessionId];
+  delete shell.draftSessions[sessionId];
+  await refresh(); // load the real session into shell before navigating/rendering
+  return real.id;
 }
 
 export async function handleNewSession(event) {

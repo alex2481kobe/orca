@@ -6,10 +6,11 @@
 // hidden config fields (the same ones the config pill drives).
 
 import { shell } from './state.js';
-import { normalizeExecutorType } from './executor.js';
+import { normalizeExecutorType, getExecutorProfile } from './executor.js';
 import {
   reasoningValues, modelItems, speedSupported, reasonLabel, shortModel, refreshConfigLabel,
 } from './composer-config.js';
+import { createEmptyChat } from './handlers-create.js';
 import { safeText } from './format.js';
 
 let _rows = [];
@@ -31,32 +32,104 @@ function statusText(form) {
   return `agent ${ex} · model ${model ? shortModel(model) : '(default)'} · reasoning ${reasonLabel(val(form, 'intelligenceProfile') || 'high')} · speed ${speed} · branch ${branch}`;
 }
 
-// Every concrete command-row available for the current agent (flat, fuzzy-filtered).
+function controlsOf(ex) { return getExecutorProfile(ex)?.capabilities?.controls || {}; }
+
+// Dashboard-action handlers we actually implement. Anything not here falls back to
+// an info line so the real command is still shown, honestly, with its description.
+const DASHBOARD = {
+  status: (form) => showInfo(form, statusText(form)),
+  new: (form) => newChat(form),
+  clear: (form) => newChat(form),
+  diff: (form) => showInfo(form, changedFilesText(form)),
+  context: (form) => showInfo(form, usageText(form)),
+  usage: (form) => showInfo(form, usageText(form)),
+  cost: (form) => showInfo(form, usageText(form)),
+  mcp: (form) => showInfo(form, mcpText(form)),
+};
+
+// Build the command rows from the selected agent's REAL detected slash commands
+// (controls.slashCommands). apply-local commands with choices (/model, /effort) are
+// expanded into one row per value; the rest behave per their detected mapping.
 function buildRows(form) {
   const ex = executorOf(form);
-  const git = shell.gitInfo?.[form.dataset.sessionId];
+  const list = controlsOf(ex).slashCommands;
   const rows = [];
-  modelItems(ex).forEach((m) => rows.push({
-    label: `/model ${shortModel(m.v)}`, hint: m.label && m.label !== shortModel(m.v) ? m.label : 'model',
-    run: () => applyConfig(form, 'model', m.v),
-  }));
-  reasoningValues(ex, val(form, 'model')).forEach((r) => rows.push({
-    label: `/effort ${r}`, hint: reasonLabel(r),
-    run: () => applyConfig(form, 'intelligenceProfile', r),
-  }));
-  if (speedSupported(ex)) {
-    rows.push({ label: '/fast', hint: '1.5× speed', run: () => applyConfig(form, 'speed', 'fast') });
-    rows.push({ label: '/standard', hint: 'default speed', run: () => applyConfig(form, 'speed', 'standard') });
+  if (!Array.isArray(list) || !list.length) {
+    // Fallback for agents with no detected slash commands (e.g. mock): local config.
+    modelItems(ex).forEach((m) => rows.push(modelRow(form, m)));
+    reasoningValues(ex, val(form, 'model')).forEach((r) => rows.push(effortRow(form, '/effort', r)));
+    if (speedSupported(ex)) rows.push({ label: '/fast', hint: 'fast mode', run: () => applyConfig(form, 'speed', 'fast') });
+    return rows;
   }
-  if (git?.isGit) {
-    (git.branches || []).forEach((b) => rows.push({
-      label: `/branch ${b}`, hint: b === git.currentBranch ? 'current' : 'branch',
-      run: () => applyConfig(form, 'branch', b),
-    }));
+  for (const sc of list) {
+    const name = sc.command.slice(1);
+    if (name === 'model') { modelItems(ex).forEach((m) => rows.push(modelRow(form, m))); continue; }
+    if (name === 'effort' || name === 'reasoning') {
+      reasoningValues(ex, val(form, 'model')).forEach((r) => rows.push(effortRow(form, sc.command, r)));
+      continue;
+    }
+    if (name === 'fast') { rows.push({ label: '/fast', hint: sc.description, run: () => applyConfig(form, 'speed', 'fast') }); continue; }
+    rows.push(genericRow(form, sc));
   }
-  rows.push({ label: '/status', hint: 'show current config', run: () => { _info = statusText(form); renderMenu(form); } });
-  rows.push({ label: '/help', hint: 'list commands', run: () => { _info = 'Commands: /model /effort' + (speedSupported(ex) ? ' /fast /standard' : '') + (git?.isGit ? ' /branch' : '') + ' /status /help'; renderMenu(form); } });
   return rows;
+}
+
+function modelRow(form, m) {
+  return { label: `/model ${shortModel(m.v)}`, hint: m.label && m.label !== shortModel(m.v) ? m.label : 'model', run: () => applyConfig(form, 'model', m.v) };
+}
+function effortRow(form, cmd, r) {
+  return { label: `${cmd} ${r}`, hint: reasonLabel(r), run: () => applyConfig(form, 'intelligenceProfile', r) };
+}
+function genericRow(form, sc) {
+  const name = sc.command.slice(1);
+  if (sc.mapping === 'interactive-only') return { label: sc.command, hint: `${sc.description} · terminal only`, disabled: true };
+  if (sc.mapping === 'send-to-agent') return { label: sc.command, hint: `${sc.description} · send to agent`, run: () => sendToAgent(form, sc.command) };
+  const action = DASHBOARD[name];
+  return { label: sc.command, hint: sc.description, run: action ? () => action(form) : () => showInfo(form, `${sc.command} — ${sc.description}`) };
+}
+
+function showInfo(form, text) { _info = text; renderMenu(form); }
+
+// Send a slash command to the agent: drop it into the composer so the user can add
+// args and press Enter (the agent receives the command as the prompt).
+function sendToAgent(form, command) {
+  const ta = textareaOf(form);
+  if (ta) {
+    ta.value = `${command} `;
+    if (shell.composerDrafts) shell.composerDrafts[form.dataset.sessionId] = ta.value;
+  }
+  hideMenu(form);
+  ta?.focus();
+}
+
+function newChat(form) {
+  const sid = form.dataset.sessionId;
+  const session = (shell.sessions || []).find((s) => s.id === sid) || shell.draftSessions?.[sid];
+  const projectId = session?.projectId;
+  hideMenu(form);
+  const ta = textareaOf(form); if (ta) ta.value = '';
+  if (projectId) createEmptyChat(projectId);
+}
+
+function changedFilesText(form) {
+  const lane = activeLane(form);
+  const files = lane && Array.isArray(lane.changedFiles) ? lane.changedFiles : [];
+  return files.length ? `Changed files: ${files.slice(0, 12).join(', ')}` : 'No file changes recorded yet.';
+}
+function usageText(form) {
+  const lane = activeLane(form);
+  const u = lane?.tokenUsage || lane?.usage;
+  if (u && (u.total || u.input || u.output)) return `Tokens — in ${u.input ?? '?'} / out ${u.output ?? '?'} / total ${u.total ?? '?'}`;
+  return 'No token usage recorded yet for this session.';
+}
+function mcpText(form) {
+  const lane = activeLane(form);
+  const tools = (lane && Array.isArray(lane.mcpTools) ? lane.mcpTools : []).map((t) => t.id || t.name).filter(Boolean);
+  return tools.length ? `MCP tools: ${tools.join(', ')}` : 'No MCP tools attached. Manage them in the session panel (New lane → MCP tools).';
+}
+function activeLane(form) {
+  const sid = form.dataset.sessionId;
+  return (shell.lanes || []).filter((l) => l.sessionId === sid).sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0))[0] || null;
 }
 
 function applyConfig(form, name, value) {
@@ -83,7 +156,7 @@ function renderMenu(form) {
   const m = menuOf(form);
   if (!m) return;
   const list = _rows.map((r, i) =>
-    `<button type="button" class="slash-row${i === _sel ? ' sel' : ''}" data-i="${i}" role="option"><span class="slash-cmd">${safeText(r.label)}</span><span class="slash-hint">${safeText(r.hint || '')}</span></button>`,
+    `<button type="button" class="slash-row${i === _sel ? ' sel' : ''}${r.disabled ? ' disabled' : ''}" data-i="${i}" role="option"${r.disabled ? ' aria-disabled="true"' : ''}><span class="slash-cmd">${safeText(r.label)}</span><span class="slash-hint">${safeText(r.hint || '')}</span></button>`,
   ).join('');
   m.innerHTML = list + (_info ? `<div class="slash-info">${safeText(_info)}</div>` : '');
   m.hidden = false;

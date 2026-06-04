@@ -2,22 +2,35 @@
 
 import { buildApprovedActionBody, toObj } from './handlers-config.js';
 import { composerAttachmentsFor } from './render-session-parts.js';
-import { renderAlert } from './dom.js';
+import { renderAlert, safeNavigate } from './dom.js';
 import { normalizeExecutorType } from './executor.js';
 import { api } from './api.js';
 import { refresh } from './controller.js';
 import { shell } from './state.js';
 import { isLiveLaneState } from './render-helpers.js';
+import { ensureRealSession } from './handlers-create.js';
 
 export async function handleOrchestratorMessage(event) {
   event.preventDefault();
-  const sessionId = event.currentTarget.dataset.sessionId;
+  let sessionId = event.currentTarget.dataset.sessionId;
   const payload = toObj(event.currentTarget);
   const message = String(payload.message || '').trim();
   const attachments = composerAttachmentsFor(sessionId).map((entry) => ({ name: entry.name, url: entry.url }));
   if (!message && !attachments.length) {
     renderAlert('Message or attachment is required.', 'bad');
     return;
+  }
+  // If this is a draft "New chat", create the real session now (first send) and
+  // switch to it, so an untouched chat never persists but a sent one does.
+  if (String(sessionId).startsWith('draft-')) {
+    // Stash the draft text under the (about-to-exist) real id so the migration in
+    // ensureRealSession carries it across, then promote.
+    shell.composerDrafts[sessionId] = message;
+    const realId = await ensureRealSession(sessionId);
+    if (!realId || realId === sessionId) return; // creation failed (alert already shown)
+    sessionId = realId;
+    const realSession = shell.sessions.find((s) => s.id === realId);
+    if (realSession?.route) safeNavigate(realSession.route);
   }
   const executorType = normalizeExecutorType(payload.executorType || 'codex');
   const model = String(payload.model || '').trim() || String(payload.modelPreset || '').trim() || null;

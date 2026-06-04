@@ -4,8 +4,156 @@
 // text, so Orca can advertise what each executor supports. All are pure aside
 // from the bounded, timed spawnSync probes (4s timeout, capped buffers).
 
-import { spawnSync } from 'node:child_process';
+import { spawnSync, spawn } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { normalizeExecutorType, safeArray } from './registry-utils.js';
+
+// Per-CLI slash-command metadata. The command EXISTENCE is detected dynamically
+// (grep the actual binary below); this only supplies the human description and how
+// each should behave in our NON-interactive dashboard (apply-local = a composer
+// config we set; dashboard-action = a real dashboard feature; send-to-agent = pass
+// the command to the agent as the prompt; interactive-only = TUI-only, shown but
+// not runnable headlessly). Curated from inspecting the codex/claude binaries.
+const SLASH_META = {
+  codex: {
+    model: { description: 'Pick the model (and reasoning effort)', mapping: 'apply-local' },
+    reasoning: { description: 'Set reasoning effort', mapping: 'apply-local' },
+    fast: { description: 'Fast / low-latency mode', mapping: 'apply-local' },
+    approvals: { description: 'Approval policy & sandbox level', mapping: 'apply-local' },
+    web: { description: 'Toggle live web search', mapping: 'apply-local' },
+    search: { description: 'Toggle web search', mapping: 'apply-local' },
+    new: { description: 'Start a new conversation', mapping: 'dashboard-action' },
+    clear: { description: 'Clear the conversation', mapping: 'dashboard-action' },
+    resume: { description: 'Resume a previous session', mapping: 'dashboard-action' },
+    diff: { description: 'Show the working-tree diff', mapping: 'dashboard-action' },
+    status: { description: 'Show current session config', mapping: 'dashboard-action' },
+    mcp: { description: 'List MCP servers & tools', mapping: 'dashboard-action' },
+    context: { description: 'Show context-window usage', mapping: 'dashboard-action' },
+    usage: { description: 'Show token usage & limits', mapping: 'dashboard-action' },
+    agents: { description: 'Browse subagents', mapping: 'dashboard-action' },
+    prompts: { description: 'Insert a saved prompt', mapping: 'dashboard-action' },
+    review: { description: 'Run a code review', mapping: 'send-to-agent' },
+    compact: { description: 'Summarize / compact context', mapping: 'send-to-agent' },
+    init: { description: 'Generate an AGENTS.md guide', mapping: 'send-to-agent' },
+    theme: { description: 'Change the TUI theme', mapping: 'interactive-only' },
+    logout: { description: 'Sign out', mapping: 'interactive-only' },
+    help: { description: 'List commands', mapping: 'interactive-only' },
+  },
+  claude: {
+    model: { description: 'Switch the model', mapping: 'apply-local' },
+    effort: { description: 'Set reasoning effort', mapping: 'apply-local' },
+    fast: { description: 'Toggle Fast mode', mapping: 'apply-local' },
+    clear: { description: 'Clear conversation, fresh context', mapping: 'dashboard-action' },
+    context: { description: 'Show context-window usage', mapping: 'dashboard-action' },
+    status: { description: 'Show session/account status', mapping: 'dashboard-action' },
+    usage: { description: 'Show plan usage & limits', mapping: 'dashboard-action' },
+    cost: { description: 'Show token/cost usage', mapping: 'dashboard-action' },
+    mcp: { description: 'View MCP servers & tools', mapping: 'dashboard-action' },
+    agents: { description: 'Manage custom agents', mapping: 'dashboard-action' },
+    memory: { description: 'View/edit CLAUDE.md memory', mapping: 'dashboard-action' },
+    config: { description: 'View/edit configuration', mapping: 'dashboard-action' },
+    permissions: { description: 'View/edit tool permissions', mapping: 'dashboard-action' },
+    export: { description: 'Export the transcript', mapping: 'dashboard-action' },
+    review: { description: 'Review the current diff / PR', mapping: 'send-to-agent' },
+    compact: { description: 'Summarize / compact context', mapping: 'send-to-agent' },
+    init: { description: 'Generate a CLAUDE.md', mapping: 'send-to-agent' },
+    'pr-comments': { description: 'Address PR comments', mapping: 'send-to-agent' },
+    plan: { description: 'Plan before changes', mapping: 'send-to-agent' },
+    resume: { description: 'Resume a conversation', mapping: 'interactive-only' },
+    rewind: { description: 'Rewind to a checkpoint', mapping: 'interactive-only' },
+    login: { description: 'Log in', mapping: 'interactive-only' },
+    logout: { description: 'Log out', mapping: 'interactive-only' },
+    vim: { description: 'Toggle vim keybindings', mapping: 'interactive-only' },
+    ide: { description: 'Connect to an IDE', mapping: 'interactive-only' },
+    doctor: { description: 'Diagnose the install', mapping: 'interactive-only' },
+    help: { description: 'Show help', mapping: 'interactive-only' },
+  },
+};
+
+const slashCommandCache = new Map();
+const slashWarming = new Set();
+// Grepping a big CLI binary for its "/cmd" tokens takes ~5s, so we NEVER do it on
+// the synchronous capabilities path. Instead detect lazily/async and persist the
+// result to disk keyed by binary path+size+mtime, so it runs at most once per
+// binary version (ever) and every later read is instant.
+const SLASH_DISK_CACHE = path.join(os.tmpdir(), 'orca-slash-commands-cache.json');
+let slashDiskCache = null;
+
+function loadSlashDisk() {
+  if (slashDiskCache) return slashDiskCache;
+  try { slashDiskCache = JSON.parse(fs.readFileSync(SLASH_DISK_CACHE, 'utf8')); } catch { slashDiskCache = {}; }
+  return slashDiskCache;
+}
+function saveSlashDisk(key, value) {
+  const cache = loadSlashDisk();
+  cache[key] = value;
+  try { fs.writeFileSync(SLASH_DISK_CACHE, JSON.stringify(cache)); } catch { /* best-effort */ }
+}
+
+function resolveBinaryAbsolutePath(binary) {
+  try {
+    const which = spawnSync('which', [String(binary)], { encoding: 'utf8', timeout: 3000 });
+    if (which.status !== 0) return null;
+    const first = which.stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)[0];
+    if (!first) return null;
+    const real = spawnSync('readlink', ['-f', first], { encoding: 'utf8', timeout: 3000 });
+    return real.status === 0 && real.stdout.trim() ? real.stdout.trim() : first;
+  } catch {
+    return null;
+  }
+}
+
+// Background, non-blocking grep that populates the in-memory + disk caches.
+function warmSlashCommands(type, abs, memKey, diskKey, meta) {
+  if (slashWarming.has(diskKey)) return;
+  slashWarming.add(diskKey);
+  const names = Object.keys(meta);
+  const pattern = `/(${names.map((n) => n.replace(/[^a-z0-9-]/gi, '')).join('|')})\\b`;
+  let out = '';
+  let child;
+  try {
+    child = spawn('grep', ['-aoE', pattern, abs], { windowsHide: true });
+  } catch { slashWarming.delete(diskKey); return; }
+  child.stdout?.on('data', (d) => { out += d; if (out.length > 96 * 1024 * 1024) { try { child.kill(); } catch { /* noop */ } } });
+  child.on('error', () => { slashWarming.delete(diskKey); });
+  child.on('close', () => {
+    try {
+      const found = new Set(out.split(/\r?\n/).map((s) => s.trim().replace(/^\//, '')).filter(Boolean));
+      const result = names
+        .filter((n) => found.has(n))
+        .map((n) => ({ command: `/${n}`, description: meta[n].description, mapping: meta[n].mapping }));
+      slashCommandCache.set(memKey, result);
+      saveSlashDisk(diskKey, result);
+    } catch { /* ignore */ }
+    slashWarming.delete(diskKey);
+  });
+  if (typeof child.unref === 'function') child.unref();
+}
+
+// Return a CLI's REAL slash commands (detected from the installed binary), with
+// description + dashboard mapping. SYNCHRONOUS and fast: serves from the in-memory
+// or disk cache, and kicks off a one-time background grep on a cold miss (returns
+// [] until that finishes, then it's cached forever for this binary version).
+export function detectSlashCommands(type, binary) {
+  const meta = SLASH_META[type];
+  if (!meta) return [];
+  const abs = resolveBinaryAbsolutePath(binary);
+  if (!abs) return [];
+  const memKey = `${type}:${abs}`;
+  if (slashCommandCache.has(memKey)) return slashCommandCache.get(memKey);
+  let stat;
+  try { stat = fs.statSync(abs); } catch { return []; }
+  const diskKey = `${type}|${abs}|${stat.size}|${Math.round(stat.mtimeMs)}`;
+  const disk = loadSlashDisk();
+  if (Array.isArray(disk[diskKey])) {
+    slashCommandCache.set(memKey, disk[diskKey]);
+    return disk[diskKey];
+  }
+  warmSlashCommands(type, abs, memKey, diskKey, meta);
+  return [];
+}
 
 export function getCliVersion(binary) {
   try {

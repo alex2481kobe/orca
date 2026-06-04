@@ -2397,6 +2397,8 @@ pre {
   text-align: left; width: 100%;
 }
 .slash-row:hover, .slash-row.sel { background: var(--hover); }
+.slash-row.disabled { color: var(--muted); cursor: default; opacity: 0.55; }
+.slash-row.disabled:hover { background: transparent; }
 .slash-cmd { font-variant-numeric: tabular-nums; }
 .slash-hint { color: var(--muted); font-size: 0.78rem; }
 .slash-info { color: var(--muted); font-size: 0.82rem; padding: 0.45rem 0.6rem; }
