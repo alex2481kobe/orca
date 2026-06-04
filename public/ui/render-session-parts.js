@@ -9,65 +9,6 @@ import { api } from './api.js';
 import { apiProviderOptions, cliExecutorOptions, normalizeExecutorType, defaultExecutorType, anyCliInstalled, defaultModelFor } from './executor.js';
 import { renderComposerConfig } from './composer-config.js';
 
-export function renderOrchestratorTerminal(project, session, lane) {
-  if (!lane) {
-    return `
-      <div class="orchestrator-terminal empty">
-        <div class="terminal-titlebar">
-          <span>Terminal</span>
-          <span class="tag">Idle</span>
-        </div>
-        <pre class="orchestrator-terminal-output">No active orchestrator process.</pre>
-      </div>
-    `;
-  }
-  const allLogs = Array.isArray(lane.logs) ? lane.logs : [];
-  const hiddenCount = Math.max(0, allLogs.length - 500);
-  const logs = allLogs.slice(-500);
-  const logText = logs.length
-    ? logs.map((entry) => {
-      const at = entry?.at ? formatMeta(entry.at) : '--:--:--';
-      return `[${at}] ${String(entry?.message || '')}`;
-    }).join('\n')
-    : 'Waiting for process output...';
-  const route = laneDetailRoute(project, session, lane);
-  const stopButton = isLiveLaneState(lane.state)
-    ? `<button data-action="stopLane" data-lane-id="${safeAttr(lane.id)}" type="button">Stop</button>`
-    : '';
-  const restartButton = (isLiveLaneState(lane.state) || isRestartableLaneState(lane.state))
-    ? `<button class="secondary" data-action="restartLane" data-lane-id="${safeAttr(lane.id)}" type="button">Restart</button>`
-    : '';
-  const openLane = route ? `<a class="secondary" href="${safeAttr(route)}">Open lane</a>` : '';
-  const artifactBase = `/artifacts/${encodeURIComponent(lane.sessionId)}/${encodeURIComponent(lane.id)}`;
-  const terminalLinks = `
-    <a class="secondary" href="${artifactBase}/terminal.log" target="_blank" rel="noopener noreferrer">Full log</a>
-    <a class="secondary" href="${artifactBase}/stdout.log" target="_blank" rel="noopener noreferrer">stdout</a>
-    <a class="secondary" href="${artifactBase}/stderr.log" target="_blank" rel="noopener noreferrer">stderr</a>
-  `;
-  const processMeta = lane.processMeta
-    ? `PID ${safeText(String(lane.processMeta.pid ?? 'n/a'))} / exit ${safeText(String(lane.processMeta.exitCode ?? 'running'))}`
-    : 'Process pending';
-  return `
-    <div class="orchestrator-terminal">
-      <div class="terminal-titlebar">
-        <div>
-          <span>${safeText(lane.title || 'Orchestrator lane')}</span>
-          <div class="tiny muted">${safeText(lane.executorType)} | ${processMeta}</div>
-        </div>
-        <div class="lane-row">
-          ${stateBadge(lane.state)}
-          ${openLane}
-          ${terminalLinks}
-          ${stopButton}
-          ${restartButton}
-        </div>
-      </div>
-      ${renderAgentEventTimeline(lane, { limit: 80 })}
-      <pre class="orchestrator-terminal-output">${hiddenCount ? safeText(`[Showing latest 500 of ${allLogs.length} stored log entries. Open Full log for raw terminal output.]\n`) : ''}${safeText(logText)}</pre>
-    </div>
-  `;
-}
-
 export function renderApprovalRows(lane) {
   const pending = (lane.pendingApprovals || []).filter((entry) => entry.status === 'pending');
   if (!pending.length) return '';

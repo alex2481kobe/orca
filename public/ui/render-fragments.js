@@ -227,64 +227,6 @@ export function restoreContentUiState(state) {
   }
 }
 
-export function renderLaneCard(lane) {
-  const artifactsLink = `/api/lanes/${lane.id}/artifacts`;
-  const evidenceLatestUrl = `/api/lanes/${lane.id}/evidence/latest`;
-  const lanePendingAudits = pendingAuditsForLane(lane.id);
-  const auditQueuedBadge = lanePendingAudits.length
-    ? `<span class="tag warn">Audit queued (${lanePendingAudits.length})</span>`
-    : '';
-  const laneAuditWarning = lanePendingAudits.length
-    ? `<div class="tiny">Pending audit event${lanePendingAudits.length > 1 ? 's' : ''}: ${
-      lanePendingAudits.map((event) => event.id.slice(0, 8)).join(', ')
-    }</div>`
-    : '';
-  const stopButton = ['running', 'starting', 'queued'].includes(lane.state)
-    ? `<button data-action="stopLane" data-lane-id="${safeAttr(lane.id)}" title="${safeAttr(getActionPolicy('stopLane').message)}" type="button">Stop lane</button>` : '';
-  const retryButton = ['failed', 'stopped'].includes(lane.state)
-    ? `<button class="secondary" data-action="retryLane" data-lane-id="${safeAttr(lane.id)}" title="${safeAttr(getActionPolicy('retryLane').message)}" type="button">Retry lane</button>` : '';
-  const laneLink = lane.route ? `<a class="secondary" href="${safeAttr(lane.route)}">Lane detail</a>` : '';
-  const auditLabel = lanePendingAudits.length ? 'Audit already queued' : 'Audit now';
-  return `
-      <article class="lane-list-item click-card" data-href="${safeAttr(lane.route || '')}" tabindex="0" role="link" aria-label="Open lane ${safeAttr(lane.title)}">
-        <div class="row">
-          <h4>${safeText(lane.title)}</h4>
-          ${stateBadge(lane.state)}
-          ${auditQueuedBadge}
-      </div>
-      <p>${safeText(lane.taskDescription || lane.taskPrompt || 'No task description yet.')}</p>
-      <div class="card-meta">
-        <span>${safeText(lane.executorType)}</span>
-        <span>${safeText(lane.owner)}</span>
-        <span>${safeText((lane.mcpTools || []).length)} MCP</span>
-        <span>${safeText(formatRelative(lane.updatedAt || lane.startedAt))}</span>
-      </div>
-      ${laneAuditWarning}
-      <div class="lane-row">
-        ${stopButton}
-        ${retryButton}
-        <button class="secondary" data-action="captureEvidence" data-lane-id="${safeAttr(lane.id)}" type="button">Capture evidence</button>
-        <button class="secondary" data-action="auditLane" data-lane-id="${safeAttr(lane.id)}" type="button">${auditLabel}</button>
-      </div>
-      <details class="disclosure compact-disclosure">
-        <summary>More</summary>
-        <div class="tiny">
-          Started: ${formatMeta(lane.startedAt)} · Heartbeat: ${formatMeta(lane.heartbeatAt)} · Last evidence: ${safeText(lane.lastEvidenceCaptureAt || 'never')} (${safeText(lane.lastEvidence?.status || 'not captured')})
-        </div>
-        <div class="muted tiny">Path: ${safeText(lane.artifactPath || '')}</div>
-        <div class="lane-row">
-          ${laneLink}
-          <button class="secondary" data-action="clearEvidence" data-lane-id="${safeAttr(lane.id)}" type="button">Clear evidence</button>
-          <button class="secondary" data-action="showArtifacts" data-lane-id="${safeAttr(lane.id)}" type="button">Artifacts</button>
-          <a class="secondary" href="${artifactsLink}" target="_blank" rel="noopener noreferrer">Artifact API</a>
-          <a class="secondary" href="${evidenceLatestUrl}" target="_blank" rel="noopener noreferrer">Latest evidence</a>
-        </div>
-      </details>
-      <div id="lane-artifacts-${lane.id}" class="tiny"></div>
-    </article>
-  `;
-}
-
 export function activeOrchestratorLaneForSession(session) {
   const thread = session?.orchestratorThread || {};
   if (thread.activeLaneId) {
@@ -363,10 +305,6 @@ export function runModeOptions(selected = 'auto-edit') {
     ['acceptEdits', 'Accept edits'],
     ['bypassPermissions', 'Bypass permissions'],
   ].map(([value, label]) => `<option value="${safeAttr(value)}"${normalized === value ? ' selected' : ''}>${safeText(label)}</option>`).join('');
-}
-
-export function modelControlOptions(selected = '') {
-  return modelPresetOptions(selected || '');
 }
 
 // --- Dynamic per-executor control options --------------------------------

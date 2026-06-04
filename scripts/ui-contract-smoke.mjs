@@ -35,7 +35,6 @@ const WIRED_ACTIONS = new Set([
   'newProject',
   'ackAuditEvent',
   'applyAppImport',
-  'archiveProject',
   'archiveSession',
   'auditDone',
   'auditLane',

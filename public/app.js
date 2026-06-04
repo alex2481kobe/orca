@@ -10,7 +10,7 @@ import { readSidebarOrder, writeSidebarOrder, orderItems, moveId, toggleProjectE
 import { api, initializeApiToken, isTrustedAdminClientHost, browserAccessBlocked, setApiToken, currentActiveProject, clearProtectedWorkspaceState, lockClientAuthState, maybeLockFromResponse } from './ui/api.js';
 import { stateTagClass, getActionPolicy, needsApproval, confirmHighRiskAction, pendingAuditsForLane, pendingAuditsForSession, laneDetailRoute, isVerificationProject, activeHomePanel, renderBreadcrumbs, renderTopbarTitle, agentEventTone, agentEventLabel, isLiveLaneState, isRestartableLaneState, executorCapabilitiesFor, renderExecutorCapabilities, capabilityList } from './ui/render-helpers.js';
 import { renderHome } from './ui/render-home.js';
-import { renderLaneExecutorGuidance, repopulateExecutorScopedControls, captureContentUiState, restoreContentUiState, renderAccessGate, renderProject, renderLaneCard, renderAgentEventTimeline, modelPresetOptions, intelligenceOptions, runModeOptions, modelControlOptions, renderOrchestratorTerminal, renderApprovalRows, renderSessionApprovals, composerAttachmentsFor, renderComposerAttachmentChips, refreshComposerAttachments, readFileAsBase64, uploadComposerFiles, renderOrchestratorConsole, renderExecutorLanePanelItem, renderExecutorSidePanel, activeOrchestratorLaneForSession, renderSession, renderLane, renderAuditLog, loadEvidenceGallery, render, renderStatusStrip, renderBlockers, renderSidebarProjects, renderMobileManifest } from './ui/render-views.js';
+import { renderLaneExecutorGuidance, repopulateExecutorScopedControls, captureContentUiState, restoreContentUiState, renderAccessGate, renderProject, renderAgentEventTimeline, modelPresetOptions, intelligenceOptions, runModeOptions, renderApprovalRows, renderSessionApprovals, composerAttachmentsFor, renderComposerAttachmentChips, refreshComposerAttachments, readFileAsBase64, uploadComposerFiles, renderOrchestratorConsole, renderExecutorLanePanelItem, renderExecutorSidePanel, activeOrchestratorLaneForSession, renderSession, renderLane, renderAuditLog, loadEvidenceGallery, render, renderStatusStrip, renderBlockers, renderSidebarProjects, renderMobileManifest } from './ui/render-views.js';
 import { refresh, showArtifacts, parseRoute, connectEventStream, startPolling } from './ui/controller.js';
 import { handlePrivateAccessSettings, handleNotificationSettings, handleNotificationAction, handleCreatePrivateAccessTarget, handlePrivateAccessAction, handleProviderAction, handleAppBackupAction, handleCleanupSchedule, handleCreateMcpTool, handleCreateSession, handleAddProjectQuickLink, handleCreateLane, handleOrchestratorMessage, handleLaneControlsUpdate, handleAuditEventAction, handleWorkstationPicker, handleNewSession, handleNewProject, ensureRealSession, buildCleanupScheduleBody, buildMcpToolBody, buildApprovedActionBody, toObj } from './ui/handlers.js';
 import { handleLaneActions, handleSessionActions, handleSystemActions } from './ui/handlers-actions.js';
@@ -44,8 +44,6 @@ const STICKY_INTERACTIVE_SELECTOR = [
   '.sidebar-thread',
   '.sidebar-compose',
   '.sidebar-archive',
-  '.sidebar-project-archive',
-  '.sidebar-project-rename',
   '.sidebar-rename',
   '.sidebar-project-group',
   '.sidebar-project-line',
@@ -607,7 +605,6 @@ document.addEventListener('click', async (event) => {
     'deleteProjectQuickLink',
     'refreshExecutorCli',
     'reinstallExecutorCli',
-    'archiveProject',
     'archiveSession',
     'restoreProject',
     'restoreSession',

@@ -47,7 +47,6 @@ const WIRED_ACTIONS = new Set([
   'newProject',
   'ackAuditEvent',
   'applyAppImport',
-  'archiveProject',
   'deleteSessionPermanent',
   'deleteProjectPermanent',
   'setupTailscaleServe',

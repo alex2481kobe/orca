@@ -72,7 +72,6 @@ export const refs = {
   statusStrip: document.getElementById('status-strip'),
   blockers: document.getElementById('blockers'),
   sidebarProjects: document.getElementById('sidebar-projects'),
-  topbarSubtitle: document.getElementById('topbar-subtitle'),
   topbarTitle: document.getElementById('topbar-title'),
   pickerOverlay: document.getElementById('picker-overlay'),
 };

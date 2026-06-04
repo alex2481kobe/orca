@@ -489,31 +489,8 @@ export async function handleSystemActions(event) {
     return;
   }
 
-  if (action === 'archiveProject') {
-    const projectId = event.currentTarget.dataset.projectId;
-    const projectName = event.currentTarget.dataset.projectName || 'this project';
-    if (!projectId) return;
-    // Single confirm only — buildApprovedActionBody already prompts.
-    const approval = await buildApprovedActionBody('updateProject', `Archive ${projectName}? It leaves the default list but its saved state is kept.`);
-    if (!approval.approved) {
-      renderAlert('Project archive canceled.');
-      return;
-    }
-    const response = await api(`/api/projects/${projectId}`, {
-      method: 'PATCH',
-      body: {
-        actor: approval.actor,
-        approved: approval.approved,
-        state: 'archived',
-      },
-    });
-    if (response.ok) {
-      renderAlert('Project archived.');
-      safeNavigate('/#projects');
-      return;
-    }
-    renderAlert(response.status === 401 ? authRequiredMessage() : (response.data?.error || 'Could not archive project.'), 'bad');
-  }
+  // Projects are never archived — only sessions/chats are. (No archiveProject
+  // action is rendered; the handler was removed so the capability can't exist.)
 
   if (action === 'renameProject') {
     const projectId = event.currentTarget.dataset.projectId;
