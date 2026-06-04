@@ -6,7 +6,7 @@ import { safeAttr, safeText } from './format.js';
 import { api, browserAccessBlocked, setApiToken } from './api.js';
 import { isVerificationProject, renderBreadcrumbs, renderTopbarTitle } from './render-helpers.js';
 import { renderHome } from './render-home.js';
-import { renderProject, renderWorkstationPickerPanel } from './render-project.js';
+import { renderWorkstationPickerPanel } from './render-project.js';
 import { loadEvidenceGallery, renderAuditLog, renderLane } from './render-lane.js';
 import { renderSession } from './render-session.js';
 import { restoreContentUiState } from './render-fragments.js';
@@ -182,7 +182,13 @@ export function render(uiState = null) {
   if (!project) {
     renderHome();
   } else if (!session) {
-    renderProject(project);
+    // Codex-style: opening a project drops straight into a NEW chat (the empty
+    // composer), not a create-session form. Reuse one stable draft per project so
+    // background polls don't spawn duplicates or reset what's being typed.
+    shell.draftSessions = shell.draftSessions || {};
+    let draft = Object.values(shell.draftSessions).find((d) => d && d.projectId === project.id);
+    if (!draft) { draft = makeDraftSession(project); shell.draftSessions[draft.id] = draft; }
+    renderSession(project, draft);
   } else if (shell.route.laneId) {
     writeHtml(refs.content, renderLane(project, session, lane));
     if (lane) loadEvidenceGallery(lane.id);

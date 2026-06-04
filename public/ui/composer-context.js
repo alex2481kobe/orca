@@ -39,6 +39,9 @@ export function hydrateComposerContext(session) {
   const mount = document.getElementById(`composer-context-${sid}`);
   if (!mount) return;
   shell.gitInfo = shell.gitInfo || {};
+  // A draft chat has no server-side session yet, so don't fetch its git info
+  // (it would 404). Git context appears once the chat is real (first message).
+  if (String(sid).startsWith('draft-')) return;
   if (!(sid in shell.gitInfo)) {
     shell.gitInfo[sid] = null; // mark in-flight so we fetch only once
     api(`/api/sessions/${sid}/git`).then((res) => {

@@ -142,30 +142,36 @@ async function run() {
       const m = /(?:^|;\s*)([^=]+)=([^;]+)/.exec(cookie);
       if (m) await ctx.addCookies([{ name: m[1].trim(), value: m[2].trim(), url: base }]);
     }
+    // ---- Case 2a: a settings <details> stays open across background refresh.
+    const settings = await ctx.newPage();
+    await settings.goto(new URL('/#system', base).toString(), { waitUntil: 'networkidle', timeout: 20000 });
+    await waitForApp(settings);
+    const firstSummary = await settings.evaluate(() => {
+      const d = document.querySelector('#content details');
+      return d ? (d.querySelector('summary')?.textContent || '').replace(/\s+/g, ' ').trim() : null;
+    });
+    if (!firstSummary) fail('settings view: no <details> disclosure found');
+    await settings.evaluate(() => document.querySelector('#content details > summary')?.click());
+    if ((await detailsOpenState(settings, firstSummary)) !== true) fail('settings view: disclosure did not open');
+    await settings.evaluate(() => document.activeElement && document.activeElement.blur());
+    await settings.waitForTimeout(POLL_WAIT_MS);
+    if ((await detailsOpenState(settings, firstSummary)) !== true) fail('REGRESSION: settings disclosure auto-closed after background refresh');
+    log('settings', `"${firstSummary}" disclosure still open after ${POLL_WAIT_MS}ms ✓`);
+    await settings.close();
+
+    // ---- Case 2b: the project chat composer keeps what's typed across refresh.
     const proj = await ctx.newPage();
     await proj.goto(new URL(route, base).toString(), { waitUntil: 'networkidle', timeout: 20000 });
     await waitForApp(proj);
-
-    const flowText = 'Agent flow';
-    if ((await detailsOpenState(proj, flowText)) === null) fail('project view: "Agent flow" disclosure not found');
-    await proj.evaluate((t) => {
-      const all = Array.from(document.querySelectorAll('#content details'));
-      const d = all.find((x) => (x.querySelector('summary')?.textContent || '').includes(t));
-      d.querySelector('summary').click();
-    }, flowText);
-    if ((await detailsOpenState(proj, flowText)) !== true) fail('project view: disclosure did not open');
-    log('project', 'disclosure opened');
-
-    // Type a session name to verify input persistence on a dynamic view too.
-    await proj.fill('#create-session-form input[name="name"]', 'persisted session name');
+    const composerSel = '#orchestrator-message-form textarea[name="message"]';
+    if (!(await proj.$(composerSel))) fail('project chat: composer textarea not found');
+    await proj.fill(composerSel, 'persisted composer draft');
     await proj.evaluate(() => document.activeElement && document.activeElement.blur());
     if (await proj.evaluate(() => !!document.activeElement?.closest?.('.ops-main'))) fail('test setup: focus still inside content; refreshes would be suppressed');
     await proj.waitForTimeout(POLL_WAIT_MS);
-
-    if ((await detailsOpenState(proj, flowText)) !== true) fail('REGRESSION: project-view disclosure auto-closed after background refresh');
-    const nameVal = await proj.inputValue('#create-session-form input[name="name"]');
-    if (nameVal !== 'persisted session name') fail(`REGRESSION: session name reverted to "${nameVal}"`);
-    log('project', `disclosure still open + input retained after ${POLL_WAIT_MS}ms ✓`);
+    const draftVal = await proj.inputValue(composerSel);
+    if (draftVal !== 'persisted composer draft') fail(`REGRESSION: composer draft reverted to "${draftVal}"`);
+    log('project', `composer draft retained after ${POLL_WAIT_MS}ms ✓`);
     await proj.close();
     await ctx.close();
   } finally {

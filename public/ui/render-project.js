@@ -1,10 +1,7 @@
 // Render view module (split from render-views.js).
 
-import { refs, shell } from './state.js';
-import { formatRelative, latestTimestamp, safeAttr, safeText } from './format.js';
-import { clientUrl, safeHref, writeHtml } from './dom.js';
-import { effectiveProjectQuickLinkUrl, quickLinkHealthLabel } from './access-mode.js';
-import { leaderOptions } from './executor.js';
+import { shell } from './state.js';
+import { safeAttr, safeText } from './format.js';
 
 const PICKER_FOLDER_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.2h6a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/></svg>';
 const PICKER_CHEVRON = '<svg class="picker-chevron" viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5l5 5-5 5"/></svg>';
@@ -48,51 +45,4 @@ export function renderWorkstationPickerPanel(forInput) {
         </div>
       </div>
     </div>`;
-}
-
-export function renderProject(project) {
-  writeHtml(refs.content, `
-    <section class="create-shell">
-      <div class="create-card">
-        <header class="create-head">
-          <h2>New session</h2>
-          <div class="tiny muted">${safeText(project.name)}</div>
-        </header>
-        <form id="create-session-form" data-project-id="${safeAttr(project.id)}">
-          <label>Session name
-            <input name="name" required placeholder="What is this session about?" />
-          </label>
-          <label>Leader
-            <select name="leader">${leaderOptions('codex')}</select>
-          </label>
-          <label>Max parallel lanes
-            <input name="laneConcurrencyLimit" type="number" min="1" max="64" value="1" />
-          </label>
-          <details class="disclosure compact-disclosure">
-            <summary><span>Agent flow</span></summary>
-            <div class="disclosure-body">
-              <label>Flow
-                <select name="flowTemplate">
-                  <option value="orchestrator-executor">Orchestrator → executor → orchestrator</option>
-                  <option value="orchestrator-executor-audit">Orchestrator → executor → audit → orchestrator</option>
-                  <option value="orchestrator-only">Orchestrator only (no executors)</option>
-                </select>
-              </label>
-              <label>On fix request, send work to
-                <select name="flowFixRouting">
-                  <option value="same-agent">The same agent (retry)</option>
-                  <option value="new-agent">A fresh agent (new lane)</option>
-                </select>
-              </label>
-              <label>Max audit to fix loops
-                <input name="flowMaxAuditLoops" type="number" min="0" max="10" value="2" />
-              </label>
-              <label class="check-row"><span>Require an audit to pass before returning to the orchestrator</span><input type="checkbox" name="flowRequireAuditPass" checked /></label>
-            </div>
-          </details>
-          <button type="submit">Create session</button>
-        </form>
-      </div>
-    </section>
-  `);
 }

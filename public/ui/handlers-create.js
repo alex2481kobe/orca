@@ -113,46 +113,9 @@ export async function createProjectFromFolder(folder) {
   }
 }
 
-export async function handleCreateSession(event) {
-  event.preventDefault();
-  const projectId = event.currentTarget.dataset.projectId;
-  const payload = toObj(event.currentTarget);
-  const approval = await buildApprovedActionBody(
-    'createSession',
-    `Create session "${String(payload.name || '').trim() || 'new session'}" for this project?`,
-  );
-  if (!approval.approved) {
-    renderAlert('Session creation canceled.');
-    return;
-  }
-  // Agent-flow config from the form -> layered settingsOverrides.flow.
-  const flow = {};
-  if (payload.flowTemplate) flow.template = String(payload.flowTemplate);
-  if (payload.flowAuditTier) flow.auditTier = String(payload.flowAuditTier);
-  if (payload.flowFixRouting) flow.fixRouting = String(payload.flowFixRouting);
-  if (payload.flowMaxAuditLoops !== undefined && payload.flowMaxAuditLoops !== '') {
-    flow.maxAuditLoops = Number(payload.flowMaxAuditLoops);
-  }
-  flow.requireAuditPass = payload.flowRequireAuditPass === 'on' || payload.flowRequireAuditPass === true;
-  const response = await api(`/api/projects/${projectId}/sessions`, {
-    method: 'POST',
-    body: {
-      name: payload.name,
-      leader: payload.leader,
-      laneConcurrencyLimit: payload.laneConcurrencyLimit ? Number(payload.laneConcurrencyLimit) : 1,
-      ...(payload.repoRoot && String(payload.repoRoot).trim() ? { repoRoot: String(payload.repoRoot).trim() } : {}),
-      ...(Object.keys(flow).length ? { settingsOverrides: { flow } } : {}),
-      actor: approval.actor,
-      approved: approval.approved,
-    },
-  });
-  if (response.ok) {
-    renderAlert('Session created.');
-    await refresh();
-  } else {
-    renderAlert(response.data?.error || 'Session creation failed.', 'bad');
-  }
-}
+// Sessions are created by opening a project (a draft chat) and sending the first
+// message — see createEmptyChat / ensureRealSession. There is no separate
+// create-session form anymore.
 
 export async function handleAddProjectQuickLink(event) {
   event.preventDefault();

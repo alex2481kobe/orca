@@ -69,21 +69,6 @@ export function apiProviderOptions() {
     .join('');
 }
 
-export function leaderOptions(selected = 'codex') {
-  const profiles = shell.executorProfiles || {};
-  const normalized = normalizeExecutorType(selected);
-  const titleCase = (id) => id.split(/[-_]/).map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ');
-  const available = FIRST_CLASS_CLI_EXECUTOR_TYPES.filter((id) => profiles[id]);
-  // Fall back to the full first-class list before profiles have loaded so the
-  // leader select is never empty (and never a stale hardcoded pair).
-  const ids = available.length ? available : [...FIRST_CLASS_CLI_EXECUTOR_TYPES];
-  const cliOpts = ids
-    .map((id) => `<option value="${safeAttr(id)}"${normalized === id ? ' selected' : ''}>${safeText(titleCase(id))}-led</option>`)
-    .join('');
-  const mixedSelected = normalized === 'mixed' ? ' selected' : '';
-  return `${cliOpts}<option value="mixed"${mixedSelected}>Mixed</option>`;
-}
-
 // "Installed" means the CLI's binary was actually detected on the workstation.
 export function isExecutorInstalled(type) {
   return Boolean(getExecutorProfile(type)?.capabilities?.binaryExists);
