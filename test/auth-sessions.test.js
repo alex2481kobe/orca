@@ -84,3 +84,33 @@ test('pairing codes expire and reject malformed values', async () => {
     await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
   }
 });
+
+test('workstation (trusted) sessions never pile up: only the newest is kept, paired devices preserved', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-auth-trust-'));
+  const stateFile = path.join(tempDir, 'auth.json');
+  try {
+    const store = new AuthSessionStore({ stateFile, pairingTtlMs: 60000, sessionTtlMs: 60000 });
+    // A real paired remote device.
+    const pairing = store.createPairingCode({ actor: 'test', label: 'phone' });
+    store.consumePairingCode(pairing.code, { label: 'Alex phone', userAgent: 'ua' });
+    // Many cookie-less workstation loads each mint a trusted session.
+    for (let i = 0; i < 8; i += 1) store.createTrustedSession({ label: 'Workstation browser', userAgent: 'hc' });
+    const sessions = store.listSessions();
+    const workstation = sessions.filter((s) => s.kind === 'workstation');
+    const paired = sessions.filter((s) => s.paired);
+    assert.equal(workstation.length, 1, 'only one workstation session retained');
+    assert.equal(paired.length, 1, 'the paired remote device is preserved');
+
+    // A reload prunes any pre-existing pile down to one workstation session.
+    store.state.sessions.unshift(...Array.from({ length: 5 }, (_, i) => ({
+      id: `legacy-${i}`, tokenHash: `h${i}`, label: 'Workstation browser',
+      createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60000).toISOString(),
+      revokedAt: null, pairedFromId: null, userAgent: 'hc', remoteAddress: '',
+    })));
+    store.pruneTrustedSessions({ persist: false });
+    assert.equal(store.listSessions().filter((s) => s.kind === 'workstation').length, 1, 'prune collapses the pile');
+    assert.equal(store.listSessions().filter((s) => s.paired).length, 1, 'paired still preserved after prune');
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});

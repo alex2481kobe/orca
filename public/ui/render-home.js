@@ -241,14 +241,18 @@ export function renderHome() {
   const primaryProjectCards = shell.projects.filter((project) => !isVerificationProject(project)).map(renderProjectCard).join('');
   const verificationProjects = shell.projects.filter(isVerificationProject);
   const verificationProjectCards = verificationProjects.map(renderProjectCard).join('');
-  const authSessionRows = (Array.isArray(shell.authSessions) ? shell.authSessions : []).map((session) => `
-    <div class="provider-row">
-      <div>
-        <strong>${safeText(session.label || 'Paired browser')}</strong>
-        <div class="tiny muted">${session.active ? 'active' : 'inactive'} · created ${safeText(formatRelative(session.createdAt))} · expires ${safeText(formatRelative(session.expiresAt))}</div>
-        ${session.userAgent ? `<div class="tiny muted">${safeText(session.userAgent)}</div>` : ''}
+  // Only real paired REMOTE devices appear here — the local workstation browser
+  // (token bootstrap, pairedFromId null) is not a "paired device".
+  const authSessionRows = (Array.isArray(shell.authSessions) ? shell.authSessions : [])
+    .filter((session) => session && (session.paired || session.pairedFromId))
+    .map((session) => `
+    <div class="provider-row device-row">
+      <div class="device-row-info">
+        <strong>${safeText(session.label || 'Paired device')}</strong>
+        <div class="tiny muted">${session.active ? 'active' : 'inactive'} · paired ${safeText(formatRelative(session.createdAt))} · expires ${safeText(formatRelative(session.expiresAt))}</div>
+        ${session.userAgent ? `<div class="tiny muted device-row-ua">${safeText(session.userAgent)}</div>` : ''}
       </div>
-      <button class="secondary" data-action="revokeBrowserSession" data-session-id="${safeAttr(session.id)}" type="button" ${session.active ? '' : 'disabled'}>Revoke</button>
+      <button class="device-revoke" data-action="revokeBrowserSession" data-session-id="${safeAttr(session.id)}" type="button" ${session.active ? '' : 'disabled'}>Revoke</button>
     </div>
   `).join('');
   const desktopBootstrap = shell.lastDesktopBootstrap || null;

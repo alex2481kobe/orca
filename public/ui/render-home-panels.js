@@ -67,7 +67,7 @@ export function renderPairPanel(ctx) {
           <div class="tiny muted">On the laptop/phone access screen, paste the code to pair that browser. Paired devices get workflow access; API tokens stay on trusted admin browsers only.</div>
         </div>
         <details class="disclosure compact-disclosure">
-          <summary><span>Paired devices</span><small>${safeText((shell.authSessions || []).length)} session${(shell.authSessions || []).length === 1 ? '' : 's'}</small></summary>
+          <summary><span>Paired devices</span><small>${safeText((shell.authSessions || []).filter((s) => s && (s.paired || s.pairedFromId)).length)} session${(shell.authSessions || []).filter((s) => s && (s.paired || s.pairedFromId)).length === 1 ? '' : 's'}</small></summary>
           <div class="disclosure-body">${authSessionRows || '<div class="muted">No paired browser sessions yet.</div>'}</div>
         </details>
         <div class="lane-row">
@@ -180,7 +180,7 @@ export function renderSetupPanel(ctx) {
           </div>
         </details>
         <details class="disclosure compact-disclosure" open>
-          <summary><span>Paired devices</span><small>${safeText((shell.authSessions || []).length)} session${(shell.authSessions || []).length === 1 ? '' : 's'}</small></summary>
+          <summary><span>Paired devices</span><small>${safeText((shell.authSessions || []).filter((s) => s && (s.paired || s.pairedFromId)).length)} session${(shell.authSessions || []).filter((s) => s && (s.paired || s.pairedFromId)).length === 1 ? '' : 's'}</small></summary>
           <div class="disclosure-body">${authSessionRows || '<div class="muted">No paired browser sessions yet.</div>'}</div>
         </details>
         <details class="disclosure compact-disclosure" open>
@@ -215,7 +215,7 @@ export function renderTokenPanel(ctx) {
           ${browserPaired ? '<button class="secondary" data-action="logoutBrowserSession" type="button">Log out paired browser</button>' : ''}
         </div>
         <details class="disclosure compact-disclosure" open>
-          <summary><span>Paired devices</span><small>${safeText((shell.authSessions || []).length)} session${(shell.authSessions || []).length === 1 ? '' : 's'}</small></summary>
+          <summary><span>Paired devices</span><small>${safeText((shell.authSessions || []).filter((s) => s && (s.paired || s.pairedFromId)).length)} session${(shell.authSessions || []).filter((s) => s && (s.paired || s.pairedFromId)).length === 1 ? '' : 's'}</small></summary>
           <div class="disclosure-body">${authSessionRows || '<div class="muted">No paired browser sessions yet.</div>'}</div>
         </details>
         <details class="disclosure compact-disclosure">
@@ -289,7 +289,7 @@ export function renderAccessPanel(ctx) {
               <div class="qr-wrap">${phoneQr}<span>Trusted setup QR</span></div>
             </div>
             <details class="disclosure compact-disclosure" open>
-              <summary><span>Paired devices</span><small>${safeText((shell.authSessions || []).length)} active</small></summary>
+              <summary><span>Paired devices</span><small>${safeText((shell.authSessions || []).filter((s) => s && (s.paired || s.pairedFromId)).length)} active</small></summary>
               <div class="disclosure-body">
                 <p class="tiny muted">Rotate session state by revoking old devices, clearing this browser token if needed, then creating a new one-time pairing code.</p>
                 ${authSessionRows || '<div class="muted">No paired browser sessions yet.</div>'}

@@ -78,6 +78,7 @@ export class AuthSessionStore {
         auditEvents: Array.isArray(parsed.auditEvents) ? parsed.auditEvents.slice(0, 300) : [],
       };
       this.pruneExpired({ persist: false });
+      this.pruneTrustedSessions({ persist: false });
       if (shouldAuditRecovery) {
         this.audit({
           type: 'auth_state_recovered',
@@ -128,6 +129,20 @@ export class AuthSessionStore {
     if (persist && (beforePairings !== this.state.pairingCodes.length || beforeSessions !== this.state.sessions.length)) {
       this.persist();
     }
+  }
+
+  // Collapse workstation (token-bootstrap, pairedFromId === null) sessions down to
+  // the single newest one. Real paired devices (pairedFromId set) are untouched.
+  // Cleans up phantom piles created before the createTrustedSession dedup landed.
+  pruneTrustedSessions({ persist = true } = {}) {
+    const trusted = this.state.sessions.filter((record) => record && !record.pairedFromId && !record.revokedAt);
+    if (trusted.length <= 1) return;
+    const keepId = trusted[0].id; // sessions are unshifted newest-first
+    const before = this.state.sessions.length;
+    this.state.sessions = this.state.sessions.filter(
+      (record) => record.pairedFromId || record.revokedAt || record.id === keepId,
+    );
+    if (persist && this.state.sessions.length !== before) this.persist();
   }
 
   createPairingCode({
@@ -226,6 +241,12 @@ export class AuthSessionStore {
       userAgent,
       remoteAddress,
     });
+    // Keep only ONE workstation (token-bootstrap) session. The cookie is re-minted
+    // on every cookie-less same-origin admin load, so without this it piles up
+    // phantom "Workstation browser" sessions that are NOT real paired devices.
+    this.state.sessions = this.state.sessions.filter(
+      (record) => record.id === session.record.id || record.pairedFromId !== null,
+    );
     this.audit({
       type: 'auth_session_created',
       actor: 'token-bootstrap',
@@ -276,6 +297,10 @@ export class AuthSessionStore {
       expiresAt: session.expiresAt,
       revokedAt: session.revokedAt || null,
       pairedFromId: session.pairedFromId || null,
+      // A real paired REMOTE device vs the local workstation browser (token
+      // bootstrap). The UI lists/counts only paired devices.
+      paired: Boolean(session.pairedFromId),
+      kind: session.pairedFromId ? 'paired' : 'workstation',
       userAgent: session.userAgent || '',
       active: !session.revokedAt && notExpired(session.expiresAt),
     };

@@ -170,7 +170,10 @@ export function render(uiState = null) {
 function updatePairLabel() {
   const label = document.querySelector('.sidebar-pair-label');
   if (!label) return;
-  const n = Array.isArray(shell.authSessions) ? shell.authSessions.length : 0;
+  // Count only real paired REMOTE devices — never the local workstation browser.
+  const n = Array.isArray(shell.authSessions)
+    ? shell.authSessions.filter((s) => s && (s.paired || s.pairedFromId)).length
+    : 0;
   label.textContent = n > 0 ? `Paired devices · ${n}` : 'Pair a device';
   const link = label.closest('.sidebar-pair-button');
   if (link) link.setAttribute('aria-label', n > 0 ? `${n} paired device${n === 1 ? '' : 's'} — pair another` : 'Pair a remote device');
