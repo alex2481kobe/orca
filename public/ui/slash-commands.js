@@ -45,6 +45,7 @@ const DASHBOARD = {
   usage: (form) => showInfo(form, usageText(form)),
   cost: (form) => showInfo(form, usageText(form)),
   mcp: (form) => showInfo(form, mcpText(form)),
+  agents: (form) => showInfo(form, agentsText(form)),
 };
 
 // Build the command rows from the selected agent's REAL detected slash commands
@@ -121,6 +122,21 @@ function usageText(form) {
   const u = lane?.tokenUsage || lane?.usage;
   if (u && (u.total || u.input || u.output)) return `Tokens — in ${u.input ?? '?'} / out ${u.output ?? '?'} / total ${u.total ?? '?'}`;
   return 'No token usage recorded yet for this session.';
+}
+// Dynamic, per-agent subagent/workflow info. An agent "supports subagents" when
+// it exposes the /agents command (codex, claude) or background-agent capability.
+// Subagents the agent spawns appear as executor lanes in the session.
+function agentsText(form) {
+  const ex = executorOf(form);
+  const ctrls = controlsOf(ex);
+  const supports = (ctrls.slashCommands || []).some((c) => c.command === '/agents') || ctrls.backgroundAgents?.supported;
+  const sid = form.dataset.sessionId;
+  const subs = (shell.lanes || []).filter((l) => l.sessionId === sid && l.owner !== 'orchestrator');
+  const spawned = subs.length ? ` Spawned so far: ${subs.slice(0, 8).map((l) => l.title || l.executorType).join(', ')}.` : ' None spawned yet.';
+  if (supports) {
+    return `${ex} can spawn subagents — just ask it in chat (e.g. "use subagents to parallelize this"). They run as lanes you can watch in the session panel.${spawned}`;
+  }
+  return `${ex} runs as a single agent (no separate subagents).${spawned}`;
 }
 function mcpText(form) {
   const lane = activeLane(form);
