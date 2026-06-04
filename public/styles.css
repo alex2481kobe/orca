@@ -33,12 +33,6 @@
   /* Dark ink for text/icons sitting on a light (--text / --accent-strong) fill,
      e.g. the primary button label. */
   --ink-on-light: #1a1a1a;
-  /* The usable viewport height. Defaults to dvh (correct in a normal browser,
-     where it tracks the toolbars). In an installed/standalone app JS overrides
-     this with visualViewport.height, because iOS WebKit's dvh is unreliable in
-     standalone and otherwise leaves content sized for the smaller browser
-     viewport — i.e. "shifted up" with dead space at the bottom. */
-  --app-height: 100dvh;
   --mono: "SFMono-Regular", "Cascadia Code", "Roboto Mono", Consolas, monospace;
 }
 
@@ -301,7 +295,7 @@ body.sidebar-collapsed .shell-toggle {
      notch/home-indicator. Subtracting them too made the shell ~80px short of the
      screen in a standalone app (content "shifted up", dead space at the bottom). */
   min-height: calc(100vh - var(--topbar-height));
-  min-height: calc(max(100dvh, var(--app-height)) - var(--topbar-height));
+  min-height: calc(100dvh - var(--topbar-height));
   max-width: none;
   margin: 0;
   padding: 0;
@@ -853,7 +847,7 @@ body.sidebar-collapsed .sidebar-project-line {
      insets live in the padding, NOT subtracted from the height — otherwise the
      box is ~80px short in a standalone app and content floats up. */
   min-height: calc(100vh - var(--topbar-height));
-  min-height: calc(max(100dvh, var(--app-height)) - var(--topbar-height));
+  min-height: calc(100dvh - var(--topbar-height));
   /* Top clears the notch/status bar; bottom clears the home indicator. */
   padding: calc(var(--topbar-height) + 2rem + var(--safe-area-top)) min(4vw, 3rem) calc(2rem + var(--safe-area-bottom));
 }
@@ -2131,10 +2125,14 @@ pre {
   }
   .ops-sidebar {
     position: fixed;
-    /* top:0 + bottom:0 pins the drawer to the FULL screen height with zero height
-       math — bulletproof vs dvh/visualViewport quirks. (An explicit height would
-       override `bottom:0` and could fall short, leaving a gap below Settings.) */
-    inset: 0 auto 0 0;
+    /* Anchor at the top and take the FULL viewport height. dvh is the full screen
+       in a standalone app and is what worked here before; an explicit height is
+       more reliable than relying on bottom:0 stretching, which wasn't filling in
+       the installed app's WebKit. */
+    top: 0;
+    left: 0;
+    height: 100vh;
+    height: 100dvh;
     width: min(82vw, 300px);
     z-index: 50;
     transform: translateX(-105%);
@@ -2407,7 +2405,7 @@ pre {
   display: flex;
   flex-direction: column;
   height: calc(100vh - var(--topbar-height));
-  height: calc(max(100dvh, var(--app-height)) - var(--topbar-height));
+  height: calc(100dvh - var(--topbar-height));
   min-height: 0;
 }
 .session-topbar {
@@ -2954,7 +2952,7 @@ button.home-cta { cursor: pointer; font: inherit; }
 .modal-confirm.danger:hover { background: #ff9d86; }
 
 /* ===== Home welcome (empty state when no project is open) ===== */
-.home-welcome { align-items: center; display: flex; justify-content: center; min-height: calc(max(100dvh, var(--app-height)) - var(--topbar-height) - 4rem); padding: 2rem; }
+.home-welcome { align-items: center; display: flex; justify-content: center; min-height: calc(100dvh - var(--topbar-height) - 4rem); padding: 2rem; }
 .home-welcome.is-hidden { display: none; }
 .home-hero { display: flex; flex-direction: column; align-items: center; gap: 0.65rem; text-align: center; }
 .home-hero-title { font-size: 2rem; font-weight: 600; letter-spacing: -0.02em; margin: 0; }

@@ -1,15 +1,14 @@
-// Standalone (installed-to-Home-Screen) shell behaviours. Two jobs:
+// Standalone (installed-to-Home-Screen) shell behaviours.
 //
-//  1. Accurate viewport height. iOS WebKit's `dvh` is unreliable in a standalone
-//     app — it can stay sized for the smaller in-browser viewport, leaving the
-//     layout "shifted up" with dead space at the bottom (no toolbar to hide it).
-//     We drive --app-height off visualViewport.height instead, which is always
-//     the true visible height. In a normal browser we DON'T touch it (the CSS
-//     default of 100dvh already tracks the toolbars correctly there).
+//  - Tags <body> with `is-standalone` so CSS can adapt.
+//  - Pull-to-refresh: a standalone app has no browser chrome, so it loses the
+//    native pull-to-refresh. We re-add a lightweight one that runs the app's own
+//    data refresh when the page is scrolled to the very top and pulled down.
 //
-//  2. Pull-to-refresh. A standalone app has no browser chrome, so it loses the
-//     native pull-to-refresh. We re-add a lightweight one that runs the app's own
-//     data refresh when the page is scrolled to the very top and pulled down.
+// Viewport height is handled entirely in CSS with 100dvh (the full screen in a
+// standalone app). We intentionally do NOT set a JS pixel height — measuring
+// innerHeight/visualViewport read short in the installed app and pushed the
+// layout up.
 
 import { refresh } from './controller.js';
 
@@ -23,43 +22,13 @@ function isStandalone() {
 export function initMobileShell() {
   const standalone = isStandalone();
   document.body.classList.toggle('is-standalone', standalone);
-  // Height + pull-to-refresh only matter in the installed app. A normal browser
-  // keeps native dvh + native pull-to-refresh.
+  // Layout height is handled purely in CSS with 100dvh now (it's the full screen
+  // in a standalone app and proved reliable here). We deliberately do NOT drive a
+  // JS pixel height off innerHeight/visualViewport — that read short in the
+  // installed app and pushed content up. JS only adds pull-to-refresh, which a
+  // standalone app lacks (a normal browser keeps its native one).
   if (!standalone) return;
-  setupAppHeight();
   setupPullToRefresh();
-}
-
-function setupAppHeight() {
-  const apply = () => {
-    // Use the FULL standalone screen height. innerHeight is the stable full-screen
-    // value in a standalone app; visualViewport.height shrinks when the keyboard is
-    // up and can be briefly wrong right after launch. Take the larger of the two so
-    // the layout always fills the screen (and never sticks at a too-short value that
-    // leaves a gap at the bottom / pushes content up).
-    const vv = window.visualViewport;
-    const h = Math.round(Math.max(window.innerHeight || 0, (vv && vv.height) || 0));
-    if (h > 0) document.documentElement.style.setProperty('--app-height', `${h}px`);
-  };
-  apply();
-  // Re-apply across every event that can follow a wrong first measurement: iOS
-  // reports a stale height for a few frames after launch, rotation, tab restore,
-  // and app foregrounding. The delayed ticks catch the launch race ("sometimes
-  // pushed up").
-  if (window.visualViewport) window.visualViewport.addEventListener('resize', apply);
-  window.addEventListener('resize', apply);
-  window.addEventListener('pageshow', apply);
-  window.addEventListener('focus', apply);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) apply(); });
-  window.addEventListener('orientationchange', () => {
-    apply();
-    window.setTimeout(apply, 200);
-    window.setTimeout(apply, 500);
-  });
-  window.setTimeout(apply, 100);
-  window.setTimeout(apply, 300);
-  window.setTimeout(apply, 600);
-  window.setTimeout(apply, 1200);
 }
 
 // The element that actually scrolls for the current view (the session thread has
