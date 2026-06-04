@@ -2536,7 +2536,7 @@ pre {
   justify-content: space-between; padding: 0.7rem 0.9rem; position: sticky; top: 0; z-index: 1;
 }
 .info-panel-head strong { font-size: 0.9rem; }
-.info-close { align-items: center; background: transparent; border: 0; border-radius: var(--radius-sm); color: var(--muted); cursor: pointer; display: inline-flex; height: 1.85rem; justify-content: center; padding: 0; width: 1.85rem; }
+.info-close { align-items: center; background: transparent; border: 0; border-radius: var(--radius-sm); color: var(--muted); cursor: pointer; display: inline-flex; height: 2.2rem; justify-content: center; padding: 0; width: 2.2rem; }
 .info-close:hover { background: var(--hover); color: var(--text); }
 .info-panel-body { display: flex; flex-direction: column; gap: 1.4rem; padding: 0.9rem; }
 .info-section { display: flex; flex-direction: column; gap: 0.5rem; }
@@ -2844,10 +2844,10 @@ button.home-cta { cursor: pointer; font: inherit; }
 }
 .picker-titlebar { align-items: center; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; padding: 0.85rem 1rem; }
 .picker-titlebar strong { font-size: 0.98rem; }
-.picker-x { align-items: center; background: transparent; border: 0; border-radius: var(--radius-sm); color: var(--muted); cursor: pointer; display: inline-flex; height: 1.9rem; justify-content: center; width: 1.9rem; }
+.picker-x { align-items: center; background: transparent; border: 0; border-radius: var(--radius-sm); color: var(--muted); cursor: pointer; display: inline-flex; height: 2.35rem; justify-content: center; width: 2.35rem; }
 .picker-x:hover { background: var(--hover); color: var(--text); }
 .picker-toolbar { align-items: center; background: var(--bg-soft, #262626); border-bottom: 1px solid var(--line); display: flex; gap: 0.5rem; padding: 0.5rem 0.85rem; }
-.picker-up { align-items: center; background: transparent; border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--text); cursor: pointer; display: inline-flex; flex: 0 0 auto; height: 1.85rem; justify-content: center; width: 1.95rem; }
+.picker-up { align-items: center; background: transparent; border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--text); cursor: pointer; display: inline-flex; flex: 0 0 auto; height: 2.35rem; justify-content: center; width: 2.35rem; }
 .picker-up:hover:not(:disabled) { background: var(--hover); }
 .picker-up:disabled { color: var(--muted); cursor: default; opacity: 0.4; }
 .picker-path { color: var(--muted); flex: 1 1 auto; font-size: 0.82rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
