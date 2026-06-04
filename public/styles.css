@@ -1154,13 +1154,6 @@ body.sidebar-collapsed .sidebar-project-line {
   font-size: 0.8rem;
 }
 
-.setup-list {
-  color: var(--muted);
-  line-height: 1.45;
-  margin: 0;
-  padding-left: 1.2rem;
-}
-
 .simple-section h3 {
   font-size: 1.12rem;
   margin: 0 0 0.35rem;
@@ -2084,6 +2077,9 @@ pre {
     z-index: 50;
     transform: translateX(-105%);
     transition: transform 0.18s ease-out;
+    /* No topbar on mobile anymore — don't reserve its height up top, or the
+       Orca/collapse row gets pushed down. Just clear the notch + a little air. */
+    padding-top: calc(env(safe-area-inset-top) + 0.5rem);
   }
   body.nav-open .ops-sidebar {
     transform: translateX(0);

@@ -1,6 +1,6 @@
 // Render view module (split from render-views.js).
 
-import { isLocalHostName, writeHtml } from './dom.js';
+import { isLocalHostName, writeHtml, installToHomeHint } from './dom.js';
 import { refs, shell, makeDraftSession } from './state.js';
 import { safeAttr, safeText } from './format.js';
 import { api, browserAccessBlocked, setApiToken } from './api.js';
@@ -19,6 +19,8 @@ export function renderAccessGate() {
   const narrowClient = window.matchMedia('(max-width: 880px)').matches;
   const workstationAdmin = isLocalHostName(window.location.hostname) && !narrowClient;
   const browserLabel = narrowClient ? 'phone browser' : 'laptop browser';
+  // Instruction tailored to the browser THIS device is on (null once installed).
+  const homeHint = installToHomeHint();
   if (!workstationAdmin) {
     // The "Connect to a workstation" URL step is only for the DOWNLOADED desktop
     // app (Tauri) or a desktop laptop — never a phone (a mobile browser already
@@ -68,10 +70,10 @@ export function renderAccessGate() {
               <span>3</span>
               <div><strong>Pair this browser</strong><small>Each browser on this device keeps its own session.</small></div>
             </div>
-            <div class="setup-step">
+            ${homeHint ? `<div class="setup-step">
               <span>4</span>
-              <div><strong>Add Orca to your Home Screen</strong><small>After pairing, in Safari tap Share, then "Add to Home Screen" to open Orca like an app. (Android: Chrome menu, then "Add to Home screen".)</small></div>
-            </div>
+              <div><strong>Add Orca to your Home Screen</strong><small>After pairing, open Orca like an app: ${safeText(homeHint)}</small></div>
+            </div>` : ''}
           </div>
           <div class="card">
             <h3>Use pairing code</h3>

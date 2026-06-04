@@ -81,6 +81,49 @@ export function isLocalHostName(hostname) {
   return ['localhost', '127.0.0.1', '::1'].includes(String(hostname || '').toLowerCase());
 }
 
+// Best-effort detection of the CURRENT device's browser + platform from the UA.
+// Used to show one accurate "Add to Home Screen" instruction for the browser the
+// user is actually on, instead of a generic iPhone/Android list. Order matters:
+// Edge/Samsung/Opera UAs all contain "Chrome", and Chrome's contains "Safari".
+export function detectBrowser() {
+  const nav = typeof navigator !== 'undefined' ? navigator : null;
+  const ua = (nav && nav.userAgent) || '';
+  const isIOS = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && (nav?.maxTouchPoints || 0) > 1);
+  const isAndroid = /Android/.test(ua);
+  let name = 'your browser';
+  if (/Edg(A|iOS)?\//.test(ua)) name = 'Edge';
+  else if (/SamsungBrowser/.test(ua)) name = 'Samsung Internet';
+  else if (/(OPR|Opera|OPT)\//.test(ua)) name = 'Opera';
+  else if (/Firefox\/|FxiOS/.test(ua)) name = 'Firefox';
+  else if (/CriOS\//.test(ua)) name = 'Chrome';
+  else if (/Chrome\//.test(ua)) name = 'Chrome';
+  else if (/Safari\//.test(ua)) name = 'Safari';
+  const platform = isIOS ? 'ios' : isAndroid ? 'android' : 'desktop';
+  // Already installed / launched from the Home Screen or as a standalone window.
+  const standalone = (nav && nav.standalone === true)
+    || (typeof window !== 'undefined' && window.matchMedia?.('(display-mode: standalone)')?.matches === true);
+  return { name, platform, isIOS, isAndroid, standalone };
+}
+
+// One sentence telling the user exactly how to install Orca in the browser they
+// are CURRENTLY using. Returns null when it's already installed (nothing to do).
+export function installToHomeHint() {
+  const { name, platform, standalone } = detectBrowser();
+  if (standalone) return null;
+  if (platform === 'ios') {
+    // On iOS every browser shares WebKit; install goes through the Share sheet.
+    return `In ${name}, tap the Share button, then "Add to Home Screen".`;
+  }
+  if (platform === 'android') {
+    if (name === 'Firefox') return 'In Firefox, open the ⋮ menu, then "Install" (or "Add to Home screen").';
+    if (name === 'Samsung Internet') return 'In Samsung Internet, open the menu, then "Add page to", then "Home screen".';
+    return `In ${name}, open the ⋮ menu, then "Add to Home screen" (or "Install app").`;
+  }
+  if (name === 'Safari') return 'In Safari, choose File → Add to Dock to install Orca as an app.';
+  if (name === 'Firefox') return 'Firefox can\'t install web apps — open Orca in Chrome or Edge to install it, or just bookmark this page.';
+  return `In ${name}, click the install icon in the address bar (or the ⋮ menu → "Install Orca").`;
+}
+
 // Returns true only when the DOM was actually rewritten (HTML differed from the
 // last write), so callers can react to real changes — e.g. auto-scroll the chat
 // thread only when new content arrived, not on every idle poll.

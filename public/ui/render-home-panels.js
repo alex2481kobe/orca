@@ -83,14 +83,8 @@ export function renderPairPanel(ctx) {
           <div class="tiny muted">On the other device's access screen, paste the code. That pairs it — the device can now use Orca.</div>
         </div>
         <div class="pair-step">
-          <strong>4. Install Orca as an app (phone or computer — recommended)</strong>
-          <div class="tiny muted">So it opens in its own window like a native app and you never re-type the URL:</div>
-          <ul class="setup-list">
-            <li><strong>iPhone/iPad:</strong> Safari → Share → Add to Home Screen.</li>
-            <li><strong>Android:</strong> Chrome → menu → Install app / Add to Home screen.</li>
-            <li><strong>Mac:</strong> Safari → File → Add to Dock, or Chrome/Edge → the Install icon in the address bar.</li>
-            <li><strong>Windows:</strong> Chrome/Edge → the Install icon in the address bar (or menu → Apps → Install).</li>
-          </ul>
+          <strong>4. Install Orca as an app (optional)</strong>
+          <div class="tiny muted">After pairing, that device can add Orca to its Home Screen or Dock so it opens in its own window — its pairing screen shows the exact step for whatever browser it's on.</div>
         </div>
         <details class="disclosure compact-disclosure">
           <summary><span>Paired devices</span><small>${safeText((shell.authSessions || []).filter((s) => s && (s.paired || s.pairedFromId)).length)} device${(shell.authSessions || []).filter((s) => s && (s.paired || s.pairedFromId)).length === 1 ? '' : 's'}</small></summary>
@@ -198,18 +192,6 @@ export function renderSetupPanel(ctx) {
               <button class="secondary" data-action="copyPrivateAccessCommand" data-command="tailscale serve --bg --https=443 http://127.0.0.1:3000" type="button">Copy HTTPS Serve</button>
               <button class="secondary" data-action="copyPrivateAccessCommand" data-command="tailscale serve reset" type="button">Copy disable Serve</button>
             </div>
-          </div>
-        </details>
-        <details class="disclosure compact-disclosure">
-          <summary><span>Install as an app</span><small>phone or computer</small></summary>
-          <div class="disclosure-body">
-            <div class="tiny muted">Open your Orca URL on the device, then install it so it runs in its own window:</div>
-            <ul class="setup-list">
-              <li><strong>iPhone/iPad:</strong> Safari → Share → Add to Home Screen.</li>
-              <li><strong>Android:</strong> Chrome → menu → Install app / Add to Home screen.</li>
-              <li><strong>Mac:</strong> Safari → File → Add to Dock, or Chrome/Edge → the Install icon in the address bar.</li>
-              <li><strong>Windows:</strong> Chrome/Edge → the Install icon in the address bar.</li>
-            </ul>
           </div>
         </details>
       </article>`;
