@@ -218,4 +218,8 @@ test('Tailscale MCP tools are defined for agents (status + serve configure)', ()
   assert.equal(configure.implemented, true);
   assert.equal(configure.mutating, true);
   assert.ok(configure.roles.includes('orchestrator'), 'orchestrator can configure serve');
+  const guide = findTool('orca.setup_guide');
+  assert.ok(guide, 'orca.setup_guide tool exists');
+  assert.equal(guide.route, '/api/private-access/setup-plan');
+  assert.equal(guide.mutating, false);
 });

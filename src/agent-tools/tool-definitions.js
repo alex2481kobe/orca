@@ -592,6 +592,16 @@ export const TOOL_DEFINITIONS = [
     mutating: true,
     summary: 'Set up (action:"enable") or tear down (action:"disable") private Tailscale Serve so other devices can reach Orca. Runs the serve command for the user; never enables Funnel. Requires Tailscale installed + signed in.',
   },
+  {
+    id: 'orca.setup_guide',
+    group: 'setup',
+    roles: ['orchestrator', 'dashboard'],
+    method: 'GET',
+    route: '/api/private-access/setup-plan',
+    implemented: true,
+    mutating: false,
+    summary: 'Read the ordered, dry-run setup plan for making Orca reachable from other devices (Tailscale install/sign-in checks, the private Serve command, and pairing). Use this to set Orca up for a user step by step.',
+  },
 ];
 
 export function publicTool(tool) {

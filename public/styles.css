@@ -2779,6 +2779,11 @@ button.home-cta { cursor: pointer; font: inherit; }
 }
 .picker-row:hover { background: var(--hover); }
 .picker-row-icon { align-items: center; color: #8ab4f8; display: inline-flex; flex: 0 0 auto; }
+/* SVGs in flex rows must never shrink to slivers (the recurring tiny-icon bug). */
+.picker svg, .picker-row-icon svg, .picker-up svg, .picker-x svg { flex: 0 0 auto; }
+.picker-row-icon svg { height: 18px; width: 18px; }
+.picker-chevron { flex: 0 0 auto; height: 15px; width: 15px; }
+.picker-up svg, .picker-x svg { height: 16px; width: 16px; }
 .picker-row-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .picker-row-tag { background: var(--active); border-radius: var(--radius-pill); color: var(--muted); flex: 0 0 auto; font-size: 0.68rem; padding: 0.05rem 0.4rem; }
 .picker-chevron { color: var(--muted); flex: 0 0 auto; }
