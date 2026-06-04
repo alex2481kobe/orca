@@ -631,6 +631,8 @@ document.addEventListener('click', async (event) => {
     'checkPrivateAccessTarget',
     'copyPrivateAccessCommand',
     'deletePrivateAccessTarget',
+    'setupTailscaleServe',
+    'disableTailscaleServe',
   ].includes(action)) {
     await handlePrivateAccessAction({ currentTarget: actionTarget });
     return;
@@ -732,6 +734,24 @@ initComposerContext();
 initSlashCommands();
 renderMobileManifest();
 setupSidebarReorder();
+// Live countdown for one-time pairing codes (ticks every second; never touched by
+// the poll re-render so it stays smooth, and flips to an expired prompt at 0).
+setInterval(() => {
+  document.querySelectorAll('.pairing-countdown[data-expires]').forEach((el) => {
+    const ms = new Date(el.dataset.expires).getTime() - Date.now();
+    if (!Number.isFinite(ms)) return;
+    if (ms <= 0) {
+      el.textContent = 'Expired — create a new code';
+      el.classList.add('expired');
+      return;
+    }
+    const total = Math.floor(ms / 1000);
+    const m = Math.floor(total / 60);
+    const s = String(total % 60).padStart(2, '0');
+    el.textContent = `Expires in ${m}:${s}`;
+    el.classList.toggle('soon', total <= 30);
+  });
+}, 1000);
 // Connect the live SSE stream only after the initial load settles. A persistent
 // SSE connection would otherwise keep the page from ever reaching "network idle"
 // (used by automated checks); the polling timer covers this short window.

@@ -69,19 +69,23 @@ export function renderPairPanel(ctx) {
         <div class="pair-step">
           <strong>2. Create a one-time pairing code</strong>
           <div class="lane-row">
-            <button data-action="createPairingCode" type="button">Create pairing code</button>
+            <button class="btn" data-action="createPairingCode" type="button">${shell.lastPairing ? 'New code' : 'Create pairing code'}</button>
           </div>
           ${shell.lastPairing ? `
             <div class="pairing-code-box">
               <div class="tiny muted">One-time pairing code. Do not screenshot or paste into URLs.</div>
-              <strong>${safeText(shell.lastPairing.code)}</strong>
-              <span>Expires ${safeText(formatRelative(shell.lastPairing.expiresAt))}</span>
+              <strong class="pairing-code-value">${safeText(shell.lastPairing.code)}</strong>
+              <span class="pairing-countdown" data-expires="${safeAttr(shell.lastPairing.expiresAt)}">Expires ${safeText(formatRelative(shell.lastPairing.expiresAt))}</span>
             </div>
           ` : '<div class="tiny muted">Create a code here, then type it into the access screen on the other device. Codes are single-use and expire quickly.</div>'}
         </div>
         <div class="pair-step">
           <strong>3. Enter the code on the other device</strong>
           <div class="tiny muted">On the other device's access screen, paste the code. That pairs it — the device can now use Orca.</div>
+        </div>
+        <div class="pair-step">
+          <strong>4. Add Orca to the home screen (recommended on phones)</strong>
+          <div class="tiny muted">So it opens full-screen like an app and you don't re-type the URL: in <strong>Safari</strong> tap Share → Add to Home Screen; in <strong>Chrome</strong> open the menu → Install app / Add to Home screen. Launch Orca from the new icon.</div>
         </div>
         <details class="disclosure compact-disclosure">
           <summary><span>Paired devices</span><small>${safeText((shell.authSessions || []).filter((s) => s && (s.paired || s.pairedFromId)).length)} device${(shell.authSessions || []).filter((s) => s && (s.paired || s.pairedFromId)).length === 1 ? '' : 's'}</small></summary>
@@ -462,7 +466,17 @@ export function renderPrivateAccessPanel(ctx) {
             <div class="ts-setup-callout">
               <strong>Tailscale is installed but not signed in.</strong>
               <div class="lane-row"><a class="btn" href="https://login.tailscale.com" target="_blank" rel="noopener noreferrer">Sign in to Tailscale</a></div>
-            </div>` : ''}
+            </div>` : (tailnet.serveConfigured ? `
+            <div class="ts-setup-callout">
+              <strong>✓ Tailscale Serve is active</strong>
+              <div class="tiny muted">Your device URL works from any device on your tailnet.</div>
+              <div class="lane-row"><button class="btn-ghost" data-action="disableTailscaleServe" type="button">Turn off Serve</button></div>
+            </div>` : `
+            <div class="ts-setup-callout">
+              <strong>Make Orca reachable from your other devices</strong>
+              <div class="tiny muted">One tap runs Tailscale Serve (HTTP, tailnet-only) so a phone/laptop can open Orca — no commands to copy. You can still do it manually in Terminal if you prefer.</div>
+              <div class="lane-row"><button class="btn" data-action="setupTailscaleServe" type="button">Set up Tailscale Serve</button></div>
+            </div>`)}
             <p><strong>HTTP is recommended.</strong> Over Tailscale it is fully private and encrypted, just as secure as HTTPS, and it keeps your machine/tailnet name out of public certificate-transparency logs. Only switch to HTTPS Serve if you specifically need browser secure-context/PWA features.</p>
             <form id="private-access-settings-form">
               <label>Access mode

@@ -35,6 +35,22 @@ export async function handlePrivateAccessApi(ctx, req, res, method, parts) {
     }
   }
 
+  if (parts.length === 3 && parts[2] === 'serve' && method === 'POST') {
+    if (!requireAdminAuth(req, res)) return;
+    const body = await parseJsonBody(req);
+    if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
+    try {
+      const result = privateAccess.configureServe({
+        action: body.action === 'disable' ? 'disable' : 'enable',
+        port: body.port || 3000,
+      });
+      return sendJson(res, result.ok ? 200 : 422, result);
+    } catch (error) {
+      return sendJson(res, error.status || 500, { error: error.message || 'Could not configure Tailscale Serve.' });
+    }
+  }
+
   if (parts.length === 3 && parts[2] === 'settings' && method === 'PATCH') {
     if (!requireAdminAuth(req, res)) return;
     const body = await parseJsonBody(req);

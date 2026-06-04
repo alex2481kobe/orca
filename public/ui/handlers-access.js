@@ -99,6 +99,21 @@ export async function handlePrivateAccessAction(event) {
       renderAlert(response.data?.error || 'Could not remove private access target.', 'bad');
     }
   }
+  if (action === 'setupTailscaleServe' || action === 'disableTailscaleServe') {
+    const disable = action === 'disableTailscaleServe';
+    if (disable && !await confirmDialog('Turn off Tailscale Serve? Other devices will no longer reach Orca until you set it up again.')) return;
+    renderAlert(disable ? 'Turning off Tailscale Serve…' : 'Setting up Tailscale Serve…');
+    const response = await api('/api/private-access/serve', {
+      method: 'POST',
+      body: { actor: 'dashboard', action: disable ? 'disable' : 'enable' },
+    });
+    if (response.ok && response.data?.ok) {
+      renderAlert(disable ? 'Tailscale Serve turned off.' : 'Tailscale Serve is set up — your device URL now works from other devices.');
+      await refresh();
+    } else {
+      renderAlert(response.data?.error || 'Tailscale Serve command failed. You may need to run it in Terminal once (grant the operator with `sudo tailscale set --operator=$USER`).', 'bad');
+    }
+  }
 }
 
 export async function handleNotificationSettings(event) {

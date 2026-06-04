@@ -118,3 +118,28 @@ test('private access targets are capped to avoid unbounded state growth', async 
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
+
+test('configureServe runs Serve commands and reflects detected state; refuses when not signed in', () => {
+  const calls = [];
+  const onlineRunner = (bin, args) => {
+    calls.push(args.join(' '));
+    if (args[0] === 'version') return { status: 0, stdout: '1.0' };
+    if (args[0] === 'status') return { status: 0, stdout: JSON.stringify({ Self: { DNSName: 'mac.tailnet.ts.net.' } }) };
+    if (args[0] === 'serve' && args[1] === 'status') return { status: 0, stdout: 'http://mac.tailnet.ts.net (tailnet only)\n|-- / proxy http://localhost:3000' };
+    if (args[0] === 'serve') return { status: 0, stdout: '' };
+    return { status: 1, stdout: '' };
+  };
+  const store = new PrivateAccessStore({ stateFile: null, runner: onlineRunner });
+  const enabled = store.configureServe({ action: 'enable', port: 3000 });
+  assert.equal(enabled.ok, true);
+  assert.ok(calls.includes('serve --bg http://127.0.0.1:3000'), 'enable runs the HTTP serve command');
+  assert.equal(enabled.tailnet.servedUrl, 'http://mac.tailnet.ts.net');
+  const disabled = store.configureServe({ action: 'disable' });
+  assert.ok(calls.includes('serve reset'), 'disable runs serve reset');
+  assert.equal(disabled.ok, true);
+
+  // Not signed in -> refuses without running serve.
+  const offline = new PrivateAccessStore({ stateFile: null, runner: (bin, args) => (args[0] === 'version' ? { status: 0, stdout: '1.0' } : { status: 1, stdout: '' }) });
+  const refused = offline.configureServe({ action: 'enable' });
+  assert.equal(refused.ok, false);
+});

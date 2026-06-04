@@ -228,5 +228,40 @@ export class PrivateAccessStore {
   tailnetState(fakeState = null) {
     return detectTailnetState({ fakeState, runner: this.runner });
   }
+
+  // Run Tailscale Serve for the user (HTTP, tailnet-only) so a phone can reach Orca
+  // without copy-pasting commands. `action: 'enable'` runs `tailscale serve --bg
+  // http://127.0.0.1:<port>`; `'disable'` runs `tailscale serve reset`. Returns the
+  // result + freshly-detected tailnet state. Never enables Funnel.
+  configureServe({ action = 'enable', port = 3000 } = {}) {
+    const tailnet = this.tailnetState();
+    if (!tailnet.binaryAvailable) {
+      return { ok: false, action, error: 'Tailscale is not installed. Install it and sign in first.', tailnet };
+    }
+    if (!tailnet.loggedIn) {
+      return { ok: false, action, error: 'Tailscale is not signed in. Sign in first, then try again.', tailnet };
+    }
+    const safePort = Number.parseInt(port, 10);
+    const args = action === 'disable'
+      ? ['serve', 'reset']
+      : ['serve', '--bg', `http://127.0.0.1:${Number.isInteger(safePort) && safePort > 0 ? safePort : 3000}`];
+    const result = this.runner('tailscale', args, { encoding: 'utf8', timeout: 9000, maxBuffer: 128 * 1024, windowsHide: true });
+    const ok = !result.error && result.status === 0;
+    const output = `${result.stdout || ''}${result.stderr || ''}`.trim().slice(0, 600);
+    this.recordAudit({
+      type: 'tailscale_serve_configured',
+      actor: 'dashboard',
+      status: ok ? 'passed' : 'failed',
+      summary: `Tailscale Serve ${action} ${ok ? 'succeeded' : 'failed'}`,
+      evidence: { action, exitCode: result.status ?? null },
+    });
+    return {
+      ok,
+      action,
+      error: ok ? null : (output || 'Tailscale Serve command failed. You may need to grant the Tailscale operator (run `sudo tailscale set --operator=$USER` once).'),
+      output,
+      tailnet: this.tailnetState(),
+    };
+  }
 }
 
