@@ -73,6 +73,19 @@ function hideMobileSidebar() {
 
 function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
+  // The installed native app (Tauri) loads its UI from the bundle — a service
+  // worker there only risks serving STALE cached UI across app updates (the
+  // "I reinstalled but see no changes" bug). So in the app: never register one,
+  // and actively tear down any SW + caches a previous build left behind.
+  if (window.__TAURI__) {
+    navigator.serviceWorker.getRegistrations()
+      .then((regs) => regs.forEach((r) => r.unregister()))
+      .catch(() => {});
+    if (window.caches && caches.keys) {
+      caches.keys().then((keys) => keys.forEach((k) => caches.delete(k))).catch(() => {});
+    }
+    return;
+  }
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/service-worker.js').catch(() => {});
   });
