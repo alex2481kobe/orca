@@ -2522,7 +2522,7 @@ pre {
 .composer-more > summary:hover { background: var(--hover); color: var(--text); }
 .composer-more-pop {
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-md); bottom: 2.5rem; display: grid;
-  gap: 0.5rem; left: 0; padding: 0.7rem; position: absolute; width: 230px; z-index: 30;
+  gap: 0.5rem; left: 0; padding: 0.7rem; position: absolute; width: 230px; max-width: calc(100vw - 1.5rem); z-index: 30;
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
 }
 .composer-more-pop label { display: grid; font-size: 0.75rem; gap: 0.25rem; color: var(--muted); }
@@ -2681,7 +2681,7 @@ pre {
 .dd-compact { width: auto; }
 .dd-compact .dd-trigger { background: transparent; border: 0; border-radius: var(--radius-sm); color: var(--muted); min-height: 2rem; padding: 0.3rem 0.5rem; }
 .dd-compact .dd-trigger:hover { background: var(--hover); color: var(--text); }
-.dd-compact .dd-menu { min-width: 170px; }
+.dd-compact .dd-menu { min-width: min(170px, calc(100vw - 1.5rem)); max-width: calc(100vw - 1rem); }
 
 /* ===== Consolidated composer config popover (Reasoning / Model / Speed) ===== */
 .cfg { position: relative; flex: 0 0 auto; }
@@ -2702,14 +2702,14 @@ pre {
 .cfg-pop {
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-md); bottom: calc(100% + 6px);
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; gap: 1px; max-height: 360px;
-  min-width: 230px; overflow-y: auto; padding: 0.35rem; position: absolute; right: 0; z-index: 90;
+  min-width: min(230px, calc(100vw - 1.5rem)); max-width: calc(100vw - 1rem); overflow-y: auto; padding: 0.35rem; position: absolute; right: 0; z-index: 90;
 }
 .cfg-pop[hidden] { display: none; }
 /* Submenu flyout — appears beside the main menu (Codex-style), positioned by JS. */
 .cfg-flyout {
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-md);
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; gap: 1px;
-  max-height: 320px; min-width: 210px; overflow-y: auto; padding: 0.35rem; position: absolute; z-index: 91;
+  max-height: 320px; min-width: min(210px, calc(100vw - 1.5rem)); max-width: calc(100vw - 1rem); overflow-y: auto; padding: 0.35rem; position: absolute; z-index: 91;
 }
 .cfg-flyout[hidden] { display: none; }
 .cfg-row.active { background: var(--hover); }
@@ -2789,7 +2789,7 @@ pre {
 .ctx-pop {
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-md); bottom: calc(100% + 6px);
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; gap: 1px; left: 0;
-  max-height: 340px; min-width: 250px; overflow-y: auto; padding: 0.35rem; position: absolute; z-index: 90;
+  max-height: 340px; min-width: min(250px, calc(100vw - 1.5rem)); max-width: calc(100vw - 1rem); overflow-y: auto; padding: 0.35rem; position: absolute; z-index: 90;
 }
 .ctx-pop[hidden] { display: none; }
 .ctx-head { color: var(--muted); font-size: 0.7rem; letter-spacing: 0.06em; padding: 0.45rem 0.6rem 0.2rem; text-transform: uppercase; }
