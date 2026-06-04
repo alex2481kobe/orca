@@ -228,6 +228,7 @@ export function renderOrchestratorConsole(session) {
       <form id="orchestrator-message-form" data-session-id="${safeAttr(session.id)}" class="composer composer-shell">
         <div id="composer-attachments-${safeAttr(session.id)}" class="composer-attachments">${renderComposerAttachmentChips(session.id)}</div>
         <textarea name="message" rows="1" placeholder="Do anything"></textarea>
+        <div class="slash-menu" role="listbox" hidden></div>
         <input type="file" id="composer-file-input" data-session-id="${safeAttr(session.id)}" multiple hidden />
         <input type="hidden" name="model" value="${safeAttr(selectedModel)}" />
         <input type="hidden" name="intelligenceProfile" value="${safeAttr(selectedIntelligence)}" />

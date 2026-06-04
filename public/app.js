@@ -17,6 +17,7 @@ import { handleLaneActions, handleSessionActions, handleSystemActions } from './
 import { initDropdowns, enhanceSelects } from './ui/dropdown.js';
 import { initComposerConfig, refreshConfigLabel } from './ui/composer-config.js';
 import { initComposerContext } from './ui/composer-context.js';
+import { initSlashCommands } from './ui/slash-commands.js';
 import { defaultModelFor } from './ui/executor.js';
 
 
@@ -724,6 +725,7 @@ registerServiceWorker();
 initDropdowns();
 initComposerConfig();
 initComposerContext();
+initSlashCommands();
 renderMobileManifest();
 setupSidebarReorder();
 // Connect the live SSE stream only after the initial load settles. A persistent

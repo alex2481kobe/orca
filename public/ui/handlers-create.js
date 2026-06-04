@@ -49,6 +49,9 @@ export async function createEmptyChat(projectId) {
     body: { name: 'New chat', leader, actor: 'dashboard', approved: true },
   });
   if (response.ok && response.data) {
+    // Load the new session into shell BEFORE navigating, so the route renders the
+    // fresh empty chat immediately instead of flashing the previously-open view.
+    await refresh();
     safeNavigate(response.data.route); // makes the project active -> auto-expands
     return response.data;
   }
@@ -66,6 +69,14 @@ export async function handleNewSession(event) {
 // device (no local FS access) it falls back to the create-project form.
 export async function handleNewProject() {
   if (!isLocalHostName(window.location.hostname)) { safeNavigate('/#create'); return; }
+  // Desktop (Tauri): use the real OS-native folder dialog, same as the Codex app.
+  const native = await tryNativeDirectoryPick();
+  if (native.available) {
+    if (native.path) await createProjectFromFolder(native.path);
+    return; // native handled it (picked or cancelled) — don't open the web picker
+  }
+  // Browser: an OS dialog can't return an absolute path, so fall back to the
+  // jailed server-side folder browser (lists the workstation's real directories).
   const projectPicker = (extra) => ({ open: true, mode: 'project', forInput: '__project__', error: null, ...extra });
   shell.workstationPicker = projectPicker({ loading: true });
   render();

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'orca-static-v70';
+const CACHE_NAME = 'orca-static-v71';
 const STATIC_ASSETS = [
   '/',
   '/styles.css',
@@ -36,6 +36,7 @@ const STATIC_ASSETS = [
   '/ui/render-shell.js',
   '/ui/render-views.js',
   '/ui/sidebar.js',
+  '/ui/slash-commands.js',
   '/ui/state.js',
   '/manifest.webmanifest',
   '/favicon-32.png',

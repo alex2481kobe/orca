@@ -15,14 +15,14 @@ const SPEED_OPTIONS = [
 ];
 
 function titleCase(s) { return String(s || '').replace(/(^|[\s-])\w/g, (m) => m.toUpperCase()); }
-function reasonLabel(v) { return REASONING_LABELS[v] || titleCase(v); }
-function shortModel(m) { return String(m || '').replace(/^gpt-/i, '').replace(/^claude-/i, ''); }
+export function reasonLabel(v) { return REASONING_LABELS[v] || titleCase(v); }
+export function shortModel(m) { return String(m || '').replace(/^gpt-/i, '').replace(/^claude-/i, ''); }
 
 // Reasoning levels are PER-MODEL when the CLI exposes a catalog (codex lists each
 // model's supported_reasoning_levels), else per-CLI from detected capabilities,
 // else a generic fallback. This is what keeps codex on low/medium/high/xhigh (no
 // "max") while claude surfaces its real low/medium/high/xhigh/max set.
-function reasoningValues(executorType, model) {
+export function reasoningValues(executorType, model) {
   const cat = modelCatalog(executorType);
   if (cat && model) {
     const hit = cat.find((m) => m.slug === model);
@@ -40,7 +40,7 @@ function defaultEffortFor(executorType, model) {
 }
 // Speed ("/fast") is only offered for CLIs that actually expose a fast mode
 // (codex fast_mode feature, claude fastMode setting) — read from capabilities.
-function speedSupported(executorType) {
+export function speedSupported(executorType) {
   const node = getExecutorProfile(executorType)?.capabilities?.controls?.speed;
   return Boolean(node?.supported) && Array.isArray(node?.values) && node.values.includes('fast');
 }
@@ -53,7 +53,7 @@ function modelCatalog(executorType) {
   const c = getExecutorProfile(executorType)?.capabilities?.controls?.model?.catalog;
   return Array.isArray(c) && c.length ? c : null;
 }
-function modelItems(executorType) {
+export function modelItems(executorType) {
   const cat = modelCatalog(executorType);
   if (cat) return cat.map((m) => ({ v: m.slug, label: m.name || m.slug }));
   return modelValues(executorType).map((v) => ({ v, label: shortModel(v) }));
