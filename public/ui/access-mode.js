@@ -51,6 +51,17 @@ export function quickLinkHealthLabel(status) {
   return 'Unchecked';
 }
 
+// The detected Tailscale device URL (MagicDNS), e.g. http://mac.tailnet.ts.net:3000.
+// This is the URL another device on the same tailnet actually uses — localhost
+// never works off-machine. Returns '' when Tailscale isn't set up.
+export function tailnetDeviceUrl(tailnet = {}, mode = 'tailnet-http') {
+  const host = String(tailnet.hostname || '').replace(/\.$/, '').trim();
+  if (!host) return '';
+  const port = (typeof window !== 'undefined' && window.location.port) ? window.location.port : '3000';
+  if (mode === 'tailnet-https-serve') return `https://${host}`;
+  return `http://${host}:${port}`;
+}
+
 export function preferredPhoneUrl(privateTargets = [], privateSettings = {}, tailnet = {}) {
   if (!isLocalHostName(window.location.hostname)) return window.location.origin;
   const targets = privateTargets.filter((item) => !item.hidden);
@@ -61,5 +72,9 @@ export function preferredPhoneUrl(privateTargets = [], privateSettings = {}, tai
     targets.find((item) => item.favorite && fallbackUrlForAccessMode(item, mode)) ||
     targets.find((item) => fallbackUrlForAccessMode(item, mode));
   const url = exactUrlForAccessMode(target, mode) || fallbackUrlForAccessMode(target, mode);
-  return url ? clientUrl(url) : window.location.origin;
+  if (url) return clientUrl(url);
+  // No configured target: use the real Tailscale device URL so "open on another
+  // device" actually works. Empty (no Tailscale) -> the UI prompts to set it up
+  // rather than showing a useless localhost URL.
+  return tailnetDeviceUrl(tailnet, mode);
 }

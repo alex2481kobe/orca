@@ -31,23 +31,40 @@ export function renderSimpleSection(ctx) {
 }
 
 export function renderPairPanel(ctx) {
-  const { phoneUrl, phoneQr, accessModeSummary, authSessionRows } = ctx;
-  return `
-      <article class="card control-card pair-panel" id="section-pair" data-panel-card="pair">
-        <div class="card-kicker">Pair a device</div>
-        <h3>Pair with remote device</h3>
-        <p class="muted">Open Orca on a laptop or phone, then connect it to this workstation. Scan the QR code or open the private URL on the other device, then enter a one-time pairing code. The code grants workflow access without ever exposing the API token.</p>
-        <div class="onboarding-card">
+  const { phoneUrl, phoneQr, accessModeSummary, authSessionRows, tailnet = {} } = ctx;
+  // A remote device can only reach this Mac over Tailscale — localhost never works
+  // off-machine. Show the real tailnet device URL when Tailscale is set up; otherwise
+  // hard-emphasize installing/signing in to Tailscale first.
+  const tsReady = Boolean(tailnet.binaryAvailable && tailnet.loggedIn && phoneUrl && phoneUrl.startsWith('http'));
+  const step1 = tsReady ? `
           <div>
             <strong>1. Open this URL on the other device</strong>
             <code class="copy-url">${safeText(phoneUrl)}</code>
             <div class="lane-row">
-              <button class="secondary" data-action="copyPhoneUrl" data-url="${safeAttr(phoneUrl)}" type="button">Copy link</button>
-              <a class="secondary" href="#private-access">Tailscale setup</a>
+              <button class="btn" data-action="copyPhoneUrl" data-url="${safeAttr(phoneUrl)}" type="button">Copy link</button>
             </div>
-            <div class="tiny muted">Access preference: ${safeText(accessModeSummary)}. On the same tailnet use the private URL; on the same LAN the local URL works without Tailscale.</div>
+            <div class="tiny muted">This is your private Tailscale device URL (${safeText(accessModeSummary)}) — it works from any device signed in to your tailnet. localhost only works on this Mac.</div>
           </div>
-          <div class="qr-wrap">${phoneQr}<span>Scan from phone or laptop</span></div>
+          <div class="qr-wrap">${phoneQr}<span>Scan from phone or laptop</span></div>`
+    : `
+          <div>
+            <strong>1. Set up Tailscale first ${tailnet.binaryAvailable ? '(sign in)' : '(required)'}</strong>
+            <div class="tiny muted">${tailnet.binaryAvailable
+              ? 'Tailscale is installed but not signed in. Sign in so this Mac gets a private device URL other devices can reach.'
+              : 'Pairing needs Tailscale so other devices can privately reach this Mac. A localhost URL only works on this machine.'}</div>
+            <div class="lane-row">
+              ${tailnet.binaryAvailable
+                ? '<a class="btn" href="https://login.tailscale.com" target="_blank" rel="noopener noreferrer">Sign in to Tailscale</a>'
+                : '<a class="btn" href="https://tailscale.com/download" target="_blank" rel="noopener noreferrer">Install Tailscale</a><a class="btn-ghost" href="https://login.tailscale.com/start" target="_blank" rel="noopener noreferrer">Create account</a>'}
+            </div>
+            <div class="tiny muted">After signing in, refresh Orca — step 1 will show your private device URL automatically.</div>
+          </div>`;
+  return `
+      <article class="card control-card pair-panel" id="section-pair" data-panel-card="pair">
+        <div class="card-kicker">Pair a device</div>
+        <h3>Pair with remote device</h3>
+        <p class="muted">Open Orca on a laptop or phone over Tailscale, then enter a one-time pairing code. The code grants workflow access without ever exposing the API token.</p>
+        <div class="onboarding-card">${step1}
         </div>
         <div class="pair-step">
           <strong>2. Create a one-time pairing code</strong>
@@ -149,7 +166,7 @@ export function renderSetupPanel(ctx) {
         <details class="disclosure compact-disclosure" open>
           <summary><span>HTTP vs HTTPS Serve</span><small>${safeText(accessModeSummary)}</small></summary>
           <div class="disclosure-body">
-            <p>HTTP over Tailscale is private inside the encrypted tailnet and avoids certificate transparency metadata. HTTPS Serve improves Safari/PWA behavior and secure-cookie semantics, but can publish the machine/tailnet DNS name in public certificate logs. Funnel remains off-limits for v1.</p>
+            <p>HTTP over Tailscale is private inside the encrypted tailnet and avoids certificate transparency metadata. HTTPS Serve improves Safari/PWA behavior and secure-cookie semantics, but can publish the machine/tailnet DNS name in public certificate logs.</p>
             <form id="setup-private-access-settings-form">
               <label>Default access mode
                 <select name="preferredMode">
@@ -443,13 +460,27 @@ export function renderPrivateAccessPanel(ctx) {
                 <span>Serve mode</span>
               </div>
             </div>
-            <p>HTTP over Tailscale is private and encrypted by Tailscale but may not enable browser secure-context APIs. HTTPS Serve enables PWA features but can expose .ts.net hostname metadata through certificate transparency. Funnel is forbidden.</p>
+            ${!tailnet.binaryAvailable ? `
+            <div class="ts-setup-callout">
+              <strong>Tailscale isn't installed on this Mac.</strong>
+              <div class="tiny muted">Tailscale is what lets your other devices reach Orca privately. Install it and sign in, then refresh.</div>
+              <div class="lane-row">
+                <a class="btn" href="https://tailscale.com/download" target="_blank" rel="noopener noreferrer">Install Tailscale</a>
+                <a class="btn-ghost" href="https://login.tailscale.com/start" target="_blank" rel="noopener noreferrer">Create an account</a>
+              </div>
+            </div>` : !tailnet.loggedIn ? `
+            <div class="ts-setup-callout">
+              <strong>Tailscale is installed but not signed in.</strong>
+              <div class="lane-row"><a class="btn" href="https://login.tailscale.com" target="_blank" rel="noopener noreferrer">Sign in to Tailscale</a></div>
+            </div>` : ''}
+            <p><strong>HTTP is recommended.</strong> Over Tailscale it is fully private and encrypted, just as secure as HTTPS, and it keeps your machine/tailnet name out of public certificate-transparency logs. Only switch to HTTPS Serve if you specifically need browser secure-context/PWA features.</p>
             <form id="private-access-settings-form">
-              <label>Default access mode
+              <label>Access mode
                 <select name="preferredMode">
                   ${accessModeOptions}
                 </select>
               </label>
+              <div class="tiny muted">HTTP is the safe default. HTTPS requires HTTPS certificates enabled in your Tailscale admin console (DNS → HTTPS Certificates) plus a Tailscale Serve HTTPS command — Orca can't toggle those for you.</div>
               <label>Open links
                 <select name="openTarget">
                   <option value="external" ${selected(privateSettings.openTarget, 'external')}>External browser/tab</option>
@@ -469,23 +500,24 @@ export function renderPrivateAccessPanel(ctx) {
             <details class="disclosure compact-disclosure" open>
               <summary>
                 <span>Phone URL and HTTPS wizard</span>
-                <small>Serve, not Funnel</small>
+                <small>Tailscale Serve</small>
               </summary>
               <div class="disclosure-body">
                 <div class="access-command">
                   <div>
-                    <strong>Current phone URL</strong>
-                    <div class="tiny muted">Use this from a device on the same tailnet.</div>
-                    <code>${safeText(phoneUrl)}</code>
+                    <strong>Your Tailscale device URL</strong>
+                    <div class="tiny muted">${phoneUrl && phoneUrl.startsWith('http') ? 'Open this from any device signed in to your tailnet. localhost only works on this Mac.' : 'Sign in to Tailscale above to get a device URL other devices can reach.'}</div>
+                    ${phoneUrl && phoneUrl.startsWith('http') ? `<code>${safeText(phoneUrl)}</code>` : ''}
                   </div>
-                  <button class="secondary" data-action="copyPhoneUrl" data-url="${safeAttr(phoneUrl)}" type="button">Copy</button>
+                  ${phoneUrl && phoneUrl.startsWith('http') ? `<button class="btn-ghost" data-action="copyPhoneUrl" data-url="${safeAttr(phoneUrl)}" type="button">Copy</button>` : ''}
                 </div>
                 <div class="card">
-                  <h3>HTTPS Serve decision</h3>
-                  <p>HTTPS Serve improves Safari/PWA behavior and secure-cookie semantics. It can publish the machine/tailnet DNS name in certificate transparency logs. Rotate or rename the host first if hostname privacy matters.</p>
+                  <h3>Optional: enable HTTPS Serve</h3>
+                  <p>Most people don't need this — HTTP over Tailscale is already private and secure. To use HTTPS: (1) enable <strong>HTTPS Certificates</strong> in your Tailscale admin console (DNS → HTTPS Certificates), then (2) run the serve command below in Terminal. HTTPS is only useful for Safari/PWA secure-context features, and it can publish this Mac's tailnet DNS name in certificate-transparency logs — rename the host in Tailscale admin first if that matters.</p>
+                  <div class="tiny muted">These are commands you run yourself in Terminal — Orca never runs them for you.</div>
                   <div class="lane-row">
-                    <button class="secondary" data-action="copyPrivateAccessCommand" data-command="tailscale serve --bg --https=443 http://127.0.0.1:3000" type="button">Copy HTTPS Serve command</button>
-                    <button class="secondary" data-action="copyPrivateAccessCommand" data-command="tailscale serve reset" type="button">Copy disable command</button>
+                    <button class="btn-ghost" data-action="copyPrivateAccessCommand" data-command="tailscale serve --bg --https=443 http://127.0.0.1:3000" type="button">Copy enable-HTTPS Terminal command</button>
+                    <button class="btn-ghost" data-action="copyPrivateAccessCommand" data-command="tailscale serve reset" type="button">Copy disable-HTTPS command</button>
                   </div>
                 </div>
                 <div class="card">
@@ -495,45 +527,7 @@ export function renderPrivateAccessPanel(ctx) {
                 </div>
               </div>
             </details>
-            <details class="disclosure compact-disclosure">
-              <summary>
-                <span>Dry-run setup commands</span>
-                <small>No command runs from here</small>
-              </summary>
-              <div class="disclosure-body">${commandRows || '<div class="muted">No setup commands available.</div>'}</div>
-            </details>
-            <details class="disclosure compact-disclosure" open>
-              <summary>
-                <span>Project URLs</span>
-                <small>${safeText(privateTargets.length)} target${privateTargets.length === 1 ? '' : 's'}</small>
-              </summary>
-              <div class="disclosure-body">
-                ${targetRows || '<div class="muted">No private access targets yet.</div>'}
-                <form id="private-access-target-form">
-                  <label>Label
-                    <input name="label" placeholder="Local dev server" required />
-                  </label>
-                  <label>Mode
-                    <select name="mode">
-                      <option value="local">Local</option>
-                      <option value="tailnet-http">Tailscale HTTP</option>
-                      <option value="tailnet-https-serve">Tailscale HTTPS Serve</option>
-                    </select>
-                  </label>
-                  <label>Local URL
-                    <input name="localUrl" placeholder="http://127.0.0.1:3000" required />
-                  </label>
-                  <label>Tailnet HTTP URL
-                    <input name="tailnetHttpUrl" placeholder="http://device.tailnet.ts.net:3000" />
-                  </label>
-                  <label>HTTPS Serve URL
-                    <input name="httpsServeUrl" placeholder="https://device.tailnet.ts.net" />
-                  </label>
-                  <label><input type="checkbox" name="favorite"> Favorite</label>
-                  <button type="submit">Add project URL</button>
-                </form>
-              </div>
-            </details>
+            <div class="tiny muted">Per-project URLs live on each project (open a project to add its dev-server links) — this screen is only about Tailscale access to Orca itself.</div>
           </div>
         </details>
       </article>`;

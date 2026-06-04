@@ -128,7 +128,7 @@ export class PrivateAccessStore {
       docs: {
         httpOverTailscale: 'Tailscale encrypts transport, but HTTP may not be a browser secure context for service workers, notifications, clipboard, camera/mic, and installability.',
         httpsServe: 'HTTPS Serve enables secure-context browser/PWA APIs but can expose .ts.net hostname metadata through certificate transparency.',
-        funnel: 'Tailscale Funnel is forbidden for v1.',
+        funnel: 'Tailscale Funnel is not supported — Orca only uses private tailnet Serve.',
       },
     };
   }

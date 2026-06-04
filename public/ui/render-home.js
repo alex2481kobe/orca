@@ -49,15 +49,15 @@ export function renderHome() {
   const selected = (actual, expected) => String(actual || '') === String(expected || '') ? 'selected' : '';
   const checked = (value) => value ? 'checked' : '';
   const accessMode = effectiveAccessMode(privateSettings, tailnet);
-  const preferredAccessMode = privateSettings.preferredMode || 'auto';
-  const accessModeSummary = preferredAccessMode === 'auto'
-    ? `auto -> ${accessModeLabel(accessMode)}`
-    : accessModeLabel(accessMode);
+  // Only HTTP / HTTPS make sense over Tailscale ("local" and "auto-detect" are
+  // gone). Default is HTTP. HTTPS is selectable — it requires HTTPS certificates
+  // enabled in the user's Tailscale admin (DNS → HTTPS Certificates), which Orca
+  // can't toggle. Legacy 'auto'/'local' settings map to HTTP.
+  const httpsSelected = privateSettings.preferredMode === 'tailnet-https-serve';
+  const accessModeSummary = httpsSelected ? 'Tailscale HTTPS' : 'Tailscale HTTP';
   const accessModeOptions = `
-    <option value="auto" ${selected(preferredAccessMode, 'auto')}>Auto-detect</option>
-    <option value="tailnet-http" ${selected(preferredAccessMode, 'tailnet-http')}>Tailscale HTTP</option>
-    <option value="tailnet-https-serve" ${selected(preferredAccessMode, 'tailnet-https-serve')}>Tailscale HTTPS Serve</option>
-    <option value="local" ${selected(preferredAccessMode, 'local')}>Local only</option>
+    <option value="tailnet-http" ${httpsSelected ? '' : 'selected'}>HTTP — recommended</option>
+    <option value="tailnet-https-serve" ${httpsSelected ? 'selected' : ''}>HTTPS</option>
   `;
   const phoneUrl = preferredPhoneUrl(privateTargets, privateSettings, tailnet);
   const phoneQr = qrSvgForText(phoneUrl);

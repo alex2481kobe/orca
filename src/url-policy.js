@@ -136,7 +136,7 @@ function parseNetworkUrl(raw, { field = 'url', allowBlank = false } = {}) {
   }
   if (text.length > MAX_URL_LENGTH) throwPolicy(`${field} is too long.`);
   if (/[\x00-\x1f\x7f]/.test(text)) throwPolicy(`${field} contains unsafe control characters.`);
-  if (/funnel/i.test(text)) throwPolicy('Tailscale Funnel URLs/configuration are forbidden for v1.');
+  if (/funnel/i.test(text)) throwPolicy('Tailscale Funnel is not supported — Orca only uses private tailnet Serve.');
   let parsed;
   try {
     parsed = new URL(text);

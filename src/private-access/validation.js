@@ -69,7 +69,7 @@ export function validateAccessUrl(raw, { mode = 'local', allowBlank = false, fie
     throw { status: 422, message: `${field} is too long.` };
   }
   if (containsFunnel(text)) {
-    throw { status: 422, message: 'Tailscale Funnel URLs/configuration are forbidden for v1.' };
+    throw { status: 422, message: 'Tailscale Funnel is not supported — Orca only uses private tailnet Serve.' };
   }
   let parsed;
   try {

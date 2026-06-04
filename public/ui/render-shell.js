@@ -170,11 +170,19 @@ export function render(uiState = null) {
 function updatePairLabel() {
   const label = document.querySelector('.sidebar-pair-label');
   if (!label) return;
+  const section = label.closest('.sidebar-pair-section');
+  // Pairing is a WORKSTATION-only concern. On a paired remote device (not the
+  // local workstation) hide the whole pairing affordance entirely.
+  const onWorkstation = isLocalHostName(window.location.hostname);
+  if (section) section.hidden = !onWorkstation;
+  if (!onWorkstation) return;
   // Count only real paired REMOTE devices — never the local workstation browser.
   const n = Array.isArray(shell.authSessions)
     ? shell.authSessions.filter((s) => s && (s.paired || s.pairedFromId)).length
     : 0;
-  label.textContent = n > 0 ? `Paired devices · ${n}` : 'Pair a device';
+  // Consistent wording: always "Pair a remote device" until a device is paired,
+  // then "Paired devices · N" (no flicker between the two phrasings on refresh).
+  label.textContent = n > 0 ? `Paired devices · ${n}` : 'Pair a remote device';
   const link = label.closest('.sidebar-pair-button');
   if (link) link.setAttribute('aria-label', n > 0 ? `${n} paired device${n === 1 ? '' : 's'} — pair another` : 'Pair a remote device');
 }
