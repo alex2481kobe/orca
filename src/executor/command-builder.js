@@ -66,8 +66,14 @@ export function buildExecutorCommandArgs(label, lane) {
     case 'claude': {
       out.push('--print');
       if (model) out.push('--model', model);
-      const effort = claudeEffortLevel(intelligence);
-      if (effort) out.push('--effort', effort);
+      // "ultracode" is not a --effort value; it's a session setting (xhigh effort
+      // + standing dynamic-workflow orchestration). Enable it via --settings.
+      if (intelligence.toLowerCase() === 'ultracode') {
+        out.push('--settings', '{"ultracode":true}');
+      } else {
+        const effort = claudeEffortLevel(intelligence);
+        if (effort) out.push('--effort', effort);
+      }
       if (permissions) out.push('--permission-mode', claudePermissionMode(permissions));
       if (lane.mcpConfigPath) out.push('--mcp-config', lane.mcpConfigPath);
       // Governed (non-bypass) lanes route Claude's permission prompts through the

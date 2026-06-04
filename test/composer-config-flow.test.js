@@ -104,6 +104,38 @@ test('claude: chat model/reasoning reach the executed command (incl. max), and c
   }
 });
 
+test('claude ultracode maps to the --settings toggle, not --effort', async () => {
+  const { registry, cleanup } = await withRegistry();
+  try {
+    const project = registry.createProject({ name: 'Flow Ultracode' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'chat', leader: 'claude' }, { actor: 'test', approved: true });
+    await send(registry, session.id, { executorType: 'claude', model: 'opus', intelligenceProfile: 'ultracode' });
+    const lane = latestOrchestratorLane(registry, session.id);
+    assert.equal(lane.intelligenceProfile, 'ultracode');
+    const cmd = buildExecutorCommandArgs('claude', lane);
+    const sIdx = cmd.indexOf('--settings');
+    assert.ok(sIdx >= 0, 'ultracode is enabled via --settings');
+    assert.ok(/"ultracode"\s*:\s*true/.test(cmd[sIdx + 1]), 'settings JSON turns ultracode on');
+    assert.ok(!cmd.includes('--effort'), 'ultracode does not pass an --effort flag (it is not a valid effort value)');
+  } finally {
+    await cleanup();
+  }
+});
+
+test('claude exposes ultracode as a reasoning level in its capabilities', async () => {
+  const { registry, cleanup } = await withRegistry();
+  try {
+    const values = registry.getExecutorCapabilities('claude').controls.intelligence.values;
+    assert.ok(values.includes('ultracode'), 'claude reasoning includes ultracode');
+    assert.ok(values.includes('max'), 'claude reasoning includes max');
+    const codexValues = registry.getExecutorCapabilities('codex').controls.intelligence.values;
+    assert.ok(!codexValues.includes('ultracode'), 'codex does NOT expose ultracode');
+    assert.ok(!codexValues.includes('max'), 'codex does NOT expose max');
+  } finally {
+    await cleanup();
+  }
+});
+
 test('codex never emits the claude-only "max" effort even if asked', async () => {
   // The codex reasoning picker doesn't offer max; if a max value somehow arrives,
   // the command builder must drop it (codex has no max effort).

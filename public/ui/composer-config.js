@@ -8,7 +8,7 @@ import { getExecutorProfile, normalizeExecutorType } from './executor.js';
 import { safeText, safeAttr } from './format.js';
 
 // Pretty labels for effort levels (xhigh -> "Extra High"); anything else is title-cased.
-const REASONING_LABELS = { low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra High', max: 'Max', ultra: 'Ultra' };
+const REASONING_LABELS = { low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra High', max: 'Max', ultracode: 'Ultracode' };
 const SPEED_OPTIONS = [
   { v: 'standard', label: 'Standard', sub: 'Default speed' },
   { v: 'fast', label: 'Fast', sub: '1.5x speed, increased usage' },

@@ -234,9 +234,17 @@ export const executorCapabilityMethods = {
         : (type === 'codex'
           ? ['plan', 'read-only', 'auto-edit', 'bypass-permissions']
           : (supportsApprovalMode ? ['plan', 'read-only', 'auto-edit', 'bypass-permissions'] : ['plan', 'read-only', 'auto-edit', 'acceptEdits', 'bypassPermissions']));
-      const intelligenceValues = supportsEffort
+      let intelligenceValues = supportsEffort
         ? (effortEnum.length ? effortEnum : ['low', 'medium', 'high', 'xhigh'])
         : ['low', 'medium', 'high', 'xhigh'];
+      // Claude also exposes "ultracode" (xhigh effort + standing dynamic-workflow
+      // orchestration): selectable in its interactive /effort menu and via the
+      // `ultracode` session setting, but deliberately NOT a --effort flag value.
+      // Surface it as the top reasoning tier — the command builder maps it to
+      // `--settings '{"ultracode":true}'` instead of --effort.
+      if (type === 'claude' && !intelligenceValues.includes('ultracode')) {
+        intelligenceValues = [...intelligenceValues, 'ultracode'];
+      }
       const backgroundAgents = type === 'claude' && (
         helpHas(helpText, /^\s*agents\s/m)
         || helpHas(helpText, /(?:^|\s)--agents(?:\s|[=<])/m)
