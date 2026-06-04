@@ -3,7 +3,7 @@
 
 import { accessModeLabel, effectiveAccessMode, effectiveProjectQuickLinkUrl, fallbackUrlForAccessMode, preferredPhoneUrl } from './access-mode.js';
 import { api, setApiToken } from './api.js';
-import { clientUrl, safeHref, writeHtml } from './dom.js';
+import { clientUrl, isLocalHostName, safeHref, writeHtml } from './dom.js';
 import { formatRelative, latestTimestamp, safeAttr, safeText } from './format.js';
 import { browserNotificationPermission, browserNotificationsSupported } from './notifications.js';
 import { qrSvgForText } from './qr.js';
@@ -333,27 +333,36 @@ export function renderHome() {
     artifactCleanupUrl,
   };
 
+  // Host-management panels only make sense on the trusted workstation (they
+  // configure THIS machine's CLIs, capture, providers, MCP tools, Tailscale serve,
+  // backups, etc.). A paired remote device — phone or laptop — can't act on any of
+  // them, so they're hidden there. Remote Settings = Access + Notifications +
+  // Archive (+ Pair). Detection: the workstation is reached over localhost; remote
+  // devices reach Orca over the tailnet host.
+  const isWorkstation = isLocalHostName(window.location.hostname);
+  const workstationOnly = (markup) => (isWorkstation ? markup : '');
+
   writeHtml(refs.content, `
     ${renderSimpleSection(ctx)}
     <section class="grid-2 home-panels" data-active-panel="${safeAttr(panel)}">
       ${renderPairPanel(ctx)}
-      ${renderDesktopControlPanel(ctx)}
-      ${renderSetupPanel(ctx)}
-      ${renderTokenPanel(ctx)}
+      ${workstationOnly(renderDesktopControlPanel(ctx))}
+      ${workstationOnly(renderSetupPanel(ctx))}
+      ${workstationOnly(renderTokenPanel(ctx))}
       ${renderAccessPanel(ctx)}
-      ${renderExecutorProfilesPanel(ctx)}
-      ${renderCapturePanel(ctx)}
-      ${renderCliHealthPanel(ctx)}
-      ${renderCleanupPanel(ctx)}
-      ${renderMcpPanel(ctx)}
-      ${renderPrivateAccessPanel(ctx)}
-      ${renderProvidersPanel(ctx)}
-      ${renderEffectiveSettingsPanel(ctx)}
+      ${workstationOnly(renderExecutorProfilesPanel(ctx))}
+      ${workstationOnly(renderCapturePanel(ctx))}
+      ${workstationOnly(renderCliHealthPanel(ctx))}
+      ${workstationOnly(renderCleanupPanel(ctx))}
+      ${workstationOnly(renderMcpPanel(ctx))}
+      ${workstationOnly(renderPrivateAccessPanel(ctx))}
+      ${workstationOnly(renderProvidersPanel(ctx))}
+      ${workstationOnly(renderEffectiveSettingsPanel(ctx))}
       ${renderNotificationsPanel(ctx)}
       ${renderArchivePanel()}
-      ${renderBackupPanel()}
+      ${workstationOnly(renderBackupPanel())}
       ${renderProjectListPanel(ctx)}
-      ${renderSystemActionsPanel(ctx)}
+      ${workstationOnly(renderSystemActionsPanel(ctx))}
     </section>
   `);
 }
