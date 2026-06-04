@@ -285,8 +285,12 @@ body.sidebar-collapsed .shell-toggle {
 .ops-shell {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
-  min-height: calc(100vh - var(--topbar-height) - var(--safe-area-top));
-  min-height: calc(var(--app-height) - var(--topbar-height) - var(--safe-area-top));
+  /* Fill the full visible viewport. Don't subtract the safe-area insets here —
+     box-sizing:border-box + the inner padding already keeps content clear of the
+     notch/home-indicator. Subtracting them too made the shell ~80px short of the
+     screen in a standalone app (content "shifted up", dead space at the bottom). */
+  min-height: calc(100vh - var(--topbar-height));
+  min-height: calc(var(--app-height) - var(--topbar-height));
   max-width: none;
   margin: 0;
   padding: 0;
@@ -834,11 +838,13 @@ body.sidebar-collapsed .sidebar-project-line {
 
 .ops-main {
   min-width: 0;
-  min-height: calc(100vh - var(--topbar-height) - var(--safe-area-top) - var(--safe-area-bottom));
-  min-height: calc(var(--app-height) - var(--topbar-height) - var(--safe-area-top) - var(--safe-area-bottom));
-  /* Bottom padding clears the iOS/Android home indicator so the last card is
-     fully reachable when installed as a standalone PWA. */
-  padding: calc(var(--topbar-height) + 2rem) min(4vw, 3rem) calc(2rem + var(--safe-area-bottom));
+  /* Full viewport height (border-box includes the padding below). The safe-area
+     insets live in the padding, NOT subtracted from the height — otherwise the
+     box is ~80px short in a standalone app and content floats up. */
+  min-height: calc(100vh - var(--topbar-height));
+  min-height: calc(var(--app-height) - var(--topbar-height));
+  /* Top clears the notch/status bar; bottom clears the home indicator. */
+  padding: calc(var(--topbar-height) + 2rem + var(--safe-area-top)) min(4vw, 3rem) calc(2rem + var(--safe-area-bottom));
 }
 
 .ops-content {
@@ -2122,8 +2128,10 @@ pre {
     transform: translateX(-105%);
     transition: transform 0.18s ease-out;
     /* No topbar on mobile anymore — don't reserve its height up top, or the
-       Orca/collapse row gets pushed down. Just clear the notch + a little air. */
+       Orca/collapse row gets pushed down. Clear the notch up top and the home
+       indicator at the bottom (Settings sits at the very bottom of the drawer). */
     padding-top: calc(env(safe-area-inset-top) + 0.5rem);
+    padding-bottom: calc(0.8rem + var(--safe-area-bottom));
   }
   body.nav-open .ops-sidebar {
     transform: translateX(0);
@@ -2160,11 +2168,11 @@ pre {
   body.sidebar-collapsed .sidebar-compose {
     display: inline-flex;
   }
-  /* No topbar anymore — just enough top room for the floating reopen button.
-     Bottom padding clears the home indicator (safe-area) plus a little extra so
-     the last card never hides under a mobile browser's bottom toolbar. */
+  /* No topbar. Top padding = notch/status-bar inset + room for the floating
+     reopen button; bottom padding = home-indicator inset + breathing room. In a
+     normal browser both insets are 0, so this is just 2.6rem / 2rem. */
   .ops-main {
-    padding: 3rem 1rem calc(2rem + var(--safe-area-bottom));
+    padding: calc(var(--safe-area-top) + 2.6rem) 1rem calc(2rem + var(--safe-area-bottom));
   }
 
   .project-side-panel {
@@ -2196,7 +2204,7 @@ pre {
   /* Same collapse controls as desktop: floating reopen (to open) + in-drawer
      collapse (to close). The legacy topbar hamburger is gone with the topbar. */
   #sidebar-reopen.sidebar-reopen {
-    display: inline-flex; position: fixed; left: 0.55rem; top: 0.45rem; z-index: 70;
+    display: inline-flex; position: fixed; left: 0.55rem; top: calc(env(safe-area-inset-top) + 0.45rem); z-index: 70;
     background: var(--panel); border: 1px solid var(--line); color: var(--text);
   }
   body.nav-open #sidebar-reopen.sidebar-reopen { display: none; }
