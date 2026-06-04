@@ -182,7 +182,6 @@ export function renderSetupPanel(ctx) {
                   <option value="off" ${selected(privateSettings.notificationMode, 'off')}>Off</option>
                 </select>
               </label>
-              <label><input type="checkbox" name="pwaMode" ${checked(privateSettings.pwaMode !== 'disabled')}> Install Orca as an app (home-screen/PWA)</label>
               <button type="submit">Save access settings</button>
             </form>
             <div class="lane-row">
@@ -276,7 +275,6 @@ export function renderAccessPanel(ctx) {
                   <option value="off" ${selected(privateSettings.notificationMode, 'off')}>Off</option>
                 </select>
               </label>
-              <label><input type="checkbox" name="pwaMode" ${checked(privateSettings.pwaMode !== 'disabled')}> Install Orca as an app (home-screen/PWA)</label>
               <button type="submit">Save access settings</button>
             </form>
             <div class="onboarding-card mini">
@@ -486,7 +484,6 @@ export function renderPrivateAccessPanel(ctx) {
                   <option value="off" ${selected(privateSettings.notificationMode, 'off')}>Off</option>
                 </select>
               </label>
-              <label><input type="checkbox" name="pwaMode" ${checked(privateSettings.pwaMode !== 'disabled')}> Install Orca as an app (home-screen/PWA)</label>
               <button type="submit">Save private access settings</button>
             </form>
             <details class="disclosure compact-disclosure">

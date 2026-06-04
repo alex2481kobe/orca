@@ -2742,8 +2742,36 @@ button.sidebar-create-project, button.sidebar-link { background: none; border: 0
 button.home-cta { cursor: pointer; font: inherit; }
 /* New-project folder picker modal. */
 .picker-overlay { z-index: 250; }
-.picker-modal { width: min(92vw, 540px); }
-.picker-modal .workstation-picker { margin: 0; max-height: 70vh; overflow-y: auto; width: 100%; }
+.picker-modal { width: min(92vw, 560px); }
+/* Native-style folder picker (macOS open-panel feel). */
+.picker {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  display: flex; flex-direction: column; max-height: 76vh; overflow: hidden; width: 100%;
+}
+.picker-titlebar { align-items: center; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; padding: 0.85rem 1rem; }
+.picker-titlebar strong { font-size: 0.98rem; }
+.picker-x { align-items: center; background: transparent; border: 0; border-radius: 8px; color: var(--muted); cursor: pointer; display: inline-flex; height: 1.9rem; justify-content: center; width: 1.9rem; }
+.picker-x:hover { background: var(--hover); color: var(--text); }
+.picker-toolbar { align-items: center; background: var(--bg-soft, #262626); border-bottom: 1px solid var(--line); display: flex; gap: 0.5rem; padding: 0.5rem 0.85rem; }
+.picker-up { align-items: center; background: transparent; border: 1px solid var(--line); border-radius: 8px; color: var(--text); cursor: pointer; display: inline-flex; flex: 0 0 auto; height: 1.85rem; justify-content: center; width: 1.95rem; }
+.picker-up:hover:not(:disabled) { background: var(--hover); }
+.picker-up:disabled { color: var(--muted); cursor: default; opacity: 0.4; }
+.picker-path { color: var(--muted); flex: 1 1 auto; font-size: 0.82rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.picker-error { color: var(--bad, #e06c64); font-size: 0.82rem; padding: 0.5rem 0.85rem; }
+.picker-list { display: flex; flex-direction: column; gap: 1px; overflow-y: auto; padding: 0.4rem; }
+.picker-row {
+  align-items: center; background: transparent; border: 0; border-radius: 9px; color: var(--text); cursor: pointer;
+  display: flex; font: inherit; font-size: 0.9rem; gap: 0.6rem; padding: 0.5rem 0.6rem; text-align: left; width: 100%;
+}
+.picker-row:hover { background: var(--hover); }
+.picker-row-icon { align-items: center; color: #8ab4f8; display: inline-flex; flex: 0 0 auto; }
+.picker-row-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-row-tag { background: var(--active); border-radius: 999px; color: var(--muted); flex: 0 0 auto; font-size: 0.68rem; padding: 0.05rem 0.4rem; }
+.picker-chevron { color: var(--muted); flex: 0 0 auto; }
+.picker-empty { color: var(--muted); font-size: 0.85rem; padding: 1.2rem 0.6rem; text-align: center; }
+.picker-footer { align-items: center; border-top: 1px solid var(--line); display: flex; gap: 0.75rem; justify-content: space-between; padding: 0.75rem 1rem; }
+.picker-footer-name { color: var(--muted); font-size: 0.82rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-footer-actions { display: flex; flex: 0 0 auto; gap: 0.5rem; }
 
 /* Project row: the whole line is the hover/active surface (incl. the trailing
    new-session icon); the name truncates before the icon so they never overlap. */

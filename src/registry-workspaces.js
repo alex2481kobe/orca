@@ -88,20 +88,24 @@ export const workspaceMethods = {
 
   getApprovedRepoRoots() {
     const env = process.env.ORCA_REPO_ROOTS;
-    const fromEnv = String(env || '')
-      .split(/[,\n]/)
-      .map((value) => String(value || '').trim())
-      .filter(Boolean)
-      .map((value) => path.resolve(value));
-    // Local-first default: the operator's HOME directory is browsable so the
-    // folder picker can reach any project (e.g. ~/Documents/Projects/*), not just
-    // the directory Orca happened to launch from. Operators can still widen/narrow
-    // via ORCA_REPO_ROOTS. (Set ORCA_REPO_ROOTS to restrict back to specific dirs.)
-    const roots = [process.cwd(), ...fromEnv];
-    if (!env) {
-      try { const home = os.homedir(); if (home) roots.push(home); } catch { /* no home */ }
+    if (env) {
+      const fromEnv = String(env)
+        .split(/[,\n]/)
+        .map((value) => String(value || '').trim())
+        .filter(Boolean)
+        .map((value) => path.resolve(value));
+      return [...new Set([process.cwd(), ...fromEnv].map((value) => path.resolve(value)))];
     }
-    return [...new Set(roots.map((value) => path.resolve(value)))];
+    // Default (no ORCA_REPO_ROOTS): the operator's HOME directory is the single
+    // browsable root, so the folder picker starts at ~ and can reach any project
+    // (~/Documents/Projects/*). HOME contains the launch dir for normal setups; if
+    // Orca was launched from outside HOME we also include the cwd so it stays
+    // reachable. Set ORCA_REPO_ROOTS to override.
+    const roots = [];
+    try { const home = os.homedir(); if (home) roots.push(path.resolve(home)); } catch { /* no home */ }
+    const cwd = path.resolve(process.cwd());
+    if (!roots.some((root) => cwd === root || isPathWithinBoundary(cwd, root))) roots.push(cwd);
+    return [...new Set(roots)];
   },
 
   // Powers the workstation directory picker (desktop + remote). Jailed to the
@@ -121,8 +125,9 @@ export const workspaceMethods = {
       isGitRepo: false,
     }));
 
-    // No path -> present the approved roots as the top level to choose from.
-    const raw = String(requestedPath || '').trim();
+    // No path -> open directly into the primary root (HOME), Finder-style, instead
+    // of a bare "roots" chooser. (rootEntries kept for the multi-root env case.)
+    const raw = String(requestedPath || '').trim() || roots[0] || '';
     if (!raw) {
       return { roots, path: null, parent: null, entries: rootEntries };
     }
