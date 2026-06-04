@@ -23,6 +23,21 @@ export async function handleSystemActions(event) {
     }
     return;
   }
+  if (action === 'connectWorkstation') {
+    let url = (event.currentTarget?.dataset?.url || document.getElementById('workstation-url-input')?.value || '').trim();
+    if (!url) { renderAlert('Enter your workstation’s Tailscale URL first.', 'bad'); return; }
+    if (!/^https?:\/\//i.test(url)) url = `http://${url}`;
+    url = url.replace(/\/+$/, '');
+    // Remember recent workstations so the app can offer one-tap reconnect.
+    try {
+      const prior = JSON.parse(localStorage.getItem('orca.workstations') || '[]').filter((entry) => entry !== url);
+      localStorage.setItem('orca.workstations', JSON.stringify([url, ...prior].slice(0, 5)));
+    } catch { /* localStorage unavailable */ }
+    // Point the app (browser tab or desktop webview) at the workstation; its access
+    // screen then takes a one-time pairing code.
+    window.location.href = url;
+    return;
+  }
   if (action === 'setApiToken') {
     const tokenInput = document.getElementById('api-token-input');
     const token = tokenInput?.value || '';

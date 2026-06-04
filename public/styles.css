@@ -1055,9 +1055,13 @@ body.sidebar-collapsed .sidebar-project-line {
 .qr-code {
   background: #f5f1e8;
   border-radius: var(--radius-md);
-  height: 136px;
-  padding: 0.35rem;
-  width: 136px;
+  height: 184px;
+  padding: 0.5rem;
+  width: 184px;
+  /* Render module edges crisp (no anti-alias blur) so phone cameras decode the
+     small modules reliably — blurry sub-pixel edges were why it wouldn't scan. */
+  shape-rendering: crispEdges;
+  image-rendering: pixelated;
 }
 
 .qr-code rect:not(:first-child) {

@@ -592,8 +592,11 @@ document.addEventListener('click', async (event) => {
   if ([
     'setApiToken',
     'clearApiToken',
+    'connectWorkstation',
     'copyPhoneUrl',
     'createPairingCode',
+    'deleteSessionPermanent',
+    'deleteProjectPermanent',
     'connectDesktopApp',
     'copyDesktopConfig',
     'pairBrowserSession',

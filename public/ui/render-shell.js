@@ -20,12 +20,30 @@ export function renderAccessGate() {
   const workstationAdmin = isLocalHostName(window.location.hostname) && !narrowClient;
   const browserLabel = narrowClient ? 'phone browser' : 'laptop browser';
   if (!workstationAdmin) {
+    let recentWorkstations = [];
+    try { recentWorkstations = JSON.parse(localStorage.getItem('orca.workstations') || '[]'); } catch { recentWorkstations = []; }
+    const recentRows = (Array.isArray(recentWorkstations) ? recentWorkstations : []).slice(0, 5)
+      .map((url) => `<button class="btn-ghost" data-action="connectWorkstation" data-url="${safeAttr(url)}" type="button">${safeText(url)}</button>`).join('');
     writeHtml(refs.content, `
       <section class="project-shell">
         <article class="card control-card auth-gate">
-          <div class="card-kicker">Pair this device</div>
+          <div class="card-kicker">Using the Orca app on this device</div>
+          <h3>Connect to your workstation</h3>
+          <p>Installed the Orca app on this laptop/computer? Point it at your workstation over Tailscale — you don't have to use a browser. (You can still just open the workstation URL in a browser if you prefer.)</p>
+          <div class="card">
+            <h3>Connect to a workstation</h3>
+            <p class="tiny muted">Both devices must be on the same Tailscale tailnet. Enter your workstation's Tailscale URL (e.g. http://your-mac.your-tailnet.ts.net).</p>
+            <label>Workstation URL
+              <input id="workstation-url-input" inputmode="url" placeholder="http://your-mac.your-tailnet.ts.net" />
+            </label>
+            <div class="lane-row">
+              <button class="btn" data-action="connectWorkstation" type="button">Connect</button>
+            </div>
+            ${recentRows ? `<div class="tiny muted" style="margin-top:0.5rem">Recent workstations</div><div class="lane-row" style="flex-wrap:wrap">${recentRows}</div>` : ''}
+          </div>
+          <div class="card-kicker" style="margin-top:1rem">Then pair this device</div>
           <h3>Enter the code from your workstation</h3>
-          <p>No dashboard data is shown until this browser is paired. Open Orca on the trusted workstation, go to Settings -> Access and paired devices, create a one-time code, then enter it here.</p>
+          <p>No dashboard data is shown until this device is paired. On the trusted workstation, go to Settings -> Access and paired devices, create a one-time code, then enter it here.</p>
           <div class="setup-steps">
             <div class="setup-step ok">
               <span>1</span>
