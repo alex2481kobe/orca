@@ -118,8 +118,24 @@ export function fakeTailnetState(state = 'missing') {
   return { ...base, blockers: ['Tailscale binary missing or not detected.'] };
 }
 
+// detectTailnetState shells out to `tailscale` up to 3-4 times (version, status
+// --json, serve status). /api/private-access is polled on EVERY refresh (1-3s), so
+// without a cache that's a continuous pile of synchronous subprocesses blocking the
+// event loop. Tailnet state changes rarely → cache the real-probe result briefly.
+let _tailnetCache = null; // { value, at }
+const TAILNET_TTL_MS = 20 * 1000;
+
 export function detectTailnetState({ fakeState = null, runner = spawnSync } = {}) {
-  if (fakeState) return fakeTailnetState(fakeState);
+  if (fakeState) return fakeTailnetState(fakeState); // tests / injected — never cached
+  if (runner === spawnSync && _tailnetCache && (Date.now() - _tailnetCache.at) < TAILNET_TTL_MS) {
+    return _tailnetCache.value;
+  }
+  const value = computeTailnetState(runner);
+  if (runner === spawnSync) _tailnetCache = { value, at: Date.now() };
+  return value;
+}
+
+function computeTailnetState(runner) {
   const binary = runner('tailscale', ['version'], {
     encoding: 'utf8',
     timeout: 1500,

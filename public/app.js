@@ -11,7 +11,7 @@ import { api, initializeApiToken, isTrustedAdminClientHost, browserAccessBlocked
 import { stateTagClass, getActionPolicy, needsApproval, confirmHighRiskAction, pendingAuditsForLane, pendingAuditsForSession, laneDetailRoute, isVerificationProject, activeHomePanel, renderBreadcrumbs, renderTopbarTitle, agentEventTone, agentEventLabel, isLiveLaneState, isRestartableLaneState, executorCapabilitiesFor, renderExecutorCapabilities, capabilityList } from './ui/render-helpers.js';
 import { renderHome } from './ui/render-home.js';
 import { renderLaneExecutorGuidance, repopulateExecutorScopedControls, captureContentUiState, restoreContentUiState, renderAccessGate, renderAgentEventTimeline, modelPresetOptions, intelligenceOptions, runModeOptions, renderApprovalRows, renderSessionApprovals, composerAttachmentsFor, renderComposerAttachmentChips, refreshComposerAttachments, readFileAsBase64, uploadComposerFiles, renderOrchestratorConsole, renderExecutorLanePanelItem, renderExecutorSidePanel, activeOrchestratorLaneForSession, renderSession, renderLane, renderAuditLog, loadEvidenceGallery, render, renderStatusStrip, renderBlockers, renderSidebarProjects, renderMobileManifest } from './ui/render-views.js';
-import { refresh, showArtifacts, parseRoute, connectEventStream, startPolling } from './ui/controller.js';
+import { refresh, showArtifacts, parseRoute, connectEventStream, startPolling, syncAuthSessions } from './ui/controller.js';
 import { handlePrivateAccessSettings, handleNotificationSettings, handleNotificationAction, handleCreatePrivateAccessTarget, handlePrivateAccessAction, handleProviderAction, handleAppBackupAction, handleCleanupSchedule, handleCreateMcpTool, handleAddProjectQuickLink, handleCreateLane, handleOrchestratorMessage, handleLaneControlsUpdate, handleAuditEventAction, handleWorkstationPicker, handleNewSession, handleNewProject, ensureRealSession, buildCleanupScheduleBody, buildMcpToolBody, buildApprovedActionBody, toObj } from './ui/handlers.js';
 import { handleLaneActions, handleSessionActions, handleSystemActions } from './ui/handlers-actions.js';
 import { initDropdowns, enhanceSelects } from './ui/dropdown.js';
@@ -824,6 +824,10 @@ setupSidebarReorder();
 // Live countdown for one-time pairing codes (ticks every second; never touched by
 // the poll re-render so it stays smooth, and flips to an expired prompt at 0).
 setInterval(() => {
+  // Only does work while a one-time code is actually on screen — otherwise this
+  // 1s tick would run a global querySelectorAll forever. Also pause when hidden.
+  if (!shell.lastPairing) return;
+  if (typeof document !== 'undefined' && document.hidden) return;
   // Drop an expired one-time code so a stale code is never left on screen.
   if (shell.lastPairing?.expiresAt && new Date(shell.lastPairing.expiresAt).getTime() - Date.now() <= 0) {
     shell.lastPairing = null;
@@ -849,4 +853,8 @@ setInterval(() => {
 // SSE connection would otherwise keep the page from ever reaching "network idle"
 // (used by automated checks); the polling timer covers this short window.
 startPolling();
+// refresh() no longer fetches /api/auth/sessions (syncAuthSessions owns it), so do
+// one explicit sync on startup to populate the paired-device list immediately —
+// the SSE snapshot (on connect) + foreground + pairing fast-poll keep it fresh after.
 refresh().then(() => window.setTimeout(connectEventStream, 1200)).catch(() => {});
+syncAuthSessions().catch(() => {});

@@ -642,6 +642,7 @@ const ROUTE_CTX = {
   providerProfiles,
   buildAgentToolDiscovery,
   hasOperatorAuth,
+  hasAdminAuth,
   buildMobileManifest,
 };
 

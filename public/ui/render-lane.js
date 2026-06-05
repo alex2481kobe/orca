@@ -26,9 +26,10 @@ export function renderLane(project, session, lane) {
     ? `<button data-action="stopLane" data-lane-id="${safeAttr(lane.id)}" type="button">Stop lane</button>` : '';
   const retryButton = ['failed', 'stopped'].includes(lane.state)
     ? `<button class="secondary" data-action="retryLane" data-lane-id="${safeAttr(lane.id)}" type="button">Retry lane</button>` : '';
-  const artifactUrl = `/api/lanes/${lane.id}/artifacts`;
-  const evidenceUrl = `/api/lanes/${lane.id}/evidence`;
-  const evidenceLatestUrl = `/api/lanes/${lane.id}/evidence/latest`;
+  const laneIdEnc = encodeURIComponent(lane.id);
+  const artifactUrl = `/api/lanes/${laneIdEnc}/artifacts`;
+  const evidenceUrl = `/api/lanes/${laneIdEnc}/evidence`;
+  const evidenceLatestUrl = `/api/lanes/${laneIdEnc}/evidence/latest`;
   const pendingAudits = pendingAuditsForLane(lane.id);
   const pendingAuditRows = pendingAudits.length
     ? pendingAudits.map((event) => `<div>${safeText(event.type)} (${safeText(event.id.slice(0, 8))})</div>`).join('')
@@ -62,8 +63,8 @@ export function renderLane(project, session, lane) {
         <div class="lane-row">
           ${stopButton}
           ${retryButton}
-          <button class="secondary" data-action="captureEvidence" data-lane-id="${lane.id}" type="button">Capture evidence</button>
-          <button class="secondary" data-action="auditLane" data-lane-id="${lane.id}" type="button">${auditLabel}</button>
+          <button class="secondary" data-action="captureEvidence" data-lane-id="${safeAttr(lane.id)}" type="button">Capture evidence</button>
+          <button class="secondary" data-action="auditLane" data-lane-id="${safeAttr(lane.id)}" type="button">${auditLabel}</button>
         </div>
       </div>
       <details class="disclosure card">
@@ -82,12 +83,12 @@ export function renderLane(project, session, lane) {
           <div class="tiny">Pending events: ${pendingAuditRows}</div>
           <div class="tiny">Created: ${formatMeta(lane.createdAt)} / Started: ${formatMeta(lane.startedAt)} / Completed: ${formatMeta(lane.completedAt)}</div>
           <div class="lane-row">
-            <button class="secondary" data-action="clearEvidence" data-lane-id="${lane.id}" type="button">Clear evidence</button>
-            <button class="secondary" data-action="showArtifacts" data-lane-id="${lane.id}" type="button">Artifacts</button>
-            ${lane.worktreePath && lane.repoRoot ? `<button class="secondary" data-action="removeWorktree" data-lane-id="${lane.id}" type="button">Remove worktree</button>` : ''}
-            <a class="secondary" href="${artifactUrl}" target="_blank" rel="noopener noreferrer">Artifacts API</a>
-            <a class="secondary" href="${evidenceUrl}" target="_blank" rel="noopener noreferrer">Evidence API</a>
-            <a class="secondary" href="${evidenceLatestUrl}" target="_blank" rel="noopener noreferrer">Latest evidence API</a>
+            <button class="secondary" data-action="clearEvidence" data-lane-id="${safeAttr(lane.id)}" type="button">Clear evidence</button>
+            <button class="secondary" data-action="showArtifacts" data-lane-id="${safeAttr(lane.id)}" type="button">Artifacts</button>
+            ${lane.worktreePath && lane.repoRoot ? `<button class="secondary" data-action="removeWorktree" data-lane-id="${safeAttr(lane.id)}" type="button">Remove worktree</button>` : ''}
+            <a class="secondary" href="${safeHref(artifactUrl)}" target="_blank" rel="noopener noreferrer">Artifacts API</a>
+            <a class="secondary" href="${safeHref(evidenceUrl)}" target="_blank" rel="noopener noreferrer">Evidence API</a>
+            <a class="secondary" href="${safeHref(evidenceLatestUrl)}" target="_blank" rel="noopener noreferrer">Latest evidence API</a>
           </div>
         </div>
       </details>
@@ -114,9 +115,9 @@ export function renderLane(project, session, lane) {
       </div>
       <div class="card">
         <h4>Evidence gallery</h4>
-        <div id="evidence-gallery-${lane.id}" class="tiny muted">Loading latest evidence...</div>
+        <div id="evidence-gallery-${safeAttr(lane.id)}" class="tiny muted">Loading latest evidence...</div>
       </div>
-      <div id="lane-artifacts-${lane.id}" class="card tiny"></div>
+      <div id="lane-artifacts-${safeAttr(lane.id)}" class="card tiny"></div>
     </section>
   `;
 }

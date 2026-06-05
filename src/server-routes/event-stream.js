@@ -2,7 +2,7 @@
 // server.js as a factory. Stream plumbing is imported directly; request-scoped
 // deps (registry, auth, header/JSON helpers) are injected via closure.
 
-import { buildStreamSnapshot, streamHeartbeatMs, writeSse } from '../event-streams.js';
+import { buildStreamSnapshotCached, streamHeartbeatMs, writeSse } from '../event-streams.js';
 
 export function createEventStream(deps) {
   const { registry, applySecurityHeaders, setCacheHeaders, sendJson, getSearchParams, hasStreamAuth } = deps;
@@ -29,7 +29,7 @@ export function createEventStream(deps) {
     startedAt,
     heartbeatMs: streamHeartbeatMs(),
   });
-  writeSse(res, 'snapshot', buildStreamSnapshot(registry));
+  writeSse(res, 'snapshot', buildStreamSnapshotCached(registry));
   if (once) {
     writeSse(res, 'stream_close', {
       reason: 'once',
@@ -57,14 +57,14 @@ export function createEventStream(deps) {
     const revision = typeof registry.getStreamRevision === 'function' ? registry.getStreamRevision() : 0;
     if (revision !== lastRevision) {
       lastRevision = revision;
-      writeSse(res, 'update', buildStreamSnapshot(registry));
+      writeSse(res, 'update', buildStreamSnapshotCached(registry));
     }
     if (Date.now() - lastHeartbeatAt >= heartbeatMs) {
       lastHeartbeatAt = Date.now();
       writeSse(res, 'heartbeat', {
         at: new Date().toISOString(),
         revision,
-        counts: buildStreamSnapshot(registry).counts,
+        counts: buildStreamSnapshotCached(registry).counts, // memoized per revision
       });
     }
   }, pollMs);

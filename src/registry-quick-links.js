@@ -4,7 +4,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { nowIso } from './registry-utils.js';
-import { validateNetworkUrl } from './url-policy.js';
+import { validateNetworkUrl, publicHostResolvesSafely } from './url-policy.js';
 
 export const MAX_PROJECT_QUICK_LINKS = 50;
 const QUICK_LINK_KINDS = new Set(['dev-server', 'vite', 'preview', 'dashboard', 'artifact', 'docs', 'other']);
@@ -118,6 +118,22 @@ export async function boundedQuickLinkHealthCheck(link, { prefer = 'auto' } = {}
       detail: error.message || 'Quick link URL failed validation.',
       checkedUrl: candidate,
     };
+  }
+  // SSRF / DNS-rebinding guard: validateNetworkUrl trusts the hostname string, so
+  // a public name that resolves to an internal IP would pass. Re-check the resolved
+  // address(es) before fetching.
+  try {
+    const safe = await publicHostResolvesSafely(new URL(policy.url).hostname);
+    if (!safe) {
+      return {
+        status: 'unreachable',
+        httpStatus: null,
+        detail: 'Quick link host resolves to a non-public address.',
+        checkedUrl: policy.url,
+      };
+    }
+  } catch {
+    return { status: 'unreachable', httpStatus: null, detail: 'Quick link host could not be resolved.', checkedUrl: policy.url };
   }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 2500);

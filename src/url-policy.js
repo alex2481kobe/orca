@@ -222,12 +222,49 @@ function validateEvidenceUrl(raw, {
   };
 }
 
+// True if a resolved IP literal is internal (loopback / private / link-local /
+// metadata / ULA). Used by the DNS-rebinding guard below.
+function isForbiddenResolvedIp(ip) {
+  const v = net.isIP(ip);
+  if (v === 4) return isLoopbackHost(ip) || isForbiddenHost(ip);
+  if (v === 6) {
+    const lower = String(ip).toLowerCase();
+    if (lower === '::1' || lower === '::') return true;
+    if (/^fe[89ab]/.test(lower)) return true; // link-local fe80::/10
+    if (/^f[cd]/.test(lower)) return true; // unique-local fc00::/7
+    const mapped = lower.match(/(?:^|:)((?:\d{1,3}\.){3}\d{1,3})$/); // ::ffff:a.b.c.d
+    if (mapped) return isLoopbackHost(mapped[1]) || isForbiddenHost(mapped[1]);
+    return false; // genuinely public IPv6
+  }
+  return true; // not a parseable IP — fail closed
+}
+
+// SSRF / DNS-rebinding guard. String classification (classifyHost) trusts the
+// hostname text, so a PUBLIC name (e.g. rebind.evil.com) that resolves to
+// 127.0.0.1 / 169.254.169.254 / 10.x passes and would be fetched server-side.
+// Resolve the name and block if ANY address is internal. Only applies to
+// public-classified hosts; loopback/tailnet hosts are intended-internal targets
+// the caller already allowed. Async; fails CLOSED on resolution error.
+async function publicHostResolvesSafely(hostname) {
+  if (classifyHost(hostname) !== 'public') return true;
+  let addrs;
+  try {
+    const { promises: dnsPromises } = await import('node:dns');
+    addrs = await dnsPromises.lookup(hostname, { all: true });
+  } catch {
+    return false;
+  }
+  if (!Array.isArray(addrs) || addrs.length === 0) return false;
+  return addrs.every((a) => a && !isForbiddenResolvedIp(a.address));
+}
+
 export {
   CONTRACT_VERSION,
   classifyHost,
   classifySensitivity,
   isLoopbackHost,
   isTailnetHost,
+  publicHostResolvesSafely,
   validateEvidenceUrl,
   validateNetworkUrl,
 };

@@ -93,7 +93,7 @@ export function renderHome() {
           ${target.lastHealthDetail ? `<div class="tiny muted">${safeText(target.lastHealthDetail)}</div>` : ''}
         </div>
         <div class="lane-row">
-          <a class="secondary" href="${safeAttr(targetUrl)}" target="_blank" rel="noopener noreferrer">Open</a>
+          <a class="secondary" href="${safeHref(targetUrl)}" target="_blank" rel="noopener noreferrer">Open</a>
           <button class="secondary" data-action="checkPrivateAccessTarget" data-target-id="${safeAttr(target.id)}" type="button">Check</button>
           <button class="secondary" data-action="deletePrivateAccessTarget" data-target-id="${safeAttr(target.id)}" type="button">Remove</button>
         </div>
@@ -108,7 +108,7 @@ export function renderHome() {
         ${notification.body ? `<div class="tiny muted">${safeText(notification.body)}</div>` : ''}
       </div>
       <div class="lane-row">
-        ${notification.href ? `<a class="secondary" href="${safeAttr(notification.href)}">Open</a>` : ''}
+        ${notification.href ? `<a class="secondary" href="${safeHref(notification.href)}">Open</a>` : ''}
         ${notification.readAt ? '' : `<button class="secondary" data-action="markNotificationRead" data-notification-id="${safeAttr(notification.id)}" type="button">Mark read</button>`}
       </div>
     </div>
@@ -151,7 +151,7 @@ export function renderHome() {
         <div class="tiny muted">scope: ${safeText((tool.scope || []).join(', ') || 'all')} · args: ${safeText((tool.args || []).join(' ')) || 'none'} · enabled: ${tool.enabled ? 'yes' : 'no'}</div>
       </div>
       <div class="lane-row">
-        <button data-action="editMcpTool" data-tool-id="${safeText(tool.id || tool.name)}" type="button">Edit</button>
+        <button data-action="editMcpTool" data-tool-id="${safeAttr(tool.id || tool.name)}" type="button">Edit</button>
         <button class="secondary" data-action="deleteMcpTool" data-tool-id="${safeText(tool.id || tool.name)}" type="button">Delete</button>
       </div>
     </div>
@@ -191,7 +191,7 @@ export function renderHome() {
       : 'not available';
     const hasSourceCommand = Array.isArray(info?.reinstall?.sourceCommand) && info?.reinstall?.sourceCommand.length > 0;
     const sourceButton = hasSourceCommand
-      ? `<button class="secondary" data-action="reinstallExecutorCli" data-executor="${safeText(type)}" data-use-source="true" type="button">Dry-run source reinstall</button>`
+      ? `<button class="secondary" data-action="reinstallExecutorCli" data-executor="${safeAttr(type)}" data-use-source="true" type="button">Dry-run source reinstall</button>`
       : `<button class="secondary" type="button" disabled title="No trusted source command configured">Source reinstall unavailable</button>`;
     return `
       <div class="lane-row" style="align-items:center; justify-content:space-between;">
@@ -206,8 +206,8 @@ export function renderHome() {
         <div class="tiny muted">source command: ${safeText(sourceCommand)}</div>
         </div>
         <div class="lane-row">
-          <button data-action="refreshExecutorCli" data-executor="${safeText(type)}" type="button">Refresh</button>
-          <button class="secondary" data-action="reinstallExecutorCli" data-executor="${safeText(type)}" data-use-source="false" type="button">Dry-run reinstall</button>
+          <button data-action="refreshExecutorCli" data-executor="${safeAttr(type)}" type="button">Refresh</button>
+          <button class="secondary" data-action="reinstallExecutorCli" data-executor="${safeAttr(type)}" data-use-source="false" type="button">Dry-run reinstall</button>
           ${sourceButton}
         </div>
       </div>

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'orca-static-v122';
+const CACHE_NAME = 'orca-static-v123';
 const STATIC_ASSETS = [
   '/',
   '/styles.css',
@@ -103,6 +103,36 @@ self.addEventListener('fetch', (event) => {
   const cacheKey = cacheKeyForStaticAsset(url);
   if (!cacheKey && !isNavigation) return;
 
+  // Static module graph (JS/CSS/icons): STALE-WHILE-REVALIDATE. Serve the cached
+  // copy instantly (no network round-trip on every load — the old network-first
+  // strategy paid a round-trip per asset for no offline benefit), and refresh the
+  // cache in the background. Deploys bump CACHE_NAME, so the activate handler drops
+  // the old cache and the next load re-fetches — versioning, not freshness-per-load.
+  if (cacheKey && !isNavigation) {
+    event.respondWith((async () => {
+      const cached = await caches.match(cacheKey);
+      const networkFetch = fetch(request)
+        .then((response) => {
+          if (response && response.ok && canCacheStaticResponse(url, cacheKey)) {
+            const copy = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(cacheKey, copy));
+          }
+          return response;
+        })
+        .catch(() => null);
+      if (cached) {
+        // Revalidate in the background. waitUntil only extends the SW lifetime; the
+        // fetch promise already runs, so guard it for environments without it.
+        if (typeof event.waitUntil === 'function') event.waitUntil(networkFetch);
+        return cached;
+      }
+      const fresh = await networkFetch;
+      return fresh || new Response('Offline', { status: 504, statusText: 'Offline' });
+    })());
+    return;
+  }
+
+  // Document navigations: network-first with an app-shell fallback when offline.
   event.respondWith(
     fetch(request)
       .then((response) => {
@@ -113,19 +143,12 @@ self.addEventListener('fetch', (event) => {
         return response;
       })
       .catch(async () => {
-        // Network failed. Serve the exact asset from cache when we have it.
-        if (cacheKey) {
-          const cached = await caches.match(cacheKey);
-          if (cached) return cached;
-        }
         // App-shell fallback applies ONLY to document navigations. Never return
         // index.html for a script/style/icon request — the browser would parse
         // HTML as the wrong type, crashing module imports and blanking (which on
         // iOS can auto-close) a standalone PWA.
-        if (isNavigation) {
-          const shell = await caches.match('/');
-          if (shell) return shell;
-        }
+        const shell = await caches.match('/');
+        if (shell) return shell;
         // Nothing usable cached: return an explicit error rather than resolving
         // respondWith() to undefined (which surfaces as a hard network error and
         // can blank/close a standalone window).

@@ -33,6 +33,11 @@ export async function handleMcpRoutes(ctx, req, res, method, parts) {
   }
 
   if (parts[1] === 'mcp' && parts[2] === 'orchestrator-bootstrap' && parts.length === 3 && method === 'POST') {
+    // Mints a powerful, long-lived (12h) orchestrator tool-lease token usable
+    // OFF-origin (bypasses the cookie+SameSite CSRF protection). That is a
+    // host-level credential, so it requires ADMIN — a paired operator (phone)
+    // must not be able to escalate by calling this.
+    if (!requireAdminAuth(req, res)) return;
     const body = await parseJsonBody(req);
     if (body === null) return sendBodyError(req, res);
     if (rejectSpoofedActor(body, res)) return;

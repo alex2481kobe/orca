@@ -399,22 +399,22 @@ export function renderCleanupPanel(ctx) {
           </summary>
           <div class="disclosure-body">
         <div class="tiny muted">Status: ${schedule.enabled ? `Enabled · next run ${cleanupNext}` : 'Disabled'}</div>
-        <form id="cleanup-schedule-form" data-url="${scheduleApiUrl}" data-action-source="cleanup-schedule">
+        <form id="cleanup-schedule-form" data-url="${safeAttr(scheduleApiUrl)}" data-action-source="cleanup-schedule">
           <label><input type="checkbox" name="enabled" ${schedule.enabled ? 'checked' : ''}> Enable periodic cleanup</label>
           <label>Interval hours
-            <input name="intervalHours" type="number" min="1" max="720" step="0.5" value="${safeText(schedule.intervalHours || 24)}" />
+            <input name="intervalHours" type="number" min="1" max="720" step="0.5" value="${safeAttr(schedule.intervalHours || 24)}" />
           </label>
         <label>Prune older than (days)
-            <input name="olderThanDays" type="number" min="1" placeholder="default session retention" value="${safeText(schedule.olderThanDays || '')}" />
+            <input name="olderThanDays" type="number" min="1" placeholder="default session retention" value="${safeAttr(schedule.olderThanDays || "")}" />
           </label>
           <label>Target session id (optional)
-            <input name="sessionId" placeholder="leave blank for all sessions" value="${safeText(schedule.sessionId || '')}" />
+            <input name="sessionId" placeholder="leave blank for all sessions" value="${safeAttr(schedule.sessionId || "")}" />
           </label>
           <label><input type="checkbox" name="dryRun" ${schedule.dryRun ? 'checked' : ''}> Dry run mode</label>
           <button type="submit">Save cleanup schedule</button>
         </form>
         <div class="lane-row" style="margin-top:0.65rem">
-          <button class="secondary" data-action="cleanupArtifactsRunNow" data-url="${scheduleRunApiUrl}" type="button">Run cleanup now</button>
+          <button class="secondary" data-action="cleanupArtifactsRunNow" data-url="${safeAttr(scheduleRunApiUrl)}" type="button">Run cleanup now</button>
         </div>
           </div>
         </details>
@@ -784,7 +784,7 @@ export function renderSystemActionsPanel(ctx) {
         <button
           class="secondary"
           data-action="cleanupArtifacts"
-          data-url="${artifactCleanupUrl}"
+          data-url="${safeAttr(artifactCleanupUrl)}"
           type="button"
         >Run artifact cleanup</button>
       </article>`;

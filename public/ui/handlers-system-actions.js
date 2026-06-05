@@ -3,7 +3,7 @@
 import { authRequiredMessage, renderAlert, safeNavigate, appendNativeFlag } from './dom.js';
 import { confirmDialog, promptDialog } from './dialog.js';
 import { api, setApiToken } from './api.js';
-import { refresh } from './controller.js';
+import { refresh, invalidateCliInfo } from './controller.js';
 import { shell } from './state.js';
 import { refreshComposerAttachments } from './render-session-parts.js';
 import { buildApprovedActionBody } from './handlers-integrations.js';
@@ -696,6 +696,7 @@ export async function handleSystemActions(event) {
     if (response.ok) {
       if (!shell.executorCliInfo) shell.executorCliInfo = {};
       shell.executorCliInfo[executorType] = response.data;
+      invalidateCliInfo(); // let the next background refresh re-probe all executors
       renderAlert(`${executorType.toUpperCase()} CLI info refreshed.`);
       await refresh();
     } else {

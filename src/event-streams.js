@@ -86,9 +86,24 @@ function streamHeartbeatMs() {
   return parsePositiveInteger(process.env.ORCA_STREAM_HEARTBEAT_MS, DEFAULT_STREAM_HEARTBEAT_MS);
 }
 
+// The SSE handler polls per-connection (≤700ms) and built the full snapshot on
+// EVERY connection's tick (and twice on a heartbeat). The snapshot is identical for
+// all clients at a given revision, so memoize it by revision and share it — the
+// build (filter all lanes + audits, compact up to 75 items) now runs once per
+// actual change instead of N-connections × ticks-per-second.
+let _snapshotCache = { revision: -1, value: null };
+function buildStreamSnapshotCached(registry) {
+  const rev = typeof registry.getStreamRevision === 'function' ? registry.getStreamRevision() : 0;
+  if (_snapshotCache.value && _snapshotCache.revision === rev) return _snapshotCache.value;
+  const value = buildStreamSnapshot(registry);
+  _snapshotCache = { revision: rev, value };
+  return value;
+}
+
 export {
   STREAM_CONTRACT_VERSION,
   buildStreamSnapshot,
+  buildStreamSnapshotCached,
   sseFrame,
   streamHeartbeatMs,
   writeSse,

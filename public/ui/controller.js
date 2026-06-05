@@ -14,8 +14,11 @@ let refreshInFlight = false;
 let lastRefreshAt = 0;
 let _streamRefreshTimer = null;
 let _pairingAcceptedTimer = null;
-let _authSyncInFlight = false;
 let _lastAuthSyncAt = 0;
+let _lastCliInfoAt = 0;
+
+// Force the next refresh to re-probe CLI versions (after a manual refresh/reinstall).
+export function invalidateCliInfo() { _lastCliInfoAt = 0; }
 // Monotonic request ordering for auth-session fetches. Both refresh() and
 // syncAuthSessions() write shell.authSessions; a SLOW refresh can hold a STALE
 // snapshot (fetched before a device paired) and apply it LATE, clobbering the
@@ -68,8 +71,10 @@ function applyAuthSessions(sessions) {
 // slow full refresh is mid-flight (the cause of the ~7-10s pairing lag). Driven by
 // SSE `update` events and a fast poll tick.
 export async function syncAuthSessions() {
-  if (_authSyncInFlight) return;
-  _authSyncInFlight = true;
+  // No in-flight guard: a slow/stuck fetch must NOT block the next sync (that caused
+  // a paired device to not appear until a delayed earlier fetch resolved). The
+  // monotonic request counter below makes concurrent fetches safe — only the
+  // newest-sent result is applied, so an out-of-order/stale response is dropped.
   _lastAuthSyncAt = Date.now();
   const myReq = ++_authReqCounter;
   try {
@@ -80,9 +85,7 @@ export async function syncAuthSessions() {
     if (applyAuthSessions(resp.data.sessions) && !isEditingContent()) {
       render(captureContentUiState());
     }
-  } catch { /* transient; the next tick retries */ } finally {
-    _authSyncInFlight = false;
-  }
+  } catch { /* transient; the next tick retries */ }
 }
 
 export function parseRoute() {
@@ -146,9 +149,11 @@ export async function refresh(options = {}) {
     // (with the CLI shell-outs and the projects fetch dead last) that made a
     // reconnect / pairing reflection take 15-20s.
     const firstUnauthorized = (responses) => responses.find((r) => r && r.status === 401);
-    const authReq = ++_authReqCounter;
+    // NOTE: /api/auth/sessions is NOT fetched here — syncAuthSessions() owns it
+    // (driven by SSE snapshot/update, foreground, the pairing fast-poll, and a
+    // startup call) so we don't fetch it twice per cycle.
     const [policyResp, settingsResp, notificationsResp, blockersResp, privateAccessResp,
-      profilesResp, captureResp, providersResp, authSessionsResp, cleanupResp, mcpResp,
+      profilesResp, captureResp, providersResp, cleanupResp, mcpResp,
       pendingAuditResp, archiveResp, projectsResp] = await Promise.all([
       api('/api/policy'),
       api('/api/settings/effective'),
@@ -158,7 +163,6 @@ export async function refresh(options = {}) {
       api('/api/executors/profiles'),
       api('/api/capture/status'),
       api('/api/providers'),
-      api('/api/auth/sessions'),
       api('/api/artifacts/cleanup/schedule'),
       api('/api/mcp/tools'),
       api('/api/audit/events?status=pending'),
@@ -167,7 +171,7 @@ export async function refresh(options = {}) {
     ]);
     if (requestId !== refreshRequestId) return;
     if (abortFromAuth(firstUnauthorized([policyResp, settingsResp, notificationsResp, blockersResp,
-      privateAccessResp, profilesResp, captureResp, providersResp, authSessionsResp, cleanupResp,
+      privateAccessResp, profilesResp, captureResp, providersResp, cleanupResp,
       mcpResp, pendingAuditResp, archiveResp, projectsResp]))) return;
     if (policyResp.ok && policyResp.data) shell.policy = policyResp.data.policies;
     if (settingsResp.ok && settingsResp.data) shell.effectiveSettings = settingsResp.data;
@@ -181,11 +185,6 @@ export async function refresh(options = {}) {
     if (mcpResp.ok && Array.isArray(mcpResp.data)) shell.mcpTools = mcpResp.data;
     if (pendingAuditResp.ok && Array.isArray(pendingAuditResp.data)) shell.pendingAuditEvents = pendingAuditResp.data;
     if (archiveResp.ok && archiveResp.data) shell.archive = archiveResp.data;
-    // Newest-fetch guard so a slow refresh can't clobber a fresher syncAuthSessions.
-    if (authSessionsResp.ok && Array.isArray(authSessionsResp.data?.sessions) && authReq > _authAppliedReq) {
-      _authAppliedReq = authReq;
-      applyAuthSessions(authSessionsResp.data.sessions);
-    }
     // Projects -> sessions -> lanes (sessions per project + all lanes in parallel).
     if (projectsResp.ok && Array.isArray(projectsResp.data)) {
       const nextProjects = projectsResp.data;
@@ -213,9 +212,12 @@ export async function refresh(options = {}) {
     // Paint the dashboard NOW (capture ephemeral UI state right before render).
     render(captureContentUiState());
 
-    // Slow CLI version checks (shell-outs) run AFTER paint, in parallel; a second
-    // render then fills the Executor CLI health panel. Never blocks the dashboard.
-    if (shell.executorProfiles && typeof shell.executorProfiles === 'object') {
+    // Slow CLI version checks (shell-outs) run AFTER paint, in parallel — and only
+    // at most once a minute, NOT every poll. CLI versions change only on (re)install,
+    // so re-probing every 1-3s was pure waste (N requests + a second render each
+    // cycle). A forced refresh (refreshExecutorCli action) resets _lastCliInfoAt.
+    const cliStale = !shell.executorCliInfo || (Date.now() - _lastCliInfoAt) > 60000;
+    if (cliStale && shell.executorProfiles && typeof shell.executorProfiles === 'object') {
       const types = Object.keys(shell.executorProfiles);
       const cliResponses = await Promise.all(types.map((t) => api(`/api/executors/${encodeURIComponent(t)}/cli`)));
       if (requestId !== refreshRequestId) return;
@@ -223,6 +225,7 @@ export async function refresh(options = {}) {
       const cliInfo = {};
       types.forEach((t, i) => { if (cliResponses[i].ok && cliResponses[i].data) cliInfo[t] = cliResponses[i].data; });
       shell.executorCliInfo = cliInfo;
+      _lastCliInfoAt = Date.now();
       if (requestId !== refreshRequestId) return;
       render(captureContentUiState());
     }

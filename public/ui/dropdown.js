@@ -209,6 +209,7 @@ export function initDropdowns() {
   // Close on scroll of the page/containers (the menu is absolutely positioned),
   // but NOT when the scroll happens inside the menu's own option list.
   document.addEventListener('scroll', (event) => {
+    if (!_open) return; // nothing open → don't even run closest() on every scroll
     if (event.target && event.target.closest && event.target.closest('.dd-menu')) return;
     closeOpen();
   }, true);

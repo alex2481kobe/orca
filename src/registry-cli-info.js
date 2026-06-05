@@ -155,7 +155,24 @@ export function detectSlashCommands(type, binary) {
   return [];
 }
 
+// `--version` shells out (spawnSync, up to 4s). The client probes this per
+// executor on EVERY poll (1-3s) via /api/executors/{t}/cli AND /api/system/blockers
+// — without a cache that's continuous CPU + event-loop blocking. Versions change
+// only on (re)install, so a short TTL cache keyed by binary path is safe.
+const cliVersionCache = new Map(); // binary -> { value, at }
+const CLI_VERSION_TTL_MS = 60 * 1000;
+
 export function getCliVersion(binary) {
+  const key = String(binary || '');
+  const cached = cliVersionCache.get(key);
+  if (cached && (Date.now() - cached.at) < CLI_VERSION_TTL_MS) return cached.value;
+  const value = computeCliVersion(binary);
+  if (cliVersionCache.size > 64) cliVersionCache.clear(); // bound the map
+  cliVersionCache.set(key, { value, at: Date.now() });
+  return value;
+}
+
+function computeCliVersion(binary) {
   try {
     const result = spawnSync(binary, ['--version'], {
       encoding: 'utf8',

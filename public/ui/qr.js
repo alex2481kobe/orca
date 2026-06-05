@@ -1,14 +1,17 @@
 // QR code SVG generation (pure, no DOM/shell state). Extracted from app.js.
 // qrSvgForText memoizes the last result; computeQrSvgForText builds the matrix.
 
-let _qrCache = { text: null, svg: '' };
+// Small multi-entry memo: the home view renders TWO QRs per pass (phone URL +
+// orca:// deep link), so a single-entry cache thrashed and rebuilt ~1000 <rect>s
+// every 3s render. Keep a few entries, bounded.
+const _qrCache = new Map();
 export function qrSvgForText(text) {
-  // The phone URL rarely changes; memoize so we don't rebuild ~1000 <rect>s on
-  // every 3s render.
   const key = String(text || '');
-  if (_qrCache.text === key) return _qrCache.svg;
+  const hit = _qrCache.get(key);
+  if (hit !== undefined) return hit;
   const svg = computeQrSvgForText(key);
-  _qrCache = { text: key, svg };
+  if (_qrCache.size > 8) _qrCache.clear();
+  _qrCache.set(key, svg);
   return svg;
 }
 
