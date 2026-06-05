@@ -25,6 +25,44 @@ export function renderAppearancePanel() {
 const selected = (actual, expected) => String(actual || '') === String(expected || '') ? 'selected' : '';
 const checked = (value) => value ? 'checked' : '';
 
+// Count of REAL paired remote devices (workstation token-bootstrap sessions are
+// not devices). Returns null while the session list is still loading so callers
+// can show a "…" placeholder instead of flashing a misleading "0".
+function pairedDeviceCount() {
+  if (!Array.isArray(shell.authSessions)) return null;
+  return shell.authSessions.filter((s) => s && (s.paired || s.pairedFromId) && s.active !== false).length;
+}
+// Summary label for the "Paired devices" disclosure: a pluralized "N <unit>".
+// A not-yet-loaded list counts as 0 (never a placeholder glyph — "0 devices" is
+// the honest answer, and the real count fills in on the next poll).
+function pairedDeviceSummary(unit = 'device') {
+  const n = pairedDeviceCount() ?? 0;
+  return `${n} ${unit}${n === 1 ? '' : 's'}`;
+}
+
+// The pairing-code display: a live one-time code, OR a transient "Accepted"
+// confirmation once a device consumes it (so the workstation sees it land), OR a
+// placeholder prompt. Shared by every pairing surface so the behavior is uniform.
+function pairingCodeBox(placeholder) {
+  if (shell.pairingAccepted) {
+    return `
+            <div class="pairing-code-box pairing-accepted">
+              <span class="pairing-accepted-check" aria-hidden="true">✓</span>
+              <strong>Device paired</strong>
+              <span class="tiny muted">The code was accepted and is now used up. Create a new one to pair another device.</span>
+            </div>`;
+  }
+  if (shell.lastPairing) {
+    return `
+            <div class="pairing-code-box">
+              <div class="tiny muted">One-time pairing code. Do not screenshot or paste into URLs.</div>
+              <strong class="pairing-code-value">${safeText(shell.lastPairing.code)}</strong>
+              <span class="pairing-countdown" data-expires="${safeAttr(shell.lastPairing.expiresAt)}">Expires ${safeText(formatRelative(shell.lastPairing.expiresAt))}</span>
+            </div>`;
+  }
+  return `<div class="tiny muted">${safeText(placeholder)}</div>`;
+}
+
 export function renderSimpleSection(ctx) {
   const { showMainHome } = ctx;
   const hasProjects = (shell.projects || []).length > 0;
@@ -81,13 +119,7 @@ export function renderPairPanel(ctx) {
           <div class="lane-row">
             <button class="btn" data-action="createPairingCode" type="button">${shell.lastPairing ? 'New code' : 'Create pairing code'}</button>
           </div>
-          ${shell.lastPairing ? `
-            <div class="pairing-code-box">
-              <div class="tiny muted">One-time pairing code. Do not screenshot or paste into URLs.</div>
-              <strong class="pairing-code-value">${safeText(shell.lastPairing.code)}</strong>
-              <span class="pairing-countdown" data-expires="${safeAttr(shell.lastPairing.expiresAt)}">Expires ${safeText(formatRelative(shell.lastPairing.expiresAt))}</span>
-            </div>
-          ` : '<div class="tiny muted">Create a code here, then type it into the access screen on the other device. Codes are single-use and expire quickly.</div>'}
+          ${pairingCodeBox('Create a code here, then type it into the access screen on the other device. Codes are single-use and expire quickly.')}
         </div>
         <div class="pair-step">
           <strong>3. Enter the code on the other device</strong>
@@ -107,8 +139,8 @@ export function renderPairPanel(ctx) {
         <div class="onboarding-card">${step1}
         </div>
         ${pairingSteps}
-        <details class="disclosure compact-disclosure">
-          <summary><span>Paired devices</span><small>${safeText((shell.authSessions || []).filter((s) => s && (s.paired || s.pairedFromId)).length)} device${(shell.authSessions || []).filter((s) => s && (s.paired || s.pairedFromId)).length === 1 ? '' : 's'}</small></summary>
+        <details class="disclosure compact-disclosure" data-uikey="pair-paired-devices">
+          <summary><span>Paired devices</span><small>${safeText(pairedDeviceSummary('device'))}</small></summary>
           <div class="disclosure-body">${authSessionRows || '<div class="muted">No paired devices yet.</div>'}</div>
         </details>
       </article>`;
@@ -173,13 +205,7 @@ export function renderSetupPanel(ctx) {
               <button class="secondary" data-action="copyPhoneUrl" data-url="${safeAttr(phoneUrl)}" type="button">Copy link</button>
               <button class="secondary" data-action="createPairingCode" type="button">Create one-time code</button>
             </div>
-            ${shell.lastPairing ? `
-              <div class="pairing-code-box">
-                <div class="tiny muted">One-time pairing code. Do not screenshot or paste into URLs.</div>
-                <strong>${safeText(shell.lastPairing.code)}</strong>
-                <span>Expires ${safeText(formatRelative(shell.lastPairing.expiresAt))}</span>
-              </div>
-            ` : '<div class="tiny muted">Create a pairing code from the trusted workstation browser, then enter it on the phone access screen.</div>'}
+            ${pairingCodeBox('Create a pairing code from the trusted workstation browser, then enter it on the phone access screen.')}
           </div>
           <div class="qr-wrap">${phoneQr}<span>Scan from trusted device</span></div>
         </div>
@@ -235,8 +261,8 @@ export function renderTokenPanel(ctx) {
           <button class="secondary" data-action="createPairingCode" type="button">Create pairing code</button>
           ${browserPaired ? '<button class="secondary" data-action="logoutBrowserSession" type="button">Log out paired browser</button>' : ''}
         </div>
-        <details class="disclosure compact-disclosure">
-          <summary><span>Paired devices</span><small>${safeText((shell.authSessions || []).filter((s) => s && (s.paired || s.pairedFromId)).length)} session${(shell.authSessions || []).filter((s) => s && (s.paired || s.pairedFromId)).length === 1 ? '' : 's'}</small></summary>
+        <details class="disclosure compact-disclosure" data-uikey="token-paired-devices">
+          <summary><span>Paired devices</span><small>${safeText(pairedDeviceSummary('session'))}</small></summary>
           <div class="disclosure-body">${authSessionRows || '<div class="muted">No paired browser sessions yet.</div>'}</div>
         </details>
         <details class="disclosure compact-disclosure">
@@ -298,18 +324,12 @@ export function renderAccessPanel(ctx) {
                   <button class="secondary" data-action="createPairingCode" type="button">Create one-time code</button>
                   <button class="secondary" data-action="copyPhoneUrl" data-url="${safeAttr(phoneUrl)}" type="button">Copy private URL</button>
                 </div>
-                ${shell.lastPairing ? `
-                  <div class="pairing-code-box">
-                    <div class="tiny muted">One-time pairing code. Do not screenshot or paste into URLs.</div>
-                    <strong>${safeText(shell.lastPairing.code)}</strong>
-                    <span>Expires ${safeText(formatRelative(shell.lastPairing.expiresAt))}</span>
-                  </div>
-                ` : ''}
+                ${(shell.lastPairing || shell.pairingAccepted) ? pairingCodeBox('') : ''}
               </div>
               <div class="qr-wrap">${phoneQr}<span>Trusted setup QR</span></div>
             </div>
-            <details class="disclosure compact-disclosure">
-              <summary><span>Paired devices</span><small>${safeText((shell.authSessions || []).filter((s) => s && (s.paired || s.pairedFromId)).length)} active</small></summary>
+            <details class="disclosure compact-disclosure" data-uikey="access-paired-devices">
+              <summary><span>Paired devices</span><small>${safeText(`${pairedDeviceCount() ?? 0} active`)}</small></summary>
               <div class="disclosure-body">
                 <p class="tiny muted">Rotate session state by revoking old devices, clearing this browser token if needed, then creating a new one-time pairing code.</p>
                 ${authSessionRows || '<div class="muted">No paired browser sessions yet.</div>'}
@@ -725,7 +745,7 @@ export function renderArchivePanel() {
   const empty = !archivedProjects.length && !archivedSessions.length;
   return `
       <article class="card control-card" data-panel-card="system">
-        <details class="disclosure">
+        <details class="disclosure" data-uikey="archive">
           <summary>
             <span>Archive</span>
             <small>${safeText(archivedProjects.length + archivedSessions.length)} archived</small>

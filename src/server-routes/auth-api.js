@@ -77,8 +77,13 @@ export function createAuthApi(deps) {
         label: body.label || 'Paired browser',
         userAgent: req.headers['user-agent'] || '',
         remoteAddress: req.socket?.remoteAddress || '',
+        deviceId: body.deviceId || '',
       });
       res.setHeader('Set-Cookie', buildSessionCookie(req, result.sessionToken, result.maxAgeSeconds));
+      // Push an SSE `update` so the workstation dashboard reflects the new paired
+      // device (and clears/confirms the pairing code) within ~0.5s — not the next
+      // slow poll. Pairing lives in the auth store, so bump the stream revision.
+      registry.bumpStreamRevision?.();
       return sendJson(res, 200, {
         paired: true,
         session: result.session,
@@ -110,9 +115,16 @@ export function createAuthApi(deps) {
     if (body.sessionId && !requireAdminAuth(req, res)) return;
     try {
       const sessionToken = authSessions.sessionTokenFromCookieHeader(req.headers.cookie || '');
-      const result = body.sessionId
-        ? authSessions.revokeSessionId(String(body.sessionId), { actor: body.actor || 'dashboard' })
-        : authSessions.revokeSessionToken(sessionToken, { actor: body.actor || 'dashboard' });
+      if (body.sessionId) {
+        // Revoking ANOTHER device (device management). Must NOT clear the
+        // requester's own cookie — otherwise the admin revoking a paired phone
+        // logs themselves out and the dashboard "closes".
+        const result = authSessions.revokeSessionId(String(body.sessionId), { actor: body.actor || 'dashboard' });
+        registry.bumpStreamRevision?.(); // live-update other dashboards' device lists
+        return sendJson(res, 200, result);
+      }
+      // Revoking your OWN session (logout): clear the cookie on this browser.
+      const result = authSessions.revokeSessionToken(sessionToken, { actor: body.actor || 'dashboard' });
       res.setHeader('Set-Cookie', buildClearSessionCookie(req));
       return sendJson(res, 200, result);
     } catch (error) {

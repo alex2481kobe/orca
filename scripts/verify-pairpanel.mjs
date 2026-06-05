@@ -2,7 +2,15 @@
 // the URL row + Copy button + QR + caption layout. Not part of the smoke suite.
 import { chromium } from 'playwright';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
+
+// Isolate .orca state: AuthSessionStore persists to <cwd>/.orca, so pairing here
+// from the project dir would inject phantom "v" devices into the REAL state file.
+// chdir to a throwaway dir before importing the server; keep outputs under the
+// original cwd.
+const projectCwd = process.cwd();
+process.chdir(await fs.mkdtemp(path.join(os.tmpdir(), 'orca-verify-state-')));
 
 process.env.PORT = '0'; process.env.ORCA_HOST = '127.0.0.1'; process.env.ORCA_API_TOKEN = 'verify-token';
 process.env.ORCA_CREDENTIAL_BACKEND = 'memory'; process.env.ORCA_RATE_LIMIT_DISABLED = 'true';
@@ -62,7 +70,7 @@ const measures = await p.evaluate(() => {
     urlWidth: code ? Math.round(code.width) : null,
   };
 });
-const outDir = path.resolve('artifacts/verify');
+const outDir = path.join(projectCwd, 'artifacts/verify');
 await fs.mkdir(outDir, { recursive: true });
 await p.screenshot({ path: path.join(outDir, 'desktop-pairpanel.png') });
 console.log('[verify] pairpanel:', JSON.stringify({ rendered: ok, ...measures }));

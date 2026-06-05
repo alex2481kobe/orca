@@ -29,6 +29,9 @@ export const shell = {
   notifications: null,
   authSessions: null,
   lastPairing: null,
+  // Transient "device paired ✓" confirmation shown on the workstation right after
+  // a remote device consumes a pairing code; cleared a few seconds later.
+  pairingAccepted: null,
   executorPanelOpen: false,
   workstationPicker: null,
   // Per-session chat composer drafts, keyed by sessionId. The single source of

@@ -5,7 +5,10 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 
 export const SESSION_COOKIE_NAME = 'orca_session';
 export const DEFAULT_PAIRING_TTL_MS = 5 * 60 * 1000;
-export const DEFAULT_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+// 30 days: a paired device should stay connected like a normal app login, not get
+// kicked daily. Still revocable any time from the workstation, and the token lives
+// in an HttpOnly+Secure+SameSite cookie (never readable by page JS / localStorage).
+export const DEFAULT_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 export const nowIso = () => new Date().toISOString();
 

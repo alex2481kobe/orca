@@ -2,7 +2,7 @@ import { qrSvgForText } from './ui/qr.js';
 import { safeText, safeAttr, stateBadge, formatMeta, formatRelative, latestTimestamp } from './ui/format.js';
 import { shell, refs } from './ui/state.js';
 import { MOBILE_NAV_BREAKPOINT, API_PROVIDER_EXECUTOR_TYPES, FIRST_CLASS_CLI_EXECUTOR_TYPES, CLI_EXECUTOR_TARGET_ALIASES, MCP_TOOL_SCOPE_ALLOWLIST, API_TOKEN_STORAGE_KEY, SIDEBAR_ORDER_STORAGE_KEY, NOTIFICATION_SEEN_STORAGE_KEY, FOLDER_ICON, COMPOSE_ICON, PENCIL_ICON } from './ui/constants.js';
-import { clientUrl, safeHref, safeNavigate, authRequiredMessage, isLocalHostName, writeHtml, renderAlert } from './ui/dom.js';
+import { clientUrl, safeHref, safeNavigate, authRequiredMessage, isLocalHostName, writeHtml, renderAlert, appendNativeFlag, isNativeApp } from './ui/dom.js';
 import { browserNotificationsSupported, browserNotificationPermission, readSeenBrowserNotifications, writeSeenBrowserNotifications, requestBrowserNotificationPermission, maybeShowBrowserNotifications } from './ui/notifications.js';
 import { normalizeExecutorType, parseCommandParts, executorTargetsCommand, executorTargetsBinary, getExecutorProfile, getProviderProfile, isApiExecutorType, apiProviderOptions, cliExecutorOptions, getExecutorScopedMcpTools, findMcpTool, normalizeMcpToolScopes } from './ui/executor.js';
 import { accessModeLabel, effectiveAccessMode, exactUrlForAccessMode, fallbackUrlForAccessMode, effectiveProjectQuickLinkUrl, quickLinkHealthLabel, preferredPhoneUrl } from './ui/access-mode.js';
@@ -19,8 +19,9 @@ import { initComposerConfig, refreshConfigLabel } from './ui/composer-config.js'
 import { initComposerContext } from './ui/composer-context.js';
 import { initSlashCommands } from './ui/slash-commands.js';
 import { initMobileShell } from './ui/mobile-shell.js';
-import { initTheme, setThemePref } from './ui/theme.js';
+import { initTheme, setThemePref, appendThemeParam } from './ui/theme.js';
 import { defaultModelFor } from './ui/executor.js';
+import { normalizeWorkstationUrl, rememberWorkstation, setPendingWorkstationUrl, activeWorkstationUrl } from './ui/workstations.js';
 
 
 
@@ -39,25 +40,50 @@ window.__orcaConnect = (raw) => {
       const params = new URLSearchParams(query);
       target = params.get('ws') || params.get('url') || '';
     }
-    target = target.trim();
+    target = normalizeWorkstationUrl(target);
     if (!target) return;
-    if (!/^https?:\/\//i.test(target)) target = `http://${target}`;
-    target = target.replace(/\/+$/, '');
-    try {
-      const prior = JSON.parse(localStorage.getItem('orca.workstations') || '[]').filter((entry) => entry !== target);
-      localStorage.setItem('orca.workstations', JSON.stringify([target, ...prior].slice(0, 5)));
-    } catch { /* localStorage unavailable */ }
+    rememberWorkstation(target);
     // Persist the scanned URL so the connect screen pre-fills it even if a re-render
     // beats the navigation — the user then just enters the pairing code.
-    try { sessionStorage.setItem('orca.pendingWorkstation', target); } catch { /* unavailable */ }
+    setPendingWorkstationUrl(target);
     // Fallback: if the connect screen is already showing, fill its input now.
     const fill = () => { const input = document.getElementById('workstation-url-input'); if (input) input.value = target; };
     fill();
     setTimeout(fill, 350);
     // Primary path: navigate straight to the workstation, which lands on the
     // pairing-code screen (the URL is just an address — pairing still needs a code).
-    window.location.assign(target);
+    // Carry the theme (no color flash) + native-app flag (full-screen layout).
+    window.location.assign(appendNativeFlag(appendThemeParam(target)));
   } catch { /* ignore malformed deep link */ }
+};
+
+// Any remote client that reaches a real workstation origin (via our connect flow,
+// a QR scan, OR by typing the URL straight into a browser) records it as a known
+// workstation, so it shows — checkmarked as the active one — in the switcher.
+try {
+  const active = activeWorkstationUrl();
+  if (active) rememberWorkstation(active);
+} catch { /* storage unavailable */ }
+
+// A stable, non-secret per-device identifier. The server uses it to enforce
+// "one active session per device": re-pairing the same phone/app/browser
+// silently replaces its prior session instead of stacking duplicate rows. This
+// is NOT a credential (the HttpOnly session cookie is) — it only labels the
+// device, so localStorage is sufficient and works identically in the web app
+// and inside the Tauri desktop/iOS webviews. Clearing site data = new device.
+window.__orcaDeviceId = () => {
+  try {
+    let id = localStorage.getItem('orca.deviceId');
+    if (!id) {
+      id = (window.crypto && window.crypto.randomUUID)
+        ? window.crypto.randomUUID()
+        : `dev-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+      localStorage.setItem('orca.deviceId', id);
+    }
+    return id;
+  } catch {
+    return ''; // private mode / storage blocked: server simply skips dedup
+  }
 };
 
 // After any tap/click, drop focus from the activated control so it never stays
@@ -438,6 +464,11 @@ document.addEventListener('pointerdown', (event) => {
     && !event.target?.closest?.('.ops-sidebar')
     && !event.target?.closest?.('#mobile-nav-toggle')
     && !event.target?.closest?.('#sidebar-backdrop')
+    // A modal overlay (e.g. the New Project file picker) sits above the sidebar —
+    // interacting with it must NOT hide the panel behind it. This pointerdown path
+    // was the REAL cause of the picker collapsing the left panel (the click-handler
+    // guard alone wasn't enough).
+    && !event.target?.closest?.('.modal-overlay')
   ) {
     hideMobileSidebar();
   }
@@ -515,6 +546,10 @@ document.addEventListener('click', async (event) => {
   const inSidebar = event.target?.closest?.('.ops-sidebar');
   const inMainContent = event.target?.closest?.('.ops-main');
   const inTopbar = event.target?.closest?.('.app-topbar');
+  // A modal overlay (e.g. the custom New Project file picker) sits ABOVE everything.
+  // Clicking inside it must NOT be treated as "tapped outside the nav" and collapse
+  // the side panel behind it — the picker owns the interaction until dismissed.
+  const inModal = event.target?.closest?.('.modal-overlay');
 
   if (sidebarLongPressOpened) {
     sidebarLongPressOpened = false;
@@ -535,10 +570,10 @@ document.addEventListener('click', async (event) => {
     }
   }
 
-  if (isMobileLayout() && document.body.classList.contains('nav-open') && !inSidebar && !inTopbar) {
+  if (isMobileLayout() && document.body.classList.contains('nav-open') && !inSidebar && !inTopbar && !inModal) {
     closeMobileNavPanel();
   }
-  if (!inSidebar) {
+  if (!inSidebar && !inModal) {
     closeSidebarActionMenus();
   }
 
@@ -637,6 +672,7 @@ document.addEventListener('click', async (event) => {
     'setApiToken',
     'clearApiToken',
     'connectWorkstation',
+    'forgetWorkstation',
     'copyPhoneUrl',
     'createPairingCode',
     'deleteSessionPermanent',
@@ -779,6 +815,9 @@ initComposerConfig();
 initComposerContext();
 initSlashCommands();
 initTheme();
+// Tag the body for the native app (mirrors data-native set pre-paint on <html> by
+// theme-init.js) so any body-scoped styling/JS can key off it too.
+document.body.classList.toggle('is-native-app', isNativeApp());
 initMobileShell();
 renderMobileManifest();
 setupSidebarReorder();

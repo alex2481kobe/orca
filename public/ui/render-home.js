@@ -250,7 +250,7 @@ export function renderHome() {
   // Only real paired REMOTE devices appear here — the local workstation browser
   // (token bootstrap, pairedFromId null) is not a "paired device".
   const authSessionRows = (Array.isArray(shell.authSessions) ? shell.authSessions : [])
-    .filter((session) => session && (session.paired || session.pairedFromId))
+    .filter((session) => session && (session.paired || session.pairedFromId) && session.active !== false)
     .map((session) => `
     <div class="provider-row device-row">
       <div class="device-row-info">

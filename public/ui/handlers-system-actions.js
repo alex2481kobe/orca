@@ -1,6 +1,6 @@
 // Split from handlers-actions.js.
 
-import { authRequiredMessage, renderAlert, safeNavigate } from './dom.js';
+import { authRequiredMessage, renderAlert, safeNavigate, appendNativeFlag } from './dom.js';
 import { confirmDialog, promptDialog } from './dialog.js';
 import { api, setApiToken } from './api.js';
 import { refresh } from './controller.js';
@@ -10,6 +10,10 @@ import { buildApprovedActionBody } from './handlers-integrations.js';
 import { safeText } from './format.js';
 import { quickLinkHealthLabel } from './access-mode.js';
 import { normalizeMcpToolScopes } from './executor.js';
+import { normalizeWorkstationUrl, rememberWorkstation, forgetWorkstation, isActiveWorkstation } from './workstations.js';
+import { render } from './render-views.js';
+import { captureContentUiState } from './render-fragments.js';
+import { appendThemeParam } from './theme.js';
 
 export async function handleSystemActions(event) {
   const action = event.currentTarget.dataset.action;
@@ -24,18 +28,24 @@ export async function handleSystemActions(event) {
     return;
   }
   if (action === 'connectWorkstation') {
-    let url = (event.currentTarget?.dataset?.url || document.getElementById('workstation-url-input')?.value || '').trim();
+    const raw = event.currentTarget?.dataset?.url || document.getElementById('workstation-url-input')?.value || '';
+    const url = normalizeWorkstationUrl(raw);
     if (!url) { renderAlert('Enter your workstation’s Tailscale URL first.', 'bad'); return; }
-    if (!/^https?:\/\//i.test(url)) url = `http://${url}`;
-    url = url.replace(/\/+$/, '');
-    // Remember recent workstations so the app can offer one-tap reconnect.
-    try {
-      const prior = JSON.parse(localStorage.getItem('orca.workstations') || '[]').filter((entry) => entry !== url);
-      localStorage.setItem('orca.workstations', JSON.stringify([url, ...prior].slice(0, 5)));
-    } catch { /* localStorage unavailable */ }
-    // Point the app (browser tab or desktop webview) at the workstation; its access
-    // screen then takes a one-time pairing code.
-    window.location.href = url;
+    // Already connected to this exact workstation — just go to its dashboard/home.
+    if (isActiveWorkstation(url)) { window.location.href = appendNativeFlag(appendThemeParam(url + '/')); return; }
+    // Remember recent workstations (normalized + de-duped) so the app can offer
+    // one-tap reconnect/switch. Then point the app (browser tab or desktop webview)
+    // at the workstation; its access screen then takes a one-time pairing code. Carry
+    // the theme (no color flash) and the native-app flag (full-screen layout) across
+    // the cross-origin navigation.
+    rememberWorkstation(url);
+    window.location.href = appendNativeFlag(appendThemeParam(url));
+    return;
+  }
+  if (action === 'forgetWorkstation') {
+    const url = event.currentTarget?.dataset?.url || '';
+    forgetWorkstation(url);
+    render(captureContentUiState());
     return;
   }
   if (action === 'setApiToken') {
@@ -62,10 +72,9 @@ export async function handleSystemActions(event) {
     });
     if (response.ok) {
       const pairing = response.data?.pairing || null;
-      // Remember how many devices were paired when this code was issued; once that
-      // count grows, the code was consumed and we stop showing it (codes are
-      // one-time). The countdown ticker clears it on expiry.
-      if (pairing) pairing.pairedCountAtCreate = (shell.authSessions || []).filter((s) => s && (s.paired || s.pairedFromId)).length;
+      // Keep the pairing (incl. its id). The "Device paired ✓" confirmation fires
+      // only when a real session appears whose pairedFromId === pairing.id — i.e.
+      // a device actually consumed THIS code — never from device-count heuristics.
       shell.lastPairing = pairing;
       renderAlert(`Pairing code: ${pairing?.code || 'created'}`);
       await refresh();
@@ -178,12 +187,14 @@ export async function handleSystemActions(event) {
   if (action === 'pairBrowserSession') {
     const code = document.getElementById('pairing-code-input')?.value || '';
     const label = document.getElementById('pairing-label-input')?.value || 'Paired browser';
+    const deviceId = typeof window !== 'undefined' && window.__orcaDeviceId ? window.__orcaDeviceId() : '';
     const response = await api('/api/auth/pair', {
       method: 'POST',
       body: {
         actor: 'dashboard',
         code,
         label,
+        deviceId,
       },
     });
     if (response.ok) {
@@ -226,6 +237,14 @@ export async function handleSystemActions(event) {
     });
     if (response.ok) {
       renderAlert('Paired browser session revoked.');
+      // Optimistically drop the row NOW so it disappears immediately. Otherwise a
+      // background poll already in flight (refresh() early-returns while one is
+      // running) re-renders the stale list for a cycle — the "revoke doesn't remove
+      // it" bug. refresh() afterward reconciles with the server.
+      if (Array.isArray(shell.authSessions)) {
+        shell.authSessions = shell.authSessions.filter((s) => s && s.id !== sessionId);
+        render(captureContentUiState());
+      }
       await refresh();
     } else {
       renderAlert(response.status === 401 ? authRequiredMessage() : (response.data?.error || 'Could not revoke paired browser session.'), 'bad');
@@ -474,7 +493,15 @@ export async function handleSystemActions(event) {
     const approval = await buildApprovedActionBody('updateSession', `Permanently delete ${sessionName}? This cannot be undone — its chat, lanes, and workspace are removed for good.`);
     if (!approval.approved) return;
     const response = await api(`/api/sessions/${sessionId}`, { method: 'DELETE', body: { actor: approval.actor, approved: approval.approved } });
-    if (response.ok) { renderAlert('Session permanently deleted.'); await refresh(); } else { renderAlert(response.data?.error || 'Could not delete session.', 'bad'); }
+    if (response.ok) {
+      renderAlert('Session permanently deleted.');
+      // Optimistically drop the row so the Archive section keeps its place + open
+      // state (a background poll mid-flight would otherwise re-render the stale list
+      // for a cycle and the disclosure would appear to close). refresh() reconciles.
+      if (shell.archive?.sessions) shell.archive.sessions = shell.archive.sessions.filter((s) => s && s.id !== sessionId);
+      render(captureContentUiState());
+      await refresh();
+    } else { renderAlert(response.data?.error || 'Could not delete session.', 'bad'); }
     return;
   }
 
@@ -485,7 +512,13 @@ export async function handleSystemActions(event) {
     const approval = await buildApprovedActionBody('updateProject', `Permanently delete ${projectName} and ALL its sessions? This cannot be undone.`);
     if (!approval.approved) return;
     const response = await api(`/api/projects/${projectId}`, { method: 'DELETE', body: { actor: approval.actor, approved: approval.approved } });
-    if (response.ok) { renderAlert('Project permanently deleted.'); await refresh(); } else { renderAlert(response.data?.error || 'Could not delete project.', 'bad'); }
+    if (response.ok) {
+      renderAlert('Project permanently deleted.');
+      // Optimistic removal so the Archive section stays open (see deleteSessionPermanent).
+      if (shell.archive?.projects) shell.archive.projects = shell.archive.projects.filter((pr) => pr && pr.id !== projectId);
+      render(captureContentUiState());
+      await refresh();
+    } else { renderAlert(response.data?.error || 'Could not delete project.', 'bad'); }
     return;
   }
 

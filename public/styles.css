@@ -30,11 +30,24 @@
   --topbar-height: 45px;
   --safe-area-top: env(safe-area-inset-top);
   --safe-area-bottom: env(safe-area-inset-bottom);
+  /* Viewport height unit. In a real mobile browser, var(--vph) is correct — it shrinks
+     to exclude the dynamic toolbar. But the native app and installed (Home Screen)
+     PWA have NO toolbar, and iOS WKWebView computes dvh SHORT there as if one were
+     still present → a dead gap at the bottom. So those contexts (flagged
+     data-native / data-standalone on <html>, set before paint in theme-init.js) use
+     100vh = the full screen; safe-area insets still keep content clear of the
+     notch/home-indicator. */
+  --vph: 100dvh;
   /* Ink that contrasts the --text-colored fill (e.g. the primary button label).
      Dark theme: --text is light, so ink is near-black. Flips in light theme. */
   --ink-on-light: #1a1a1a;
-  color-scheme: dark;
   --mono: "SFMono-Regular", "Cascadia Code", "Roboto Mono", Consolas, monospace;
+  color-scheme: dark;
+}
+/* Full-screen contexts (native app / installed PWA): use the real screen height,
+   not the short dvh. Attribute is set pre-paint by theme-init.js. */
+:root[data-native], :root[data-standalone] {
+  --vph: 100vh;
 }
 
 /* ===== Light theme =====
@@ -86,7 +99,7 @@ body {
      browsers. The reverse order lets `vh` (the LARGE iOS viewport, toolbar
      hidden) override `dvh` and push content behind Chrome's bottom toolbar. */
   min-height: 100vh;
-  min-height: 100dvh;
+  min-height: var(--vph);
   overflow-x: hidden;
   font-size: 15px;
   -webkit-text-size-adjust: 100%;
@@ -328,7 +341,7 @@ body.sidebar-collapsed .shell-toggle {
      notch/home-indicator. Subtracting them too made the shell ~80px short of the
      screen in a standalone app (content "shifted up", dead space at the bottom). */
   min-height: calc(100vh - var(--topbar-height));
-  min-height: calc(100dvh - var(--topbar-height));
+  min-height: calc(var(--vph) - var(--topbar-height));
   max-width: none;
   margin: 0;
   padding: 0;
@@ -349,7 +362,7 @@ body.sidebar-collapsed .ops-shell {
   display: flex;
   flex-direction: column;
   height: calc(100vh - var(--topbar-height));
-  height: calc(100dvh - var(--topbar-height));
+  height: calc(var(--vph) - var(--topbar-height));
   overflow-x: hidden;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
@@ -902,7 +915,7 @@ body.sidebar-collapsed .sidebar-project-line {
      insets live in the padding, NOT subtracted from the height — otherwise the
      box is ~80px short in a standalone app and content floats up. */
   min-height: calc(100vh - var(--topbar-height));
-  min-height: calc(100dvh - var(--topbar-height));
+  min-height: calc(var(--vph) - var(--topbar-height));
   /* Top clears the notch/status bar; bottom clears the home indicator. */
   padding: calc(var(--topbar-height) + 2rem + var(--safe-area-top)) min(4vw, 3rem) calc(2rem + var(--safe-area-bottom));
 }
@@ -1232,6 +1245,35 @@ body.sidebar-collapsed .sidebar-project-line {
 .pairing-code-box span {
   color: var(--muted);
   font-size: 0.8rem;
+}
+
+/* "Device paired ✓" confirmation shown in place of a consumed code. */
+.pairing-code-box.pairing-accepted {
+  background: color-mix(in srgb, var(--ok, #2e7d32) 14%, var(--panel));
+  border-color: color-mix(in srgb, var(--ok, #2e7d32) 45%, var(--line));
+  align-items: center;
+  grid-auto-flow: row;
+  justify-items: center;
+  text-align: center;
+}
+
+.pairing-code-box.pairing-accepted strong {
+  font-size: 1.05rem;
+  letter-spacing: 0;
+}
+
+.pairing-accepted-check {
+  align-items: center;
+  background: var(--ok, #2e7d32);
+  border-radius: 999px;
+  color: #fff;
+  display: inline-flex;
+  font-size: 1.05rem;
+  font-weight: 700;
+  height: 1.8rem;
+  justify-content: center;
+  line-height: 1;
+  width: 1.8rem;
 }
 
 .simple-section h3 {
@@ -1961,7 +2003,7 @@ a.secondary,
 }
 
 @media (hover: hover) { button.secondary:hover, a.secondary:hover, .button-secondary:hover {
-  background: rgba(49, 52, 44, 0.95);
+  background: var(--hover);
 } }
 
 button:disabled,
@@ -2198,7 +2240,7 @@ pre {
     top: 0;
     left: 0;
     height: 100vh;
-    height: 100dvh;
+    height: var(--vph);
     width: min(82vw, 300px);
     z-index: 50;
     transform: translateX(-105%);
@@ -2475,7 +2517,7 @@ pre {
   display: flex;
   flex-direction: column;
   height: calc(100vh - var(--topbar-height));
-  height: calc(100dvh - var(--topbar-height));
+  height: calc(var(--vph) - var(--topbar-height));
   min-height: 0;
 }
 .session-topbar {
@@ -2982,10 +3024,10 @@ button.home-cta { cursor: pointer; font: inherit; }
 
 @media (min-width: 881px) {
   .app-topbar { display: none; }
-  .ops-shell { min-height: 100vh; min-height: 100dvh; transition: grid-template-columns 0.24s cubic-bezier(0.4, 0, 0.2, 1); }
-  .ops-sidebar { height: 100vh; height: 100dvh; padding-top: 0.5rem; transition: transform 0.24s cubic-bezier(0.4, 0, 0.2, 1); }
+  .ops-shell { min-height: 100vh; min-height: var(--vph); transition: grid-template-columns 0.24s cubic-bezier(0.4, 0, 0.2, 1); }
+  .ops-sidebar { height: 100vh; height: var(--vph); padding-top: 0.5rem; transition: transform 0.24s cubic-bezier(0.4, 0, 0.2, 1); }
   .ops-main { padding-top: 1.5rem; }
-  .session-shell { height: 100vh; height: 100dvh; }
+  .session-shell { height: 100vh; height: var(--vph); }
   body:has(.session-shell) .ops-main { padding: 0; }
   body:has(.session-shell) .ops-content { max-width: none; }
   body.sidebar-collapsed .sidebar-reopen {
@@ -3021,13 +3063,17 @@ button.home-cta { cursor: pointer; font: inherit; }
 .modal-message { color: var(--text); font-size: 0.9rem; line-height: 1.5; white-space: pre-line; }
 .modal-input { width: 100%; }
 .modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.25rem; }
+.modal-cancel { padding: 0.5rem 1rem; }
 .modal-confirm { background: var(--text); border: 0; color: var(--ink-on-light); padding: 0.5rem 1rem; }
 @media (hover: hover) { .modal-confirm:hover { background: var(--accent-strong); } }
 .modal-confirm.danger { background: var(--danger); color: var(--ink-on-light); }
 @media (hover: hover) { .modal-confirm.danger:hover { background: #ff9d86; } }
 
 /* ===== Home welcome (empty state when no project is open) ===== */
-.home-welcome { align-items: center; display: flex; justify-content: center; min-height: calc(100dvh - var(--topbar-height) - 4rem); padding: 2rem; }
+/* Vertically center the empty-state welcome WITHOUT overflowing: subtract the
+   .ops-main safe-area padding + topbar + breadcrumb row, or the screen scrolls
+   (it did once --vph switched to 100vh in the native app / installed PWA). */
+.home-welcome { align-items: center; display: flex; justify-content: center; min-height: calc(var(--vph) - var(--topbar-height) - var(--safe-area-top) - var(--safe-area-bottom) - 8rem); padding: 2rem; }
 .home-welcome.is-hidden { display: none; }
 .home-hero { display: flex; flex-direction: column; align-items: center; gap: 0.65rem; text-align: center; }
 .home-hero-logo { display: block; margin-bottom: 0.15rem; }
@@ -3276,3 +3322,69 @@ textarea:focus-visible {
 .connect-settings { text-align: left; gap: 1rem; }
 .connect-settings .connect-brand { margin-bottom: 0.5rem; }
 .connect-settings .card { width: 100%; }
+
+/* Branded first-paint / reconnect loader (replaces the bare "Loading…"). Centered
+   logo + soft spinner; uses --vph so it fills the screen in app + browser alike. */
+.app-loading {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 0.85rem; min-height: calc(var(--vph) - var(--topbar-height) - var(--safe-area-top) - var(--safe-area-bottom) - 6rem);
+  color: var(--muted); text-align: center;
+}
+.app-loading-logo { display: block; opacity: 0.95; animation: app-loading-pulse 1.6s ease-in-out infinite; }
+.app-loading-spinner {
+  width: 1.5rem; height: 1.5rem; border-radius: 50%;
+  border: 2px solid var(--line); border-top-color: var(--accent-strong, var(--text));
+  animation: app-loading-spin 0.7s linear infinite;
+}
+.app-loading-text { font-size: 0.9rem; letter-spacing: 0.01em; }
+@keyframes app-loading-spin { to { transform: rotate(360deg); } }
+@keyframes app-loading-pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .app-loading-logo, .app-loading-spinner { animation: none; }
+}
+
+/* Workstation switcher: known workstations, the active one checkmarked + tagged. */
+.ws-switcher { width: 100%; min-width: 0; max-width: 100%; display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.5rem; text-align: left; }
+.ws-switcher-head { color: var(--muted); font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+/* min-width:0 down the whole flex chain so a long workstation host truncates
+   (ellipsis) instead of forcing the row — and the screen — wider than the phone. */
+.ws-list { display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; }
+.ws-row { display: flex; align-items: stretch; gap: 0.35rem; min-width: 0; }
+.ws-pick {
+  flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 0.55rem;
+  text-align: left; padding: 0.6rem 0.7rem; cursor: pointer;
+  border-radius: var(--radius-sm); border: 1px solid var(--line); background: transparent; color: var(--text);
+}
+.ws-row.is-active .ws-pick {
+  border-color: color-mix(in srgb, var(--ok) 55%, var(--line));
+  background: color-mix(in srgb, var(--ok) 10%, var(--panel));
+}
+.ws-check { flex: 0 0 auto; width: 1.1rem; text-align: center; color: var(--ok); font-weight: 700; }
+.ws-host { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 0.9rem; }
+.ws-tag { flex: 0 0 auto; font-size: 0.68rem; font-weight: 700; color: var(--ok); text-transform: uppercase; letter-spacing: 0.03em; }
+.ws-go-hint { flex: 0 0 auto; font-size: 0.78rem; color: var(--muted); }
+.ws-forget {
+  flex: 0 0 auto; width: 2.1rem; cursor: pointer; font-size: 1.15rem; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-sm); border: 1px solid var(--line); background: transparent; color: var(--muted);
+}
+@media (hover: hover) {
+  .ws-pick:hover { background: var(--hover); }
+  .ws-forget:hover { background: var(--hover); color: var(--text); }
+}
+
+/* Pair-gate stepper: step 1 done (connected to workstation), step 2 active (code). */
+.connect-steps { list-style: none; margin: 0 0 0.25rem; padding: 0; width: 100%; display: flex; flex-direction: column; gap: 0.5rem; text-align: left; }
+.connect-step { display: flex; align-items: flex-start; gap: 0.65rem; padding: 0.7rem 0.8rem; border-radius: var(--radius-md); border: 1px solid var(--line); background: var(--panel); }
+.connect-step.is-done { border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); background: color-mix(in srgb, var(--ok) 9%, var(--panel)); }
+.connect-step.is-active { border-color: color-mix(in srgb, var(--accent, var(--text)) 35%, var(--line)); }
+.connect-step-mark {
+  flex: 0 0 auto; width: 1.6rem; height: 1.6rem; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 0.9rem; font-weight: 700; background: var(--hover); color: var(--muted);
+}
+.connect-step.is-done .connect-step-mark { background: var(--ok); color: #fff; }
+.connect-step.is-active .connect-step-mark { background: var(--text); color: var(--ink-on-light, #fff); }
+.connect-step-body { display: flex; flex-direction: column; gap: 0.12rem; min-width: 0; }
+.connect-step-body strong { font-size: 0.92rem; }
+.connect-step-host { font-size: 0.82rem; color: var(--muted); word-break: break-all; }
+.connect-step-hint { font-size: 0.8rem; color: var(--muted); }

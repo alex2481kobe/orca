@@ -189,6 +189,7 @@ export class AuthSessionStore {
     label = 'Paired browser',
     userAgent = '',
     remoteAddress = '',
+    deviceId = '',
   } = {}) {
     this.pruneExpired();
     const normalizedCode = String(code || '').trim().toUpperCase();
@@ -203,11 +204,16 @@ export class AuthSessionStore {
     if (record.usedAt || isExpired(record.expiresAt)) {
       throw { status: 401, message: 'Pairing code is invalid or expired.' };
     }
+    // One active session per physical device: re-pairing the same device silently
+    // replaces its prior session, so the paired-devices list never accumulates
+    // duplicate rows for one phone/app/browser.
+    this._revokeActiveSessionsForDevice(deviceId, { actor: 'pairing-replace' });
     const session = this._appendSession({
       label: safeLabel(label, 'Paired browser'),
       pairedFromId: record.id,
       userAgent,
       remoteAddress,
+      deviceId,
     });
     record.usedAt = nowIso();
     this.audit({
@@ -267,9 +273,32 @@ export class AuthSessionStore {
     };
   }
 
+  // Revoke every active session bound to a given device id (used to enforce the
+  // one-session-per-device rule on re-pair). No-op for an empty/unknown id, so
+  // clients that don't send a stable device id simply skip dedup.
+  _revokeActiveSessionsForDevice(deviceId, { actor = 'dashboard' } = {}) {
+    const normalized = safeLabel(deviceId, '');
+    if (!normalized) return 0;
+    let revoked = 0;
+    for (const record of this.state.sessions) {
+      if (record && !record.revokedAt && record.deviceId === normalized) {
+        record.revokedAt = nowIso();
+        revoked += 1;
+        this.audit({
+          type: 'auth_session_revoked',
+          actor: safeLabel(actor, 'dashboard'),
+          status: 'passed',
+          summary: `Replaced prior session for re-paired device ${record.label}`,
+          evidence: { sessionId: record.id, reason: 'device-repair' },
+        });
+      }
+    }
+    return revoked;
+  }
+
   // Shared session creation: prune expired, mint a CSPRNG token, cap retained
   // sessions. Returns { record, token } (token is plaintext, returned once).
-  _appendSession({ label, pairedFromId, userAgent, remoteAddress }) {
+  _appendSession({ label, pairedFromId, userAgent, remoteAddress, deviceId = '' }) {
     this.pruneExpired({ persist: false });
     const sessionToken = generateSessionToken();
     const record = {
@@ -280,6 +309,7 @@ export class AuthSessionStore {
       expiresAt: new Date(Date.now() + this.sessionTtlMs).toISOString(),
       revokedAt: null,
       pairedFromId: pairedFromId || null,
+      deviceId: safeLabel(deviceId, ''),
       userAgent: safeLabel(userAgent, ''),
       remoteAddress: safeLabel(remoteAddress, ''),
     };

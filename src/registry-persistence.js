@@ -119,6 +119,14 @@ export const persistenceMethods = {
     return this._streamRevision || 0;
   },
 
+  // Bump the revision WITHOUT persisting registry state — for live events that
+  // don't live in the registry (e.g. a browser pairing/revocation in the auth
+  // store) but should still push an SSE `update` so the dashboard reacts instantly.
+  bumpStreamRevision() {
+    this._streamRevision = (this._streamRevision || 0) + 1;
+    return this._streamRevision;
+  },
+
   async persistState() {
     this._streamRevision = (this._streamRevision || 0) + 1;
     if (this._persistTimer) return;

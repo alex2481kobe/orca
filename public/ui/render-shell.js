@@ -1,6 +1,7 @@
 // Render view module (split from render-views.js).
 
 import { isWorkstation, isMobileApp, isLocalHostName, isIosWeb, writeHtml, installToHomeHint } from './dom.js';
+import { readWorkstations, activeWorkstationUrl, isActiveWorkstation, workstationLabel, pendingWorkstationUrl } from './workstations.js';
 
 // The installed app, launched but not yet pointed at a workstation, lives at its
 // own bundled origin (tauri://localhost) where there is no server. Detect that so
@@ -11,18 +12,40 @@ function isUnconnectedMobileApp() {
   return isMobileApp() && isLocalHostName(window.location.hostname);
 }
 
+// Shared list of known workstations, newest first. The one this device is
+// currently connected to (its own origin) is marked with a green check and the
+// "Connected" tag; the others are one-tap switch targets. Each has a Forget (×).
+// Rendered on the connect screen, the pair-gate switcher, and Settings so the
+// behavior is identical everywhere. Returns '' when there are no known stations.
+function renderWorkstationList({ heading = '' } = {}) {
+  const recents = readWorkstations();
+  if (!recents.length) return '';
+  const rows = recents.map((url) => {
+    const active = isActiveWorkstation(url);
+    return `
+      <div class="ws-row${active ? ' is-active' : ''}">
+        <button class="ws-pick" data-action="connectWorkstation" data-url="${safeAttr(url)}" type="button">
+          <span class="ws-check" aria-hidden="true">${active ? '✓' : ''}</span>
+          <span class="ws-host">${safeText(workstationLabel(url))}</span>
+          ${active ? '<span class="ws-tag">Connected</span>' : '<span class="ws-go-hint">Switch</span>'}
+        </button>
+        <button class="ws-forget" data-action="forgetWorkstation" data-url="${safeAttr(url)}" type="button" aria-label="Forget ${safeAttr(workstationLabel(url))}" title="Forget">×</button>
+      </div>`;
+  }).join('');
+  return `
+    <div class="ws-switcher">
+      ${heading ? `<div class="ws-switcher-head">${safeText(heading)}</div>` : ''}
+      <div class="ws-list">${rows}</div>
+    </div>`;
+}
+
 // Dedicated first-run screen for the mobile app: brand + "connect to your
 // workstation" with the REMOTE-device instructions (how to point it at the Mac),
 // not the workstation's "pair a remote device" instructions.
 function renderMobileConnect() {
-  let recents = [];
-  try { recents = JSON.parse(localStorage.getItem('orca.workstations') || '[]'); } catch { recents = []; }
   // A QR scan (orca:// deep link) stores the workstation URL here so the input is
   // pre-filled with the right tailnet address — the user just taps Connect.
-  let pendingWs = '';
-  try { pendingWs = sessionStorage.getItem('orca.pendingWorkstation') || ''; } catch { pendingWs = ''; }
-  const recentRows = (Array.isArray(recents) ? recents : []).slice(0, 4)
-    .map((url) => `<button class="connect-recent" data-action="connectWorkstation" data-url="${safeAttr(url)}" type="button">${safeText(url)}</button>`).join('');
+  const pendingWs = pendingWorkstationUrl();
   return `
     <section class="connect-shell">
       <div class="connect-brand">
@@ -35,7 +58,7 @@ function renderMobileConnect() {
         <label class="connect-label" for="workstation-url-input">Workstation URL</label>
         <input id="workstation-url-input" class="connect-input" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="your-mac.your-tailnet.ts.net" value="${safeAttr(pendingWs)}" />
         <button class="connect-go" data-action="connectWorkstation" type="button">Connect</button>
-        ${recentRows ? `<div class="connect-recents">${recentRows}</div>` : ''}
+        ${renderWorkstationList({ heading: 'Recent workstations' })}
       </div>
       <p class="connect-scan">Or scan the QR code from your Mac (<strong>Orca → Settings → Pair a remote device</strong>) with this phone's Camera.</p>
       <div class="connect-note">
@@ -61,9 +84,12 @@ function renderMobileDisconnectedSettings() {
       </div>
       ${renderAppearancePanel()}
       <article class="card control-card">
-        <h3>Workstation</h3>
-        <p class="muted">Not connected yet. The rest of Settings unlocks once this app is paired with your workstation.</p>
-        <a class="connect-go connect-go-link" href="/">Connect to a workstation</a>
+        <h3>Workstations</h3>
+        <p class="muted">Not connected yet. Pick a saved workstation or add one — the rest of Settings unlocks once this app is paired.</p>
+        ${renderWorkstationList({ heading: 'Saved workstations' })}
+        <label class="connect-label" for="workstation-url-input">Workstation URL</label>
+        <input id="workstation-url-input" class="connect-input" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="your-mac.your-tailnet.ts.net" />
+        <button class="connect-go" data-action="connectWorkstation" type="button">Connect</button>
       </article>
     </section>`;
 }
@@ -112,6 +138,11 @@ import { COMPOSE_ICON, FOLDER_ICON, PENCIL_ICON } from './constants.js';
 // URL (a phone browser, or the app after it navigated to the tailnet origin) and
 // just needs the one-time code. Keeps web and app visually consistent.
 function renderMobilePairGate(browserLabel, homeHint) {
+  // This device has ALREADY reached a workstation origin (scanned QR, tapped a
+  // recent, or typed the URL) — so step 1 is DONE. We show it connected (green
+  // check + host) and focus the user on the only remaining step: the pairing code.
+  const activeUrl = activeWorkstationUrl();
+  const activeHost = activeUrl ? workstationLabel(activeUrl) : (typeof window !== 'undefined' ? window.location.host : '');
   return `
     <section class="connect-shell connect-gate">
       ${renderIosAppPromo()}
@@ -120,7 +151,23 @@ function renderMobilePairGate(browserLabel, homeHint) {
         <span class="connect-wordmark">Orca</span>
       </div>
       <h1 class="connect-title">Pair this device</h1>
-      <p class="connect-sub">Enter the one-time code from your workstation to finish connecting. No data is shown until this device is paired.</p>
+      <p class="connect-sub">You're connected to your workstation. Enter the one-time pairing code to finish — no data is shown until this device is paired.</p>
+      <ol class="connect-steps">
+        <li class="connect-step is-done">
+          <span class="connect-step-mark" aria-hidden="true">✓</span>
+          <div class="connect-step-body">
+            <strong>Connected to workstation</strong>
+            <span class="connect-step-host">${safeText(activeHost)}</span>
+          </div>
+        </li>
+        <li class="connect-step is-active">
+          <span class="connect-step-mark" aria-hidden="true">2</span>
+          <div class="connect-step-body">
+            <strong>Enter the pairing code</strong>
+            <span class="connect-step-hint">From your Mac: Orca → Settings → Pair a remote device.</span>
+          </div>
+        </li>
+      </ol>
       <div class="connect-card">
         <label class="connect-label" for="pairing-code-input">Pairing code</label>
         <input id="pairing-code-input" class="connect-input" autocomplete="one-time-code" autocapitalize="characters" placeholder="XXXX-XXXX-XXXX" />
@@ -128,10 +175,15 @@ function renderMobilePairGate(browserLabel, homeHint) {
         <input id="pairing-label-input" class="connect-input" value="${safeAttr(browserLabel)}" />
         <button class="connect-go" data-action="pairBrowserSession" type="button">Pair device</button>
       </div>
-      <div class="connect-note">
-        <span class="connect-note-icon" aria-hidden="true">⛭</span>
-        <span>On your Mac, open Orca → Settings → <strong>Pair a remote device</strong> and create a one-time code.</span>
-      </div>
+      <details class="disclosure connect-help" data-uikey="switch-workstation">
+        <summary><span>Switch workstation</span></summary>
+        <div class="disclosure-body">
+          ${renderWorkstationList({ heading: 'Your workstations' })}
+          <label class="connect-label" for="workstation-url-input">Connect to a different workstation</label>
+          <input id="workstation-url-input" class="connect-input" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="your-mac.your-tailnet.ts.net" />
+          <button class="secondary" data-action="connectWorkstation" type="button">Connect</button>
+        </div>
+      </details>
       ${homeHint ? `<p class="connect-scan">After pairing, add Orca to your Home Screen so it opens like an app: ${safeText(homeHint)}</p>` : ''}
     </section>`;
 }
@@ -158,10 +210,6 @@ export function renderAccessGate() {
     const showConnect = isDesktopApp || !narrowClient;
     let connectCard = '';
     if (showConnect) {
-      let recentWorkstations = [];
-      try { recentWorkstations = JSON.parse(localStorage.getItem('orca.workstations') || '[]'); } catch { recentWorkstations = []; }
-      const recentRows = (Array.isArray(recentWorkstations) ? recentWorkstations : []).slice(0, 5)
-        .map((url) => `<button class="btn-ghost" data-action="connectWorkstation" data-url="${safeAttr(url)}" type="button">${safeText(url)}</button>`).join('');
       connectCard = `
           <section class="gate-section">
             <div class="card-kicker">Using the Orca app on this device</div>
@@ -174,7 +222,7 @@ export function renderAccessGate() {
               <div class="lane-row">
                 <button class="btn" data-action="connectWorkstation" type="button">Connect</button>
               </div>
-              ${recentRows ? `<div class="tiny muted">Recent workstations</div><div class="lane-row" style="flex-wrap:wrap">${recentRows}</div>` : ''}
+              ${renderWorkstationList({ heading: 'Recent workstations' })}
             </div>
           </section>`;
     }
@@ -355,9 +403,10 @@ function updatePairLabel() {
   if (section) section.hidden = !onWorkstation;
   if (!onWorkstation) return;
   // Count only real paired REMOTE devices — never the local workstation browser.
-  const n = Array.isArray(shell.authSessions)
-    ? shell.authSessions.filter((s) => s && (s.paired || s.pairedFromId)).length
-    : 0;
+  // While the session list is still loading (null), leave the existing label in
+  // place rather than flashing "Pair a remote device" before the count arrives.
+  if (!Array.isArray(shell.authSessions)) return;
+  const n = shell.authSessions.filter((s) => s && (s.paired || s.pairedFromId) && s.active !== false).length;
   // Consistent wording: always "Pair a remote device" until a device is paired,
   // then "Paired devices · N" (no flicker between the two phrasings on refresh).
   label.textContent = n > 0 ? `Paired devices · ${n}` : 'Pair a remote device';

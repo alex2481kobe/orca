@@ -35,18 +35,22 @@ export function formatRelative(timeString) {
   if (!timeString) return 'never';
   const timestamp = new Date(timeString).getTime();
   if (!Number.isFinite(timestamp)) return 'unknown';
-  const deltaSeconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
-  // Coarse "just now" under a minute instead of a per-second count. A per-second
-  // "Ns ago" changes the rendered HTML every tick, forcing its region to rebuild
-  // on every poll and defeating skip-if-identical — the opposite of keeping
-  // paired/workstation pages static and updating only the region that changed.
-  if (deltaSeconds < 60) return 'just now';
+  // Handle BOTH past and future. A paired session's expiry is ~24h in the FUTURE;
+  // the old code clamped future deltas to 0 and rendered "just now" for the whole
+  // 24h ("expires just now" that never changed). Now future reads "in 23h".
+  const diffMs = timestamp - Date.now();
+  const future = diffMs > 0;
+  const deltaSeconds = Math.round(Math.abs(diffMs) / 1000);
+  const phrase = (text) => (future ? `in ${text}` : `${text} ago`);
+  // Coarse buckets (no per-second count) so an idle paired/workstation page doesn't
+  // re-render its HTML every tick — that would defeat skip-if-identical.
+  if (deltaSeconds < 60) return future ? 'in under a minute' : 'just now';
   const deltaMinutes = Math.round(deltaSeconds / 60);
-  if (deltaMinutes < 60) return `${deltaMinutes}m ago`;
+  if (deltaMinutes < 60) return phrase(`${deltaMinutes}m`);
   const deltaHours = Math.round(deltaMinutes / 60);
-  if (deltaHours < 24) return `${deltaHours}h ago`;
+  if (deltaHours < 24) return phrase(`${deltaHours}h`);
   const deltaDays = Math.round(deltaHours / 24);
-  return `${deltaDays}d ago`;
+  return phrase(`${deltaDays}d`);
 }
 
 export function latestTimestamp(items) {

@@ -2,7 +2,13 @@
 // desktop welcome home. Not part of the smoke suite.
 import { chromium } from 'playwright';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
+
+// Isolate .orca state (see verify-pairpanel.mjs): chdir to a throwaway dir before
+// importing the server so this never writes into the real auth-sessions.json.
+const projectCwd = process.cwd();
+process.chdir(await fs.mkdtemp(path.join(os.tmpdir(), 'orca-verify-state-')));
 
 process.env.PORT = '0';
 process.env.ORCA_HOST = '127.0.0.1';
@@ -14,7 +20,7 @@ const serverModule = await import('../src/server.js');
 const server = await serverModule.startServer(0, '127.0.0.1');
 const base = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ headless: true });
-const outDir = path.resolve('artifacts/verify');
+const outDir = path.join(projectCwd, 'artifacts/verify');
 await fs.mkdir(outDir, { recursive: true });
 
 // --- Mobile app (faked Tauri + iPhone UA): connect + disconnected settings ---

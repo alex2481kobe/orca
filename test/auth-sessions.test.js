@@ -41,6 +41,43 @@ test('pairing codes create HttpOnly-session-compatible browser sessions without 
   }
 });
 
+test('one active session per device: re-pairing the same device silently replaces its prior session', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-auth-device-'));
+  const stateFile = path.join(tempDir, 'auth.json');
+  try {
+    const store = new AuthSessionStore({ stateFile, pairingTtlMs: 60000, sessionTtlMs: 60000 });
+    // Pair "the app" (deviceId A) the first time.
+    const first = store.consumePairingCode(store.createPairingCode({ label: 'phone' }).code, {
+      label: 'My phone app', userAgent: 'ua', deviceId: 'device-A',
+    });
+    // Pair a different device (the web browser, deviceId B).
+    const browser = store.consumePairingCode(store.createPairingCode({ label: 'browser' }).code, {
+      label: 'My phone web', userAgent: 'ua2', deviceId: 'device-B',
+    });
+    assert.equal(store.listSessions().filter((s) => s.paired && s.active).length, 2, 'two distinct devices = two paired sessions');
+
+    // Re-pair the SAME app (deviceId A) again — must replace, not stack.
+    const second = store.consumePairingCode(store.createPairingCode({ label: 'phone' }).code, {
+      label: 'My phone app', userAgent: 'ua', deviceId: 'device-A',
+    });
+    const activePaired = store.listSessions().filter((s) => s.paired && s.active);
+    assert.equal(activePaired.length, 2, 'still only two active devices after re-pairing one');
+
+    // The first session for device A is now revoked; the second is active.
+    assert.equal(store.validateSessionToken(first.sessionToken), null, 'old session for re-paired device is revoked');
+    assert.ok(store.validateSessionToken(second.sessionToken), 'new session for re-paired device is active');
+    // Device B (the browser) is untouched by device A re-pairing.
+    assert.ok(store.validateSessionToken(browser.sessionToken), 'other device session is preserved');
+
+    // A client that sends no deviceId is NOT deduped (each pair is its own device).
+    store.consumePairingCode(store.createPairingCode({ label: 'x' }).code, { label: 'anon1' });
+    store.consumePairingCode(store.createPairingCode({ label: 'x' }).code, { label: 'anon2' });
+    assert.equal(store.listSessions().filter((s) => s.paired && s.active).length, 4, 'no-deviceId pairings are not collapsed');
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
+  }
+});
+
 test('expiry checks fail closed on a corrupted (non-ISO) timestamp', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-auth-nan-'));
   try {

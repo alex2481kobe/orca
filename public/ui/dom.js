@@ -97,11 +97,39 @@ export function isWorkstation() {
   return isLocalHostName(window.location.hostname) && !isMobileApp();
 }
 
+// Running inside the native (Tauri) app — at ANY origin. `__TAURI__` only exists on
+// the app's own bundled pages; once it navigates to the workstation origin that
+// global is gone, so we also honor a per-origin flag persisted from the orca_app=1
+// param the connect flow carries (theme-init.js sets it), plus a UA token if ever
+// present. Drives the full-screen viewport layout + suppresses the "get the app" promo.
+export function isNativeApp() {
+  if (typeof window === 'undefined') return false;
+  if (window.__TAURI__) return true;
+  try { if (localStorage.getItem('orca.nativeApp') === '1') return true; } catch { /* storage blocked */ }
+  return /OrcaApp/.test((window.navigator && window.navigator.userAgent) || '');
+}
+
+// Carry the native-app signal to the workstation origin (where __TAURI__ is gone)
+// so it can render the full-screen app layout. No-op for plain browsers.
+export function appendNativeFlag(url) {
+  if (!isNativeApp()) return url;
+  try {
+    const u = new URL(url);
+    u.searchParams.set('orca_app', '1');
+    return u.toString();
+  } catch {
+    return url + (url.includes('?') ? '&' : '?') + 'orca_app=1';
+  }
+}
+
 // Visiting in a mobile-Safari/Chrome on iOS in a BROWSER (not the installed app)
 // — the case where we suggest downloading the native iOS app.
 export function isIosWeb() {
   if (typeof window === 'undefined') return false;
   if (window.__TAURI__) return false;
+  // Already in the native app (even at the workstation origin where __TAURI__ is
+  // gone) — never nag it to "get the app".
+  if (isNativeApp()) return false;
   const ua = (window.navigator && window.navigator.userAgent) || '';
   const iOS = /iPhone|iPad|iPod/.test(ua)
     || (/Macintosh/.test(ua) && (window.navigator?.maxTouchPoints || 0) > 1);
@@ -132,13 +160,17 @@ export function detectBrowser() {
   return { name, platform, isIOS, isAndroid, standalone };
 }
 
-// One sentence telling the user exactly how to install Orca in the browser they
-// are CURRENTLY using. Returns null when it's already installed (nothing to do).
+// One sentence telling the user exactly how to install Orca to their Home Screen
+// in the browser they are CURRENTLY using. "Add to Home Screen" is a phone/tablet
+// concept, so this returns null for: the installed native app (already an app),
+// desktop/laptop browsers (no home screen), and anything already standalone.
 export function installToHomeHint() {
+  // The native app (Tauri, desktop OR mobile) is already installed — nothing to add.
+  if (typeof window !== 'undefined' && window.__TAURI__) return null;
   const { name, platform, standalone } = detectBrowser();
   if (standalone) return null;
   if (platform === 'ios') {
-    // On iOS every browser shares WebKit; install goes through the Share sheet.
+    // On iOS/iPadOS every browser shares WebKit; install goes through the Share sheet.
     return `In ${name}, tap the Share button, then "Add to Home Screen".`;
   }
   if (platform === 'android') {
@@ -146,9 +178,8 @@ export function installToHomeHint() {
     if (name === 'Samsung Internet') return 'In Samsung Internet, open the menu, then "Add page to", then "Home screen".';
     return `In ${name}, open the ⋮ menu, then "Add to Home screen" (or "Install app").`;
   }
-  if (name === 'Safari') return 'In Safari, choose File → Add to Dock to install Orca as an app.';
-  if (name === 'Firefox') return 'Firefox can\'t install web apps — open Orca in Chrome or Edge to install it, or just bookmark this page.';
-  return `In ${name}, click the install icon in the address bar (or the ⋮ menu → "Install Orca").`;
+  // Desktop / laptop browsers: no Home Screen, so no hint.
+  return null;
 }
 
 // Returns true only when the DOM was actually rewritten (HTML differed from the

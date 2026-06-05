@@ -14,6 +14,23 @@ export function getThemePref() {
   } catch { return 'system'; }
 }
 
+// Carry the current theme to another ORIGIN (the workstation we're navigating to)
+// via a query param, so its per-origin theme matches and it doesn't flash to the
+// wrong color. theme-init.js reads + strips the param before first paint. Only an
+// explicit light/dark choice is carried; 'system' lets the new origin follow the
+// OS (same device → same prefers-color-scheme, so it already matches).
+export function appendThemeParam(url) {
+  const pref = getThemePref();
+  if (pref !== 'light' && pref !== 'dark') return url;
+  try {
+    const u = new URL(url);
+    u.searchParams.set('orca_theme', pref);
+    return u.toString();
+  } catch {
+    return url + (url.includes('?') ? '&' : '?') + 'orca_theme=' + pref;
+  }
+}
+
 function systemPrefersDark() {
   return Boolean(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
 }

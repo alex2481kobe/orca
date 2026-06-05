@@ -13,6 +13,77 @@ let refreshRequestId = 0;
 let refreshInFlight = false;
 let lastRefreshAt = 0;
 let _streamRefreshTimer = null;
+let _pairingAcceptedTimer = null;
+let _authSyncInFlight = false;
+let _lastAuthSyncAt = 0;
+// Monotonic request ordering for auth-session fetches. Both refresh() and
+// syncAuthSessions() write shell.authSessions; a SLOW refresh can hold a STALE
+// snapshot (fetched before a device paired) and apply it LATE, clobbering the
+// fresher list — making a valid paired device row vanish until the next sync. We
+// stamp each fetch at send time and only apply a response if it's the newest sent.
+let _authReqCounter = 0;
+let _authAppliedReq = 0;
+
+// Count of real, ACTIVE paired devices (workstation token-bootstrap sessions and
+// revoked/expired ones don't count). null when the list hasn't loaded yet.
+function pairedCountOf(list) {
+  return Array.isArray(list)
+    ? list.filter((s) => s && (s.paired || s.pairedFromId) && s.active !== false).length
+    : null;
+}
+
+// Apply a freshly fetched auth-session list to shell state + handle the one-time
+// pairing-code "Device paired ✓" flash. Returns true if the paired-device COUNT
+// changed (so the caller can render immediately). Pure: no fetch, no render.
+function applyAuthSessions(sessions) {
+  const prev = pairedCountOf(shell.authSessions);
+  shell.authSessions = sessions;
+  const now = pairedCountOf(shell.authSessions);
+  // Show "Device paired ✓" ONLY when the specific one-time code THIS workstation
+  // created has actually been consumed — i.e. an active session now exists whose
+  // pairedFromId matches our code's id. That is the real signal that the phone
+  // completed pairing. NEVER infer it from device-count changes: a stale baseline
+  // (e.g. authSessions not loaded yet when the code was created) made it falsely
+  // claim "paired" the instant a code was created, with no device involved.
+  if (shell.lastPairing && shell.lastPairing.id) {
+    const consumed = Array.isArray(sessions)
+      && sessions.some((s) => s && s.active !== false && s.pairedFromId === shell.lastPairing.id);
+    if (consumed) {
+      shell.lastPairing = null;
+      shell.pairingAccepted = { at: Date.now() };
+      if (_pairingAcceptedTimer) clearTimeout(_pairingAcceptedTimer);
+      _pairingAcceptedTimer = setTimeout(() => {
+        _pairingAcceptedTimer = null;
+        shell.pairingAccepted = null;
+        render(captureContentUiState());
+      }, 3500);
+    }
+  }
+  return prev !== null && now !== prev;
+}
+
+// Lightweight, standalone sync of JUST the paired-device list — one cheap call,
+// NOT gated by refreshInFlight. Decoupled from the heavy serialized refresh() so a
+// remote pairing/revocation reflects on the workstation within ~1s even while a
+// slow full refresh is mid-flight (the cause of the ~7-10s pairing lag). Driven by
+// SSE `update` events and a fast poll tick.
+export async function syncAuthSessions() {
+  if (_authSyncInFlight) return;
+  _authSyncInFlight = true;
+  _lastAuthSyncAt = Date.now();
+  const myReq = ++_authReqCounter;
+  try {
+    const resp = await api('/api/auth/sessions');
+    if (!resp || !resp.ok || !Array.isArray(resp.data?.sessions)) return;
+    if (myReq <= _authAppliedReq) return; // a newer fetch already applied; this is stale
+    _authAppliedReq = myReq;
+    if (applyAuthSessions(resp.data.sessions) && !isEditingContent()) {
+      render(captureContentUiState());
+    }
+  } catch { /* transient; the next tick retries */ } finally {
+    _authSyncInFlight = false;
+  }
+}
 
 export function parseRoute() {
   const parts = window.location.pathname.split('/').filter(Boolean);
@@ -69,138 +140,92 @@ export async function refresh(options = {}) {
       render(captureContentUiState());
       return;
     }
-    const policyResp = await api('/api/policy');
-    if (abortFromAuth(policyResp)) return;
-    if (policyResp.ok && policyResp.data) {
-      shell.policy = policyResp.data.policies;
-    }
-    const effectiveSettingsResp = await api('/api/settings/effective');
-    if (abortFromAuth(effectiveSettingsResp)) return;
-    if (effectiveSettingsResp.ok && effectiveSettingsResp.data) {
-      shell.effectiveSettings = effectiveSettingsResp.data;
-    }
-    const notificationsResp = await api('/api/notifications');
-    if (abortFromAuth(notificationsResp)) return;
-    if (notificationsResp.ok && notificationsResp.data) {
-      shell.notifications = notificationsResp.data;
-      maybeShowBrowserNotifications();
-    }
-    const blockersResp = await api('/api/system/blockers');
-    if (abortFromAuth(blockersResp)) return;
-    if (blockersResp.ok && Array.isArray(blockersResp.data?.blockers)) {
-      shell.systemBlockers = blockersResp.data.blockers;
-    }
-    const privateAccessResp = await api('/api/private-access');
-    if (abortFromAuth(privateAccessResp)) return;
-    if (privateAccessResp.ok && privateAccessResp.data) {
-      shell.privateAccess = privateAccessResp.data;
-    }
-    const profilesResp = await api('/api/executors/profiles');
-    if (abortFromAuth(profilesResp)) return;
-    if (profilesResp.ok && profilesResp.data?.profiles) {
-      shell.executorProfiles = profilesResp.data.profiles;
-    }
-    const captureStatusResp = await api('/api/capture/status');
-    if (abortFromAuth(captureStatusResp)) return;
-    if (captureStatusResp.ok && captureStatusResp.data) {
-      shell.captureStatus = captureStatusResp.data;
-    }
-    const providerCatalogResp = await api('/api/providers');
-    if (abortFromAuth(providerCatalogResp)) return;
-    if (providerCatalogResp.ok && providerCatalogResp.data) {
-      shell.providerCatalog = providerCatalogResp.data;
-    }
-    const authSessionsResp = await api('/api/auth/sessions');
-    if (abortFromAuth(authSessionsResp)) return;
-    if (authSessionsResp.ok && Array.isArray(authSessionsResp.data?.sessions)) {
-      shell.authSessions = authSessionsResp.data.sessions;
-      // A one-time pairing code is consumed once a new device pairs: when the
-      // paired-device count grows past what it was when the code was issued, drop
-      // the displayed code so a used code is never shown.
-      if (shell.lastPairing && typeof shell.lastPairing.pairedCountAtCreate === 'number') {
-        const pairedNow = shell.authSessions.filter((s) => s && (s.paired || s.pairedFromId)).length;
-        if (pairedNow > shell.lastPairing.pairedCountAtCreate) shell.lastPairing = null;
-      }
-    }
-
-    if (shell.executorProfiles && typeof shell.executorProfiles === 'object') {
-      const cliInfo = {};
-      for (const executorType of Object.keys(shell.executorProfiles)) {
-        const response = await api(`/api/executors/${encodeURIComponent(executorType)}/cli`);
-        if (abortFromAuth(response)) return;
-        if (response.ok && response.data) {
-          cliInfo[executorType] = response.data;
-        }
-      }
-      shell.executorCliInfo = cliInfo;
-    }
-
-    const cleanupScheduleResp = await api('/api/artifacts/cleanup/schedule');
-    if (abortFromAuth(cleanupScheduleResp)) return;
-    if (cleanupScheduleResp.ok && cleanupScheduleResp.data?.schedule) {
-      shell.cleanupSchedule = cleanupScheduleResp.data.schedule;
-    }
-    const mcpToolsResp = await api('/api/mcp/tools');
-    if (abortFromAuth(mcpToolsResp)) return;
-    if (mcpToolsResp.ok && Array.isArray(mcpToolsResp.data)) {
-      shell.mcpTools = mcpToolsResp.data;
-    }
-
-    const pendingAuditResp = await api('/api/audit/events?status=pending');
-    if (abortFromAuth(pendingAuditResp)) return;
+    // Everything except the auth gate is fetched IN PARALLEL, and the dashboard is
+    // painted as soon as projects/sessions/lanes are in. The slow CLI version checks
+    // (shell-outs, seconds each) run AFTER paint. This replaced 19 SEQUENTIAL awaits
+    // (with the CLI shell-outs and the projects fetch dead last) that made a
+    // reconnect / pairing reflection take 15-20s.
+    const firstUnauthorized = (responses) => responses.find((r) => r && r.status === 401);
+    const authReq = ++_authReqCounter;
+    const [policyResp, settingsResp, notificationsResp, blockersResp, privateAccessResp,
+      profilesResp, captureResp, providersResp, authSessionsResp, cleanupResp, mcpResp,
+      pendingAuditResp, archiveResp, projectsResp] = await Promise.all([
+      api('/api/policy'),
+      api('/api/settings/effective'),
+      api('/api/notifications'),
+      api('/api/system/blockers'),
+      api('/api/private-access'),
+      api('/api/executors/profiles'),
+      api('/api/capture/status'),
+      api('/api/providers'),
+      api('/api/auth/sessions'),
+      api('/api/artifacts/cleanup/schedule'),
+      api('/api/mcp/tools'),
+      api('/api/audit/events?status=pending'),
+      api('/api/archive'),
+      api('/api/projects'),
+    ]);
     if (requestId !== refreshRequestId) return;
-    if (pendingAuditResp.ok && Array.isArray(pendingAuditResp.data)) {
-      shell.pendingAuditEvents = pendingAuditResp.data;
+    if (abortFromAuth(firstUnauthorized([policyResp, settingsResp, notificationsResp, blockersResp,
+      privateAccessResp, profilesResp, captureResp, providersResp, authSessionsResp, cleanupResp,
+      mcpResp, pendingAuditResp, archiveResp, projectsResp]))) return;
+    if (policyResp.ok && policyResp.data) shell.policy = policyResp.data.policies;
+    if (settingsResp.ok && settingsResp.data) shell.effectiveSettings = settingsResp.data;
+    if (notificationsResp.ok && notificationsResp.data) { shell.notifications = notificationsResp.data; maybeShowBrowserNotifications(); }
+    if (blockersResp.ok && Array.isArray(blockersResp.data?.blockers)) shell.systemBlockers = blockersResp.data.blockers;
+    if (privateAccessResp.ok && privateAccessResp.data) shell.privateAccess = privateAccessResp.data;
+    if (profilesResp.ok && profilesResp.data?.profiles) shell.executorProfiles = profilesResp.data.profiles;
+    if (captureResp.ok && captureResp.data) shell.captureStatus = captureResp.data;
+    if (providersResp.ok && providersResp.data) shell.providerCatalog = providersResp.data;
+    if (cleanupResp.ok && cleanupResp.data?.schedule) shell.cleanupSchedule = cleanupResp.data.schedule;
+    if (mcpResp.ok && Array.isArray(mcpResp.data)) shell.mcpTools = mcpResp.data;
+    if (pendingAuditResp.ok && Array.isArray(pendingAuditResp.data)) shell.pendingAuditEvents = pendingAuditResp.data;
+    if (archiveResp.ok && archiveResp.data) shell.archive = archiveResp.data;
+    // Newest-fetch guard so a slow refresh can't clobber a fresher syncAuthSessions.
+    if (authSessionsResp.ok && Array.isArray(authSessionsResp.data?.sessions) && authReq > _authAppliedReq) {
+      _authAppliedReq = authReq;
+      applyAuthSessions(authSessionsResp.data.sessions);
     }
-
-    const projectsResp = await api('/api/projects');
-    if (abortFromAuth(projectsResp)) return;
-    if (requestId !== refreshRequestId) return;
+    // Projects -> sessions -> lanes (sessions per project + all lanes in parallel).
     if (projectsResp.ok && Array.isArray(projectsResp.data)) {
       const nextProjects = projectsResp.data;
-      const allSessions = [];
-      let sessionsComplete = true;
-      for (const project of nextProjects) {
-        const sessionsResp = await api(`/api/projects/${project.id}/sessions`);
-        if (requestId !== refreshRequestId) return;
-        if (abortFromAuth(sessionsResp)) return;
-        if (sessionsResp.ok && Array.isArray(sessionsResp.data)) {
-          allSessions.push(...sessionsResp.data);
-        } else {
-          sessionsComplete = false;
-        }
-      }
-
+      const sessionResponses = await Promise.all(nextProjects.map((project) => api(`/api/projects/${project.id}/sessions`)));
+      if (requestId !== refreshRequestId) return;
+      if (abortFromAuth(firstUnauthorized(sessionResponses))) return;
+      const sessionsComplete = sessionResponses.every((r) => r.ok && Array.isArray(r.data));
+      const allSessions = sessionResponses.flatMap((r) => (r.ok && Array.isArray(r.data) ? r.data : []));
       let allLanes = shell.lanes;
       let lanesComplete = false;
       if (sessionsComplete) {
-        const allLaneResponses = await Promise.all(allSessions.map((session) => api(`/api/sessions/${session.id}/lanes`)));
+        const laneResponses = await Promise.all(allSessions.map((session) => api(`/api/sessions/${session.id}/lanes`)));
         if (requestId !== refreshRequestId) return;
-        const unauthorizedLanes = allLaneResponses.find((response) => response.status === 401);
-        if (abortFromAuth(unauthorizedLanes)) return;
-        lanesComplete = allLaneResponses.every((response) => response.ok && Array.isArray(response.data));
-        if (lanesComplete) {
-          allLanes = allLaneResponses.flatMap((response) => response.data);
-        }
+        if (abortFromAuth(firstUnauthorized(laneResponses))) return;
+        lanesComplete = laneResponses.every((r) => r.ok && Array.isArray(r.data));
+        if (lanesComplete) allLanes = laneResponses.flatMap((r) => r.data);
       }
-
       shell.projects = nextProjects;
       if (sessionsComplete && lanesComplete) {
         shell.sessions = allSessions;
         shell.lanes = allLanes;
       }
     }
-    const archiveResp = await api('/api/archive');
-    if (archiveResp.ok && archiveResp.data) {
-      shell.archive = archiveResp.data;
-    }
     if (requestId !== refreshRequestId) return;
-    // Capture ephemeral UI state (open disclosures/popovers, focus, in-progress
-    // values) RIGHT before rendering — not the `uiState` snapshot taken at the top
-    // of refresh(). The await chain above can take a second+, during which the
-    // user may open a popover or start typing; restoring the stale top-of-refresh
-    // snapshot would slam those shut ("opens then auto-closes").
+    // Paint the dashboard NOW (capture ephemeral UI state right before render).
     render(captureContentUiState());
+
+    // Slow CLI version checks (shell-outs) run AFTER paint, in parallel; a second
+    // render then fills the Executor CLI health panel. Never blocks the dashboard.
+    if (shell.executorProfiles && typeof shell.executorProfiles === 'object') {
+      const types = Object.keys(shell.executorProfiles);
+      const cliResponses = await Promise.all(types.map((t) => api(`/api/executors/${encodeURIComponent(t)}/cli`)));
+      if (requestId !== refreshRequestId) return;
+      if (abortFromAuth(firstUnauthorized(cliResponses))) return;
+      const cliInfo = {};
+      types.forEach((t, i) => { if (cliResponses[i].ok && cliResponses[i].data) cliInfo[t] = cliResponses[i].data; });
+      shell.executorCliInfo = cliInfo;
+      if (requestId !== refreshRequestId) return;
+      render(captureContentUiState());
+    }
   } finally {
     refreshInFlight = false;
   }
@@ -263,9 +288,12 @@ function wireVisibilityPause() {
       _streamPausedForVisibility = true;
       closeEventStream();
     } else {
-      // Foregrounded: reopen the stream and refresh promptly so we aren't stale.
+      // Foregrounded (e.g. reopened the app): reopen the stream, sync the paired
+      // list INSTANTLY (cheap, decoupled) so a device that paired/dropped while we
+      // were away shows at once, and kick a full refresh for everything else.
       _streamPausedForVisibility = false;
       if (_reopenStream) _reopenStream();
+      syncAuthSessions();
       refresh({ background: true });
     }
   });
@@ -284,8 +312,12 @@ export function connectEventStream() {
       return;
     }
     _activeEventSource = es;
-    es.addEventListener('update', scheduleStreamRefresh);
-    es.addEventListener('snapshot', scheduleStreamRefresh);
+    // On any live event, sync the paired-device list IMMEDIATELY (cheap, ungated)
+    // for instant pairing/revoke reflection, AND schedule the (debounced, heavier)
+    // full refresh for everything else.
+    const onStreamEvent = () => { syncAuthSessions(); scheduleStreamRefresh(); };
+    es.addEventListener('update', onStreamEvent);
+    es.addEventListener('snapshot', onStreamEvent);
     es.onerror = () => {
       try { es.close(); } catch { /* ignore */ }
       if (_activeEventSource === es) _activeEventSource = null;
@@ -307,6 +339,14 @@ export function startPolling() {
   wireVisibilityPause();
   _pollTimer = setInterval(() => {
     if (typeof document !== 'undefined' && document.hidden) return; // pause work while backgrounded
+    // While a pairing code is outstanding, sync the paired-device list fast (~1s),
+    // INDEPENDENT of the heavy refresh (serialized + slow), so the workstation shows
+    // the device the instant the phone pairs. Only while waiting — otherwise this
+    // would hammer /api/auth/sessions every tick (load + never-idle network). The
+    // SSE `update` event covers pair/revoke reflection the rest of the time.
+    if (shell.lastPairing && Date.now() - _lastAuthSyncAt >= 1000) {
+      syncAuthSessions();
+    }
     const cadenceMs = hasLiveOrchestratorConsole() ? 1000 : 3000;
     if (Date.now() - lastRefreshAt >= cadenceMs) {
       refresh({ background: true });
