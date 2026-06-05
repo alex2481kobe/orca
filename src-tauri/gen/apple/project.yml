@@ -53,6 +53,17 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         CFBundleShortVersionString: 0.1.0
         CFBundleVersion: "0.1.0"
+        # Custom URL scheme so a scanned `orca://connect?ws=...` QR opens the app
+        # (handled in Rust run_mobile via tauri-plugin-deep-link). Baked here so it
+        # survives `xcodegen generate`.
+        CFBundleURLTypes:
+          - CFBundleURLName: orca
+            CFBundleURLSchemes: [orca]
+        # Allow HTTP loads — the app connects to the workstation over Tailscale,
+        # whose default MagicDNS URL is http://<host>.ts.net (already encrypted by
+        # WireGuard). Without this, iOS ATS silently blocks the connection.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
     entitlements:
       path: orca-desktop_iOS/orca-desktop_iOS.entitlements
     scheme:
@@ -61,6 +72,11 @@ targets:
         RUST_LOG: info
     settings:
       base:
+        # Tauri's pre-build xcode-script merges Info.plist config (e.g. the
+        # deep-link URL scheme) during the build, which makes Xcode see the
+        # (empty) entitlements file change mid-build and abort. The entitlements
+        # are empty, so allowing the modification is safe.
+        CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION: true
         ENABLE_BITCODE: false
         ARCHS: [arm64]
         VALID_ARCHS: arm64 

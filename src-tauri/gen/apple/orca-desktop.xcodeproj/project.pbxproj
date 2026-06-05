@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		1F121448EE79AAF77F5FBEFA /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = 8657834B9819035C809CC09B /* main.mm */; };
 		396062DDBE09CB393387EDB8 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F9CA098F958499257ECB0D56 /* WebKit.framework */; };
+		659CE7F7CFC56AE202BD2421 /* libapp.a in Resources */ = {isa = PBXBuildFile; fileRef = 4EB0068D6ECC40998234DA41 /* libapp.a */; };
 		6719E670A9FA9DFF64FF5087 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 96A50F0F68CF431BDACE3402 /* UIKit.framework */; };
 		6CFA181A6D701D39DCDE25F1 /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4E12FE01D53E6662BA301DB4 /* CoreGraphics.framework */; };
 		8DC0913220856FA06BEEC3EA /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 31D9946662BE0AE93B9AD485 /* Security.framework */; };
@@ -22,24 +23,25 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		112731F3B5D7013E538CBD12 /* main.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = main.rs; sourceTree = "<group>"; };
+		112731F3B5D7013E538CBD12 /* main.rs */ = {isa = PBXFileReference; path = main.rs; sourceTree = "<group>"; };
 		1D8E65AA17238DAC815B4313 /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = assets; sourceTree = SOURCE_ROOT; };
 		31D9946662BE0AE93B9AD485 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
-		363A42A3164F2A4A64BDCFA8 /* native_capture.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = native_capture.rs; sourceTree = "<group>"; };
+		363A42A3164F2A4A64BDCFA8 /* native_capture.rs */ = {isa = PBXFileReference; path = native_capture.rs; sourceTree = "<group>"; };
 		4A29130D0B0EE1221C14F793 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		4AF775E65B1172D9DFC72B85 /* orca-desktop_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "orca-desktop_iOS.entitlements"; sourceTree = "<group>"; };
 		4E12FE01D53E6662BA301DB4 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
+		4EB0068D6ECC40998234DA41 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
 		549A0B9F3D06B19BAC4ADD4F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		56B9CB33E26876FFAB161846 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
 		5B3D7D622F40968E23EC6598 /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
 		5F9DB7B8824E437477857DCC /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
 		66356E7EBFEAE2F4701704EB /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
 		8657834B9819035C809CC09B /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
-		88D4E2D2B55A998D6D282844 /* orca-capture-probe.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = "orca-capture-probe.rs"; sourceTree = "<group>"; };
+		88D4E2D2B55A998D6D282844 /* orca-capture-probe.rs */ = {isa = PBXFileReference; path = "orca-capture-probe.rs"; sourceTree = "<group>"; };
 		94F16ADAA6EAA334B11D96DD /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 		96A50F0F68CF431BDACE3402 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
-		A3B78B4C7E25D5FAFEDDBA4E /* lib.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = lib.rs; sourceTree = "<group>"; };
-		A3C128E0E6D5141DB4961E9F /* Orca.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Orca.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A3B78B4C7E25D5FAFEDDBA4E /* lib.rs */ = {isa = PBXFileReference; path = lib.rs; sourceTree = "<group>"; };
+		A3C128E0E6D5141DB4961E9F /* orca-desktop_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "orca-desktop_iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		E2418D04847564AAA768C4FA /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
 		F9CA098F958499257ECB0D56 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
@@ -69,6 +71,14 @@
 				53D444149F0008178E86F3E4 /* orca-desktop */,
 			);
 			path = Sources;
+			sourceTree = "<group>";
+		};
+		2705AAF769BFDDFD6C42C9B7 /* arm64 */ = {
+			isa = PBXGroup;
+			children = (
+				DFBE78B62E64087E1EBD0F6C /* debug */,
+			);
+			path = arm64;
 			sourceTree = "<group>";
 		};
 		4C987B68674D9575CE0D25BB /* Frameworks */ = {
@@ -122,6 +132,7 @@
 		943C53D4D8BE1525AC94C77D /* Externals */ = {
 			isa = PBXGroup;
 			children = (
+				2705AAF769BFDDFD6C42C9B7 /* arm64 */,
 			);
 			path = Externals;
 			sourceTree = "<group>";
@@ -137,9 +148,17 @@
 		A1300C86317E1850329A06F2 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				A3C128E0E6D5141DB4961E9F /* Orca.app */,
+				A3C128E0E6D5141DB4961E9F /* orca-desktop_iOS.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		DFBE78B62E64087E1EBD0F6C /* debug */ = {
+			isa = PBXGroup;
+			children = (
+				4EB0068D6ECC40998234DA41 /* libapp.a */,
+			);
+			path = debug;
 			sourceTree = "<group>";
 		};
 		E5B791EEDCEB3FB0BA85F55C /* src */ = {
@@ -162,6 +181,13 @@
 			path = bindings;
 			sourceTree = "<group>";
 		};
+		"TEMP_080CD558-7355-4B4A-BDF5-8A4EB6359100" /* x86_64 */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = x86_64;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -182,7 +208,7 @@
 			packageProductDependencies = (
 			);
 			productName = "orca-desktop_iOS";
-			productReference = A3C128E0E6D5141DB4961E9F /* Orca.app */;
+			productReference = A3C128E0E6D5141DB4961E9F /* orca-desktop_iOS.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -193,6 +219,8 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+				};
 			};
 			buildConfigurationList = E4B260F33C466114BED1AF5D /* Build configuration list for PBXProject "orca-desktop" */;
 			developmentRegion = en;
@@ -221,6 +249,7 @@
 				CE9C462E8981738EE73FF6EE /* Assets.xcassets in Resources */,
 				C53D1AE8D98079BC7C6396EF /* LaunchScreen.storyboard in Resources */,
 				A3D727E4A2CB4813DD51A38B /* assets in Resources */,
+				659CE7F7CFC56AE202BD2421 /* libapp.a in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -266,11 +295,13 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
-				ARCHS = arm64;
+				ARCHS = (
+					arm64,
+				);
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION = YES;
 				CODE_SIGN_ENTITLEMENTS = "orca-desktop_iOS/orca-desktop_iOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = "";
 				ENABLE_BITCODE = NO;
 				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -282,25 +313,14 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				"LIBRARY_SEARCH_PATHS[arch=arm64]" = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION)",
-					"$(SDKROOT)/usr/lib/swift",
-					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME)",
-					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)",
-				);
-				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION)",
-					"$(SDKROOT)/usr/lib/swift",
-					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME)",
-					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)",
-				);
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
 				PRODUCT_BUNDLE_IDENTIFIER = app.orca.desktop;
-				PRODUCT_NAME = Orca;
+				PRODUCT_NAME = "Orca";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALID_ARCHS = arm64;
+				DEVELOPMENT_TEAM = "";
 			};
 			name = release;
 		};
@@ -308,11 +328,13 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
-				ARCHS = arm64;
+				ARCHS = (
+					arm64,
+				);
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION = YES;
 				CODE_SIGN_ENTITLEMENTS = "orca-desktop_iOS/orca-desktop_iOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = "";
 				ENABLE_BITCODE = NO;
 				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -324,25 +346,14 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				"LIBRARY_SEARCH_PATHS[arch=arm64]" = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION)",
-					"$(SDKROOT)/usr/lib/swift",
-					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME)",
-					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)",
-				);
-				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION)",
-					"$(SDKROOT)/usr/lib/swift",
-					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME)",
-					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)",
-				);
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
 				PRODUCT_BUNDLE_IDENTIFIER = app.orca.desktop;
-				PRODUCT_NAME = Orca;
+				PRODUCT_NAME = "Orca";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALID_ARCHS = arm64;
+				DEVELOPMENT_TEAM = "";
 			};
 			name = debug;
 		};

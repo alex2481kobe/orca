@@ -12,6 +12,9 @@
 
 import { refresh } from './controller.js';
 
+const nowMs = () => (window.performance && window.performance.now ? window.performance.now() : Date.now());
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 function isStandalone() {
   if (typeof window === 'undefined') return false;
   if (window.navigator && window.navigator.standalone === true) return true;
@@ -56,7 +59,12 @@ function setupPullToRefresh() {
 
   const indicator = document.createElement('div');
   indicator.className = 'ptr-indicator';
-  indicator.innerHTML = '<span class="ptr-spinner" aria-hidden="true"></span>';
+  // Spinner while refreshing; a checkmark + "Refreshed" pill flashes on success so
+  // the pull visibly confirms it did something (the screen can otherwise look
+  // unchanged when nothing new arrived).
+  indicator.innerHTML =
+    '<span class="ptr-spinner" aria-hidden="true"></span>'
+    + '<span class="ptr-done" aria-hidden="true"><span class="ptr-check"></span><span class="ptr-done-label">Refreshed</span></span>';
   document.body.appendChild(indicator);
 
   const place = (y, opacity) => {
@@ -102,11 +110,22 @@ function setupPullToRefresh() {
     indicator.classList.remove('armed');
     if (!trigger) { place(0, 0); return; }
     busy = true;
+    indicator.classList.remove('done');
     indicator.classList.add('refreshing');
     place(56, 1);
+    const startedAt = nowMs();
     try { await refresh(); } catch { /* ignore — UI already reflects state */ }
-    busy = false;
+    // Keep the spinner visible briefly even on an instant refresh so the gesture
+    // doesn't flash-and-vanish (reads as "nothing happened").
+    const elapsed = nowMs() - startedAt;
+    if (elapsed < 450) await sleep(450 - elapsed);
     indicator.classList.remove('refreshing');
+    // Flash the "Refreshed" checkmark, then retract.
+    indicator.classList.add('done');
+    place(56, 1);
+    await sleep(900);
+    busy = false;
+    indicator.classList.remove('done');
     place(0, 0);
   };
   window.addEventListener('touchend', finish, { passive: true });

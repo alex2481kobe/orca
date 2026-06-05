@@ -31,21 +31,21 @@ export function renderSimpleSection(ctx) {
   return `
     <section class="home-welcome ${showMainHome ? '' : 'is-hidden'}">
       <div class="home-hero">
-        <h1 class="home-hero-title">Orca</h1>
-        <p class="home-hero-sub">${hasProjects ? 'Open a project from the sidebar, or start a new one.' : 'Create your first project to start orchestrating agents.'}</p>
+        <img class="home-hero-logo" src="/orca-mark.png" alt="" width="56" height="56" />
+        <h1 class="home-hero-title">Welcome to Orca</h1>
+        <p class="home-hero-sub">${hasProjects ? 'Open a project from the sidebar, or start a new one.' : 'Orchestrate your coding agents from one place. Create a project to get started.'}</p>
         <div class="home-hero-actions">
           <button class="home-cta" data-action="newProject" type="button">
             <span aria-hidden="true">+</span>
             <span>New project</span>
           </button>
         </div>
-        <a class="home-hero-link" href="/#pair">Pair a phone or laptop</a>
       </div>
     </section>`;
 }
 
 export function renderPairPanel(ctx) {
-  const { phoneUrl, phoneQr, accessModeSummary, authSessionRows, tailnet = {} } = ctx;
+  const { phoneUrl, phoneQr, phoneDeepLinkQr, accessModeSummary, authSessionRows, tailnet = {} } = ctx;
   // A remote device can only reach this Mac over Tailscale — localhost never works
   // off-machine. Show the real tailnet device URL when Tailscale is set up; otherwise
   // hard-emphasize installing/signing in to Tailscale first.
@@ -59,7 +59,7 @@ export function renderPairPanel(ctx) {
             </div>
             <div class="tiny muted">Your private Tailscale URL — open it from any device signed in to your tailnet.</div>
           </div>
-          <div class="qr-wrap">${phoneQr}<span>Scan from phone or laptop</span></div>`
+          <div class="qr-wrap">${phoneDeepLinkQr}<span>Scan with your iPhone to open the Orca app</span></div>`
     : `
           <div>
             <strong>1. Set up Tailscale first ${tailnet.binaryAvailable ? '(sign in)' : '(required)'}</strong>
@@ -73,13 +73,9 @@ export function renderPairPanel(ctx) {
             </div>
             <div class="tiny muted">After signing in, refresh Orca — step 1 will show your private device URL automatically.</div>
           </div>`;
-  return `
-      <article class="card control-card pair-panel" id="section-pair" data-panel-card="pair">
-        <div class="card-kicker">Pair a device</div>
-        <h3>Pair with remote device</h3>
-        <p class="muted">Open Orca on a laptop or phone over Tailscale, then enter a one-time pairing code. The code grants workflow access without ever exposing the API token.</p>
-        <div class="onboarding-card">${step1}
-        </div>
+  // The pairing-code steps only make sense once Tailscale is up (a remote device
+  // can't reach this Mac otherwise). Until then, show only the Tailscale setup.
+  const pairingSteps = tsReady ? `
         <div class="pair-step">
           <strong>2. Create a one-time pairing code</strong>
           <div class="lane-row">
@@ -100,7 +96,17 @@ export function renderPairPanel(ctx) {
         <div class="pair-step">
           <strong>4. Install Orca as an app (optional)</strong>
           <div class="tiny muted">After pairing, that device can add Orca to its Home Screen or Dock so it opens in its own window — its pairing screen shows the exact step for whatever browser it's on.</div>
+        </div>` : '';
+  return `
+      <article class="card control-card pair-panel" id="section-pair" data-panel-card="pair">
+        <div class="card-kicker">Pair a device</div>
+        <h3>Pair with remote device</h3>
+        <p class="muted">${tsReady
+          ? 'Open Orca on a laptop or phone over Tailscale, then enter a one-time pairing code. The code grants workflow access without ever exposing the API token.'
+          : 'Pairing remote devices needs Tailscale so they can privately reach this Mac. Set it up first, then this panel will show your device URL, QR, and pairing codes.'}</p>
+        <div class="onboarding-card">${step1}
         </div>
+        ${pairingSteps}
         <details class="disclosure compact-disclosure">
           <summary><span>Paired devices</span><small>${safeText((shell.authSessions || []).filter((s) => s && (s.paired || s.pairedFromId)).length)} device${(shell.authSessions || []).filter((s) => s && (s.paired || s.pairedFromId)).length === 1 ? '' : 's'}</small></summary>
           <div class="disclosure-body">${authSessionRows || '<div class="muted">No paired devices yet.</div>'}</div>

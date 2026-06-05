@@ -27,6 +27,39 @@ import { defaultModelFor } from './ui/executor.js';
 
 
 
+// Deep-link entry point for the native app: the Rust side (run_mobile) calls this
+// when an `orca://connect?ws=<workstation-url>` link is opened (e.g. a QR scanned
+// from the iPhone Camera). Defined at module top so it exists as early as possible
+// for cold-launch delivery. Mirrors the connectWorkstation action's normalization.
+window.__orcaConnect = (raw) => {
+  try {
+    let target = String(raw || '');
+    if (/^orca:\/\//i.test(target)) {
+      const query = target.split('?')[1] || '';
+      const params = new URLSearchParams(query);
+      target = params.get('ws') || params.get('url') || '';
+    }
+    target = target.trim();
+    if (!target) return;
+    if (!/^https?:\/\//i.test(target)) target = `http://${target}`;
+    target = target.replace(/\/+$/, '');
+    try {
+      const prior = JSON.parse(localStorage.getItem('orca.workstations') || '[]').filter((entry) => entry !== target);
+      localStorage.setItem('orca.workstations', JSON.stringify([target, ...prior].slice(0, 5)));
+    } catch { /* localStorage unavailable */ }
+    // Persist the scanned URL so the connect screen pre-fills it even if a re-render
+    // beats the navigation — the user then just enters the pairing code.
+    try { sessionStorage.setItem('orca.pendingWorkstation', target); } catch { /* unavailable */ }
+    // Fallback: if the connect screen is already showing, fill its input now.
+    const fill = () => { const input = document.getElementById('workstation-url-input'); if (input) input.value = target; };
+    fill();
+    setTimeout(fill, 350);
+    // Primary path: navigate straight to the workstation, which lands on the
+    // pairing-code screen (the URL is just an address — pairing still needs a code).
+    window.location.assign(target);
+  } catch { /* ignore malformed deep link */ }
+};
+
 // After any tap/click, drop focus from the activated control so it never stays
 // visually "stuck" highlighted on touch (the dominant cause of lingering
 // highlight). Covers every interactive surface except text-entry fields, which

@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Orca",
-  "version": "0.1.1",
+  "version": "0.1.6",
   "identifier": "app.orca.desktop",
   "build": {
     "frontendDist": "../public",
@@ -25,6 +25,13 @@
     ],
     "security": {
       "csp": null
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "mobile": [
+        { "scheme": ["orca"], "appLink": false }
+      ]
     }
   },
   "bundle": {

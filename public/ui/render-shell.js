@@ -1,6 +1,72 @@
 // Render view module (split from render-views.js).
 
-import { isWorkstation, isIosWeb, writeHtml, installToHomeHint } from './dom.js';
+import { isWorkstation, isMobileApp, isLocalHostName, isIosWeb, writeHtml, installToHomeHint } from './dom.js';
+
+// The installed app, launched but not yet pointed at a workstation, lives at its
+// own bundled origin (tauri://localhost) where there is no server. Detect that so
+// we show a dedicated "Connect to your workstation" screen instead of the empty
+// workstation home. Once connected the webview navigates to the tailnet origin
+// (no __TAURI__ there), so this is false from then on.
+function isUnconnectedMobileApp() {
+  return isMobileApp() && isLocalHostName(window.location.hostname);
+}
+
+// Dedicated first-run screen for the mobile app: brand + "connect to your
+// workstation" with the REMOTE-device instructions (how to point it at the Mac),
+// not the workstation's "pair a remote device" instructions.
+function renderMobileConnect() {
+  let recents = [];
+  try { recents = JSON.parse(localStorage.getItem('orca.workstations') || '[]'); } catch { recents = []; }
+  // A QR scan (orca:// deep link) stores the workstation URL here so the input is
+  // pre-filled with the right tailnet address — the user just taps Connect.
+  let pendingWs = '';
+  try { pendingWs = sessionStorage.getItem('orca.pendingWorkstation') || ''; } catch { pendingWs = ''; }
+  const recentRows = (Array.isArray(recents) ? recents : []).slice(0, 4)
+    .map((url) => `<button class="connect-recent" data-action="connectWorkstation" data-url="${safeAttr(url)}" type="button">${safeText(url)}</button>`).join('');
+  return `
+    <section class="connect-shell">
+      <div class="connect-brand">
+        <img class="connect-logo" src="/orca-mark.png" alt="" width="40" height="40" />
+        <span class="connect-wordmark">Orca</span>
+      </div>
+      <h1 class="connect-title">Connect to your workstation</h1>
+      <p class="connect-sub">Orca runs your agents on your computer. Point this app at it to start your journey.</p>
+      <div class="connect-card">
+        <label class="connect-label" for="workstation-url-input">Workstation URL</label>
+        <input id="workstation-url-input" class="connect-input" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="your-mac.your-tailnet.ts.net" value="${safeAttr(pendingWs)}" />
+        <button class="connect-go" data-action="connectWorkstation" type="button">Connect</button>
+        ${recentRows ? `<div class="connect-recents">${recentRows}</div>` : ''}
+      </div>
+      <p class="connect-scan">Or scan the QR code from your Mac (<strong>Orca → Settings → Pair a remote device</strong>) with this phone's Camera.</p>
+      <div class="connect-note">
+        <span class="connect-note-icon" aria-hidden="true">⛭</span>
+        <span>Make sure this phone and your Mac are signed in to the <strong>same Tailscale account</strong>.</span>
+      </div>
+      <details class="disclosure connect-help">
+        <summary><span>Where do I find the URL?</span></summary>
+        <div class="disclosure-body">On your Mac, open Orca → Settings → <strong>Pair a remote device</strong>. It shows your private Tailscale URL (e.g. <code>your-mac.your-tailnet.ts.net</code>) and a QR code. Type the URL above or scan the code. After connecting, you'll enter a one-time pairing code.</div>
+      </details>
+    </section>`;
+}
+
+// Minimal Settings reachable on the unconnected mobile app — so you can still set
+// the theme (light/dark/system) before pairing. Everything else needs a connected
+// workstation, so we show only Appearance plus a way back to the connect screen.
+function renderMobileDisconnectedSettings() {
+  return `
+    <section class="connect-shell connect-settings">
+      <div class="connect-brand">
+        <img class="connect-logo" src="/orca-mark.png" alt="" width="36" height="36" />
+        <span class="connect-wordmark">Settings</span>
+      </div>
+      ${renderAppearancePanel()}
+      <article class="card control-card">
+        <h3>Workstation</h3>
+        <p class="muted">Not connected yet. The rest of Settings unlocks once this app is paired with your workstation.</p>
+        <a class="connect-go connect-go-link" href="/">Connect to a workstation</a>
+      </article>
+    </section>`;
+}
 
 // App Store download badge (Apple-style) shown to iOS users on the WEB client,
 // nudging them to the native app. Mock link until the App Store listing is live.
@@ -9,26 +75,29 @@ function renderIosAppPromo() {
   if (!isIosWeb()) return '';
   return `
     <section class="ios-promo">
-      <img class="ios-promo-icon" src="/icon-512.png" alt="Orca" width="56" height="56" />
-      <div class="ios-promo-text">
+      <div class="ios-promo-body">
         <strong>Orca for iPhone</strong>
         <span>Get the native app — faster, full-screen, opens from your Home Screen.</span>
-      </div>
-      <a class="appstore-badge" href="${APP_STORE_URL}" target="_blank" rel="noopener noreferrer" aria-label="Download Orca on the App Store">
+        <div class="ios-promo-cta">
+        <img class="ios-promo-icon" src="/icon-512.png" alt="Orca" width="44" height="44" />
+        <a class="appstore-badge" href="${APP_STORE_URL}" target="_blank" rel="noopener noreferrer" aria-label="Download Orca on the App Store">
         <svg viewBox="0 0 120 40" width="135" height="45" role="img" aria-hidden="true">
           <rect x="0.5" y="0.5" width="119" height="39" rx="7" fill="#000" stroke="#a6a6a6"/>
           <path fill="#fff" d="M24.77 20.3c-.02-2.35 1.92-3.48 2-3.53-1.09-1.6-2.79-1.82-3.4-1.84-1.43-.15-2.81.85-3.54.85-.74 0-1.86-.84-3.06-.81-1.55.02-2.99.91-3.79 2.31-1.64 2.84-.42 7.02 1.15 9.32.78 1.13 1.7 2.39 2.9 2.34 1.17-.05 1.61-.75 3.02-.75 1.4 0 1.8.75 3.03.73 1.25-.02 2.04-1.14 2.8-2.27.91-1.3 1.28-2.57 1.29-2.64-.03-.01-2.46-.94-2.49-3.74zM22.45 12.4c.65-.79 1.09-1.88.97-2.98-.94.04-2.07.63-2.74 1.4-.6.69-1.13 1.79-.99 2.85 1.05.08 2.12-.53 2.76-1.27z"/>
           <text x="34" y="15.5" fill="#fff" font-family="-apple-system,Helvetica,Arial,sans-serif" font-size="7">Download on the</text>
           <text x="34" y="30" fill="#fff" font-family="-apple-system,Helvetica,Arial,sans-serif" font-size="15" font-weight="600">App Store</text>
         </svg>
-      </a>
+        </a>
+        </div>
+      </div>
     </section>`;
 }
 import { refs, shell, makeDraftSession } from './state.js';
 import { safeAttr, safeText } from './format.js';
 import { api, browserAccessBlocked, setApiToken } from './api.js';
-import { isVerificationProject, renderBreadcrumbs, renderTopbarTitle } from './render-helpers.js';
+import { activeHomePanel, isVerificationProject, renderBreadcrumbs, renderTopbarTitle } from './render-helpers.js';
 import { renderHome } from './render-home.js';
+import { renderAppearancePanel } from './render-home-panels.js';
 import { renderWorkstationPickerPanel } from './render-project.js';
 import { loadEvidenceGallery, renderAuditLog, renderLane } from './render-lane.js';
 import { renderSession } from './render-session.js';
@@ -38,6 +107,35 @@ import { FIRST_CLASS_CLI_EXECUTOR_TYPES } from './constants.js';
 import { orderItems, readSidebarOrder, isProjectExpanded } from './sidebar.js';
 import { COMPOSE_ICON, FOLDER_ICON, PENCIL_ICON } from './constants.js';
 
+// Mobile pairing gate — the same clean connect-shell look as the unconnected app
+// (renderMobileConnect), but for a device that's ALREADY reached the workstation
+// URL (a phone browser, or the app after it navigated to the tailnet origin) and
+// just needs the one-time code. Keeps web and app visually consistent.
+function renderMobilePairGate(browserLabel, homeHint) {
+  return `
+    <section class="connect-shell connect-gate">
+      ${renderIosAppPromo()}
+      <div class="connect-brand">
+        <img class="connect-logo" src="/orca-mark.png" alt="" width="40" height="40" />
+        <span class="connect-wordmark">Orca</span>
+      </div>
+      <h1 class="connect-title">Pair this device</h1>
+      <p class="connect-sub">Enter the one-time code from your workstation to finish connecting. No data is shown until this device is paired.</p>
+      <div class="connect-card">
+        <label class="connect-label" for="pairing-code-input">Pairing code</label>
+        <input id="pairing-code-input" class="connect-input" autocomplete="one-time-code" autocapitalize="characters" placeholder="XXXX-XXXX-XXXX" />
+        <label class="connect-label" for="pairing-label-input">Device label</label>
+        <input id="pairing-label-input" class="connect-input" value="${safeAttr(browserLabel)}" />
+        <button class="connect-go" data-action="pairBrowserSession" type="button">Pair device</button>
+      </div>
+      <div class="connect-note">
+        <span class="connect-note-icon" aria-hidden="true">⛭</span>
+        <span>On your Mac, open Orca → Settings → <strong>Pair a remote device</strong> and create a one-time code.</span>
+      </div>
+      ${homeHint ? `<p class="connect-scan">After pairing, add Orca to your Home Screen so it opens like an app: ${safeText(homeHint)}</p>` : ''}
+    </section>`;
+}
+
 export function renderAccessGate() {
   const narrowClient = window.matchMedia('(max-width: 880px)').matches;
   const workstationAdmin = isWorkstation() && !narrowClient;
@@ -45,6 +143,14 @@ export function renderAccessGate() {
   // Instruction tailored to the browser THIS device is on (null once installed).
   const homeHint = installToHomeHint();
   if (!workstationAdmin) {
+    const isDesktopAppEarly = typeof window !== 'undefined' && Boolean(window.__TAURI__);
+    // Phone-sized clients that already reached the workstation URL (mobile browser,
+    // or the app at the tailnet origin) get the clean connect-shell pairing screen,
+    // matching the app's design. The desktop app / laptop keep the URL + steps card.
+    if (narrowClient && !isDesktopAppEarly) {
+      writeHtml(refs.content, renderMobilePairGate(browserLabel, homeHint));
+      return;
+    }
     // The "Connect to a workstation" URL step is only for the DOWNLOADED desktop
     // app (Tauri) or a desktop laptop — never a phone (a mobile browser already
     // opened the workstation URL to get here, so it just needs the pairing code).
@@ -192,6 +298,17 @@ export function render(uiState = null) {
   renderBlockers();
   renderPickerModal();
   if (refs.content) refs.content.setAttribute('aria-busy', 'false');
+  // Installed app not yet pointed at a workstation → dedicated connect screen.
+  // Settings (#system) still works while disconnected so the theme is adjustable
+  // before pairing; every other route shows the connect screen.
+  if (isUnconnectedMobileApp()) {
+    renderSidebarProjects();
+    const onSettings = activeHomePanel() === 'system';
+    if (refs.topbarTitle) refs.topbarTitle.textContent = onSettings ? 'Settings' : 'Orca';
+    writeHtml(refs.content, onSettings ? renderMobileDisconnectedSettings() : renderMobileConnect());
+    restoreContentUiState(uiState);
+    return;
+  }
   if (browserAccessBlocked()) {
     renderSidebarProjects();
     if (refs.topbarTitle) refs.topbarTitle.textContent = 'Orca';
@@ -302,13 +419,15 @@ export function renderBlockers() {
 
 export function renderSidebarProjects(activeProject) {
   if (!refs.sidebarProjects) return;
+  if (isUnconnectedMobileApp()) {
+    writeHtml(refs.sidebarProjects, `
+      <div class="tiny muted">Not connected to a workstation yet.</div>
+    `);
+    return;
+  }
   if (browserAccessBlocked()) {
     writeHtml(refs.sidebarProjects, `
-      <a class="sidebar-link sidebar-create-project" href="/#private-access">
-        <span class="row-icon" aria-hidden="true">🔒</span>
-        <span>Device not paired</span>
-      </a>
-      <div class="tiny muted">Open pairing setup to unlock projects and sessions.</div>
+      <div class="tiny muted">Not connected to a workstation yet.</div>
     `);
     return;
   }

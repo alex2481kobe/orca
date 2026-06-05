@@ -273,12 +273,16 @@ body.sidebar-collapsed .shell-toggle {
   width: 2rem;
 }
 
-.shell-toggle:hover,
 .shell-toggle:focus-visible {
   background: rgba(255, 255, 255, 0.055);
   color: var(--text);
   outline: none;
 }
+@media (hover: hover) { .shell-toggle:hover {
+  background: rgba(255, 255, 255, 0.055);
+  color: var(--text);
+  outline: none;
+} }
 
 .app-topbar-title {
   color: var(--text);
@@ -387,10 +391,10 @@ body.sidebar-collapsed .ops-sidebar {
   width: 100%;
 }
 
-.sidebar-pair-button:hover {
+@media (hover: hover) { .sidebar-pair-button:hover {
   background: var(--hover);
   color: var(--text);
-}
+} }
 
 .sidebar-pair-icon {
   color: var(--muted);
@@ -457,10 +461,10 @@ body.sidebar-collapsed .sidebar-pair-label {
   white-space: nowrap;
 }
 
-.sidebar-link:hover {
+@media (hover: hover) { .sidebar-link:hover {
   background: var(--hover);
   border-color: transparent;
-}
+} }
 
 .sidebar-link .pill {
   background: rgba(0, 0, 0, 0.4);
@@ -494,8 +498,8 @@ body.sidebar-collapsed .sidebar-pair-label {
   text-decoration: none;
 }
 
-.sidebar-project:hover { background: transparent; }
-.sidebar-project-line:hover .sidebar-project { color: var(--text); }
+@media (hover: hover) { .sidebar-project:hover { background: transparent; } }
+@media (hover: hover) { .sidebar-project-line:hover .sidebar-project { color: var(--text); } }
 
 .sidebar-project-name {
   font-size: 0.85rem;
@@ -577,16 +581,21 @@ body.sidebar-collapsed .sidebar-pair-label {
   width: 2rem;
 }
 
-.sidebar-project-line:hover .sidebar-compose,
 .sidebar-compose:focus-visible {
   opacity: 1;
 }
+@media (hover: hover) { .sidebar-project-line:hover .sidebar-compose {
+  opacity: 1;
+} }
 
-.sidebar-compose:hover,
 .sidebar-compose:focus-visible {
   color: var(--text);
   outline: none;
 }
+@media (hover: hover) { .sidebar-compose:hover {
+  color: var(--text);
+  outline: none;
+} }
 
 .sidebar-compose svg {
   fill: none;
@@ -613,17 +622,22 @@ body.sidebar-collapsed .sidebar-pair-label {
   width: 2rem;
 }
 
-.sidebar-project-line:hover .sidebar-project-archive,
 .sidebar-project-group.actions-open .sidebar-project-archive,
 .sidebar-project-archive:focus-visible {
   opacity: 1;
 }
+@media (hover: hover) { .sidebar-project-line:hover .sidebar-project-archive {
+  opacity: 1;
+} }
 
-.sidebar-project-archive:hover,
 .sidebar-project-archive:focus-visible {
   color: var(--text);
   outline: none;
 }
+@media (hover: hover) { .sidebar-project-archive:hover {
+  color: var(--text);
+  outline: none;
+} }
 
 .sidebar-project-archive svg {
   fill: none;
@@ -642,10 +656,12 @@ body.sidebar-collapsed .sidebar-pair-label {
   position: relative;
 }
 
-.sidebar-session-line:hover,
 .sidebar-session-line:focus-within {
   background: rgba(255, 255, 255, 0.045);
 }
+@media (hover: hover) { .sidebar-session-line:hover {
+  background: rgba(255, 255, 255, 0.045);
+} }
 
 .sidebar-thread {
   align-items: center;
@@ -672,11 +688,13 @@ body.sidebar-collapsed .sidebar-pair-label {
   color: var(--text);
 }
 
-.sidebar-session-line:hover,
 .sidebar-session-line:focus-within,
 .sidebar-session-line.actions-open {
   background: rgba(255, 255, 255, 0.045);
 }
+@media (hover: hover) { .sidebar-session-line:hover {
+  background: rgba(255, 255, 255, 0.045);
+} }
 
 .sidebar-thread small {
   color: var(--muted);
@@ -707,17 +725,22 @@ body.sidebar-collapsed .sidebar-pair-label {
   display: none;
 }
 
-.sidebar-session-line:hover .sidebar-archive,
 .sidebar-session-line.actions-open .sidebar-archive,
 .sidebar-archive:focus-visible {
   opacity: 1;
 }
+@media (hover: hover) { .sidebar-session-line:hover .sidebar-archive {
+  opacity: 1;
+} }
 
-.sidebar-archive:hover,
 .sidebar-archive:focus-visible {
   color: var(--text);
   outline: none;
 }
+@media (hover: hover) { .sidebar-archive:hover {
+  color: var(--text);
+  outline: none;
+} }
 
 .sidebar-compose,
 .sidebar-project-archive,
@@ -752,21 +775,24 @@ body.sidebar-collapsed .sidebar-pair-label {
   top: 50%;
   transform: translateY(-50%);
 }
-.sidebar-project-line:hover .sidebar-project-rename,
 .sidebar-project-group.actions-open .sidebar-project-rename,
 .sidebar-project-rename:focus-visible,
-.sidebar-session-line:hover .sidebar-rename,
 .sidebar-session-line.actions-open .sidebar-rename,
 .sidebar-rename:focus-visible {
   opacity: 1;
 }
-.sidebar-project-rename:hover,
+@media (hover: hover) { .sidebar-project-line:hover .sidebar-project-rename, .sidebar-session-line:hover .sidebar-rename {
+  opacity: 1;
+} }
 .sidebar-project-rename:focus-visible,
-.sidebar-rename:hover,
 .sidebar-rename:focus-visible {
   color: var(--text);
   outline: none;
 }
+@media (hover: hover) { .sidebar-project-rename:hover, .sidebar-rename:hover {
+  color: var(--text);
+  outline: none;
+} }
 .sidebar-project-rename svg,
 .sidebar-rename svg {
   fill: none;
@@ -1074,8 +1100,8 @@ body.sidebar-collapsed .sidebar-project-line {
 }
 
 .onboarding-card.mini {
-  background: rgba(24, 26, 22, 0.7);
-  border: 1px solid rgba(64, 67, 58, 0.62);
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   margin: 0.8rem 0;
   padding: 0.75rem;
@@ -1098,7 +1124,12 @@ body.sidebar-collapsed .sidebar-project-line {
   font-size: 0.72rem;
   gap: 0.35rem;
   justify-items: center;
+  /* Keep the QR column from growing with its caption — the caption wraps to the
+     QR's width and sits centered beneath it, instead of widening the grid and
+     squeezing the URL/Copy row in the left column. */
+  width: 184px;
 }
+.qr-wrap span { max-width: 184px; text-align: center; line-height: 1.35; }
 
 .qr-code {
   background: #f5f1e8;
@@ -1147,8 +1178,8 @@ body.sidebar-collapsed .sidebar-project-line {
 
 .setup-step {
   align-items: center;
-  background: rgba(24, 26, 22, 0.7);
-  border: 1px solid rgba(64, 67, 58, 0.62);
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   display: grid;
   gap: 0.7rem;
@@ -1470,7 +1501,7 @@ body.sidebar-collapsed .sidebar-project-line {
 }
 
 .executor-side-panel {
-  background: rgba(18, 20, 17, 0.88);
+  background: var(--panel-soft);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   display: grid;
@@ -1580,8 +1611,8 @@ body.sidebar-collapsed .sidebar-project-line {
 .session-controls > .card,
 .lane-detail-shell > .card,
 .lane-detail-shell > details.card {
-  background: rgba(18, 20, 17, 0.72);
-  border-color: rgba(78, 81, 70, 0.62);
+  background: var(--panel);
+  border-color: var(--line);
   box-shadow: none;
 }
 
@@ -1599,11 +1630,14 @@ body.sidebar-collapsed .sidebar-project-line {
   text-decoration: none;
 }
 
-.action-list a:hover,
 .action-list a:focus-visible {
   color: var(--accent-strong);
   outline: none;
 }
+@media (hover: hover) { .action-list a:hover {
+  color: var(--accent-strong);
+  outline: none;
+} }
 
 .card-grid {
   display: grid;
@@ -1611,8 +1645,8 @@ body.sidebar-collapsed .sidebar-project-line {
 }
 
 .card {
-  border: 1px solid rgba(64, 67, 58, 0.68);
-  background: rgba(18, 20, 17, 0.72);
+  border: 1px solid var(--line);
+  background: var(--panel);
   border-radius: var(--radius-lg);
   padding: 0.78rem;
   box-shadow: none;
@@ -1839,18 +1873,18 @@ button {
   padding: 0.45rem 0.85rem;
 }
 
-button:hover {
+@media (hover: hover) { button:hover {
   background: var(--active);
-}
+} }
 
 button.secondary {
   background: transparent;
   color: var(--text);
 }
 
-button.secondary:hover {
+@media (hover: hover) { button.secondary:hover {
   background: var(--hover);
-}
+} }
 
 button.danger {
   background: transparent;
@@ -1858,9 +1892,9 @@ button.danger {
   color: var(--danger);
 }
 
-button.danger:hover {
+@media (hover: hover) { button.danger:hover {
   background: rgba(240, 129, 106, 0.12);
-}
+} }
 
 button:focus-visible {
   outline: none;
@@ -1871,11 +1905,13 @@ button:active,
   background: transparent;
 }
 
-.shell-toggle:hover,
 .shell-toggle:active,
 .shell-toggle:focus-visible {
   background: transparent;
 }
+@media (hover: hover) { .shell-toggle:hover {
+  background: transparent;
+} }
 
 /* No grey tap-flash on any element, anywhere. */
 * {
@@ -1917,18 +1953,16 @@ button:active,
 button.secondary,
 a.secondary,
 .button-secondary {
-  background: rgba(28, 30, 26, 0.72);
-  border: 1px solid rgba(64, 67, 58, 0.72);
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
   text-decoration: none;
   color: var(--text);
   cursor: pointer;
 }
 
-button.secondary:hover,
-a.secondary:hover,
-.button-secondary:hover {
+@media (hover: hover) { button.secondary:hover, a.secondary:hover, .button-secondary:hover {
   background: rgba(49, 52, 44, 0.95);
-}
+} }
 
 button:disabled,
 button[disabled] {
@@ -2045,9 +2079,9 @@ select[multiple] {
 }
 
 .lane-list-item {
-  background: rgba(18, 20, 17, 0.72);
+  background: var(--panel);
   border-radius: var(--radius-lg);
-  border: 1px solid rgba(64, 67, 58, 0.64);
+  border: 1px solid var(--line);
   padding: 0.72rem;
 }
 
@@ -2075,14 +2109,17 @@ pre {
 .alert {
   border-radius: var(--radius);
   border: 1px solid var(--line);
-  background: rgba(13, 55, 95, 0.7);
-  padding: 0.5rem 0.7rem;
+  background: var(--panel-soft);
+  color: var(--text);
+  padding: 0.5rem 0.75rem;
   margin-bottom: 0.4rem;
   font-size: 0.88rem;
 }
 
-.alert.bad { border-color: var(--bad); background: rgba(141, 34, 17, 0.42); }
-.alert.ok { border-color: var(--ok); background: rgba(13, 92, 58, 0.36); }
+/* Theme-aware tints: a light wash in light mode, a deeper one in dark — even
+   1px border on all four sides (no bold left edge). */
+.alert.bad { border-color: var(--bad); background: color-mix(in srgb, var(--bad) 16%, var(--panel)); }
+.alert.ok { border-color: var(--ok); background: color-mix(in srgb, var(--ok) 16%, var(--panel)); }
 
 .access-summary {
   display: grid;
@@ -2093,7 +2130,7 @@ pre {
 .access-command,
 .access-target {
   align-items: center;
-  border: 1px solid rgba(64, 67, 58, 0.62);
+  border: 1px solid var(--line);
   border-radius: var(--radius-md);
   display: flex;
   gap: 0.75rem;
@@ -2119,7 +2156,7 @@ pre {
 
 .provider-row {
   align-items: center;
-  border: 1px solid rgba(64, 67, 58, 0.62);
+  border: 1px solid var(--line);
   border-radius: var(--radius-md);
   display: flex;
   gap: 0.75rem;
@@ -2169,9 +2206,13 @@ pre {
     /* No topbar on mobile anymore — don't reserve its height up top, or the
        Orca/collapse row gets pushed down. Clear the notch up top and the home
        indicator at the bottom (Settings sits at the very bottom of the drawer). */
-    padding-top: calc(env(safe-area-inset-top) + 0.5rem);
+    padding-top: calc(env(safe-area-inset-top) + 0.75rem);
     padding-bottom: calc(0.8rem + var(--safe-area-bottom));
   }
+  /* Breathing room between the brand row at the top and the Projects list, so the
+     list doesn't crowd the notch/status bar (the pair section that used to sit
+     here is hidden on remote devices). */
+  .ops-sidebar .sidebar-head { padding-bottom: 1.2rem; }
   body.nav-open .ops-sidebar {
     transform: translateX(0);
   }
@@ -2400,10 +2441,10 @@ pre {
   color: var(--muted);
   text-decoration: none;
 }
-.about-links a:hover {
+@media (hover: hover) { .about-links a:hover {
   color: var(--text);
   text-decoration: underline;
-}
+} }
 
 /* "+ New session" row under an expanded project (indented like sessions). */
 .sidebar-new-session {
@@ -2417,10 +2458,10 @@ pre {
   padding: 0.15rem 0.55rem 0.15rem 1.95rem;
   text-decoration: none;
 }
-.sidebar-new-session:hover {
+@media (hover: hover) { .sidebar-new-session:hover {
   background: var(--hover);
   color: var(--text);
-}
+} }
 .sidebar-new-session-plus {
   display: inline-flex;
   justify-content: center;
@@ -2465,7 +2506,8 @@ pre {
   color: var(--muted); cursor: pointer; display: inline-flex; height: 2rem; justify-content: center; width: 2rem;
 }
 .info-toggle { color: var(--text); opacity: 0.7; }
-.info-toggle:hover, .info-toggle.active { background: var(--hover); color: var(--text); opacity: 1; }
+.info-toggle.active { background: var(--hover); color: var(--text); opacity: 1; }
+@media (hover: hover) { .info-toggle:hover { background: var(--hover); color: var(--text); opacity: 1; } }
 
 /* Flex workbench so the info panel can slide open/closed by animating its width
    (Codex-style smooth open/close) instead of a hard grid-column switch. */
@@ -2518,9 +2560,10 @@ pre {
   display: flex; font: inherit; font-size: 0.88rem; gap: 0.6rem; justify-content: space-between; padding: 0.45rem 0.6rem;
   text-align: left; width: 100%;
 }
-.slash-row:hover, .slash-row.sel { background: var(--hover); }
+.slash-row.sel { background: var(--hover); }
+@media (hover: hover) { .slash-row:hover { background: var(--hover); } }
 .slash-row.disabled { color: var(--muted); cursor: default; opacity: 0.55; }
-.slash-row.disabled:hover { background: transparent; }
+@media (hover: hover) { .slash-row.disabled:hover { background: transparent; } }
 .slash-cmd { font-variant-numeric: tabular-nums; }
 .slash-hint { color: var(--muted); font-size: 0.78rem; }
 .slash-info { color: var(--muted); font-size: 0.82rem; padding: 0.45rem 0.6rem; }
@@ -2534,15 +2577,15 @@ pre {
   height: 2rem; justify-content: center; width: 2rem;
 }
 .composer-attach { background: transparent; color: var(--muted); }
-.composer-attach:hover { background: var(--hover); color: var(--text); }
+@media (hover: hover) { .composer-attach:hover { background: var(--hover); color: var(--text); } }
 .composer-send { background: var(--text); color: var(--ink-on-light); }
-.composer-send:hover { background: var(--accent-strong); }
+@media (hover: hover) { .composer-send:hover { background: var(--accent-strong); } }
 .composer-select {
   background-color: transparent; border: 0; border-radius: var(--radius-sm); color: var(--muted);
   font-size: 0.82rem; max-width: 9rem; padding: 0.3rem 1.45rem 0.3rem 0.5rem;
   background-position: right 0.4rem center;
 }
-.composer-select:hover { background-color: var(--hover); color: var(--text); }
+@media (hover: hover) { .composer-select:hover { background-color: var(--hover); color: var(--text); } }
 .composer-spacer { flex: 1; }
 .composer-more { position: relative; }
 .composer-more > summary {
@@ -2550,7 +2593,7 @@ pre {
   height: 2rem; justify-content: center; list-style: none; width: 2rem;
 }
 .composer-more > summary::-webkit-details-marker { display: none; }
-.composer-more > summary:hover { background: var(--hover); color: var(--text); }
+@media (hover: hover) { .composer-more > summary:hover { background: var(--hover); color: var(--text); } }
 .composer-more-pop {
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-md); bottom: 2.5rem; display: grid;
   gap: 0.5rem; left: 0; padding: 0.7rem; position: absolute; width: 230px; max-width: calc(100vw - 1.5rem); z-index: 30;
@@ -2568,7 +2611,7 @@ pre {
 }
 .info-panel-head strong { font-size: 0.9rem; }
 .info-close { align-items: center; background: transparent; border: 0; border-radius: var(--radius-sm); color: var(--muted); cursor: pointer; display: inline-flex; height: 2.2rem; justify-content: center; padding: 0; width: 2.2rem; }
-.info-close:hover { background: var(--hover); color: var(--text); }
+@media (hover: hover) { .info-close:hover { background: var(--hover); color: var(--text); } }
 .info-panel-body { display: flex; flex-direction: column; gap: 1.4rem; padding: 0.9rem; }
 .info-section { display: flex; flex-direction: column; gap: 0.5rem; }
 .info-title { color: var(--muted); font-size: 0.7rem; letter-spacing: 0.07em; margin: 0; text-transform: uppercase; }
@@ -2587,7 +2630,7 @@ pre {
 .composer textarea { min-height: 1.5rem; padding: 0.45rem 0.55rem 0.2rem; }
 .composer.composer-shell { padding: 0.45rem 0.5rem 0.4rem; }
 .composer-attach { color: var(--text); opacity: 0.78; }
-.composer-attach:hover { opacity: 1; }
+@media (hover: hover) { .composer-attach:hover { opacity: 1; } }
 .composer-send svg { transform: translateY(-0.5px); }
 .composer-send[disabled] { opacity: 0.4; cursor: default; }
 /* Model/intelligence opener reads as a labelled pill, like Codex's model chip. */
@@ -2595,7 +2638,7 @@ pre {
   border: 1px solid var(--line); border-radius: var(--radius-pill); color: var(--muted);
   font-size: 0.8rem; gap: 0.25rem; height: 1.85rem; padding: 0 0.7rem; width: auto;
 }
-.composer-more > summary:hover { border-color: var(--text); color: var(--text); }
+@media (hover: hover) { .composer-more > summary:hover { border-color: var(--text); color: var(--text); } }
 .composer-more[open] > summary { border-color: var(--text); color: var(--text); }
 .composer-more-pop { right: 0; left: auto; }
 /* Composer stays put; only the thread scrolls. Big, clearly visible toolbar icons. */
@@ -2688,7 +2731,7 @@ pre {
   color: var(--text); cursor: pointer; display: flex; font: inherit; font-size: 0.9rem; gap: 0.5rem;
   justify-content: space-between; padding: 0.5rem 0.7rem; width: 100%;
 }
-.dd-trigger:hover { border-color: var(--muted); }
+@media (hover: hover) { .dd-trigger:hover { border-color: var(--muted); } }
 .dd.dd-open .dd-trigger { border-color: var(--text); }
 .dd-trigger .dd-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dd-chevron { color: var(--muted); flex: 0 0 auto; transition: transform 0.15s ease; }
@@ -2705,13 +2748,14 @@ pre {
   background: transparent; border: 0; border-radius: var(--radius-sm); color: var(--text); cursor: pointer; font: inherit;
   font-size: 0.88rem; padding: 0.45rem 0.6rem; text-align: left; white-space: nowrap;
 }
-.dd-opt:hover, .dd-opt.active { background: var(--hover); }
+.dd-opt.active { background: var(--hover); }
+@media (hover: hover) { .dd-opt:hover { background: var(--hover); } }
 .dd-opt.selected { font-weight: 550; }
 .dd-opt[disabled] { color: var(--muted); cursor: default; }
 /* Compact, borderless variant for the composer toolbar. */
 .dd-compact { width: auto; }
 .dd-compact .dd-trigger { background: transparent; border: 0; border-radius: var(--radius-sm); color: var(--muted); min-height: 2rem; padding: 0.3rem 0.5rem; }
-.dd-compact .dd-trigger:hover { background: var(--hover); color: var(--text); }
+@media (hover: hover) { .dd-compact .dd-trigger:hover { background: var(--hover); color: var(--text); } }
 .dd-compact .dd-menu { min-width: min(170px, calc(100vw - 1.5rem)); max-width: calc(100vw - 1rem); }
 
 /* ===== Consolidated composer config popover (Reasoning / Model / Speed) ===== */
@@ -2724,8 +2768,8 @@ pre {
   color: var(--text); cursor: pointer; display: inline-flex; font: inherit; font-size: 0.85rem; gap: 0.35rem;
   min-height: 2rem; padding: 0.32rem 0.6rem; transition: background-color 0.12s ease, border-color 0.12s ease;
 }
-.cfg-trigger:hover,
 .cfg.cfg-active .cfg-trigger { background: var(--hover); border-color: var(--line); }
+@media (hover: hover) { .cfg-trigger:hover { background: var(--hover); border-color: var(--line); } }
 .cfg-label { align-items: baseline; display: inline-flex; gap: 0.34rem; }
 .cfg-lab-model { color: var(--text); font-weight: 600; }
 .cfg-lab-reason { color: var(--muted); }
@@ -2750,12 +2794,12 @@ pre {
   display: flex; font: inherit; font-size: 0.88rem; gap: 0.6rem; justify-content: space-between; padding: 0.45rem 0.6rem;
   text-align: left; width: 100%;
 }
-.cfg-item:hover { background: var(--hover); }
+@media (hover: hover) { .cfg-item:hover { background: var(--hover); } }
 .cfg-check { color: var(--muted); }
 .cfg-arrow { color: var(--muted); font-size: 1.05rem; line-height: 1; }
 .cfg-sep { border-top: 1px solid var(--line); margin: 0.25rem 0.2rem; }
 .cfg-back { background: transparent; border: 0; border-radius: var(--radius-sm); color: var(--muted); cursor: pointer; font: inherit; font-size: 0.82rem; padding: 0.4rem 0.6rem; text-align: left; width: 100%; }
-.cfg-back:hover { background: var(--hover); color: var(--text); }
+@media (hover: hover) { .cfg-back:hover { background: var(--hover); color: var(--text); } }
 .cfg-note { color: var(--muted); font-size: 0.8rem; padding: 0.4rem 0.6rem; }
 .cfg-free { display: flex; gap: 0.3rem; padding: 0.4rem; }
 .cfg-model-input { background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--text); flex: 1 1 auto; font: inherit; font-size: 0.85rem; min-width: 0; padding: 0.35rem 0.5rem; }
@@ -2778,9 +2822,9 @@ pre {
   text-decoration: none; white-space: nowrap; transition: background-color 0.12s ease, border-color 0.12s ease, opacity 0.12s ease;
 }
 .btn { background: var(--text); border: 1px solid var(--text); color: var(--ink-on-light); font-weight: 550; }
-.btn:hover { opacity: 0.9; }
+@media (hover: hover) { .btn:hover { opacity: 0.9; } }
 .btn-ghost { background: transparent; border: 1px solid var(--line); color: var(--text); }
-.btn-ghost:hover { background: var(--hover); border-color: var(--muted); }
+@media (hover: hover) { .btn-ghost:hover { background: var(--hover); border-color: var(--muted); } }
 .ts-setup-callout {
   background: var(--panel-soft, #303030); border: 1px solid var(--line); border-radius: var(--radius-md); display: flex;
   flex-direction: column; gap: 0.5rem; margin: 0.4rem 0 0.9rem; padding: 0.85rem 1rem;
@@ -2800,9 +2844,9 @@ pre {
   cursor: pointer; flex: 0 0 auto; font: inherit; font-size: 0.82rem; min-height: 2rem; padding: 0.35rem 0.85rem;
   white-space: nowrap; transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
 }
-.device-revoke:hover { background: var(--hover); border-color: var(--danger, #c4554d); color: var(--danger, #e06c64); }
+@media (hover: hover) { .device-revoke:hover { background: var(--hover); border-color: var(--danger, #c4554d); color: var(--danger, #e06c64); } }
 .device-revoke:disabled { cursor: default; opacity: 0.4; }
-.device-revoke:disabled:hover { background: transparent; border-color: var(--line); color: var(--muted); }
+@media (hover: hover) { .device-revoke:disabled:hover { background: transparent; border-color: var(--line); color: var(--muted); } }
 
 /* ===== Composer context row (Local/Cloud + branch picker), Codex-style ===== */
 .composer-context { align-items: center; display: flex; flex-wrap: wrap; gap: 0.3rem; padding: 0.35rem 0.15rem 0.05rem; position: relative; }
@@ -2812,7 +2856,7 @@ pre {
   color: var(--muted); cursor: pointer; display: inline-flex; font: inherit; font-size: 0.82rem; gap: 0.35rem;
   min-height: 1.95rem; padding: 0.3rem 0.55rem; transition: background-color 0.12s ease, color 0.12s ease;
 }
-.ctx-pill:hover { background: var(--hover); color: var(--text); }
+@media (hover: hover) { .ctx-pill:hover { background: var(--hover); color: var(--text); } }
 .ctx-pill[aria-expanded="true"] { background: var(--hover); color: var(--text); }
 .ctx-pill svg { flex: 0 0 auto; }
 .ctx-pill-label { max-width: 16ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2832,7 +2876,7 @@ pre {
   display: flex; font: inherit; font-size: 0.86rem; gap: 0.55rem; justify-content: flex-start; padding: 0.45rem 0.6rem;
   text-align: left; width: 100%;
 }
-.ctx-item:hover { background: var(--hover); }
+@media (hover: hover) { .ctx-item:hover { background: var(--hover); } }
 .ctx-branch { justify-content: space-between; }
 .ctx-branch > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ctx-tag { color: var(--muted); font-size: 0.7rem; margin-left: auto; }
@@ -2848,17 +2892,19 @@ pre {
 .ctx-mode-main { display: flex; flex-direction: column; gap: 0.1rem; }
 .ctx-mode-sub { color: var(--muted); font-size: 0.74rem; }
 .ctx-mode.is-disabled { color: var(--muted); cursor: not-allowed; opacity: 0.6; }
-.ctx-mode.is-disabled:hover { background: transparent; }
+@media (hover: hover) { .ctx-mode.is-disabled:hover { background: transparent; } }
 
 /* ===== ChatGPT-style sidebar header + full-height shell ===== */
 .sidebar-head { align-items: center; display: flex; gap: 0.5rem; justify-content: space-between; padding: 0.4rem 0.3rem 0.7rem; }
 .sidebar-brand { color: var(--text); font-size: 1.02rem; font-weight: 600; padding-left: 0.35rem; }
+.sidebar-brand-link { align-items: center; border-radius: var(--radius-sm); color: inherit; display: inline-flex; padding: 0.15rem; text-decoration: none; }
+@media (hover: hover) { .sidebar-brand-link:hover { background: var(--hover); } }
 .sidebar-brand-logo { display: block; height: 28px; width: auto; margin-left: 0.2rem; }
 .sidebar-collapse, .sidebar-reopen {
   align-items: center; background: transparent; border: 0; border-radius: var(--radius-sm); color: var(--muted);
   cursor: pointer; display: inline-flex; flex: 0 0 auto; height: 2rem; justify-content: center; width: 2rem;
 }
-.sidebar-collapse:hover, .sidebar-reopen:hover { background: var(--hover); color: var(--text); }
+@media (hover: hover) { .sidebar-collapse:hover, .sidebar-reopen:hover { background: var(--hover); color: var(--text); } }
 .sidebar-reopen { display: none; }
 .breadcrumbs:empty { display: none; }
 
@@ -2876,10 +2922,10 @@ button.home-cta { cursor: pointer; font: inherit; }
 .picker-titlebar { align-items: center; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; padding: 0.85rem 1rem; }
 .picker-titlebar strong { font-size: 0.98rem; }
 .picker-x { align-items: center; background: transparent; border: 0; border-radius: var(--radius-sm); color: var(--muted); cursor: pointer; display: inline-flex; height: 2.35rem; justify-content: center; width: 2.35rem; }
-.picker-x:hover { background: var(--hover); color: var(--text); }
+@media (hover: hover) { .picker-x:hover { background: var(--hover); color: var(--text); } }
 .picker-toolbar { align-items: center; background: var(--bg-soft, #262626); border-bottom: 1px solid var(--line); display: flex; gap: 0.5rem; padding: 0.5rem 0.85rem; }
 .picker-up { align-items: center; background: transparent; border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--text); cursor: pointer; display: inline-flex; flex: 0 0 auto; height: 2.35rem; justify-content: center; width: 2.35rem; }
-.picker-up:hover:not(:disabled) { background: var(--hover); }
+@media (hover: hover) { .picker-up:hover:not(:disabled) { background: var(--hover); } }
 .picker-up:disabled { color: var(--muted); cursor: default; opacity: 0.4; }
 .picker-path { color: var(--muted); flex: 1 1 auto; font-size: 0.82rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
 .picker-error { color: var(--bad, #e06c64); font-size: 0.82rem; padding: 0.5rem 0.85rem; }
@@ -2888,7 +2934,7 @@ button.home-cta { cursor: pointer; font: inherit; }
   align-items: center; background: transparent; border: 0; border-radius: var(--radius-sm); color: var(--text); cursor: pointer;
   display: flex; font: inherit; font-size: 0.9rem; gap: 0.6rem; padding: 0.5rem 0.6rem; text-align: left; width: 100%;
 }
-.picker-row:hover { background: var(--hover); }
+@media (hover: hover) { .picker-row:hover { background: var(--hover); } }
 .picker-row-icon { align-items: center; color: #8ab4f8; display: inline-flex; flex: 0 0 auto; }
 /* SVGs in flex rows must never shrink to slivers (the recurring tiny-icon bug). */
 .picker svg, .picker-row-icon svg, .picker-up svg, .picker-x svg { flex: 0 0 auto; }
@@ -2906,7 +2952,7 @@ button.home-cta { cursor: pointer; font: inherit; }
 /* Project row: the whole line is the hover/active surface (incl. the trailing
    new-session icon); the name truncates before the icon so they never overlap. */
 .sidebar-project-line { align-items: center; border-radius: var(--radius-sm); display: flex; }
-.sidebar-project-line:hover { background: rgba(255, 255, 255, 0.045); }
+@media (hover: hover) { .sidebar-project-line:hover { background: rgba(255, 255, 255, 0.045); } }
 .sidebar-project-line > .sidebar-project { flex: 1 1 auto; min-width: 0; }
 /* New-session icon: hidden until the row is hovered, but it ALWAYS occupies its
    slot so the project name truncates at the same point (a consistent text↔icon
@@ -2917,10 +2963,10 @@ button.home-cta { cursor: pointer; font: inherit; }
   height: 2rem; justify-content: center; margin-right: 0.18rem; opacity: 0; padding: 0; text-decoration: none; width: 2rem;
   transition: opacity 0.12s ease, color 0.12s ease;
 }
-.sidebar-project-line:hover .sidebar-project-new,
 .sidebar-project-new:focus-visible { opacity: 0.7; }
+@media (hover: hover) { .sidebar-project-line:hover .sidebar-project-new { opacity: 0.7; } }
 /* Brightens ONLY on its own hover; bare icon, never a background box. */
-.sidebar-project-new:hover { color: var(--text); opacity: 1; outline: none; }
+@media (hover: hover) { .sidebar-project-new:hover { color: var(--text); opacity: 1; outline: none; } }
 /* All three sidebar action glyphs (new chat / rename / archive) share one size so
    they read as a consistent, centered set. */
 .sidebar-project-new svg,
@@ -2976,14 +3022,15 @@ button.home-cta { cursor: pointer; font: inherit; }
 .modal-input { width: 100%; }
 .modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.25rem; }
 .modal-confirm { background: var(--text); border: 0; color: var(--ink-on-light); padding: 0.5rem 1rem; }
-.modal-confirm:hover { background: var(--accent-strong); }
+@media (hover: hover) { .modal-confirm:hover { background: var(--accent-strong); } }
 .modal-confirm.danger { background: var(--danger); color: var(--ink-on-light); }
-.modal-confirm.danger:hover { background: #ff9d86; }
+@media (hover: hover) { .modal-confirm.danger:hover { background: #ff9d86; } }
 
 /* ===== Home welcome (empty state when no project is open) ===== */
 .home-welcome { align-items: center; display: flex; justify-content: center; min-height: calc(100dvh - var(--topbar-height) - 4rem); padding: 2rem; }
 .home-welcome.is-hidden { display: none; }
 .home-hero { display: flex; flex-direction: column; align-items: center; gap: 0.65rem; text-align: center; }
+.home-hero-logo { display: block; margin-bottom: 0.15rem; }
 .home-hero-title { font-size: 2rem; font-weight: 600; letter-spacing: -0.02em; margin: 0; }
 .home-hero-sub { color: var(--muted); font-size: 0.95rem; margin: 0; max-width: 30rem; }
 .home-hero-actions { margin-top: 0.6rem; }
@@ -2991,9 +3038,9 @@ button.home-cta { cursor: pointer; font: inherit; }
   align-items: center; background: var(--text); border-radius: var(--radius); color: var(--ink-on-light); display: inline-flex;
   font-size: 0.9rem; font-weight: 600; gap: 0.4rem; padding: 0.6rem 1.1rem; text-decoration: none;
 }
-.home-cta:hover { background: var(--accent-strong); }
+@media (hover: hover) { .home-cta:hover { background: var(--accent-strong); } }
 .home-hero-link { color: var(--muted); font-size: 0.85rem; margin-top: 0.3rem; text-decoration: none; }
-.home-hero-link:hover { color: var(--text); text-decoration: underline; }
+@media (hover: hover) { .home-hero-link:hover { color: var(--text); text-decoration: underline; } }
 
 /* Settings -> Archive list */
 .archive-list { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.5rem; }
@@ -3053,6 +3100,45 @@ button.home-cta { cursor: pointer; font: inherit; }
 .ptr-indicator.refreshing .ptr-spinner::after { animation: ptr-spin 0.7s linear infinite; }
 @keyframes ptr-spin { to { transform: rotate(360deg); } }
 
+/* Success confirmation: a green pill with a checkmark + "Refreshed" that flashes
+   in once the data refresh resolves, so the gesture visibly did something. */
+.ptr-done {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px 5px 9px;
+  border-radius: var(--radius-pill);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.45);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+.ptr-indicator.done .ptr-spinner { display: none; }
+.ptr-indicator.done .ptr-done { display: inline-flex; animation: ptr-pop 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.3); }
+.ptr-check {
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-pill);
+  background: var(--ok, #2e7d32);
+  position: relative;
+  flex: 0 0 auto;
+}
+.ptr-check::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 2.5px;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+@keyframes ptr-pop { from { transform: scale(0.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
 /* ===== Keyboard focus visibility =====
    A clear focus ring for keyboard / assistive-tech users on every interactive
    element. :focus-visible never fires for plain mouse clicks, so this doesn't
@@ -3098,26 +3184,95 @@ textarea:focus-visible {
   border-radius: var(--radius-pill);
   min-height: 2rem;
 }
-.seg-btn:hover { color: var(--text); }
+@media (hover: hover) { .seg-btn:hover { color: var(--text); } }
 .seg-btn.is-on {
   background: var(--bg);
   color: var(--text);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
 }
 
-/* ===== iOS app download promo (shown to iOS web visitors) ===== */
+/* ===== iOS app download promo (shown to iOS web visitors) =====
+   A self-contained, centered banner card so it reads as one cohesive unit and
+   the app icon has a surface to sit on (it's light, so it'd vanish on the page). */
 .ios-promo {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 0.85rem;
-  padding: 0 0 1.25rem;
-  margin-bottom: 1.25rem;
-  border-bottom: 1px solid var(--line-soft);
-  flex-wrap: wrap;
+  text-align: center;
+  gap: 0.3rem;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 1.1rem 1.25rem 1.2rem;
+  margin-bottom: 1.5rem;
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
 }
-.ios-promo-icon { border-radius: var(--radius-md); flex: 0 0 auto; }
-.ios-promo-text { display: flex; flex-direction: column; gap: 0.15rem; min-width: 8rem; flex: 1 1 auto; }
-.ios-promo-text strong { font-size: 1rem; }
-.ios-promo-text span { color: var(--muted); font-size: 0.85rem; }
+.ios-promo-body { display: flex; flex-direction: column; align-items: center; gap: 0.25rem; min-width: 0; }
+.ios-promo-body strong { font-size: 1.05rem; line-height: 1.2; }
+.ios-promo-body span { color: var(--muted); font-size: 0.86rem; line-height: 1.4; max-width: 22rem; }
+/* Orca icon + App Store badge share one line, same height, BELOW the text. The
+   icon gets a squircle border + shadow so it reads as an app icon, not a faint
+   sticker floating on the page. */
+.ios-promo-cta { display: flex; align-items: center; justify-content: center; gap: 0.6rem; margin-top: 0.7rem; }
+.ios-promo-icon {
+  height: 48px; width: 48px; border-radius: 12px; flex: 0 0 auto; display: block;
+  border: 1px solid var(--line); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18); background: #fff;
+}
+.ios-promo-cta .appstore-badge { display: inline-flex; }
+.ios-promo-cta .appstore-badge svg { display: block; height: 48px; width: auto; }
+/* Inside the mobile pair gate the promo banner is pinned near the top (cleared
+   from the floating reopen button), matching the centered start screen. */
+.connect-shell.connect-gate { padding-top: calc(env(safe-area-inset-top) + 3.25rem); }
 .appstore-badge { display: inline-flex; flex: 0 0 auto; border-radius: 8px; }
 .appstore-badge:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ===== Mobile app: "Connect to your workstation" first-run screen ===== */
+.connect-shell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  /* Upper-third, not dead-center: between the top and the middle. */
+  padding: clamp(2rem, 12vh, 7rem) 1.25rem 2.5rem;
+  max-width: 26rem;
+  margin: 0 auto;
+  text-align: center;
+}
+.connect-brand { display: inline-flex; align-items: center; gap: 0.55rem; margin-bottom: 1.5rem; }
+.connect-logo { display: block; }
+.connect-wordmark { font-size: 1.7rem; font-weight: 600; letter-spacing: -0.02em; }
+.connect-title { font-size: 1.5rem; font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; margin: 0 0 0.5rem; }
+.connect-sub { color: var(--muted); font-size: 0.95rem; line-height: 1.45; margin: 0 0 1.75rem; }
+.connect-card { display: flex; flex-direction: column; width: 100%; gap: 0.6rem; text-align: left; }
+.connect-label { color: var(--muted); font-size: 0.8rem; font-weight: 500; }
+.connect-input {
+  width: 100%; box-sizing: border-box; font-size: 1rem; padding: 0.85rem 0.9rem;
+  border-radius: var(--radius-md); border: 1px solid var(--line); background: var(--panel); color: var(--text);
+}
+.connect-input:focus { outline: none; border-color: var(--muted); }
+.connect-go {
+  display: inline-flex; align-items: center; justify-content: center; width: 100%;
+  font-size: 1rem; font-weight: 600; padding: 0.85rem 1rem; border: 0; cursor: pointer;
+  border-radius: var(--radius-md); background: var(--accent-strong, var(--text)); color: var(--ink-on-light, #fff);
+}
+.connect-go-link { text-decoration: none; margin-top: 0.85rem; }
+.connect-recents { display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.4rem; }
+.connect-recent {
+  text-align: left; font-size: 0.85rem; padding: 0.55rem 0.7rem; cursor: pointer;
+  border-radius: var(--radius-sm); border: 1px solid var(--line); background: transparent; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.connect-scan { color: var(--muted); font-size: 0.82rem; line-height: 1.45; margin: 1.5rem 0 0; }
+.connect-note {
+  display: flex; align-items: flex-start; gap: 0.5rem; text-align: left;
+  margin-top: 1rem; padding: 0.7rem 0.85rem; border-radius: var(--radius-md);
+  background: var(--hover); color: var(--muted); font-size: 0.82rem; line-height: 1.4;
+}
+.connect-note-icon { flex: 0 0 auto; }
+.connect-note strong { color: var(--text); }
+.connect-help { width: 100%; margin-top: 1.25rem; text-align: left; }
+.connect-help .disclosure-body { color: var(--muted); font-size: 0.82rem; line-height: 1.5; }
+.connect-settings { text-align: left; gap: 1rem; }
+.connect-settings .connect-brand { margin-bottom: 0.5rem; }
+.connect-settings .card { width: 100%; }

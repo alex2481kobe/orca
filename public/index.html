@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <!-- Set the theme before CSS paints to avoid a flash (external for CSP). -->
     <script src="/theme-init.js"></script>
     <meta name="color-scheme" content="light dark" />
@@ -18,7 +18,7 @@
     <link rel="icon" type="image/png" sizes="256x256" href="/orca-mark.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <link rel="stylesheet" href="/styles.css?v=20260604-nosw" />
+    <link rel="stylesheet" href="/styles.css?v=20260604f" />
   </head>
   <body data-app="orca">
     <header class="app-topbar">
@@ -32,7 +32,9 @@
       <button id="sidebar-reopen" class="sidebar-reopen" data-action="toggleNav" type="button" aria-label="Open sidebar" title="Open sidebar"><span class="panel-toggle-icon" aria-hidden="true"></span></button>
       <aside id="sidebar" class="ops-sidebar" aria-label="navigation">
         <div class="sidebar-head">
-          <img class="sidebar-brand-logo" src="/orca-mark.png" alt="Orca" width="28" height="28" />
+          <a href="/" class="sidebar-brand-link" aria-label="Orca home" title="Home">
+            <img class="sidebar-brand-logo" src="/orca-mark.png" alt="Orca" width="28" height="28" />
+          </a>
           <button class="sidebar-collapse" data-action="toggleNav" type="button" aria-label="Collapse sidebar" title="Collapse sidebar"><span class="panel-toggle-icon" aria-hidden="true"></span></button>
         </div>
         <div class="sidebar-section sidebar-pair-section" hidden>
@@ -56,6 +58,6 @@
         <div id="content" class="ops-content" aria-busy="true">Loading…</div>
       </section>
     </main>
-    <script type="module" src="/app.js?v=20260604-nosw"></script>
+    <script type="module" src="/app.js?v=20260604f"></script>
   </body>
 </html>

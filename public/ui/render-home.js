@@ -61,6 +61,12 @@ export function renderHome() {
   `;
   const phoneUrl = preferredPhoneUrl(privateTargets, privateSettings, tailnet);
   const phoneQr = qrSvgForText(phoneUrl);
+  // Deep-link QR: scanning this with an iPhone that has the Orca app installed
+  // opens the app (via the orca:// scheme) and points it straight at this
+  // workstation, instead of just opening the URL in Safari.
+  const phoneDeepLinkQr = phoneUrl && /^https?:\/\//i.test(phoneUrl)
+    ? qrSvgForText(`orca://connect?ws=${encodeURIComponent(phoneUrl)}`)
+    : phoneQr;
   const notificationState = shell.notifications || {};
   const notificationSettings = notificationState.settings || {};
   const notificationItems = Array.isArray(notificationState.notifications) ? notificationState.notifications : [];
@@ -294,6 +300,7 @@ export function renderHome() {
     showMainHome,
     phoneUrl,
     phoneQr,
+    phoneDeepLinkQr,
     accessModeSummary,
     accessModeOptions,
     privateSettings,
@@ -346,12 +353,12 @@ export function renderHome() {
   writeHtml(refs.content, `
     ${renderSimpleSection(ctx)}
     <section class="grid-2 home-panels" data-active-panel="${safeAttr(panel)}">
-      ${renderPairPanel(ctx)}
+      ${workstationOnly(renderPairPanel(ctx))}
       ${workstationOnly(renderDesktopControlPanel(ctx))}
       ${workstationOnly(renderSetupPanel(ctx))}
       ${workstationOnly(renderTokenPanel(ctx))}
       ${renderAppearancePanel()}
-      ${renderAccessPanel(ctx)}
+      ${workstationOnly(renderAccessPanel(ctx))}
       ${workstationOnly(renderExecutorProfilesPanel(ctx))}
       ${workstationOnly(renderCapturePanel(ctx))}
       ${workstationOnly(renderCliHealthPanel(ctx))}

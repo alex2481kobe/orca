@@ -725,10 +725,46 @@ pub fn run() {
 // the workstation's tailnet URL — from there it's the normal paired remote client.
 #[cfg(mobile)]
 fn run_mobile() {
+    use tauri_plugin_deep_link::DeepLinkExt;
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_deep_link::init())
+        .setup(|app| {
+            let handle = app.handle().clone();
+            // Cold start: the app was launched BY a deep link (e.g. an `orca://`
+            // QR scanned from the Camera). The webview JS may not be ready yet, so
+            // deliver_deep_link polls for the JS hook before calling it.
+            if let Ok(Some(urls)) = app.deep_link().get_current() {
+                if let Some(url) = urls.first() {
+                    deliver_deep_link(&handle, url.as_str());
+                }
+            }
+            // Warm: a deep link tapped while the app is already running.
+            let warm = handle.clone();
+            app.deep_link().on_open_url(move |event| {
+                if let Some(url) = event.urls().first() {
+                    deliver_deep_link(&warm, url.as_str());
+                }
+            });
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running Orca (mobile)");
+}
+
+// Hand a scanned/opened `orca://connect?ws=<workstation-url>` deep link to the
+// webview. window.__orcaConnect parses the ws param and navigates the app to the
+// workstation. We poll for it because on a cold launch the page JS loads after
+// this fires.
+#[cfg(mobile)]
+fn deliver_deep_link(app: &AppHandle, url: &str) {
+    if let Some(win) = app.get_webview_window("main") {
+        let safe = url.replace('\\', "\\\\").replace('\'', "\\'");
+        let script = format!(
+            "(function(u){{var n=0;var i=setInterval(function(){{if(window.__orcaConnect){{clearInterval(i);window.__orcaConnect(u);}}else if(++n>50){{clearInterval(i);}}}},100);}})('{safe}')"
+        );
+        let _ = win.eval(&script);
+    }
 }
 
 #[cfg(desktop)]
