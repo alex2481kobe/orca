@@ -235,6 +235,33 @@ export class OrcaRegistry {
     return clonePayload(this.lanes.filter((lane) => lane.sessionId === session.id));
   }
 
+  // Lightweight lane list for the dashboard poll: drops `logs` entirely (no list
+  // view shows them) and keeps only the last LANE_LIST_EVENT_TAIL agentEvents
+  // (enough for the side-panel previews), plus total counts. The full lane —
+  // including all logs + agentEvents — is fetched per-lane via GET /api/lanes/:id
+  // only when that lane is opened. This avoids deep-cloning up to 2000 logs +
+  // 3000 agentEvents per lane on every 1-3s poll. Excludes the heavy arrays
+  // BEFORE cloning so the clone itself stays cheap.
+  listLanesCompact(sessionLocator) {
+    const session = this.getSession(sessionLocator);
+    if (!session) {
+      throw { status: 404, message: 'Session not found.' };
+    }
+    const TAIL = 20;
+    return this.lanes
+      .filter((lane) => lane.sessionId === session.id)
+      .map((lane) => {
+        const { logs, agentEvents, ...rest } = lane;
+        const events = Array.isArray(agentEvents) ? agentEvents : [];
+        return clonePayload({
+          ...rest,
+          agentEvents: events.slice(-TAIL),
+          agentEventCount: events.length,
+          logCount: Array.isArray(logs) ? logs.length : 0,
+        });
+      });
+  }
+
 
 
 

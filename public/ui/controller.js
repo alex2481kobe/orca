@@ -206,6 +206,28 @@ export async function refresh(options = {}) {
       if (sessionsComplete && lanesComplete) {
         shell.sessions = allSessions;
         shell.lanes = allLanes;
+        // The list carries only a 20-event tail (no logs). Fetch the FULL lane
+        // (all logs + agentEvents) ONLY for the lane(s) the user is looking at:
+        // the open lane-detail route + the open session's active orchestrator lane
+        // (the live console needs the full 80-120 timeline + logs). One fetch each.
+        const focusedLaneIds = new Set();
+        if (shell.route.laneId) focusedLaneIds.add(shell.route.laneId);
+        if (shell.route.sessionId) {
+          const openSession = allSessions.find((s) => s.id === shell.route.sessionId);
+          const activeLane = openSession ? activeOrchestratorLaneForSession(openSession) : null;
+          if (activeLane && activeLane.id) focusedLaneIds.add(activeLane.id);
+        }
+        if (focusedLaneIds.size) {
+          const ids = [...focusedLaneIds];
+          const detailResponses = await Promise.all(ids.map((id) => api(`/api/lanes/${encodeURIComponent(id)}`)));
+          if (requestId !== refreshRequestId) return;
+          for (const resp of detailResponses) {
+            if (resp.ok && resp.data && resp.data.id) {
+              const idx = shell.lanes.findIndex((l) => l.id === resp.data.id);
+              if (idx >= 0) shell.lanes[idx] = resp.data; // full lane replaces the compact one
+            }
+          }
+        }
       }
     }
     if (requestId !== refreshRequestId) return;

@@ -224,7 +224,9 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
     }
 
     if (parts.length === 4 && parts[3] === 'lanes') {
-      if (method === 'GET') return sendJson(res, 200, registry.listLanes(session.id));
+      // Compact list (no logs, last-20 agentEvents + counts). The full lane is
+      // fetched per-lane via GET /api/lanes/:id when opened. Keeps the poll cheap.
+      if (method === 'GET') return sendJson(res, 200, registry.listLanesCompact(session.id));
       if (method === 'POST') {
         const body = await parseJsonBody(req);
         if (body === null) return sendBodyError(req, res);

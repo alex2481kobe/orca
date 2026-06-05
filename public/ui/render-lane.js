@@ -95,7 +95,7 @@ export function renderLane(project, session, lane) {
       <details class="disclosure card">
         <summary>
           <span>Agent activity</span>
-          <small>${safeText(String((lane.agentEvents || []).length))} events</small>
+          <small>${safeText(String(lane.agentEventCount ?? (lane.agentEvents || []).length))} events</small>
         </summary>
         <div class="disclosure-body">
           ${renderAgentEventTimeline(lane, { limit: 120, compact: true })}

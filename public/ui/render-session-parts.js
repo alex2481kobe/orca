@@ -102,7 +102,7 @@ export function renderChatThreadInner(session) {
   const thread = session.orchestratorThread || {};
   const messages = Array.isArray(thread.messages) ? thread.messages : [];
   const lane = activeOrchestratorLaneForSession(session);
-  const hasActivity = Boolean(lane && Array.isArray(lane.agentEvents) && lane.agentEvents.length);
+  const hasActivity = Boolean(lane && ((Array.isArray(lane.agentEvents) && lane.agentEvents.length) || lane.agentEventCount));
   const messageRows = messages.slice(-50).map((message) => {
     const role = String(message.role || 'system').toLowerCase();
     const isUser = role === 'user';
