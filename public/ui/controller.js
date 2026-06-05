@@ -350,7 +350,15 @@ export function startPolling() {
     if (shell.lastPairing && Date.now() - _lastAuthSyncAt >= 1000) {
       syncAuthSessions();
     }
-    const cadenceMs = hasLiveOrchestratorConsole() ? 1000 : 3000;
+    // Cadence: a live orchestrator console always polls fast (1s) for streaming
+    // output. Otherwise, when SSE is connected it already PUSHES changes in real
+    // time (revision bump → 'update' → refresh), so the poll is just a fallback —
+    // demote it to 15s (cuts idle traffic ~5x on the phone). Only when SSE is down
+    // do we fall back to the 3s poll for near-real-time.
+    let cadenceMs;
+    if (hasLiveOrchestratorConsole()) cadenceMs = 1000;
+    else if (_activeEventSource) cadenceMs = 15000;
+    else cadenceMs = 3000;
     if (Date.now() - lastRefreshAt >= cadenceMs) {
       refresh({ background: true });
     }

@@ -115,10 +115,18 @@ const requestOrigin = (req) => {
   return `${proto === 'https' ? 'https' : 'http'}://${host}`;
 };
 
-function applySecurityHeaders(res) {
+function applySecurityHeaders(res, req = null) {
   Object.entries(SECURITY_HEADERS).forEach(([name, value]) => {
     res.setHeader(name, value);
   });
+  // HSTS ONLY over real HTTPS (Tailscale Serve with HTTPS certs). It tells browsers
+  // to force HTTPS for a year — correct once the user enables HTTPS, but harmful on
+  // plain http (it would pin a scheme the loopback/http setup can't serve), so gate
+  // it on the actual request scheme. requestOrigin trusts x-forwarded-proto only
+  // from a real proxy, so a direct http client never trips this.
+  if (req && requestOrigin(req).startsWith('https://')) {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
 }
 
 function setCacheHeaders(res, value = SENSITIVE_CACHE_CONTROL) {
@@ -738,7 +746,7 @@ async function handleApi(req, res, pathname, method, parts) {
 }
 
 function routeRequest(req, res) {
-  applySecurityHeaders(res);
+  applySecurityHeaders(res, req); // req → adds HSTS when the request is HTTPS
   const method = req.method || 'GET';
   const pathname = normalizePathname(req.url || '/');
   if (!pathname) {
