@@ -2,7 +2,7 @@
 // server.js as a factory. Stream plumbing is imported directly; request-scoped
 // deps (registry, auth, header/JSON helpers) are injected via closure.
 
-import { buildStreamSnapshotCached, streamHeartbeatMs, writeSse } from '../event-streams.js';
+import { buildStreamSignalCached, streamHeartbeatMs, writeSse } from '../event-streams.js';
 
 export function createEventStream(deps) {
   const { registry, applySecurityHeaders, setCacheHeaders, sendJson, getSearchParams, hasStreamAuth } = deps;
@@ -29,7 +29,7 @@ export function createEventStream(deps) {
     startedAt,
     heartbeatMs: streamHeartbeatMs(),
   });
-  writeSse(res, 'snapshot', buildStreamSnapshotCached(registry));
+  writeSse(res, 'snapshot', buildStreamSignalCached(registry));
   if (once) {
     writeSse(res, 'stream_close', {
       reason: 'once',
@@ -39,7 +39,8 @@ export function createEventStream(deps) {
     return undefined;
   }
   // Poll the registry revision frequently so changes are pushed live as `update`
-  // events; emit `heartbeat` at the slower configured cadence as a keepalive.
+  // signals (the client re-fetches via the tiered data API on each); emit
+  // `heartbeat` at the slower configured cadence as a keepalive.
   const heartbeatMs = streamHeartbeatMs();
   const pollMs = Math.max(250, Math.min(heartbeatMs, 700));
   let lastRevision = typeof registry.getStreamRevision === 'function' ? registry.getStreamRevision() : 0;
@@ -57,14 +58,14 @@ export function createEventStream(deps) {
     const revision = typeof registry.getStreamRevision === 'function' ? registry.getStreamRevision() : 0;
     if (revision !== lastRevision) {
       lastRevision = revision;
-      writeSse(res, 'update', buildStreamSnapshotCached(registry));
+      writeSse(res, 'update', buildStreamSignalCached(registry));
     }
     if (Date.now() - lastHeartbeatAt >= heartbeatMs) {
       lastHeartbeatAt = Date.now();
       writeSse(res, 'heartbeat', {
         at: new Date().toISOString(),
         revision,
-        counts: buildStreamSnapshotCached(registry).counts, // memoized per revision
+        counts: buildStreamSignalCached(registry).counts, // memoized per revision
       });
     }
   }, pollMs);

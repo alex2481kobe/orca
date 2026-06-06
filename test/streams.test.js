@@ -113,7 +113,7 @@ function parseSseEvents(text) {
   }).filter(Boolean);
 }
 
-test('stream endpoint requires auth when API token is configured and returns compact once payload', async () => {
+test('stream endpoint requires auth when API token is configured and returns a lightweight revision signal', async () => {
   const token = 'stream-test-token';
   const server = await startServer({
     ORCA_API_TOKEN: token,
@@ -136,9 +136,12 @@ test('stream endpoint requires auth when API token is configured and returns com
     assert.deepEqual(events.map((event) => event.event), ['stream_open', 'snapshot', 'stream_close']);
     const snapshot = events.find((event) => event.event === 'snapshot').data;
     assert.equal(snapshot.contractVersion, 'orca.streams.v1');
+    assert.equal(typeof snapshot.revision, 'number');
     assert.equal(typeof snapshot.counts.projects, 'number');
-    assert.equal(Array.isArray(snapshot.activeLanes), true);
-    assert.equal(Array.isArray(snapshot.pendingAudits), true);
+    assert.equal(typeof snapshot.counts.pendingAudits, 'number');
+    // The signal carries NO lane/audit bodies — clients re-fetch via the tiered API.
+    assert.equal(snapshot.activeLanes, undefined);
+    assert.equal(snapshot.pendingAudits, undefined);
   } finally {
     await server.stop();
   }

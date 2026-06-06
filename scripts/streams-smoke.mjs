@@ -109,8 +109,11 @@ async function fetchOnceStream() {
     fail('snapshot contract missing');
   }
   if (!snapshot.counts || typeof snapshot.counts.projects !== 'number') fail('snapshot counts missing');
-  if (!Array.isArray(snapshot.activeLanes) || !Array.isArray(snapshot.pendingAudits)) {
-    fail('snapshot arrays missing');
+  if (typeof snapshot.revision !== 'number') fail('snapshot revision missing');
+  // The stream is a lightweight change-signal: it must NOT carry lane/audit
+  // bodies (clients re-fetch via the tiered data API).
+  if ('activeLanes' in snapshot || 'pendingAudits' in snapshot) {
+    fail('stream signal must not embed lane/audit bodies', JSON.stringify(Object.keys(snapshot)));
   }
   const tooLarge = events.some((event) => event.data.length > 32_000);
   if (tooLarge) fail('stream event payload too large');
