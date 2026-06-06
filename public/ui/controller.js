@@ -27,21 +27,29 @@ export function invalidateCliInfo() { _lastCliInfoAt = 0; }
 let _authReqCounter = 0;
 let _authAppliedReq = 0;
 
-// Count of real, ACTIVE paired devices (workstation token-bootstrap sessions and
-// revoked/expired ones don't count). null when the list hasn't loaded yet.
-function pairedCountOf(list) {
-  return Array.isArray(list)
-    ? list.filter((s) => s && (s.paired || s.pairedFromId) && s.active !== false).length
-    : null;
+// A stable signature of the paired-device list. Keyed on each session's identity
+// (id + active + label + expiry), NOT just the COUNT — re-pairing the SAME device
+// revokes the old session and mints a new one, so the count is unchanged but the
+// ids differ; a count-only check missed that and left the workstation stale until
+// the slow SSE-fallback poll (the "10-20s after pairing" lag when re-testing with
+// one phone). null when the list hasn't loaded yet.
+function sessionsSignature(list) {
+  if (!Array.isArray(list)) return null;
+  return list
+    .map((s) => `${s.id || ''}:${s.active !== false ? 1 : 0}:${s.label || ''}:${s.expiresAt || ''}`)
+    .sort()
+    .join('|');
 }
 
 // Apply a freshly fetched auth-session list to shell state + handle the one-time
-// pairing-code "Device paired ✓" flash. Returns true if the paired-device COUNT
-// changed (so the caller can render immediately). Pure: no fetch, no render.
+// pairing-code "Device paired ✓" flash. Returns true if the device list changed
+// in ANY render-affecting way (new/removed/replaced device, or the pairing code
+// was just consumed), so the caller can render immediately. Pure: no fetch, no render.
 function applyAuthSessions(sessions) {
-  const prev = pairedCountOf(shell.authSessions);
+  const prevSig = sessionsSignature(shell.authSessions);
   shell.authSessions = sessions;
-  const now = pairedCountOf(shell.authSessions);
+  const nextSig = sessionsSignature(shell.authSessions);
+  let consumedNow = false;
   // Show "Device paired ✓" ONLY when the specific one-time code THIS workstation
   // created has actually been consumed — i.e. an active session now exists whose
   // pairedFromId matches our code's id. That is the real signal that the phone
@@ -52,6 +60,7 @@ function applyAuthSessions(sessions) {
     const consumed = Array.isArray(sessions)
       && sessions.some((s) => s && s.active !== false && s.pairedFromId === shell.lastPairing.id);
     if (consumed) {
+      consumedNow = true;
       shell.lastPairing = null;
       shell.pairingAccepted = { at: Date.now() };
       if (_pairingAcceptedTimer) clearTimeout(_pairingAcceptedTimer);
@@ -62,7 +71,10 @@ function applyAuthSessions(sessions) {
       }, 3500);
     }
   }
-  return prev !== null && now !== prev;
+  // Render when the list actually changed OR the pairing code was just consumed
+  // (the latter clears the on-screen code + shows "Device paired ✓", which must
+  // paint even on a same-device re-pair where the signature is otherwise equal).
+  return consumedNow || (prevSig !== null && nextSig !== prevSig);
 }
 
 // Lightweight, standalone sync of JUST the paired-device list — one cheap call,
