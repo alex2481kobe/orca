@@ -99,7 +99,11 @@ function classifyRoute(method, parts) {
     if (p3 === 'capacity' || p3 === 'audit-done-lanes') return 'processControl';
   }
   if (p1 === 'executors' && p4 === 'reinstall') return 'processControl';
-  if (p1 === 'artifacts' && p2 === 'cleanup') return 'cleanup';
+  // The cleanup SCHEDULE is read (GET) on every dashboard refresh; only the
+  // destructive cleanup runs (POST run-now / cleanup) belong on the strict
+  // `cleanup` mutation budget. Keeping the GET on `cleanup` 429'd it at the
+  // no-SSE/live-console poll cadence (same class as the auth-read bug).
+  if (p1 === 'artifacts' && p2 === 'cleanup') return verb === 'GET' ? 'defaultRead' : 'cleanup';
   if (p1 === 'agent-tools' && p2 === 'leases') return 'agentLease';
   if (p1 === 'streams') return 'stream';
   if (p1 === 'private-access') return verb === 'GET' ? 'defaultRead' : 'privateAccess';

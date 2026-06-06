@@ -383,14 +383,17 @@ export function startPolling() {
     if (shell.lastPairing && Date.now() - _lastAuthSyncAt >= 1000) {
       syncAuthSessions();
     }
-    // Cadence: a live orchestrator console always polls fast (1s) for streaming
-    // output. Otherwise, when SSE is connected it already PUSHES changes in real
-    // time (revision bump → 'update' → refresh), so the poll is just a fallback —
-    // demote it to 15s (cuts idle traffic ~5x on the phone). Only when SSE is down
-    // do we fall back to the 3s poll for near-real-time.
+    // Cadence. When SSE is connected it PUSHES every change in real time —
+    // EVERY agent event + log line + state transition bumps the stream revision
+    // (appendLaneAgentEvent/appendLaneLog), which fires an `update` → refresh
+    // within ~0.85s. So even a LIVE orchestrator console stays live via push; the
+    // poll is only a safety net → 15s. A 1s FULL refresh here re-fetched the whole
+    // project/session/lane tree every second and, after ~45s of live watching,
+    // exhausted the read-rate budget (429s that froze the dashboard). Only when
+    // SSE is DOWN do we poll fast (2s with a live console, 3s idle) for liveness.
     let cadenceMs;
-    if (hasLiveOrchestratorConsole()) cadenceMs = 1000;
-    else if (_activeEventSource) cadenceMs = 15000;
+    if (_activeEventSource) cadenceMs = 15000;
+    else if (hasLiveOrchestratorConsole()) cadenceMs = 2000;
     else cadenceMs = 3000;
     if (Date.now() - lastRefreshAt >= cadenceMs) {
       refresh({ background: true });
