@@ -13,17 +13,28 @@ export function safeAttr(value) {
     .replaceAll("'", '&#39;');
 }
 
+// Canonical lane-state badge — the SINGLE renderer for a lane's state across
+// every view, so the same state never shows a different label/colour in the
+// session list vs the lane detail. Covers all LANE_STATES (worker-contract.js).
 export function stateBadge(state) {
   const map = {
     queued: ['Queued', 'warn'],
     starting: ['Starting', 'warn'],
     running: ['Running', 'ok'],
-    done: ['Done', 'ok'],
+    needs_critique: ['Needs critique', 'warn'],
+    ready_for_audit: ['Ready for audit', 'warn'],
+    auditing: ['Auditing', 'warn'],
+    fix_requested: ['Fix requested', 'bad'],
+    accepted: ['Accepted', 'ok'],
+    blocked: ['Blocked', 'bad'],
+    archived: ['Archived', 'warn'],
     stopped: ['Stopped', 'bad'],
+    done: ['Done', 'ok'],
     failed: ['Failed', 'bad'],
   };
-  const [label, tone] = map[state] || [state, 'warn'];
-  return `<span class="tag ${tone}">${label}</span>`;
+  const normalized = String(state || '').toLowerCase();
+  const [label, tone] = map[normalized] || [normalized || 'unknown', 'warn'];
+  return `<span class="tag ${tone}">${safeText(label)}</span>`;
 }
 
 export function formatMeta(timeString) {

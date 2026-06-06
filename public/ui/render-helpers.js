@@ -23,18 +23,6 @@ export function activeHomePanel() {
   return allowed.has(panel) ? panel : 'overview';
 }
 
-export function stateTagClass(state) {
-  switch (String(state || '').toLowerCase()) {
-    case 'done': return 'ok';
-    case 'running':
-    case 'starting': return '';
-    case 'failed': return 'bad';
-    case 'stopped':
-    case 'queued': return 'warn';
-    default: return '';
-  }
-}
-
 export function getActionPolicy(actionKey) {
   return shell.policy?.[actionKey] || { requiresApproval: false, risk: 'low', message: '' };
 }

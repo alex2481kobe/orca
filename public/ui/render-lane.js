@@ -1,9 +1,9 @@
 // Render view module (split from render-views.js).
 
 import { safeHref } from './dom.js';
-import { formatMeta, safeAttr, safeText } from './format.js';
+import { formatMeta, safeAttr, safeText, stateBadge } from './format.js';
 import { api } from './api.js';
-import { activeHomePanel, executorCapabilitiesFor, isLiveLaneState, laneDetailRoute, pendingAuditsForLane, renderExecutorCapabilities, stateTagClass } from './render-helpers.js';
+import { activeHomePanel, executorCapabilitiesFor, isLiveLaneState, laneDetailRoute, pendingAuditsForLane, renderExecutorCapabilities } from './render-helpers.js';
 import { renderApprovalRows } from './render-session-parts.js';
 import { refs, shell } from './state.js';
 import { showArtifacts } from './controller.js';
@@ -57,7 +57,7 @@ export function renderLane(project, session, lane) {
         <p>${safeText(lane.taskDescription || 'No task description')}</p>
         ${lane.taskPrompt ? `<div class="tiny"><strong>Task prompt:</strong> ${safeText(lane.taskPrompt)}</div>` : ''}
         ${lane.targetUrl ? `<div class="tiny"><strong>Target URL:</strong> <a class="secondary" href="${safeHref(lane.targetUrl)}" target="_blank" rel="noopener noreferrer">${safeText(lane.targetUrl)}</a></div>` : ''}
-        <div class="tiny">Owner: ${safeText(lane.owner)} / Executor: ${safeText(lane.executorType)} / State: <span class="tag ${stateTagClass(lane.state)}">${safeText(lane.state)}</span></div>
+        <div class="tiny">Owner: ${safeText(lane.owner)} / Executor: ${safeText(lane.executorType)} / State: ${stateBadge(lane.state)}</div>
       </div>
       <div class="card">
         <div class="lane-row">
