@@ -121,7 +121,7 @@ function renderIosAppPromo() {
 import { refs, shell, makeDraftSession } from './state.js';
 import { safeAttr, safeText } from './format.js';
 import { api, browserAccessBlocked, setApiToken } from './api.js';
-import { activeHomePanel, isVerificationProject, renderBreadcrumbs, renderTopbarTitle } from './render-helpers.js';
+import { activeHomePanel, isLiveLaneState, isRunningLaneState, isVerificationProject, renderBreadcrumbs, renderTopbarTitle } from './render-helpers.js';
 import { renderHome } from './render-home.js';
 import { renderAppearancePanel } from './render-home-panels.js';
 import { renderWorkstationPickerPanel } from './render-project.js';
@@ -448,7 +448,7 @@ export function renderStatusStrip() {
     ? `<span class="tag ok" data-status="scheduler">cleanup: every ${safeText(String(scheduler.intervalHours))}h</span>`
     : '<span class="tag warn" data-status="scheduler">cleanup: off</span>';
   const lanes = shell.lanes || [];
-  const running = lanes.filter((lane) => ['running', 'starting'].includes(lane.state)).length;
+  const running = lanes.filter((lane) => isRunningLaneState(lane.state)).length;
   const failed = lanes.filter((lane) => lane.state === 'failed').length;
   const auditCount = (shell.pendingAuditEvents || []).length;
   const blockerCount = (shell.systemBlockers || []).filter((b) => b.severity === 'error').length;
@@ -517,7 +517,7 @@ export function renderSidebarProjects(activeProject) {
       storedOrder.sessions[project.id] || [],
     );
     const lanes = (shell.lanes || []).filter((lane) => lane.projectId === project.id);
-    const active = lanes.filter((lane) => ['running', 'starting', 'queued'].includes(lane.state)).length;
+    const active = lanes.filter((lane) => isLiveLaneState(lane.state)).length;
     const isActiveProject = shell.route.projectSlug === project.slug || shell.route.projectSlug === project.id;
     const expanded = isProjectExpanded(project.id, isActiveProject);
     // Icons (rename + archive) live on SESSIONS only; the project row is just a

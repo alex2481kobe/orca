@@ -3,7 +3,7 @@
 import { safeHref } from './dom.js';
 import { formatMeta, safeAttr, safeText } from './format.js';
 import { api } from './api.js';
-import { activeHomePanel, executorCapabilitiesFor, laneDetailRoute, pendingAuditsForLane, renderExecutorCapabilities, stateTagClass } from './render-helpers.js';
+import { activeHomePanel, executorCapabilitiesFor, isLiveLaneState, laneDetailRoute, pendingAuditsForLane, renderExecutorCapabilities, stateTagClass } from './render-helpers.js';
 import { renderApprovalRows } from './render-session-parts.js';
 import { refs, shell } from './state.js';
 import { showArtifacts } from './controller.js';
@@ -22,7 +22,7 @@ export function renderLane(project, session, lane) {
     `;
   }
 
-  const stopButton = ['running', 'starting', 'queued'].includes(lane.state)
+  const stopButton = isLiveLaneState(lane.state)
     ? `<button data-action="stopLane" data-lane-id="${safeAttr(lane.id)}" type="button">Stop lane</button>` : '';
   const retryButton = ['failed', 'stopped'].includes(lane.state)
     ? `<button class="secondary" data-action="retryLane" data-lane-id="${safeAttr(lane.id)}" type="button">Retry lane</button>` : '';

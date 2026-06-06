@@ -69,12 +69,27 @@ export function renderTopbarTitle(project, session, lane) {
   refs.topbarTitle.textContent = 'Orca';
 }
 
+// Canonical client-side lane-lifecycle subsets. These are the single source of
+// truth for "which states count as X" on the client — every view filters through
+// the predicates below rather than re-spelling the arrays inline (the divergence
+// the cleanup removed). (The server has its own copy under src/ because the
+// public/ bundle can't import from src/worker-contract.js across that boundary.)
+const LIVE_LANE_STATES = ['queued', 'starting', 'running'];
+const RUNNING_LANE_STATES = ['running', 'starting'];
+const RESTARTABLE_LANE_STATES = ['failed', 'stopped', 'fix_requested'];
+
 export function isLiveLaneState(state) {
-  return ['queued', 'starting', 'running'].includes(String(state || '').toLowerCase());
+  return LIVE_LANE_STATES.includes(String(state || '').toLowerCase());
+}
+
+// "Live" minus queued — a lane whose process is actually up (used for the
+// at-a-glance "N running" tile, distinct from the broader live/active count).
+export function isRunningLaneState(state) {
+  return RUNNING_LANE_STATES.includes(String(state || '').toLowerCase());
 }
 
 export function isRestartableLaneState(state) {
-  return ['failed', 'stopped', 'fix_requested'].includes(String(state || '').toLowerCase());
+  return RESTARTABLE_LANE_STATES.includes(String(state || '').toLowerCase());
 }
 
 export function agentEventTone(type) {
