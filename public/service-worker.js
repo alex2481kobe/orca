@@ -1,4 +1,8 @@
-const CACHE_NAME = 'orca-static-v127';
+// Asset version — keep in lockstep with the ?v= cache-buster in index.html.
+// Bump BOTH together via `node scripts/sync-asset-version.mjs <version>`; the
+// pwa-cache smoke fails if they drift. (The suffix after 'orca-static-' is the
+// shared token.)
+const CACHE_NAME = 'orca-static-20260605r';
 const STATIC_ASSETS = [
   '/',
   '/styles.css',

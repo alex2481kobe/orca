@@ -191,8 +191,23 @@ function assertNoSensitiveCacheWrites(cachePuts) {
   if (sensitive.length) fail('sensitive cache write detected', JSON.stringify(sensitive));
 }
 
+async function assertAssetVersionCoupling() {
+  const sw = await fs.readFile(serviceWorkerPath, 'utf8');
+  const indexHtml = await fs.readFile(path.resolve(root, 'public', 'index.html'), 'utf8');
+  const swToken = (sw.match(/const CACHE_NAME = 'orca-static-([^']+)';/) || [])[1];
+  const indexTokens = [...new Set([...indexHtml.matchAll(/\?v=([A-Za-z0-9._-]+)/g)].map((m) => m[1]))];
+  if (!swToken) fail('service-worker CACHE_NAME token not found');
+  if (!indexTokens.length) fail('index.html has no ?v= cache-buster');
+  if (indexTokens.length > 1) fail('index.html ?v= tokens disagree', indexTokens.join(', '));
+  if (indexTokens[0] !== swToken) {
+    fail('asset-version drift: CACHE_NAME and index.html ?v= must match', `sw=${swToken} index=${indexTokens[0]} (run scripts/sync-asset-version.mjs)`);
+  }
+  log('asset-version', `CACHE_NAME + ?v= coupled at "${swToken}"`);
+}
+
 async function main() {
   await assertManifest();
+  await assertAssetVersionCoupling();
   const harness = await buildServiceWorkerHarness();
   await assertServiceWorkerSource(harness.source);
   await harness.runLifecycle('install');
