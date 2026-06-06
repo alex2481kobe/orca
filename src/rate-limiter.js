@@ -3,6 +3,14 @@ import { createHash } from 'node:crypto';
 const DEFAULT_LIMITS = {
   auth: { limit: 12, windowMs: 60_000 },
   authPair: { limit: 8, windowMs: 60_000 },
+  // GET /api/auth/status + /api/auth/sessions are POLLED reads (the dashboard
+  // syncs the paired-device list ~1/s while a pairing code is on screen, plus an
+  // SSE-driven sync on every change). They are auth-gated and expose no secrets,
+  // so they must NOT share the strict `auth` mutation budget — doing so 429'd the
+  // poll after ~12s and froze pairing reflection for the rest of the window (the
+  // "workstation takes ~27s to show the paired device" bug). The brute-force
+  // surface (pair attempts / code creation) stays on the strict authPair budget.
+  authRead: { limit: 600, windowMs: 60_000 },
   providerHealth: { limit: 120, windowMs: 60_000 },
   providerSecret: { limit: 12, windowMs: 60_000 },
   providerImportExport: { limit: 30, windowMs: 60_000 },
@@ -71,6 +79,8 @@ function classifyRoute(method, parts) {
 
   if (p1 === 'auth') {
     if (['pair', 'pairing-codes', 'logout'].includes(p2)) return 'authPair';
+    // status + sessions are frequently-polled, auth-gated reads — generous budget.
+    if (verb === 'GET') return 'authRead';
     return 'auth';
   }
   if (p1 === 'providers') {

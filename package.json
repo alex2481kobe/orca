@@ -80,6 +80,7 @@
     "smoke:lane-detail-arch": "node scripts/verify-lane-detail-arch.mjs",
     "smoke:lane-stream": "node scripts/verify-lane-stream.mjs",
     "smoke:pair-repair-renders": "node scripts/verify-pair-repair-renders.mjs",
+    "smoke:pair-reflect-ratelimit": "node scripts/verify-pair-reflect-ratelimit.mjs",
     "assets:version": "node scripts/sync-asset-version.mjs"
   },
   "devDependencies": {

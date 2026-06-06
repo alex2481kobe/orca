@@ -127,6 +127,32 @@ test('API rate limiter returns 429 with retry metadata for pairing attempts', as
   }
 });
 
+test('polled auth READS (status/sessions) use the generous authRead budget, not the strict auth mutation budget', async () => {
+  // Pin the strict `auth` mutation budget to 1 AND keep authRead generous. If
+  // GET /api/auth/sessions were (mis)classified as `auth`, the 2nd poll would
+  // 429 — which is the bug that froze pairing reflection on the workstation
+  // (the dashboard polls this ~1/s while a pairing code is shown).
+  const server = await startServerWithEnv({
+    ORCA_RATE_LIMIT_AUTH_LIMIT: '1',
+    ORCA_RATE_LIMIT_AUTH_WINDOW_MS: '60000',
+  });
+  try {
+    let last;
+    for (let i = 0; i < 20; i += 1) {
+      last = await server.requestJson('/api/auth/sessions', { method: 'GET' });
+      assert.equal(last.status !== 429, true, `poll ${i} must not be rate-limited (got ${last.status})`);
+    }
+    assert.equal(last.headers['x-ratelimit-policy'], 'authRead');
+
+    // GET /api/auth/status is the other polled read — same treatment.
+    const status = await server.requestJson('/api/auth/status', { method: 'GET' });
+    assert.equal(status.headers['x-ratelimit-policy'], 'authRead');
+    assert.notEqual(status.status, 429);
+  } finally {
+    await server.stop();
+  }
+});
+
 test('rate limiter keys authenticated requests without echoing raw token values', async () => {
   const token = 'rate-limit-token-secret';
   const server = await startServerWithEnv({
