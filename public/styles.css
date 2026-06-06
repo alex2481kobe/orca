@@ -45,7 +45,7 @@
   color-scheme: dark;
 }
 /* Full-screen contexts (native app / installed PWA): use the real screen height,
-not the short dvh. Attribute is set pre-paint by theme-init.js. */
+   not the short dvh. Attribute is set pre-paint by theme-init.js. */
 :root[data-native],
 :root[data-standalone] {
   --vph: 100vh;
@@ -55,7 +55,7 @@ not the short dvh. Attribute is set pre-paint by theme-init.js. */
    JS resolves the Appearance setting (System/Light/Dark) and sets
    data-theme="light" | "dark" on <html>. :root above is the dark default;
    this overrides the semantic color tokens for light. Clean white surface,
-ChatGPT/Codex-light style. Radius/spacing tokens are shared. */
+   ChatGPT/Codex-light style. Radius/spacing tokens are shared. */
 :root[data-theme="light"] {
   color-scheme: light;
   --bg: #ffffff;
@@ -83,8 +83,7 @@ ChatGPT/Codex-light style. Radius/spacing tokens are shared. */
   box-sizing: border-box;
 }
 
-/* Paint the app background on the root too,
-so the notch/home-indicator safe
+/* Paint the app background on the root too, so the notch/home-indicator safe
    zones are always filled even if the body is momentarily shorter than the
    screen (standalone launch race). No bare gaps at the top/bottom edges. */
 html {
@@ -490,7 +489,7 @@ body.sidebar-collapsed .sidebar-pair-label {
 
 /* Project row — folder + name; dimmer than its sessions. Toggles the accordion.
    Hover highlight + active state live on the whole row line (.sidebar-project-line),
-so the row and its trailing new-session icon highlight as ONE unit. The project
+   so the row and its trailing new-session icon highlight as ONE unit. The project
    text stays greyed even when its session is open. */
 .sidebar-project {
   align-items: center;
@@ -688,7 +687,7 @@ so the row and its trailing new-session icon highlight as ONE unit. The project
 }
 
 /* Rename buttons mirror the archive button treatment (revealed via hover on a
-   pointer device,
+   pointer device, or long-press "actions-open" on touch). */
 .sidebar-rename {
   align-items: center;
   background: transparent !important;
@@ -1177,11 +1176,8 @@ body.sidebar-collapsed .sidebar-project-line {
 }
 
 /* Live per-lane terminal stream. Stays dark in both themes (it's a terminal — it
-   sets both bg and a light text color,
-the exempt-surface rule),
-monospace,
-scrollable,
-wraps long lines so it never forces horizontal scroll on mobile. */
+   sets both bg and a light text color, the exempt-surface rule), monospace,
+   scrollable, wraps long lines so it never forces horizontal scroll on mobile. */
 .lane-stream {
   background: #0d0f0c;
   color: #e6f1df;
@@ -1555,8 +1551,7 @@ textarea:focus {
   border-color: rgba(255, 255, 255, 0.24);
 }
 
-/* Custom-styled select: kill the native chrome,
-draw our own chevron. */
+/* Custom-styled select: kill the native chrome, draw our own chevron. */
 select {
   appearance: none;
   -webkit-appearance: none;
@@ -1618,8 +1613,7 @@ button:active,
   background: transparent;
 } }
 
-/* No grey tap-flash on any element,
-anywhere. */
+/* No grey tap-flash on any element, anywhere. */
 * {
   -webkit-tap-highlight-color: transparent;
 }
@@ -1808,8 +1802,7 @@ pre {
   font-size: 0.88rem;
 }
 
-/* Theme-aware tints: a light wash in light mode,
-a deeper one in dark — even
+/* Theme-aware tints: a light wash in light mode, a deeper one in dark — even
    1px border on all four sides (no bold left edge). */
 .alert.bad { border-color: var(--bad); background: color-mix(in srgb, var(--bad) 16%, var(--panel)); }
 .alert.ok { border-color: var(--ok); background: color-mix(in srgb, var(--ok) 16%, var(--panel)); }
@@ -1861,17 +1854,15 @@ a deeper one in dark — even
 @media (max-width: 880px) {
   /* Mobile mirrors desktop: NO topbar at all. The drawer carries the brand
      (dolphin mark) and the floating reopen button opens it. The legacy topbar
-     only ever showed a redundant "Orca" title,
-so drop the whole thing. */
-  .app-topbar {
+     only ever showed a redundant "Orca" title, so drop the whole thing. */
+.app-topbar {
     display: none;
   }
-  /* Since there's no topbar,
-the height calcs must NOT reserve its height —
+  /* Since there's no topbar, the height calcs must NOT reserve its height —
      otherwise the layout is ~45px short of the screen. That gap is invisible in
      a browser (the bottom toolbar covers it) but shows as dead space at the
      bottom when installed to the Home Screen (standalone). Zero it out. */
-  :root {
+:root {
     --topbar-height: 0px;
   }
   body.nav-open .sidebar-backdrop {
@@ -1904,19 +1895,16 @@ the height calcs must NOT reserve its height —
     padding-top: calc(env(safe-area-inset-top) + 0.75rem);
     padding-bottom: calc(0.8rem + var(--safe-area-bottom));
   }
-  /* Breathing room between the brand row at the top and the Projects list,
-so the
+  /* Breathing room between the brand row at the top and the Projects list, so the
      list doesn't crowd the notch/status bar (the pair section that used to sit
      here is hidden on remote devices). */
-  .ops-sidebar .sidebar-head { padding-bottom: 1.2rem; }
+.ops-sidebar .sidebar-head { padding-bottom: 1.2rem; }
   body.nav-open .ops-sidebar {
     transform: translateX(0);
   }
-  /* While the drawer is open,
-lock the page so swipes/scrolls move the sidebar's
-     own scroll container,
-never the main panel underneath it. */
-  body.nav-open {
+  /* While the drawer is open, lock the page so swipes/scrolls move the sidebar's
+     own scroll container, never the main panel underneath it. */
+body.nav-open {
     overflow: hidden;
   }
   body.nav-open .ops-main {
@@ -1948,9 +1936,8 @@ body.sidebar-collapsed .pill {
   }
   /* No topbar. Top padding = notch/status-bar inset + room for the floating
      reopen button; bottom padding = home-indicator inset + breathing room. In a
-     normal browser both insets are 0,
-so this is just 2.6rem / 2rem. */
-  .ops-main {
+     normal browser both insets are 0, so this is just 2.6rem / 2rem. */
+.ops-main {
     padding: calc(var(--safe-area-top) + 2.6rem) 1rem calc(2rem + var(--safe-area-bottom));
   }
 
@@ -1969,7 +1956,7 @@ so this is just 2.6rem / 2rem. */
   }
   /* Same collapse controls as desktop: floating reopen (to open) + in-drawer
      collapse (to close). The legacy topbar hamburger is gone with the topbar. */
-  #sidebar-reopen.sidebar-reopen {
+#sidebar-reopen.sidebar-reopen {
     display: inline-flex; position: fixed; left: 0.55rem; top: calc(env(safe-area-inset-top) + 0.45rem); z-index: 70;
     background: var(--panel); border: 1px solid var(--line); color: var(--text);
   }
@@ -1992,11 +1979,9 @@ so this is just 2.6rem / 2rem. */
     grid-template-columns: 1fr;
   }
   /* Mobile composer: never let Send get pushed off the right edge. The bar wraps
-     (so Send drops to its own row before it would clip),
-the spacer is removed so
-     items pack from the left,
-and the agent/mode/model chips shrink + truncate. */
-  .composer-bar { flex-wrap: wrap; gap: 0.3rem 0.4rem; }
+     (so Send drops to its own row before it would clip), the spacer is removed so
+     items pack from the left, and the agent/mode/model chips shrink + truncate. */
+.composer-bar { flex-wrap: wrap; gap: 0.3rem 0.4rem; }
   .composer-spacer { display: none; }
   .composer-send { margin-left: auto; }
   .composer-attach,
@@ -2176,8 +2161,7 @@ and the agent/mode/model chips shrink + truncate. */
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-xl);
   margin: 0 auto 1rem; max-width: 768px; padding: 0.5rem 0.55rem; position: relative; width: 100%;
 }
-/* "/" command palette — floats above the composer,
-Codex-style. */
+/* "/" command palette — floats above the composer, Codex-style. */
 .slash-menu {
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-md); bottom: calc(100% + 8px);
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; gap: 1px; left: 0;
@@ -2235,8 +2219,7 @@ Codex-style. */
 .info-count { background: var(--active); border-radius: var(--radius-pill); color: var(--muted); font-size: 0.7rem; margin-left: 0.3rem; padding: 0 0.4rem; }
 .info-tools { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 
-/* ===== Chat / composer refinements (Codex-style,
-flat) ===== */
+/* ===== Chat / composer refinements (Codex-style, flat) ===== */
 .session-tools { align-items: center; display: flex; gap: 0.25rem; }
 /* Empty chat: center the welcome + composer as a group (ChatGPT "What are you
    working on?" feel) instead of pinning the composer to the bottom. */
@@ -2244,20 +2227,14 @@ flat) ===== */
 .chat:has(.chat-thread .chat-empty) .chat-thread { flex: 0 0 auto; padding-bottom: 0.4rem; }
 .chat-empty { padding: 1rem; }
 .chat-empty h2 { font-size: 1.85rem; font-weight: 600; letter-spacing: -0.02em; }
-/* Composer textarea: start at one line,
-grow with content. */
+/* Composer textarea: start at one line, grow with content. */
 .composer textarea { min-height: 1.5rem; padding: 0.45rem 0.55rem 0.2rem; }
 .composer.composer-shell { padding: 0.45rem 0.5rem 0.4rem; }
 .composer-attach { color: var(--text); opacity: 0.78; }
 @media (hover: hover) { .composer-attach:hover { opacity: 1; } }
 .composer-send svg { transform: translateY(-0.5px); }
 .composer-send[disabled] { opacity: 0.4; cursor: default; }
-/* Model/intelligence opener reads as a labelled pill {
-  border: 1px solid var(--line); border-radius: var(--radius-pill); color: var(--muted);
-  font-size: 0.8rem; gap: 0.25rem; height: 1.85rem; padding: 0 0.7rem; width: auto;
-}
-/* Composer stays put; only the thread scrolls. Big,
-clearly visible toolbar icons. */
+/* Composer stays put; only the thread scrolls. Big, clearly visible toolbar icons. */
 .composer { flex: 0 0 auto; }
 .composer-attach,
 .composer-send { height: 2.6rem !important; width: 2.6rem !important; }
@@ -2296,10 +2273,7 @@ clearly visible toolbar icons. */
 .info-disclosure[open] > summary { margin-bottom: 0.5rem; }
 .info-disclosure > form { display: flex; flex-direction: column; gap: 0.5rem; }
 
-/* Checkbox row: label text on the left { align-items: center; display: flex; flex-direction: row !important; gap: 0.85rem; justify-content: space-between; }
-
-/* ===== Lane detail: flat sections,
-no cards-on-cards ===== */
+/* ===== Lane detail: flat sections, no cards-on-cards ===== */
 .lane-detail-shell { max-width: 820px; margin: 0 auto; gap: 0; padding: 1.5rem 1.1rem 3rem; }
 .lane-detail-shell .card,
 .lane-detail-shell details.card {
@@ -2314,14 +2288,12 @@ no cards-on-cards ===== */
 }
 .lane-detail-shell .lane-detail-card h3 { font-size: 1.25rem; margin: 0.2rem 0 0.35rem; }
 .lane-detail-shell .disclosure summary { padding-left: 0; padding-right: 0; }
-/* evidence gallery + nested grids: flat rows,
-hairline separated */
+/* evidence gallery + nested grids: flat rows, hairline separated */
 .lane-detail-shell .card-grid { display: flex; flex-direction: column; gap: 0; }
 .lane-detail-shell .card-grid > .card { border-bottom: 1px solid var(--line); padding: 0.55rem 0; }
 .lane-detail-shell .card-grid > .card:last-child { border-bottom: 0; }
 
-/* ===== Settings / home panels: flat Codex-style,
-no cards-on-cards ===== */
+/* ===== Settings / home panels: flat Codex-style, no cards-on-cards ===== */
 .home-panels { max-width: 760px; margin: 0 auto; gap: 0; }
 .home-panels > .card,
 .home-panels > details.card,
@@ -2335,8 +2307,7 @@ no cards-on-cards ===== */
 .home-panels > [data-panel-card] + [data-panel-card] {
   border-top: 1px solid var(--line); margin-top: 1.4rem; padding-top: 1.4rem;
 }
-/* nested blocks (e.g. "Pair a phone",
-"Paired devices") become flat sub-sections */
+/* nested blocks (e.g. "Pair a phone", "Paired devices") become flat sub-sections */
 .home-panels .card .card { margin-top: 1rem; }
 .home-panels .card h3 { font-size: 1.05rem; }
 .home-panels .onboarding-card {
@@ -2377,8 +2348,7 @@ no cards-on-cards ===== */
 @media (hover: hover) { .dd-opt:hover { background: var(--hover); } }
 .dd-opt.selected { font-weight: 550; }
 .dd-opt[disabled] { color: var(--muted); cursor: default; }
-/* Compact,
-borderless variant for the composer toolbar. */
+/* Compact, borderless variant for the composer toolbar. */
 .dd-compact { width: auto; }
 .dd-compact .dd-trigger { background: transparent; border: 0; border-radius: var(--radius-sm); color: var(--muted); min-height: 2rem; padding: 0.3rem 0.5rem; }
 @media (hover: hover) { .dd-compact .dd-trigger:hover { background: var(--hover); color: var(--text); } }
@@ -2388,7 +2358,7 @@ borderless variant for the composer toolbar. */
 .cfg { position: relative; flex: 0 0 auto; }
 /* Default: no visible pill — model + reasoning read as two separate-coloured
    tokens. The connected pill (border + subtle fill) appears only on hover/active,
-Codex-style. */
+   Codex-style. */
 .cfg-trigger {
   align-items: center; background: transparent; border: 1px solid transparent; border-radius: var(--radius-pill);
   color: var(--text); cursor: pointer; display: inline-flex; font: inherit; font-size: 0.85rem; gap: 0.35rem;
@@ -2406,8 +2376,7 @@ Codex-style. */
   min-width: min(230px, calc(100vw - 1.5rem)); max-width: calc(100vw - 1rem); overflow-y: auto; padding: 0.35rem; position: absolute; right: 0; z-index: 90;
 }
 .cfg-pop[hidden] { display: none; }
-/* Submenu flyout — appears beside the main menu (Codex-style),
-positioned by JS. */
+/* Submenu flyout — appears beside the main menu (Codex-style), positioned by JS. */
 .cfg-flyout {
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-md);
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; gap: 1px;
@@ -2472,8 +2441,7 @@ positioned by JS. */
 .device-revoke:disabled { cursor: default; opacity: 0.4; }
 @media (hover: hover) { .device-revoke:disabled:hover { background: transparent; border-color: var(--line); color: var(--muted); } }
 
-/* ===== Composer context row (Local/Cloud + branch picker),
-Codex-style ===== */
+/* ===== Composer context row (Local/Cloud + branch picker), Codex-style ===== */
 .composer-context { align-items: center; display: flex; flex-wrap: wrap; gap: 0.3rem; padding: 0.35rem 0.15rem 0.05rem; position: relative; }
 .composer-context:empty { display: none; }
 .ctx-pill {
@@ -2581,11 +2549,9 @@ button.home-cta { cursor: pointer; font: inherit; }
 .sidebar-project-line { align-items: center; border-radius: var(--radius-sm); display: flex; }
 @media (hover: hover) { .sidebar-project-line:hover { background: rgba(255, 255, 255, 0.045); } }
 .sidebar-project-line > .sidebar-project { flex: 1 1 auto; min-width: 0; }
-/* New-session icon: hidden until the row is hovered,
-but it ALWAYS occupies its
+/* New-session icon: hidden until the row is hovered, but it ALWAYS occupies its
    slot so the project name truncates at the same point (a consistent text↔icon
-   gap,
-matching the text↔pencil gap on session rows). */
+   gap, matching the text↔pencil gap on session rows). */
 .sidebar-project-line > .sidebar-project { padding-right: 0.5rem; }
 .sidebar-project-new {
   align-items: center; border-radius: var(--radius-sm); color: var(--muted); cursor: pointer; display: inline-flex; flex: 0 0 auto;
@@ -2597,8 +2563,7 @@ matching the text↔pencil gap on session rows). */
 /* Brightens ONLY on its own hover; bare icon, never a background box. */
 @media (hover: hover) { .sidebar-project-new:hover { color: var(--text); opacity: 1; outline: none; } }
 /* All three sidebar action glyphs (new chat / rename / archive) share one size so
-   they read as a consistent,
-centered set. */
+   they read as a consistent, centered set. */
 .sidebar-project-new svg,
 .sidebar-rename svg,
 .sidebar-archive svg {
@@ -2659,8 +2624,7 @@ centered set. */
 
 /* ===== Home welcome (empty state when no project is open) ===== */
 /* Vertically center the empty-state welcome WITHOUT overflowing: subtract the
-   .ops-main safe-area padding + topbar + breadcrumb row,
-or the screen scrolls
+   .ops-main safe-area padding + topbar + breadcrumb row, or the screen scrolls
    (it did once --vph switched to 100vh in the native app / installed PWA). */
 .home-welcome { align-items: center; display: flex; justify-content: center; min-height: calc(var(--vph) - var(--topbar-height) - var(--safe-area-top) - var(--safe-area-bottom) - 8rem); padding: 2rem; }
 .home-welcome.is-hidden { display: none; }
@@ -2687,8 +2651,7 @@ or the screen scrolls
 .home-panels > [data-panel-card] { width: 100%; }
 
 /* ===== Pull-to-refresh (installed/standalone app only) ===== */
-/* The browser gives you native pull-to-refresh; a standalone app doesn't,
-so we
+/* The browser gives you native pull-to-refresh; a standalone app doesn't, so we
    add our own. JS toggles `is-standalone` on <body> and moves .ptr-indicator. */
 .ptr-indicator {
   position: fixed;
@@ -2723,8 +2686,7 @@ so we
 @keyframes ptr-spin { to { transform: rotate(360deg); } }
 
 /* Success confirmation: a green pill with a checkmark + "Refreshed" that flashes
-   in once the data refresh resolves,
-so the gesture visibly did something. */
+   in once the data refresh resolves, so the gesture visibly did something. */
 .ptr-done {
   display: none;
   align-items: center;
@@ -2764,8 +2726,7 @@ so the gesture visibly did something. */
 
 /* ===== Keyboard focus visibility =====
    A clear focus ring for keyboard / assistive-tech users on every interactive
-   element. :focus-visible never fires for plain mouse clicks,
-so this doesn't
+   element. :focus-visible never fires for plain mouse clicks, so this doesn't
    add rings on tap/click. Element/attribute specificity keeps it from fighting
    the bespoke rings on .click-card / .simple-row (those win and keep their own). */
 a:focus-visible,
@@ -2816,10 +2777,8 @@ textarea:focus-visible {
 }
 
 /* ===== iOS app download promo (shown to iOS web visitors) =====
-   A self-contained,
-centered banner card so it reads as one cohesive unit and
-   the app icon has a surface to sit on (it's light,
-so it'd vanish on the page). */
+   A self-contained, centered banner card so it reads as one cohesive unit and
+   the app icon has a surface to sit on (it's light, so it'd vanish on the page). */
 .ios-promo {
   display: flex;
   flex-direction: column;
@@ -2837,11 +2796,8 @@ so it'd vanish on the page). */
 .ios-promo-body { display: flex; flex-direction: column; align-items: center; gap: 0.25rem; min-width: 0; }
 .ios-promo-body strong { font-size: 1.05rem; line-height: 1.2; }
 .ios-promo-body span { color: var(--muted); font-size: 0.86rem; line-height: 1.4; max-width: 22rem; }
-/* Orca icon + App Store badge share one line,
-same height,
-BELOW the text. The
-   icon gets a squircle border + shadow so it reads as an app icon,
-not a faint
+/* Orca icon + App Store badge share one line, same height, BELOW the text. The
+   icon gets a squircle border + shadow so it reads as an app icon, not a faint
    sticker floating on the page. */
 .ios-promo-cta { display: flex; align-items: center; justify-content: center; gap: 0.6rem; margin-top: 0.7rem; }
 .ios-promo-icon {
@@ -2851,8 +2807,7 @@ not a faint
 .ios-promo-cta .appstore-badge { display: inline-flex; }
 .ios-promo-cta .appstore-badge svg { display: block; height: 48px; width: auto; }
 /* Inside the mobile pair gate the promo banner is pinned near the top (cleared
-   from the floating reopen button),
-matching the centered start screen. */
+   from the floating reopen button), matching the centered start screen. */
 .connect-shell.connect-gate { padding-top: calc(env(safe-area-inset-top) + 3.25rem); }
 .appstore-badge { display: inline-flex; flex: 0 0 auto; border-radius: 8px; }
 .appstore-badge:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -2921,8 +2876,7 @@ matching the centered start screen. */
 .app-loading-spinner { animation: none; }
 }
 
-/* Workstation switcher: known workstations,
-the active one checkmarked + tagged. */
+/* Workstation switcher: known workstations, the active one checkmarked + tagged. */
 .ws-switcher { width: 100%; min-width: 0; max-width: 100%; display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.5rem; text-align: left; }
 .ws-switcher-head { color: var(--muted); font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
 /* min-width:0 down the whole flex chain so a long workstation host truncates
@@ -2952,8 +2906,7 @@ the active one checkmarked + tagged. */
   .ws-forget:hover { background: var(--hover); color: var(--text); }
 }
 
-/* Pair-gate stepper: step 1 done (connected to workstation),
-step 2 active (code). */
+/* Pair-gate stepper: step 1 done (connected to workstation), step 2 active (code). */
 .connect-steps { list-style: none; margin: 0 0 0.25rem; padding: 0; width: 100%; display: flex; flex-direction: column; gap: 0.5rem; text-align: left; }
 .connect-step { display: flex; align-items: flex-start; gap: 0.65rem; padding: 0.7rem 0.8rem; border-radius: var(--radius-md); border: 1px solid var(--line); background: var(--panel); }
 .connect-step.is-done { border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); background: color-mix(in srgb, var(--ok) 9%, var(--panel)); }
