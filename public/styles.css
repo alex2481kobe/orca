@@ -1414,6 +1414,32 @@ body.sidebar-collapsed .sidebar-project-line {
   overflow: hidden;
 }
 
+/* Live per-lane terminal stream. Stays dark in both themes (it's a terminal — it
+   sets both bg and a light text color, the exempt-surface rule), monospace,
+   scrollable, wraps long lines so it never forces horizontal scroll on mobile. */
+.lane-stream {
+  background: #0d0f0c;
+  color: #e6f1df;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  margin: 0;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid rgba(245, 241, 232, 0.14);
+  border-radius: var(--radius-sm);
+  max-height: 24rem;
+  min-height: 8rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  -webkit-overflow-scrolling: touch;
+}
+.lane-stream:empty::before {
+  content: 'Waiting for output…';
+  color: #8a948a;
+  font-style: italic;
+}
+
 .terminal-titlebar {
   align-items: center;
   background: rgba(245, 241, 232, 0.05);

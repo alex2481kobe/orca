@@ -92,6 +92,15 @@ export function renderLane(project, session, lane) {
           </div>
         </div>
       </details>
+      <details class="disclosure card" data-uikey="lane-live-terminal" open>
+        <summary>
+          <span>Live terminal</span>
+          <small>raw output, streaming</small>
+        </summary>
+        <div class="disclosure-body">
+          <pre id="lane-stream-${safeAttr(lane.id)}" class="lane-stream" aria-live="polite" tabindex="0">Connecting to live output…</pre>
+        </div>
+      </details>
       <details class="disclosure card">
         <summary>
           <span>Agent activity</span>

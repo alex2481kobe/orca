@@ -128,6 +128,7 @@ import { renderWorkstationPickerPanel } from './render-project.js';
 import { loadEvidenceGallery, renderAuditLog, renderLane } from './render-lane.js';
 import { renderSession } from './render-session.js';
 import { restoreContentUiState } from './render-fragments.js';
+import { subscribeLaneStream, unsubscribeLaneStream, fillLaneStream } from './lane-stream.js';
 import { enhanceSelects } from './dropdown.js';
 import { FIRST_CLASS_CLI_EXECUTOR_TYPES } from './constants.js';
 import { orderItems, readSidebarOrder, isProjectExpanded } from './sidebar.js';
@@ -350,6 +351,7 @@ export function render(uiState = null) {
   // Settings (#system) still works while disconnected so the theme is adjustable
   // before pairing; every other route shows the connect screen.
   if (isUnconnectedMobileApp()) {
+    unsubscribeLaneStream();
     renderSidebarProjects();
     const onSettings = activeHomePanel() === 'system';
     if (refs.topbarTitle) refs.topbarTitle.textContent = onSettings ? 'Settings' : 'Orca';
@@ -358,6 +360,7 @@ export function render(uiState = null) {
     return;
   }
   if (browserAccessBlocked()) {
+    unsubscribeLaneStream();
     renderSidebarProjects();
     if (refs.topbarTitle) refs.topbarTitle.textContent = 'Orca';
     renderAccessGate();
@@ -388,6 +391,15 @@ export function render(uiState = null) {
   updatePairLabel();
   restoreContentUiState(uiState);
   enhanceSelects(refs.content);
+  // Live terminal stream: subscribe ONLY for the open lane-detail view (the focused
+  // lane), and re-fill the mount from the buffer after this (re)render rebuilt it.
+  // Any other view tears the stream down so at most one lane streams at a time.
+  if (shell.route.laneId && lane) {
+    subscribeLaneStream(lane.id);
+    fillLaneStream(lane.id);
+  } else {
+    unsubscribeLaneStream();
+  }
 }
 
 // Reflect paired-device state on the sidebar link: "Pair a device" when none are

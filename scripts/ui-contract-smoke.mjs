@@ -454,7 +454,10 @@ async function checkRuntimeContract(pw) {
       for (const route of routes) {
         const page = await context.newPage();
         const target = new URL(route.path, base);
-        await page.goto(target.toString(), { waitUntil: 'networkidle', timeout: 20000 });
+        // The lane detail view opens a persistent live-terminal SSE, so it never
+        // reaches "networkidle" — wait for DOM + the app-ready hook instead.
+        const waitUntil = route.name === 'lane' ? 'domcontentloaded' : 'networkidle';
+        await page.goto(target.toString(), { waitUntil, timeout: 20000 });
         await waitForApp(page);
         const expanded = await inspectPage(page, viewport, route.name);
         if (viewport.width > 880 && route.name === 'project') {

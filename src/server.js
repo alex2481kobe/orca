@@ -37,6 +37,7 @@ import { handleMiscRoutes } from './server-routes/misc.js';
 import { createStaticServer } from './server-routes/static-server.js';
 import { createAuthApi } from './server-routes/auth-api.js';
 import { createEventStream } from './server-routes/event-stream.js';
+import { createLaneStream } from './server-routes/lane-stream.js';
 import {
   classifyRequestForRateLimit,
   createRateLimiter,
@@ -564,6 +565,9 @@ function sendText(res, status, text, type = 'text/plain; charset=utf-8') {
 const { handleEventStream } = createEventStream({
   registry, applySecurityHeaders, setCacheHeaders, sendJson, getSearchParams, hasStreamAuth,
 });
+const { handleLaneStream } = createLaneStream({
+  registry, applySecurityHeaders, setCacheHeaders, sendJson, hasStreamAuth,
+});
 
 function normalizePathname(requestUrl) {
   try {
@@ -666,6 +670,11 @@ async function handleApi(req, res, pathname, method, parts) {
   // 401 and revocation semantics, so it bypasses the generic JSON gate.
   if (parts[1] === 'streams' && parts[2] === 'events' && method === 'GET') {
     return handleEventStream(req, res);
+  }
+  // Per-lane live terminal stream — self-authorizing SSE (operator-level), so it
+  // bypasses the generic JSON gate just like the main event stream.
+  if (parts[1] === 'lanes' && parts[2] && parts[3] === 'stream' && parts.length === 4 && method === 'GET') {
+    return handleLaneStream(req, res, parts[2]);
   }
   if (!requireApiAuth(req, res, parts)) {
     return;
