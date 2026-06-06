@@ -12,7 +12,6 @@ export const shell = {
   sessions: [],
   lanes: [],
   policy: {},
-  alerts: [],
   mobileManifest: null,
   apiToken: '',
   cleanupSchedule: null,

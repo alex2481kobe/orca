@@ -202,6 +202,17 @@ async function main() {
   for (const item of expectedPrecache) {
     if (!precache.includes(item)) fail('precache missing static asset', item);
   }
+  // Auto-derive the expected client-module set from disk so a newly added
+  // public/ui/*.js module that's forgotten in STATIC_ASSETS fails the smoke
+  // instead of silently shipping uncached (the /ui/dropdown.js miss class).
+  const uiDir = path.resolve(root, 'public', 'ui');
+  const uiModules = (await fs.readdir(uiDir))
+    .filter((name) => name.endsWith('.js'))
+    .map((name) => `/ui/${name}`)
+    .sort();
+  const missingUi = uiModules.filter((item) => !precache.includes(item));
+  if (missingUi.length) fail('precache missing ui module(s)', JSON.stringify(missingUi));
+  log('ui-modules', `${uiModules.length} /ui/*.js module(s) all precached`);
   if (precache.some((item) => item.startsWith('/api/') || item.startsWith('/artifacts/'))) {
     fail('precache contains sensitive route', JSON.stringify(precache));
   }

@@ -647,7 +647,7 @@ document.addEventListener('click', async (event) => {
     return;
   }
 
-  if (['stopLane', 'retryLane', 'restartLane', 'auditLane', 'captureEvidence', 'clearEvidence', 'captureEvidencePreset', 'removeWorktree'].includes(action)) {
+  if (['stopLane', 'retryLane', 'restartLane', 'auditLane', 'captureEvidence', 'clearEvidence', 'captureEvidencePreset', 'removeWorktree', 'showArtifacts'].includes(action)) {
     await handleLaneActions({ currentTarget: actionTarget });
     return;
   }
@@ -749,10 +749,6 @@ document.addEventListener('click', async (event) => {
   ].includes(action)) {
     await handleAppBackupAction({ currentTarget: actionTarget });
     return;
-  }
-
-  if (action === 'showArtifacts') {
-    await handleLaneActions({ currentTarget: actionTarget });
   }
 });
 

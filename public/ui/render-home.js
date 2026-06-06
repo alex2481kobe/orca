@@ -152,7 +152,7 @@ export function renderHome() {
       </div>
       <div class="lane-row">
         <button data-action="editMcpTool" data-tool-id="${safeAttr(tool.id || tool.name)}" type="button">Edit</button>
-        <button class="secondary" data-action="deleteMcpTool" data-tool-id="${safeText(tool.id || tool.name)}" type="button">Delete</button>
+        <button class="secondary" data-action="deleteMcpTool" data-tool-id="${safeAttr(tool.id || tool.name)}" type="button">Delete</button>
       </div>
     </div>
   `).join('');

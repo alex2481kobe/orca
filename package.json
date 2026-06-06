@@ -76,7 +76,9 @@
     "operator:completion-audit": "node scripts/operator-completion-audit.mjs",
     "typecheck": "tsc --noEmit",
     "typecheck:imports": "node scripts/typecheck-imports.mjs",
-    "smoke:orchestrator-lifecycle": "node scripts/orchestrator-lifecycle-smoke.mjs"
+    "smoke:orchestrator-lifecycle": "node scripts/orchestrator-lifecycle-smoke.mjs",
+    "smoke:lane-detail-arch": "node scripts/verify-lane-detail-arch.mjs",
+    "smoke:lane-stream": "node scripts/verify-lane-stream.mjs"
   },
   "devDependencies": {
     "@tauri-apps/api": "2.11.0",

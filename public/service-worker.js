@@ -1,4 +1,4 @@
-const CACHE_NAME = 'orca-static-v126';
+const CACHE_NAME = 'orca-static-v127';
 const STATIC_ASSETS = [
   '/',
   '/styles.css',
@@ -13,6 +13,7 @@ const STATIC_ASSETS = [
   '/ui/controller.js',
   '/ui/dialog.js',
   '/ui/dom.js',
+  '/ui/dropdown.js',
   '/ui/executor.js',
   '/ui/format.js',
   '/ui/handlers-access.js',

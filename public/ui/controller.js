@@ -131,7 +131,6 @@ export async function refresh(options = {}) {
   const uiState = captureContentUiState();
   try {
     shell.route = parseRoute();
-    shell.alerts = [];
     const abortFromAuth = (response) => abortRefreshFromUnauthorized(response, requestId, uiState);
     const authResp = await api('/api/auth/status');
     if (abortFromAuth(authResp)) return;
