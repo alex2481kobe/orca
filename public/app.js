@@ -1,18 +1,12 @@
-import { qrSvgForText } from './ui/qr.js';
-import { safeText, safeAttr, stateBadge, formatMeta, formatRelative, latestTimestamp } from './ui/format.js';
 import { shell, refs } from './ui/state.js';
-import { MOBILE_NAV_BREAKPOINT, API_PROVIDER_EXECUTOR_TYPES, FIRST_CLASS_CLI_EXECUTOR_TYPES, CLI_EXECUTOR_TARGET_ALIASES, MCP_TOOL_SCOPE_ALLOWLIST, API_TOKEN_STORAGE_KEY, SIDEBAR_ORDER_STORAGE_KEY, NOTIFICATION_SEEN_STORAGE_KEY, FOLDER_ICON, COMPOSE_ICON, PENCIL_ICON } from './ui/constants.js';
-import { clientUrl, safeHref, safeNavigate, authRequiredMessage, isLocalHostName, writeHtml, renderAlert, appendNativeFlag, isNativeApp } from './ui/dom.js';
-import { browserNotificationsSupported, browserNotificationPermission, readSeenBrowserNotifications, writeSeenBrowserNotifications, requestBrowserNotificationPermission, maybeShowBrowserNotifications } from './ui/notifications.js';
-import { normalizeExecutorType, parseCommandParts, executorTargetsCommand, executorTargetsBinary, getExecutorProfile, getProviderProfile, isApiExecutorType, apiProviderOptions, cliExecutorOptions, getExecutorScopedMcpTools, findMcpTool, normalizeMcpToolScopes } from './ui/executor.js';
-import { accessModeLabel, effectiveAccessMode, exactUrlForAccessMode, fallbackUrlForAccessMode, effectiveProjectQuickLinkUrl, quickLinkHealthLabel, preferredPhoneUrl } from './ui/access-mode.js';
+import { MOBILE_NAV_BREAKPOINT } from './ui/constants.js';
+import { safeNavigate, appendNativeFlag, isNativeApp } from './ui/dom.js';
 import { readSidebarOrder, writeSidebarOrder, orderItems, moveId, toggleProjectExpanded } from './ui/sidebar.js';
-import { api, initializeApiToken, isTrustedAdminClientHost, browserAccessBlocked, setApiToken, currentActiveProject, clearProtectedWorkspaceState, lockClientAuthState, maybeLockFromResponse } from './ui/api.js';
-import { stateTagClass, getActionPolicy, needsApproval, confirmHighRiskAction, pendingAuditsForLane, pendingAuditsForSession, laneDetailRoute, isVerificationProject, activeHomePanel, renderBreadcrumbs, renderTopbarTitle, agentEventTone, agentEventLabel, isLiveLaneState, isRestartableLaneState, executorCapabilitiesFor, renderExecutorCapabilities, capabilityList } from './ui/render-helpers.js';
-import { renderHome } from './ui/render-home.js';
-import { renderLaneExecutorGuidance, repopulateExecutorScopedControls, captureContentUiState, restoreContentUiState, renderAccessGate, renderAgentEventTimeline, modelPresetOptions, intelligenceOptions, runModeOptions, renderApprovalRows, renderSessionApprovals, composerAttachmentsFor, renderComposerAttachmentChips, refreshComposerAttachments, readFileAsBase64, uploadComposerFiles, renderOrchestratorConsole, renderExecutorLanePanelItem, renderExecutorSidePanel, activeOrchestratorLaneForSession, renderSession, renderLane, renderAuditLog, loadEvidenceGallery, render, renderStatusStrip, renderBlockers, renderSidebarProjects, renderMobileManifest } from './ui/render-views.js';
+import { api, initializeApiToken, setApiToken, currentActiveProject } from './ui/api.js';
+import { isVerificationProject } from './ui/render-helpers.js';
+import { renderLaneExecutorGuidance, repopulateExecutorScopedControls, captureContentUiState, uploadComposerFiles, renderSession, render, renderSidebarProjects, renderMobileManifest } from './ui/render-views.js';
 import { refresh, showArtifacts, parseRoute, connectEventStream, startPolling, syncAuthSessions } from './ui/controller.js';
-import { handlePrivateAccessSettings, handleNotificationSettings, handleNotificationAction, handleCreatePrivateAccessTarget, handlePrivateAccessAction, handleProviderAction, handleAppBackupAction, handleCleanupSchedule, handleCreateMcpTool, handleAddProjectQuickLink, handleCreateLane, handleOrchestratorMessage, handleLaneControlsUpdate, handleAuditEventAction, handleWorkstationPicker, handleNewSession, handleNewProject, ensureRealSession, buildCleanupScheduleBody, buildMcpToolBody, buildApprovedActionBody, toObj } from './ui/handlers.js';
+import { handlePrivateAccessSettings, handleNotificationSettings, handleNotificationAction, handleCreatePrivateAccessTarget, handlePrivateAccessAction, handleProviderAction, handleAppBackupAction, handleCleanupSchedule, handleCreateMcpTool, handleAddProjectQuickLink, handleCreateLane, handleOrchestratorMessage, handleLaneControlsUpdate, handleAuditEventAction, handleWorkstationPicker, handleNewSession, handleNewProject, ensureRealSession } from './ui/handlers.js';
 import { handleLaneActions, handleSessionActions, handleSystemActions } from './ui/handlers-actions.js';
 import { initDropdowns, enhanceSelects } from './ui/dropdown.js';
 import { initComposerConfig, refreshConfigLabel } from './ui/composer-config.js';
@@ -22,11 +16,6 @@ import { initMobileShell } from './ui/mobile-shell.js';
 import { initTheme, setThemePref, appendThemeParam } from './ui/theme.js';
 import { defaultModelFor } from './ui/executor.js';
 import { normalizeWorkstationUrl, rememberWorkstation, setPendingWorkstationUrl, activeWorkstationUrl } from './ui/workstations.js';
-
-
-
-
-
 
 // Deep-link entry point for the native app: the Rust side (run_mobile) calls this
 // when an `orca://connect?ws=<workstation-url>` link is opened (e.g. a QR scanned
@@ -150,15 +139,6 @@ function registerServiceWorker() {
   });
 }
 
-
-
-
-
-
-
-
-
-
 // Cache the MediaQueryList and track its value so pointer/click handlers don't
 // re-run matchMedia() several times per gesture.
 let _mobileMql = null;
@@ -185,70 +165,6 @@ function openMobileNavPanel() {
   if (!isMobileLayout()) return;
   document.body.classList.add('nav-open');
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 function setupSidebarReorder() {
   if (!refs.sidebarProjects) return;
@@ -306,26 +222,6 @@ function setupSidebarReorder() {
     refs.sidebarProjects.querySelectorAll('.is-dragging, .is-drop-target').forEach((item) => item.classList.remove('is-dragging', 'is-drop-target'));
   });
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 function delegatedSubmitEvent(event) {
   return {
@@ -796,8 +692,6 @@ window.addEventListener('popstate', () => {
   render(captureContentUiState());
   refresh().catch(() => {});
 });
-
-
 
 // Live push: subscribe to the server event stream and refresh promptly when the
 // state revision changes (agent turns, approvals, lane transitions). Works when

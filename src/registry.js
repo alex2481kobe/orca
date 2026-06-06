@@ -1,22 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { spawnSync, spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
-import { LANE_STATES } from './worker-contract.js';
-import {
-  planPlaywrightInstall,
-  runCaptureInstall,
-  describeCaptureStatus,
-} from './capture-setup.js';
 import { toolLeaseMethods } from './registry-tool-leases.js';
 import { notificationMethods } from './registry-notification-methods.js';
-import {
-  DEFAULT_APPROVED_CAPACITY,
-  normalizeSpawnPolicy,
-  normalizeIdleShutdownMode,
-  normalizeCritiqueMode,
-  normalizeApprovedCapacity,
-} from './registry-lane-config.js';
 import { defaultPolicy } from './registry-policy.js';
 import { capacityMethods } from './registry-capacity.js';
 import { executorCapabilityMethods } from './registry-executor-caps.js';
@@ -39,95 +24,17 @@ import { auditLogMethods } from './registry-audit-log.js';
 import { persistenceMethods } from './registry-persistence.js';
 import { lifecycleMethods } from './registry-lifecycle.js';
 import {
-  nowIso,
-  sleep,
-  parsePositiveInteger,
-  parsePositiveFloat,
   parseBooleanEnv,
-  isPathWithinBoundary,
-  ensureDirectorySync,
-  normalizeExecutorType,
-  normalizeSlug,
-  firstLine,
-  publicBinaryName,
   clonePayload,
-  safeArray,
-  buildLaneRoute,
 } from './registry-utils.js';
 import {
-  REINSTALL_COMMAND_TIMEOUT_MS,
-  getReinstallCommand,
-  normalizeReinstallCommand,
-  getReinstallSourceCommand,
-  getReinstallSourceRepos,
-  shouldPreferSourceReinstall,
-  commandTargetsExecutorFirstToken,
-} from './registry-reinstall.js';
-import {
-  getCliVersion,
-  getCliHelp,
-  helpHas,
-  parseHelpChoices,
-  compactCapabilities,
-} from './registry-cli-info.js';
-import {
-  MAX_PROJECT_QUICK_LINKS,
-  sanitizeQuickLinkText,
-  normalizeQuickLink,
-  normalizeQuickLinks,
-  effectiveQuickLinkUrl,
-  boundedQuickLinkHealthCheck,
-} from './registry-quick-links.js';
-import {
   DEFAULT_NOTIFICATION_SETTINGS,
-  sanitizeNotificationSettings,
 } from './registry-notifications.js';
 
 import {
   createExecutorAdapter,
-  FIRST_CLASS_CLI_EXECUTOR_TYPES,
-  getApiProviderExecutorTypes,
-  getExecutorProfiles as getExecutorProfilesFromFactory,
-  getExecutorProfile as getExecutorProfileFromFactory,
-  getApiProviderProfile as getApiProviderProfileFromFactory,
 } from './executor-factory.js';
 import { PlaywrightEvidenceRunner } from './evidence-runner.js';
-import {
-  describeRepoRoot,
-  createLaneWorktree,
-  removeLaneWorktree,
-  changedFilesIn,
-} from './worktree-manager.js';
-import {
-  buildEffectiveSettings,
-  sanitizeSettingsOverrides,
-} from './effective-settings.js';
-import {
-  validateEvidenceUrl,
-  validateNetworkUrl,
-} from './url-policy.js';
-import {
-  readJsonFileWithRecoverySync,
-  writeJsonFileAtomic,
-} from './state-store.js';
-
-const {
-  QUEUED: QUEUED_STATE,
-  STARTING: STARTING_STATE,
-  RUNNING: RUNNING_STATE,
-  NEEDS_CRITIQUE: NEEDS_CRITIQUE_STATE,
-  READY_FOR_AUDIT: READY_FOR_AUDIT_STATE,
-  AUDITING: AUDITING_STATE,
-  FIX_REQUESTED: FIX_REQUESTED_STATE,
-  ACCEPTED: ACCEPTED_STATE,
-  BLOCKED: BLOCKED_STATE,
-  STOPPED: STOPPED_STATE,
-  DONE: DONE_STATE,
-  FAILED: FAILED_STATE,
-} = LANE_STATES;
-
-
-
 
 export class OrcaRegistry {
   constructor({
@@ -217,15 +124,9 @@ export class OrcaRegistry {
     this.startScheduler();
   }
 
-
-
-
-
   getLane(locator) {
     return this.lanes.find((lane) => lane.id === locator);
   }
-
-
 
   listLanes(sessionLocator) {
     const session = this.getSession(sessionLocator);
@@ -261,10 +162,6 @@ export class OrcaRegistry {
         });
       });
   }
-
-
-
-
 
 }
 
