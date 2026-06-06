@@ -14,7 +14,6 @@ import {
 } from './capture-setup.js';
 import {
   normalizeExecutorType,
-  parseBooleanEnv,
   publicBinaryName,
   firstLine,
   safeArray,
@@ -39,7 +38,6 @@ import {
   getReinstallSourceCommand,
   getReinstallSourceRepos,
   shouldPreferSourceReinstall,
-  commandTargetsExecutorFirstToken,
 } from './registry-reinstall.js';
 
 // Codex stores its default model + reasoning effort in ~/.codex/config.toml. Read

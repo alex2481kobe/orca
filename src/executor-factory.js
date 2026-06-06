@@ -2,7 +2,7 @@
 // the factory + re-exports the public surface.
 
 import { MockWorkerAdapter } from './worker-contract.js';
-import { API_PROVIDER_TYPES, FIRST_CLASS_CLI_EXECUTOR_TYPES, CLI_EXECUTOR_TYPES, CLI_EXECUTOR_DEFAULTS, MAX_ARGS } from './executor/constants.js';
+import { API_PROVIDER_TYPES, FIRST_CLASS_CLI_EXECUTOR_TYPES, CLI_EXECUTOR_TYPES, CLI_EXECUTOR_DEFAULTS } from './executor/constants.js';
 import { buildExecutorCommandArgs } from './executor/command-builder.js';
 import { isApiProviderType, getApiProviderProfile, getApiProviderExecutorTypes } from './executor/api-support.js';
 import { CliExecutorAdapter, PendingExecutorAdapter } from './executor/cli-adapter.js';

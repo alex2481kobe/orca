@@ -9,9 +9,13 @@ import { CredentialStore, defaultProfiles } from '../provider-profiles.js';
 import { noopAsync, API_RESPONSE_BYTES } from './constants.js';
 import { safeFire } from './sanitize.js';
 import {
-  getApiProviderProfile, applyApiProviderEnvOverrides, apiEndpointForProfile,
-  safeGeminiModel, buildApiRequestBody, modelForProfile, providerEnvPrefix,
-  redactedText, trimForLog,
+  getApiProviderProfile,
+  applyApiProviderEnvOverrides,
+  apiEndpointForProfile,
+  safeGeminiModel,
+  buildApiRequestBody,
+  redactedText,
+  trimForLog,
 } from './api-support.js';
 
 export class ApiExecutorAdapter {

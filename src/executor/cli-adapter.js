@@ -7,13 +7,24 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import { createAgentEventNormalizer } from '../agent-events.js';
 import {
-  ORCA_MCP_SERVER_PATH, noopAsync, DEFAULT_ENV_WHITELIST, MAX_ARGS, MAX_WORKDIR_BYTES,
-  CLI_EXECUTOR_DEFAULTS,
+  ORCA_MCP_SERVER_PATH,
+  noopAsync,
+  DEFAULT_ENV_WHITELIST,
+  MAX_ARGS,
+  MAX_WORKDIR_BYTES,
 } from './constants.js';
 import {
-  safeFire, normalizeArgs, splitShellTokens, sanitizeCommandComponent, sanitizeArgument,
-  sanitizeBinary, normalizeAllowedBinaries, displayArg, MAX_EXECUTOR_OUTPUT_BYTES,
-  RESERVED_EXECUTOR_ENV_KEYS, RUNTIME_ONLY_ENV_KEYS,
+  safeFire,
+  normalizeArgs,
+  splitShellTokens,
+  sanitizeCommandComponent,
+  sanitizeArgument,
+  sanitizeBinary,
+  normalizeAllowedBinaries,
+  displayArg,
+  MAX_EXECUTOR_OUTPUT_BYTES,
+  RESERVED_EXECUTOR_ENV_KEYS,
+  RUNTIME_ONLY_ENV_KEYS,
 } from './sanitize.js';
 import { buildExecutorCommandArgs } from './command-builder.js';
 import { parseEnv } from './api-support.js';

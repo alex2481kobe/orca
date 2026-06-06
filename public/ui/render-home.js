@@ -1,13 +1,12 @@
 // Home/setup view renderer (phone+laptop setup, providers, executors, MCP
 // tools, private access, etc.). The largest dashboard view. Extracted from app.js.
 
-import { accessModeLabel, effectiveAccessMode, effectiveProjectQuickLinkUrl, fallbackUrlForAccessMode, preferredPhoneUrl } from './access-mode.js';
-import { api, setApiToken } from './api.js';
+import { effectiveAccessMode, effectiveProjectQuickLinkUrl, fallbackUrlForAccessMode, preferredPhoneUrl } from './access-mode.js';
+import { api } from './api.js';
 import { clientUrl, isWorkstation, safeHref, writeHtml } from './dom.js';
 import { formatRelative, latestTimestamp, safeAttr, safeText } from './format.js';
-import { browserNotificationPermission, browserNotificationsSupported } from './notifications.js';
+import { browserNotificationPermission } from './notifications.js';
 import { qrSvgForText } from './qr.js';
-import { MCP_TOOL_SCOPE_ALLOWLIST } from './constants.js';
 import { activeHomePanel, executorCapabilitiesFor, isVerificationProject, renderExecutorCapabilities } from './render-helpers.js';
 import { refs, shell } from './state.js';
 import {

@@ -2,7 +2,7 @@
 
 import { buildApprovedActionBody, buildMcpToolBody, toObj } from './handlers-config.js';
 import { safeText } from './format.js';
-import { renderAlert, safeNavigate, isLocalHostName } from './dom.js';
+import { renderAlert, safeNavigate } from './dom.js';
 import { api } from './api.js';
 import { refresh } from './controller.js';
 import { render, captureContentUiState } from './render-views.js';

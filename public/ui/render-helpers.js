@@ -3,7 +3,7 @@
 // Extracted from app.js.
 
 import { shell, refs } from './state.js';
-import { confirmDialog, promptDialog } from './dialog.js';
+import { confirmDialog } from './dialog.js';
 import { safeText, formatMeta } from './format.js';
 
 export function laneDetailRoute(project, session, lane) {

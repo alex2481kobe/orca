@@ -2,7 +2,7 @@
 // executor-factory.js.
 
 import { API_PROVIDER_TYPES, API_RESPONSE_BYTES, CONTROL_CHAR_RE } from './constants.js';
-import { CredentialStore, defaultProfiles } from '../provider-profiles.js';
+import { defaultProfiles } from '../provider-profiles.js';
 
 export function parseEnv(raw) {
   if (!raw || typeof raw !== 'object') return {};

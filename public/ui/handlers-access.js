@@ -1,7 +1,7 @@
 // Split from handlers-config.js.
 
 import { api } from './api.js';
-import { confirmDialog, promptDialog } from './dialog.js';
+import { confirmDialog } from './dialog.js';
 import { authRequiredMessage, renderAlert } from './dom.js';
 import { refresh } from './controller.js';
 import { browserNotificationPermission, maybeShowBrowserNotifications, requestBrowserNotificationPermission } from './notifications.js';

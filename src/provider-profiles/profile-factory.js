@@ -1,7 +1,7 @@
 // Default provider profiles + per-kind profile factory. Extracted from
 // provider-profiles.js.
 
-import { ROLE_COMPATIBILITY, nowIso } from './constants.js';
+import { ROLE_COMPATIBILITY } from './constants.js';
 import { normalizeStringArray } from './validation.js';
 
 export function apiProfile({

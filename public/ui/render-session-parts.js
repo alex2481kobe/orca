@@ -1,7 +1,7 @@
 // Render view module (split from render-views.js).
 
-import { formatMeta, formatRelative, safeAttr, safeText, stateBadge } from './format.js';
-import { executorCapabilitiesFor, isLiveLaneState, isRestartableLaneState, laneDetailRoute, renderExecutorCapabilities, pendingAuditsForSession } from './render-helpers.js';
+import { formatRelative, safeAttr, safeText, stateBadge } from './format.js';
+import { isLiveLaneState, isRestartableLaneState, pendingAuditsForSession } from './render-helpers.js';
 import { activeOrchestratorLaneForSession, intelligenceOptionsFor, renderAgentEventTimeline, runModeOptionsFor } from './render-fragments.js';
 import { shell } from './state.js';
 import { renderAlert, writeHtml } from './dom.js';

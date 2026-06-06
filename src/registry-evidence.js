@@ -3,7 +3,7 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { nowIso, isPathWithinBoundary, clonePayload, safeArray } from './registry-utils.js';
+import { nowIso, isPathWithinBoundary } from './registry-utils.js';
 import { effectiveQuickLinkUrl } from './registry-quick-links.js';
 
 function inferEvidenceMode(filename) {

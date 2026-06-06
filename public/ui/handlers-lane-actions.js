@@ -1,7 +1,7 @@
 // Split from handlers-actions.js.
 
 import { refresh, showArtifacts } from './controller.js';
-import { confirmDialog, promptDialog } from './dialog.js';
+import { confirmDialog } from './dialog.js';
 import { confirmHighRiskAction, isLiveLaneState } from './render-helpers.js';
 import { api } from './api.js';
 import { renderAlert } from './dom.js';

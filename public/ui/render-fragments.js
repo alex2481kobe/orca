@@ -1,11 +1,9 @@
 // Render view module (split from render-views.js).
 
 import { getExecutorProfile, getExecutorScopedMcpTools, getProviderProfile, isApiExecutorType, normalizeExecutorType } from './executor.js';
-import { formatMeta, formatRelative, safeAttr, safeText, stateBadge } from './format.js';
+import { formatMeta, safeAttr, safeText } from './format.js';
 import { refs, shell } from './state.js';
-import { api } from './api.js';
-import { agentEventLabel, agentEventTone, getActionPolicy, pendingAuditsForLane } from './render-helpers.js';
-import { showArtifacts } from './controller.js';
+import { agentEventLabel, agentEventTone } from './render-helpers.js';
 
 export function renderLaneExecutorGuidance(form) {
   if (!form || form.id !== 'create-lane-form') return;
