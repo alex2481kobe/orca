@@ -3,13 +3,6 @@
 
 import { clientUrl, isLocalHostName } from './dom.js';
 
-export function accessModeLabel(mode) {
-  if (mode === 'tailnet-https-serve') return 'Tailscale HTTPS Serve';
-  if (mode === 'tailnet-http') return 'Tailscale HTTP';
-  if (mode === 'local') return 'Local only';
-  return 'Auto-detect';
-}
-
 export function effectiveAccessMode(privateSettings = {}, tailnet = {}) {
   const preferredMode = String(privateSettings.preferredMode || 'auto').toLowerCase();
   if (preferredMode === 'local' || preferredMode === 'tailnet-http' || preferredMode === 'tailnet-https-serve') {

@@ -203,5 +203,3 @@ export async function runCaptureInstall(plan, {
     results,
   };
 }
-
-export const _internal = { ALLOWED_INSTALL_BINARIES, MAC_BROWSER_CANDIDATES };

@@ -256,14 +256,6 @@ export function removeLaneWorktree({ repoRoot, worktreePath, removeBranch = fals
   return { removed: true, branchRemoved };
 }
 
-export function listLaneWorktrees(repoRoot) {
-  const descriptor = describeRepoRoot(repoRoot);
-  if (!descriptor.ok) return [];
-  const result = runGit(['worktree', 'list', '--porcelain'], { cwd: descriptor.repoRoot });
-  if (result.status !== 0) return [];
-  return parseWorktreeList(result.stdout);
-}
-
 function parseWorktreeList(stdout) {
   const blocks = String(stdout || '').split(/\n\n+/).map((block) => block.trim()).filter(Boolean);
   return blocks.map((block) => {
@@ -290,5 +282,3 @@ export function changedFilesIn(worktreePath) {
     return [];
   }
 }
-
-export { buildBranchName, parseWorktreeList };

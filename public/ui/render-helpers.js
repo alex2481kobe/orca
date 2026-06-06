@@ -39,10 +39,6 @@ export function getActionPolicy(actionKey) {
   return shell.policy?.[actionKey] || { requiresApproval: false, risk: 'low', message: '' };
 }
 
-export function needsApproval(actionKey) {
-  return Boolean(getActionPolicy(actionKey).requiresApproval);
-}
-
 export async function confirmHighRiskAction(message, actionKey) {
   const policy = getActionPolicy(actionKey);
   if (!policy.requiresApproval) return true;

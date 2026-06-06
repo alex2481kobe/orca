@@ -68,10 +68,6 @@ export function buildOpenAiCompatibleBody(lane, profile) {
   };
 }
 
-export function modelForProfile(lane, profile) {
-  return String(lane.model || profile.defaultModel || process.env[`ORCA_${providerEnvPrefix(profile.id)}_MODEL`] || 'orca-default').trim();
-}
-
 export function safeGeminiModel(lane, profile) {
   const raw = String(lane.model || profile.defaultModel || process.env[`ORCA_${providerEnvPrefix(profile.id)}_MODEL`] || 'gemini-1.5-flash').trim();
   const withoutPrefix = raw.replace(/^models\//, '').trim();
