@@ -1,3 +1,16 @@
+/* ============================================================================
+   ORCA DESIGN SYSTEM — single source of truth.
+   Build UI from these primitives; don't reinvent or hardcode.
+   - Color: semantic tokens below (--bg/--panel/--line/--text/--muted/--accent/
+     --ok/--warn/--bad/--danger). Light overrides in :root[data-theme="light"].
+     NEVER hardcode a theme color — `npm run smoke:no-hardcoded-colors` enforces it.
+   - Radius: --radius-xs..xl + --radius-pill.
+   - Spacing: --space-1..6 (use for padding/gap/margin instead of ad-hoc rem).
+   - Icons: public/ui/icons.js — icon(name,{cls,size}) + named glyphs. Never inline <svg>.
+   - Components: .card / .control-card (surfaces), button + button.secondary/.danger/
+     .warn + .btn/.btn-ghost (actions), .tag[.ok/.warn/.bad] (status), .lane-row[.spread]
+     (action rows), .seg-control (segmented), .dd (dropdown), .disclosure, .picker.
+   ============================================================================ */
 :root {
   --bg: #212121;
   --bg-soft: #262626;
@@ -26,6 +39,15 @@
   --radius-lg: 14px;
   --radius-xl: 18px;
   --radius-pill: 999px;
+  /* Spacing scale — the common step values, named. Use these for padding/gap/
+     margin on shared components so spacing stays on a rhythm. Bespoke one-off
+     values are still allowed where a component genuinely needs them. */
+  --space-1: 0.35rem;
+  --space-2: 0.45rem;
+  --space-3: 0.55rem;
+  --space-4: 0.65rem;
+  --space-5: 0.85rem;
+  --space-6: 1rem;
   --sidebar-width: 248px;
   --topbar-height: 45px;
   --safe-area-top: env(safe-area-inset-top);
@@ -1338,15 +1360,6 @@ body.sidebar-collapsed .sidebar-project-line {
   min-height: 2.25rem;
 }
 
-.home-panels > .card,
-.session-shell > .card,
-.lane-detail-shell > .card,
-.lane-detail-shell > details.card {
-  background: var(--panel);
-  border-color: var(--line);
-  box-shadow: none;
-}
-
 .card-grid {
   display: grid;
   gap: 0.6rem;
@@ -1763,9 +1776,9 @@ select[multiple] {
 .lane-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.45rem;
+  gap: var(--space-2);
   align-items: center;
-  margin-top: 0.45rem;
+  margin-top: var(--space-2);
 }
 /* Push the row's ends apart (label left, action right) — replaces ad-hoc inline
    justify-content on quick-link / device rows. */
