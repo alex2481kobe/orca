@@ -87,6 +87,18 @@ function pairedDeviceSummary(unit = 'device') {
   return `${n} ${unit}${n === 1 ? '' : 's'}`;
 }
 
+// The "Paired devices" disclosure — one definition shared by every pairing
+// surface (pair panel, token panel, access panel) so the structure/styling lives
+// in one place. Callers vary only the uikey, summary, empty text, and an optional
+// body prefix note.
+function pairedDevicesDisclosure({ uikey, summary, rows, emptyText, bodyPrefix = '' }) {
+  return `
+        <details class="disclosure compact-disclosure" data-uikey="${uikey}">
+          <summary><span>Paired devices</span><small>${safeText(summary)}</small></summary>
+          <div class="disclosure-body">${bodyPrefix}${rows || `<div class="muted">${safeText(emptyText)}</div>`}</div>
+        </details>`;
+}
+
 // The pairing-code display: a live one-time code, OR a transient "Accepted"
 // confirmation once a device consumes it (so the workstation sees it land), OR a
 // placeholder prompt. Shared by every pairing surface so the behavior is uniform.
@@ -186,10 +198,7 @@ export function renderPairPanel(ctx) {
         <div class="onboarding-card">${step1}
         </div>
         ${pairingSteps}
-        <details class="disclosure compact-disclosure" data-uikey="pair-paired-devices">
-          <summary><span>Paired devices</span><small>${safeText(pairedDeviceSummary('device'))}</small></summary>
-          <div class="disclosure-body">${authSessionRows || '<div class="muted">No paired devices yet.</div>'}</div>
-        </details>
+        ${pairedDevicesDisclosure({ uikey: 'pair-paired-devices', summary: pairedDeviceSummary('device'), rows: authSessionRows, emptyText: 'No paired devices yet.' })}
       </article>`;
 }
 
@@ -308,10 +317,7 @@ export function renderTokenPanel(ctx) {
           <button class="secondary" data-action="createPairingCode" type="button">Create pairing code</button>
           ${browserPaired ? '<button class="secondary" data-action="logoutBrowserSession" type="button">Log out paired browser</button>' : ''}
         </div>
-        <details class="disclosure compact-disclosure" data-uikey="token-paired-devices">
-          <summary><span>Paired devices</span><small>${safeText(pairedDeviceSummary('session'))}</small></summary>
-          <div class="disclosure-body">${authSessionRows || '<div class="muted">No paired browser sessions yet.</div>'}</div>
-        </details>
+        ${pairedDevicesDisclosure({ uikey: 'token-paired-devices', summary: pairedDeviceSummary('session'), rows: authSessionRows, emptyText: 'No paired browser sessions yet.' })}
         <details class="disclosure compact-disclosure">
           <summary><span>Packaged app credential storage</span><small>Tauri scope</small></summary>
           <div class="disclosure-body tiny muted">In the future desktop app, the server API token should be generated on first run and stored in the OS credential store by the app shell. Phone and laptop browsers should use pairing; API tokens are for automation and emergency manual setup.</div>
@@ -375,13 +381,7 @@ export function renderAccessPanel(ctx) {
               </div>
               <div class="qr-wrap">${phoneQr}<span>Trusted setup QR</span></div>
             </div>
-            <details class="disclosure compact-disclosure" data-uikey="access-paired-devices">
-              <summary><span>Paired devices</span><small>${safeText(`${pairedDeviceCount() ?? 0} active`)}</small></summary>
-              <div class="disclosure-body">
-                <p class="tiny muted">Rotate session state by revoking old devices, clearing this browser token if needed, then creating a new one-time pairing code.</p>
-                ${authSessionRows || '<div class="muted">No paired browser sessions yet.</div>'}
-              </div>
-            </details>
+            ${pairedDevicesDisclosure({ uikey: 'access-paired-devices', summary: `${pairedDeviceCount() ?? 0} active`, rows: authSessionRows, emptyText: 'No paired browser sessions yet.', bodyPrefix: '<p class="tiny muted">Rotate session state by revoking old devices, clearing this browser token if needed, then creating a new one-time pairing code.</p>' })}
           </div>
         </details>
       </article>`;
