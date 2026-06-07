@@ -30,6 +30,7 @@ import {
   renderAppearancePanel,
   renderProjectListPanel,
   renderSystemActionsPanel,
+  renderRemoteConnectionPanel,
 } from './render-home-panels.js';
 
 export function renderHome() {
@@ -356,6 +357,7 @@ export function renderHome() {
       ${workstationOnly(renderDesktopControlPanel(ctx))}
       ${workstationOnly(renderSetupPanel(ctx))}
       ${workstationOnly(renderTokenPanel(ctx))}
+      ${onWorkstation ? '' : renderRemoteConnectionPanel()}
       ${renderAppearancePanel()}
       ${workstationOnly(renderAccessPanel(ctx))}
       ${workstationOnly(renderExecutorProfilesPanel(ctx))}

@@ -7,6 +7,53 @@ import { browserNotificationsSupported } from './notifications.js';
 import { MCP_TOOL_SCOPE_ALLOWLIST } from './constants.js';
 import { shell } from './state.js';
 import { getThemePref } from './theme.js';
+import { readWorkstations, activeWorkstationUrl, isActiveWorkstation, workstationLabel } from './workstations.js';
+
+// Shared list of known workstations, newest first. The one this device is
+// currently connected to (its own origin) is marked with a green check + the
+// "Connected" tag; the others are one-tap switch targets, each with a Forget (×).
+// Used by the connect screen, the pair-gate switcher, and remote Settings so the
+// behavior is identical everywhere. Returns '' when there are no known stations.
+export function renderWorkstationList({ heading = '' } = {}) {
+  const recents = readWorkstations();
+  if (!recents.length) return '';
+  const rows = recents.map((url) => {
+    const active = isActiveWorkstation(url);
+    return `
+      <div class="ws-row${active ? ' is-active' : ''}">
+        <button class="ws-pick" data-action="connectWorkstation" data-url="${safeAttr(url)}" type="button">
+          <span class="ws-check" aria-hidden="true">${active ? '✓' : ''}</span>
+          <span class="ws-host">${safeText(workstationLabel(url))}</span>
+          ${active ? '<span class="ws-tag">Connected</span>' : '<span class="ws-go-hint">Switch</span>'}
+        </button>
+        <button class="ws-forget" data-action="forgetWorkstation" data-url="${safeAttr(url)}" type="button" aria-label="Forget ${safeAttr(workstationLabel(url))}" title="Forget">×</button>
+      </div>`;
+  }).join('');
+  return `
+    <div class="ws-switcher">
+      ${heading ? `<div class="ws-switcher-head">${safeText(heading)}</div>` : ''}
+      <div class="ws-list">${rows}</div>
+    </div>`;
+}
+
+// Settings panel for CONNECTED REMOTE devices (phone/laptop on the tailnet) to
+// switch or add a workstation without closing the app. The workstation itself is
+// local, so this panel is remote-only (composed behind !onWorkstation in render-home).
+export function renderRemoteConnectionPanel() {
+  const active = activeWorkstationUrl();
+  const activeHost = active
+    ? workstationLabel(active)
+    : (typeof window !== 'undefined' ? window.location.host : '');
+  return `
+      <article class="card control-card" data-panel-card="system" data-panel-key="connection">
+        <h3>Workstation</h3>
+        <p class="muted">Connected to <strong>${safeText(activeHost)}</strong>. Switch to another saved workstation or add a new one — no need to close the app.</p>
+        ${renderWorkstationList({ heading: 'Your workstations' })}
+        <label class="connect-label" for="workstation-url-input">Connect to a different workstation</label>
+        <input id="workstation-url-input" class="connect-input" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="your-mac.your-tailnet.ts.net" />
+        <button class="secondary" data-action="connectWorkstation" type="button">Connect</button>
+      </article>`;
+}
 
 // Appearance (light/dark) control — per-device, shown on every device in Settings.
 export function renderAppearancePanel() {

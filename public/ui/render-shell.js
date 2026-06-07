@@ -1,7 +1,7 @@
 // Render view module (split from render-views.js).
 
 import { isWorkstation, isMobileApp, isLocalHostName, isIosWeb, writeHtml, installToHomeHint } from './dom.js';
-import { readWorkstations, activeWorkstationUrl, isActiveWorkstation, workstationLabel, pendingWorkstationUrl } from './workstations.js';
+import { activeWorkstationUrl, workstationLabel, pendingWorkstationUrl } from './workstations.js';
 
 // The installed app, launched but not yet pointed at a workstation, lives at its
 // own bundled origin (tauri://localhost) where there is no server. Detect that so
@@ -10,33 +10,6 @@ import { readWorkstations, activeWorkstationUrl, isActiveWorkstation, workstatio
 // (no __TAURI__ there), so this is false from then on.
 function isUnconnectedMobileApp() {
   return isMobileApp() && isLocalHostName(window.location.hostname);
-}
-
-// Shared list of known workstations, newest first. The one this device is
-// currently connected to (its own origin) is marked with a green check and the
-// "Connected" tag; the others are one-tap switch targets. Each has a Forget (×).
-// Rendered on the connect screen, the pair-gate switcher, and Settings so the
-// behavior is identical everywhere. Returns '' when there are no known stations.
-function renderWorkstationList({ heading = '' } = {}) {
-  const recents = readWorkstations();
-  if (!recents.length) return '';
-  const rows = recents.map((url) => {
-    const active = isActiveWorkstation(url);
-    return `
-      <div class="ws-row${active ? ' is-active' : ''}">
-        <button class="ws-pick" data-action="connectWorkstation" data-url="${safeAttr(url)}" type="button">
-          <span class="ws-check" aria-hidden="true">${active ? '✓' : ''}</span>
-          <span class="ws-host">${safeText(workstationLabel(url))}</span>
-          ${active ? '<span class="ws-tag">Connected</span>' : '<span class="ws-go-hint">Switch</span>'}
-        </button>
-        <button class="ws-forget" data-action="forgetWorkstation" data-url="${safeAttr(url)}" type="button" aria-label="Forget ${safeAttr(workstationLabel(url))}" title="Forget">×</button>
-      </div>`;
-  }).join('');
-  return `
-    <div class="ws-switcher">
-      ${heading ? `<div class="ws-switcher-head">${safeText(heading)}</div>` : ''}
-      <div class="ws-list">${rows}</div>
-    </div>`;
 }
 
 // Dedicated first-run screen for the mobile app: brand + "connect to your
@@ -123,7 +96,7 @@ import { safeAttr, safeText } from './format.js';
 import { api, browserAccessBlocked, setApiToken } from './api.js';
 import { activeHomePanel, isLiveLaneState, isRunningLaneState, isVerificationProject, renderBreadcrumbs, renderTopbarTitle } from './render-helpers.js';
 import { renderHome } from './render-home.js';
-import { renderAppearancePanel } from './render-home-panels.js';
+import { renderAppearancePanel, renderWorkstationList } from './render-home-panels.js';
 import { renderWorkstationPickerPanel } from './render-project.js';
 import { loadEvidenceGallery, renderAuditLog, renderLane } from './render-lane.js';
 import { renderSession } from './render-session.js';
