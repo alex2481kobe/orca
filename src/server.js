@@ -812,6 +812,22 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(thisModule
     console.error(error);
     process.exitCode = 1;
   });
+  // Orphan guard: when the Tauri desktop host spawns us (ORCA_DESKTOP_HOSTED), it
+  // reaps us via its window-close handler — but a crash or hard kill of the host
+  // bypasses that, leaving this process holding the port. The host is our parent;
+  // on its death the OS reparents us (ppid changes, → 1/launchd on macOS/Linux),
+  // so poll ppid and shut down cleanly when it changes. unref() so this timer
+  // never keeps the process alive on its own.
+  if (process.env.ORCA_DESKTOP_HOSTED === 'true') {
+    const initialPpid = process.ppid;
+    const parentWatch = setInterval(() => {
+      if (process.ppid !== initialPpid) {
+        console.error('Orca desktop host exited; shutting down embedded server.');
+        stopServer().finally(() => process.exit(0));
+      }
+    }, 1500);
+    parentWatch.unref();
+  }
 }
 
 async function stopServer() {
