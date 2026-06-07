@@ -445,8 +445,8 @@ export function renderBlockers() {
   writeHtml(refs.blockers, blockers.map((blocker) => `
     <div class="blocker ${blocker.severity === 'warn' ? 'warn' : ''}" role="alertdialog">
       <strong>${safeText(blocker.summary)}</strong>
-      <div class="tiny" style="color:inherit">${safeText(blocker.detail)}</div>
-      <div class="tiny" style="color:inherit;margin-top:0.25rem">Remediation: <code>${safeText(blocker.remediation)}</code></div>
+      <div class="tiny">${safeText(blocker.detail)}</div>
+      <div class="tiny">Remediation: <code>${safeText(blocker.remediation)}</code></div>
     </div>
   `).join(''));
 }

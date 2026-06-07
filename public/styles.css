@@ -199,6 +199,11 @@ a {
   border-color: color-mix(in srgb, var(--warn) 45%, var(--line));
 }
 
+/* Detail/remediation lines inherit the blocker's text color instead of the muted
+   default (a blocker is already a tinted callout — muted-on-tint reads as broken). */
+.blocker .tiny { color: inherit; }
+.blocker .tiny + .tiny { margin-top: 0.25rem; }
+
 .blocker code {
   background: rgba(0, 0, 0, 0.32);
   padding: 0.1rem 0.35rem;
@@ -1580,15 +1585,6 @@ button {
   background: var(--active);
 } }
 
-button.secondary {
-  background: transparent;
-  color: var(--text);
-}
-
-@media (hover: hover) { button.secondary:hover {
-  background: var(--hover);
-} }
-
 button.danger {
   background: transparent;
   border-color: color-mix(in srgb, var(--danger) 40%, transparent);
@@ -1771,6 +1767,9 @@ select[multiple] {
   align-items: center;
   margin-top: 0.45rem;
 }
+/* Push the row's ends apart (label left, action right) — replaces ad-hoc inline
+   justify-content on quick-link / device rows. */
+.lane-row.spread { justify-content: space-between; }
 
 .lane-row button,
 .lane-row a.secondary,

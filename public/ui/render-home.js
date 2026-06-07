@@ -145,7 +145,7 @@ export function renderHome() {
   }).join('');
   const mcpTools = shell.mcpTools || [];
   const mcpOptions = mcpTools.map((tool) => `
-    <div class="lane-row" style="align-items:center; justify-content:space-between;">
+    <div class="lane-row spread">
       <div>
         <span>${safeText(tool.name)} (${safeText(tool.command)})</span>
         <div class="tiny muted">scope: ${safeText((tool.scope || []).join(', ') || 'all')} · args: ${safeText((tool.args || []).join(' ')) || 'none'} · enabled: ${tool.enabled ? 'yes' : 'no'}</div>
@@ -194,7 +194,7 @@ export function renderHome() {
       ? `<button class="secondary" data-action="reinstallExecutorCli" data-executor="${safeAttr(type)}" data-use-source="true" type="button">Dry-run source reinstall</button>`
       : `<button class="secondary" type="button" disabled title="No trusted source command configured">Source reinstall unavailable</button>`;
     return `
-      <div class="lane-row" style="align-items:center; justify-content:space-between;">
+      <div class="lane-row spread">
         <div>
           <strong>${safeText(type.toUpperCase())}</strong>
           <div class="tiny muted">binary: ${safeText(info?.binary || '')}</div>
