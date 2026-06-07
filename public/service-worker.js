@@ -20,6 +20,7 @@ const STATIC_ASSETS = [
   '/ui/dropdown.js',
   '/ui/executor.js',
   '/ui/format.js',
+  '/ui/icons.js',
   '/ui/handlers-access.js',
   '/ui/handlers-actions.js',
   '/ui/handlers-config.js',

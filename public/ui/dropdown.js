@@ -7,10 +7,11 @@
 // a real `change` event so existing listeners fire unchanged.
 
 import { safeText, safeAttr } from './format.js';
+import { icon } from './icons.js';
 
 let _open = null; // the currently-open .dd wrapper
 
-const CHEVRON = '<svg class="dd-chevron" viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8l5 5 5-5"/></svg>';
+const CHEVRON = icon('chevron-down', { cls: 'dd-chevron', size: 16 });
 
 function selectedLabel(select) {
   const opt = select.options[select.selectedIndex];

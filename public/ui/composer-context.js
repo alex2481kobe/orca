@@ -11,9 +11,10 @@ import { shell } from './state.js';
 import { api } from './api.js';
 import { writeHtml } from './dom.js';
 import { safeText, safeAttr } from './format.js';
+import { icon } from './icons.js';
 
-const ICON_BRANCH = '<svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="15" r="2"/><circle cx="14" cy="7" r="2"/><path d="M6 7v6M14 9c0 3-3 3.5-6 3.5"/></svg>';
-const ICON_CARET = '<svg class="ctx-caret" viewBox="0 0 20 20" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8l5 5 5-5"/></svg>';
+const ICON_BRANCH = icon('branch', { size: 15 });
+const ICON_CARET = icon('chevron-down', { cls: 'ctx-caret', size: 12 });
 
 function gitInfoFor(sessionId) { return shell.gitInfo?.[sessionId] || null; }
 

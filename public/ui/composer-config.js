@@ -6,6 +6,7 @@
 
 import { getExecutorProfile, normalizeExecutorType } from './executor.js';
 import { safeText, safeAttr } from './format.js';
+import { icon } from './icons.js';
 
 // Pretty labels for effort levels (xhigh -> "Extra High"); anything else is title-cased.
 const REASONING_LABELS = { low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra High', max: 'Max', ultracode: 'Ultracode' };
@@ -80,7 +81,7 @@ export function renderComposerConfig(executorType, state = {}) {
     <div class="cfg">
       <button type="button" class="cfg-trigger" aria-haspopup="menu" aria-expanded="false" title="Model, reasoning &amp; speed">
         <span class="cfg-label">${configLabel(state)}</span>
-        <svg class="cfg-caret" viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8l5 5 5-5"/></svg>
+        ${icon('chevron-down', { cls: 'cfg-caret', size: 14 })}
       </button>
       <div class="cfg-pop" role="menu" hidden></div>
       <div class="cfg-flyout" role="menu" hidden></div>

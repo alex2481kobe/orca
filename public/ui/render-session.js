@@ -4,6 +4,7 @@ import { refs, shell } from './state.js';
 import { writeHtml } from './dom.js';
 import { renderLaneExecutorGuidance } from './render-fragments.js';
 import { safeText, safeAttr } from './format.js';
+import { icon } from './icons.js';
 import { renderExecutorSidePanel, renderOrchestratorConsole, renderChatThreadInner, renderExecutorListInner } from './render-session-parts.js';
 import { hydrateComposerContext } from './composer-context.js';
 import { isForeignModel, defaultModelFor } from './executor.js';
@@ -34,10 +35,7 @@ export function renderSession(project, session) {
           </div>
           <div class="session-topbar-side session-tools">
             <button class="info-toggle" data-action="toggleExecutorPanel" type="button" aria-label="Toggle agents panel" title="Agents & tools">
-              <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="2.5" y="3.5" width="15" height="13" rx="2.2"></rect>
-                <path d="M12.5 3.5v13"></path>
-              </svg>
+              ${icon('panel-right', { size: 18 })}
             </button>
           </div>
         </header>

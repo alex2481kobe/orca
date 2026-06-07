@@ -2,9 +2,10 @@
 
 import { shell } from './state.js';
 import { safeAttr, safeText } from './format.js';
+import { icon } from './icons.js';
 
-const PICKER_FOLDER_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.2h6a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/></svg>';
-const PICKER_CHEVRON = '<svg class="picker-chevron" viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5l5 5-5 5"/></svg>';
+const PICKER_FOLDER_ICON = icon('folder-rounded', { size: 18 });
+const PICKER_CHEVRON = icon('chevron-right', { cls: 'picker-chevron', size: 15 });
 
 export function renderWorkstationPickerPanel(forInput) {
   const picker = shell.workstationPicker;
@@ -24,12 +25,12 @@ export function renderWorkstationPickerPanel(forInput) {
       <div class="picker-titlebar">
         <strong>Choose a project folder</strong>
         <button class="picker-x" data-action="workstationPickerClose" type="button" aria-label="Close">
-          <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg>
+          ${icon('close', { size: 15 })}
         </button>
       </div>
       <div class="picker-toolbar">
         <button class="picker-up" data-action="workstationOpenDir" data-dir="${safeAttr(picker.parent || '')}" data-for-input="${safeAttr(forInput)}" type="button" ${picker.parent ? '' : 'disabled'} aria-label="Up one level">
-          <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5-5 5 5"/></svg>
+          ${icon('chevron-up', { size: 16 })}
         </button>
         <span class="picker-path" title="${safeAttr(current)}">${safeText(current || 'Home')}</span>
       </div>

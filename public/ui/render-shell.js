@@ -105,7 +105,7 @@ import { subscribeLaneStream, unsubscribeLaneStream, fillLaneStream } from './la
 import { enhanceSelects } from './dropdown.js';
 import { FIRST_CLASS_CLI_EXECUTOR_TYPES } from './constants.js';
 import { orderItems, readSidebarOrder, isProjectExpanded } from './sidebar.js';
-import { COMPOSE_ICON, FOLDER_ICON, PENCIL_ICON } from './constants.js';
+import { COMPOSE_ICON, FOLDER_ICON, PENCIL_ICON, ARCHIVE_ICON } from './icons.js';
 
 // Mobile pairing gate — the same clean connect-shell look as the unconnected app
 // (renderMobileConnect), but for a device that's ALREADY reached the workstation
@@ -477,13 +477,7 @@ export function renderSidebarProjects(activeProject) {
     return;
   }
   const storedOrder = readSidebarOrder();
-  const archiveIcon = `
-    <svg viewBox="0 0 20 20" focusable="false" aria-hidden="true">
-      <path d="M3.2 6.5h13.6"></path>
-      <path d="M5 6.5v9.2c0 .8.6 1.4 1.4 1.4h7.2c.8 0 1.4-.6 1.4-1.4V6.5"></path>
-      <path d="M7.2 3.3h5.6l.8 3.2H6.4l.8-3.2Z"></path>
-      <path d="M8 10h4"></path>
-    </svg>`;
+  const archiveIcon = ARCHIVE_ICON;
   const renderSidebarProject = (project) => {
     const projectSessions = orderItems(
       (shell.sessions || []).filter((session) => session.projectId === project.id),

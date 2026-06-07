@@ -8,6 +8,7 @@ import { renderAlert, writeHtml } from './dom.js';
 import { api } from './api.js';
 import { apiProviderOptions, cliExecutorOptions, normalizeExecutorType, defaultExecutorType, anyCliInstalled, defaultModelFor } from './executor.js';
 import { renderComposerConfig } from './composer-config.js';
+import { icon } from './icons.js';
 
 export function renderApprovalRows(lane) {
   const pending = (lane.pendingApprovals || []).filter((entry) => entry.status === 'pending');
@@ -177,7 +178,7 @@ export function renderOrchestratorConsole(session) {
         <input type="hidden" name="branch" value="" />
         <div class="composer-bar">
           <button class="composer-attach" data-action="pickAttachment" data-session-id="${safeAttr(session.id)}" type="button" title="Attach screenshot or document" aria-label="Attach file">
-            <svg viewBox="0 0 20 20" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 4.5v11M4.5 10h11"/></svg>
+            ${icon('plus', { size: 19 })}
           </button>
           <select name="executorType" class="composer-select" aria-label="Agent"${locked ? ' disabled' : ''}>
             ${cliExecutorOptions(selectedExecutor)}
@@ -190,7 +191,7 @@ export function renderOrchestratorConsole(session) {
           <span class="composer-spacer"></span>
           ${renderComposerConfig(selectedExecutor, { model: selectedModel, intelligence: selectedIntelligence, speed: 'standard' })}
           <button class="composer-send" type="submit" aria-label="Send message">
-            <svg viewBox="0 0 20 20" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15.5V5M5.5 9.5L10 5l4.5 4.5"/></svg>
+            ${icon('send', { size: 19 })}
           </button>
         </div>
         <div class="composer-context" id="composer-context-${safeAttr(session.id)}"></div>
@@ -260,7 +261,7 @@ export function renderExecutorSidePanel(session) {
       <div class="info-panel-head">
         <strong>Session</strong>
         <button class="info-close" data-action="toggleExecutorPanel" type="button" aria-label="Close panel">
-          <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg>
+          ${icon('close', { size: 15 })}
         </button>
       </div>
       <div class="info-panel-body">
