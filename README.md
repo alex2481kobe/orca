@@ -1,326 +1,171 @@
+<div align="center">
+
+<img src="public/orca-mark.png" alt="Orca" width="96" />
+
 # Orca
 
-Orca is a local-first, phone-first control plane for coordinating
-Codex, Claude, custom CLI, and API-backed agent lanes across projects. It
-ships a private operator dashboard, governed backend routes, provider
-profiles, credential references, MCP tooling, audit/critique gates,
-Playwright evidence capture, PWA support, and a Tailscale Serve runbook for
-private phone access.
+### Run your Codex & Claude coding agents across every project — from one calm dashboard, and from your phone.
 
-## Current proof
+Orca is a **local‑first, phone‑first control plane** for AI coding agents. Spin up
+Codex, Claude, and API‑backed agent lanes across all your projects, watch them
+work, capture evidence, and steer everything from a clean Codex‑style dashboard —
+on your Mac, or from your phone over a private Tailscale link.
 
-The latest recorded full local acceptance run passed:
+[![license: AGPL‑3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
+![local‑first](https://img.shields.io/badge/local--first-✓-success)
+![PWA](https://img.shields.io/badge/PWA-installable-success)
+![platforms](https://img.shields.io/badge/runs%20on-macOS%20·%20Windows%20·%20Linux-lightgrey)
 
-- `npm test`: 156/156 tests passing.
-- `npm run smoke:acceptance`: 23 deterministic smoke steps passing.
-- `npm run smoke:full-flow`: isolated end-to-end operator flow passing.
-- `npm run smoke:ui-inventory`: 32 desktop/phone route screenshots with
-  zero horizontal overflow.
-- `npm run smoke:ui-contract`: shared UI/action contract passing.
-- `npm run smoke:full-buildout-ledger`: 26 ledger areas checked with
-  24 `implemented_and_proven` and 2 true external blockers.
+<img src="docs/assets/hero.png" alt="Orca dashboard" width="900" />
 
-The current completion ledger is
-[`docs/full-buildout-ledger.md`](docs/full-buildout-ledger.md). Do not rely on
-prose claims alone; use the ledger and smoke gates as the authority.
+</div>
 
-The consolidated full-buildout evidence report is
-[`docs/final-readiness-report.md`](docs/final-readiness-report.md).
+---
 
-## Open-source and macOS release
+## Why Orca
 
-This repository is prepared for source release under
-`AGPL-3.0-or-later`: everyone can use, study, modify, and share it, and
-modified distributed or network-hosted versions must keep the corresponding
-source available under the same license. Use
-[`docs/open-source-release-checklist.md`](docs/open-source-release-checklist.md)
-as the public-release gate.
+You're already running coding agents. The problem is *coordination*: which agent is
+on which task, in which project, is it done, is it any good — and how do you check
+on it when you're away from your desk? Orca is the operations console for exactly
+that.
 
-The Tauri v2 macOS app path is scaffolded and locally verified. The remaining
-production distribution work is the operator-held Apple Developer ID signing,
-notarization, DMG creation from a normal macOS desktop/CI environment, and
-GitHub Release asset upload. Use
-[`docs/tauri-manual-release-checklist.md`](docs/tauri-manual-release-checklist.md)
-for that flow.
+- 🧭 **One command center for every project.** A project rail, sessions per
+  project, and agent lanes per session — all in a quiet, focused, Codex‑app‑style UI.
+- 📱 **Truly phone‑first.** Scan a QR, enter a one‑time code, and drive your agents
+  from your phone over a private Tailscale link. Installable as a PWA; a native iOS
+  shell exists too.
+- 🤖 **Bring your own agents.** First‑class profiles for **Codex, Claude, Gemini CLI,
+  Composer**, custom CLIs, and OpenAI‑compatible / **Gemini / Kimi / DeepSeek /
+  OpenRouter** APIs.
+- 🧩 **Real orchestration, not a wrapper.** Orchestrator → executor → auditor roles,
+  capacity limits, self‑critique gates, and "audit this lane" / "audit all done
+  lanes" — with every state transition enforced server‑side.
+- 📸 **Evidence built in.** Playwright‑backed screenshots, traces, videos, and logs
+  captured per lane, viewable from anywhere.
+- 🔒 **Private by design.** Nothing is exposed publicly. The session token lives in
+  an HttpOnly cookie, secrets are referenced never echoed, and the tailnet URL alone
+  leaks nothing until a device pairs.
 
-Windows and Linux users can run the web/PWA version from source today with
-Node.js and a browser. Native Windows/Linux installers are later release paths;
-see [`docs/web-pwa-distribution.md`](docs/web-pwa-distribution.md).
+<div align="center">
+<img src="docs/assets/lane-detail.png" alt="Lane detail with live terminal and evidence" width="440" />
+<img src="docs/assets/dashboard-light.png" alt="Light theme" width="440" />
+</div>
 
-## Implemented and proven
-
-- Local HTTP API and static dashboard at `/`, binding to `127.0.0.1` by
-  default.
-- Persistent, atomic state stores with backup recovery for registry,
-  provider profiles, private access, and auth sessions.
-- Tiered authentication enforced on every route. The tailnet URL alone yields
-  no workspace or host data: only `/api/health` (liveness, no counts) and
-  `/api/auth/status` are public; everything else requires auth. There are three
-  tiers — **public** (liveness/auth-status/static shell), **operator** (API
-  token or paired browser session: workflow control + reads), and **admin**
-  (API token or non-proxied loopback bootstrap: host mutation, credentials,
-  network config, device pairing). Paired phones are operators, never admins,
-  so a compromised device cannot reinstall CLIs, read/write provider secrets,
-  change private-access settings, mint pairing codes, or export app data.
-- With no API token configured, only a direct loopback connection from the
-  workstation bootstraps as admin; Tailscale Serve / reverse-proxied requests
-  (identified by forwarding/identity headers) get nothing until they pair.
-  Browser-session mutations are same-origin protected.
-- Route inventory and security matrix covering 105 routes with auth,
-  validation, body limits, rate limits, audit metadata, UI coverage, mobile
-  behavior, and smoke coverage.
-- Server-authoritative project live links for dev servers, previews, docs, and
-  artifacts, including dashboard/API routes, MCP tool discovery, SSRF
-  validation, health checks, evidence preset capture, and public agent handoff
-  docs.
-- Provider profiles for Codex, Claude, Gemini CLI, Composer CLI, Custom CLI,
-  OpenAI-compatible API, Gemini API, Kimi, DeepSeek, OpenRouter, and Composer.
-- First-class CLI executors are Codex, Claude, Gemini CLI, and Composer CLI.
-  Kimi, DeepSeek, OpenRouter, and Composer are tested as API executors;
-  provider-specific CLIs beyond the first-class set can be experimented with
-  through the disabled-by-default Custom CLI adapter after host allowlists and
-  tests are added.
-- API-provider execution through local dummy OpenAI-compatible and native
-  Gemini adapters, including credential lookup and redaction.
-- Credential abstraction with memory/test backend, env fallback, injectable
-  macOS Keychain command path, safe delete/fallback behavior, redacted status,
-  and fail-closed Windows/Linux unavailable states.
-- Real-process executor lanes with PID, args, cwd, env policy, start/end,
-  exit code, signal, stop metadata, platform metadata, stdout/stderr logs,
-  process-group stop behavior, and restart recovery.
-- Governed CLI install/reinstall planning for supported package managers.
-  Installs and updates are dry-run/approval-gated by default.
-- Automatic per-lane git worktree creation when a session has a vetted
-  `repoRoot`, plus approval-gated worktree removal.
-- Orchestration state for projects, sessions, lanes, capacity requests,
-  critique, audit-one, audit-all, accept, fix, block, and retry transitions.
-- Dashboard-native orchestrator console: session chat messages create
-  server-owned orchestrator turns, spawn an orchestrator lane, and receive a
-  scoped tool lease instead of the full API token.
-- MCP tool CRUD, validation, scopes, leases, per-lane generated configs, and
-  public-safe agent tool discovery.
-- Playwright-backed evidence capture for screenshots, traces, videos, logs,
-  latest evidence views, server-resolved saved presets, redacted artifact
-  serving, and cleanup controls.
-- PWA manifest and static-only service worker cache. Sensitive API, auth,
-  provider, artifact, log, screenshot, video, trace, import/export, and state
-  routes are not cached.
-- In-app notifications plus browser-notification configuration metadata, with
-  secret-free notification bodies.
-- Backup/import/support-bundle routes that exclude secrets, auth sessions,
-  pairing codes, raw artifacts, logs, screenshots, videos, and traces.
-- Codex-app-style dashboard shell with project rail, session/work surface,
-  settings, providers, MCP tools, private access, cleanup, notifications,
-  backup/support, project/session/lane routes, and desktop plus 390px mobile
-  screenshot coverage.
-- Private-access/Tailscale wiring with target validation, dry-run setup
-  commands, fake provider states, Funnel rejection, setup checklist UI,
-  copy/open/check actions, mocked tests, and runbook.
-
-## Security & resource hardening
-
-A full file-by-file audit/fix pass hardened the server, stores, executor, and
-front-end:
-
-- Constant-time comparison (`crypto.timingSafeEqual`) for the API token, worker
-  token, and pairing-code/session-token hashes (no timing oracles).
-- SSRF defense reviewed end-to-end: obfuscated numeric hosts (hex/decimal/octal/
-  short-form) are blocked, and provider base URLs run through the same policy
-  (public allowed; private/metadata/link-local blocked).
-- Approval gates cannot be bypassed: persisted policy state can never weaken a
-  default gate, and `skipApproval` is rejected from request bodies.
-- MCP tool env rejects loader-hijack keys (PATH/LD_PRELOAD/NODE_OPTIONS-class);
-  lanes cannot override server-managed `ORCA_*` env; executor argv is
-  flag-injection-safe; git `baseRef`/worktree removal are path/ref validated.
-- Recursive prototype-pollution rejection on imports; CR/LF stripped from SSE
-  event names; crash-safe cookie parsing; broader secret redaction patterns.
-- Leak/edge fixes: SSE heartbeat cleared on client disconnect, top-level request
-  catch, oversize bodies drained, Playwright browser always closed, bounded
-  child output, capped lane logs, auto-pruned rate-limit buckets, single-flight
-  store loads, and a non-cross-call lane-id reservation.
-- Front-end: every server-derived URL is rendered with an escape+scheme-checked
-  helper (no `javascript:`/quote-breakout XSS); the 3s poll skips unchanged DOM
-  writes; the QR and layout-media checks are memoized; the sidebar collapse no
-  longer animates a layout property.
-
-## External/manual checks
-
-These are not missing local app code:
-
-- Real phone reachability requires the user's phone on the same tailnet. See
-  [`docs/tailscale-mobile-access.md`](docs/tailscale-mobile-access.md).
-- Tauri v2 desktop scaffolding is present under `src-tauri/`. It owns native
-  server start/stop/restart/health commands, OS credential storage for the
-  generated `ORCA_API_TOKEN`, dashboard URL copy, pairing-code
-  creation, menu/tray actions, and release-updater scaffolding. Check it with
-  `npm run tauri:check`, launch development mode with `npm run tauri:dev`,
-  build the macOS package path with `npm run tauri:build`, and build signed
-  updater artifacts with `npm run tauri:build:release`. Developer ID
-  signing/notarization credentials are operator/CI secrets; see
-  [`docs/tauri-release.md`](docs/tauri-release.md). Native iOS/Android preview
-  adapters remain later-phase work.
-
-## Public agent docs
-
-- [`docs/agent-orchestrator-skill.md`](docs/agent-orchestrator-skill.md)
-- [`docs/agent-executor-skill.md`](docs/agent-executor-skill.md)
-- [`docs/agent-run-modes.md`](docs/agent-run-modes.md)
-- [`docs/live-project-links.md`](docs/live-project-links.md)
-
-## Project docs
-
-- [`CONTRIBUTING.md`](CONTRIBUTING.md)
-- [`SECURITY.md`](SECURITY.md)
-- [`SUPPORT.md`](SUPPORT.md)
-- [`LICENSE`](LICENSE)
-- [`docs/tauri-release.md`](docs/tauri-release.md)
-- [`docs/web-pwa-distribution.md`](docs/web-pwa-distribution.md)
-- [`docs/open-source-release-checklist.md`](docs/open-source-release-checklist.md)
-
-## Run locally
+## Quickstart
 
 ```bash
 git clone https://github.com/alex2481kobe/orca.git
 cd orca
 npm install
-ORCA_API_TOKEN="$(openssl rand -hex 32)" npm run dev
+npm start
 ```
 
-The dashboard starts at <http://127.0.0.1:3000/>.
+Open **http://127.0.0.1:3000/** and create your first project. That's it — it starts
+empty and clean; you bring the projects.
 
-For private phone access, keep the server bound locally and front it with
-Tailscale Serve. Funnel is forbidden for v1.
+> Running over a network (e.g. to reach it from your phone)? Start it with an API
+> token so only paired devices get in:
+> ```bash
+> ORCA_API_TOKEN="$(openssl rand -hex 32)" npm start
+> ```
 
-For durable Mac operation after the current terminal exits, use
-[`docs/macos-launchd-runbook.md`](docs/macos-launchd-runbook.md). It keeps the
-API token in a local `chmod 600` env file instead of committing it or storing it
-in the launchd plist.
+## Drive it from your phone
 
-## Evidence capture
+Keep Orca running on your Mac, front it with **Tailscale Serve**, and pair your phone
+once. From then on you can open any project, kick off or stop an agent, watch logs,
+and review screenshots — from the couch.
 
-Screenshots, video, and traces of project URLs need a browser engine. To keep
-the app small, none is bundled by default; a backend is set up on demand:
+<div align="center">
+<img src="docs/assets/pairing.png" alt="Pair a remote device with a QR code and one‑time code" width="620" />
+&nbsp;
+<img src="docs/assets/phone-dashboard.png" alt="Orca on a phone" width="240" />
+</div>
 
-- **macOS desktop app:** screenshot capture runs natively through the app's
-  WKWebView — no Chromium download. Video and traces fall back to Playwright.
-- **Playwright (any mode):** the dashboard's *Settings → Evidence capture
-  backend* card installs Playwright on demand (governed: dry-run, then confirm).
-  It uses your installed Google Chrome when present (`channel:'chrome'`, no large
-  download) and otherwise downloads the pinned Chromium. From source you can also
-  run `npm install --save-dev playwright && npx playwright install chromium`.
+Setup is in [`docs/tailscale-mobile-access.md`](docs/tailscale-mobile-access.md).
+Tailscale Funnel (public exposure) is intentionally not supported.
 
-Capture degrades gracefully and reports a clear blocker when no backend is set
-up; it never silently produces empty evidence.
+## How it works
 
-## Verification commands
-
-```bash
-npm test
-npm run smoke:acceptance
-npm run smoke:full-flow
-npm run smoke:ui
-npm run smoke:ui-inventory
-npm run smoke:ui-contract
-npm run smoke:route-inventory
-npm run smoke:route-security-matrix
-npm run smoke:full-buildout-ledger
-npm run smoke:private-access
-npm run smoke:pwa-cache
-npm run smoke:providers
-npm run smoke:api-provider
-npm run smoke:orchestrator-executor
-npm run smoke:credential-backends
-npm run smoke:credential-redaction
-npm run smoke:evidence-redaction
+```mermaid
+flowchart LR
+  subgraph Mac["Your workstation"]
+    S["Orca server<br/>(local-first)"]
+    O["Orchestrator"]
+    E1["Executor lane<br/>Codex / Claude / ..."]
+    E2["Auditor lane"]
+    S --- O
+    O --- E1
+    O --- E2
+  end
+  P["Phone / laptop"] -- "pairing code over Tailscale" --> S
 ```
 
-`npm run smoke:acceptance` is the preferred full local gate. It starts isolated
-local servers where needed and does not require public network access, real OS
-credential writes, global installs, live Tailscale mutation, or destructive
-cleanup.
+- **Three trust tiers.** *Public* (liveness only) → *operator* (paired devices:
+  control + read) → *admin* (the workstation itself: host config, credentials,
+  pairing). A paired phone is always an operator, never an admin — a lost phone
+  can't read secrets or change host settings.
+- **Tiered data, not a firehose.** A lightweight poll + a revision‑signal SSE keep
+  the UI live; full lane detail and the live terminal load only for what you're
+  looking at.
+- **Provider‑agnostic lanes.** Each lane runs through a validated provider profile
+  with its own binary/model/permissions, isolated git worktree, and audit trail.
 
-For the live operator setup, run:
+## Security you can trust
 
-```bash
-npm run operator:status
-```
+Orca treats agent‑spawning, file mutation, and remote access as privileged — and
+backs it up:
 
-This read-only check verifies local health, the private Tailscale health URL,
-tailnet-only Serve config, and absence of public Funnel exposure.
+- Session token in an **HttpOnly + SameSite + Secure** cookie (never in
+  localStorage); the one‑time pairing code is never stored client‑side.
+- Constant‑time token comparison, **SSRF‑hardened** URL policy (metadata/private/
+  obfuscated hosts blocked), approval gates that can't be bypassed, and MCP/exec
+  env hardening (no `PATH`/`LD_PRELOAD`/`NODE_OPTIONS` injection).
+- Every server‑derived URL is escape‑ and scheme‑checked before render (no
+  `javascript:` / quote‑breakout XSS); secrets are redacted from logs, errors,
+  exports, and support bundles.
+- A documented [route security matrix](docs/route-security-matrix.md) covers auth,
+  validation, body/rate limits, and audit metadata across ~116 routes.
 
-To create a fresh one-time phone/browser pairing code without putting a token
-in a URL:
+See [`SECURITY.md`](SECURITY.md) to report issues.
 
-```bash
-ORCA_API_TOKEN=... npm run operator:pair
-```
+## Platforms
 
-The helper prints only the one-time code and expiry. It never prints the API
-token. Pairing codes are one-time secrets and should not be stored in docs,
-logs, screenshots, or issue comments.
+- **Web / PWA — today, everywhere.** Run from source with Node.js on macOS, Windows,
+  or Linux; install it to your home screen.
+- **macOS desktop app.** A Tauri v2 shell is built and locally verified; signed/
+  notarized DMG distribution is the remaining packaging step
+  ([`docs/tauri-release.md`](docs/tauri-release.md)).
+- **iOS.** A thin native shell wraps the same dashboard for a full‑screen phone
+  experience ([`docs/ios-app.md`](docs/ios-app.md)).
 
-To run the full live phone-readiness preflight and write a redacted local
-summary artifact:
+## Docs
 
-```bash
-ORCA_PRIVATE_URL=<tailnet-url> npm run operator:phone-check
-```
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) · [`SECURITY.md`](SECURITY.md) · [`SUPPORT.md`](SUPPORT.md)
+- [Tailscale mobile access](docs/tailscale-mobile-access.md)
+- [Agent orchestrator / executor skills](docs/agent-orchestrator-skill.md)
+- [Live project links](docs/live-project-links.md)
 
-To also create a fresh one-time pairing code during that preflight:
+## License
 
-```bash
-ORCA_PRIVATE_URL=<tailnet-url> \
-ORCA_API_TOKEN=... \
-  npm run operator:phone-check -- --create-pairing-code
-```
+[AGPL‑3.0‑or‑later](LICENSE) — use, study, modify, and share it. Networked or
+distributed modified versions must keep their source available under the same terms.
 
-The generated `artifacts/operator-phone-check/phone-check-summary.json` never
-stores API tokens, cookies, pairing codes, or private hostnames.
+---
 
-To generate the local completion audit artifact:
+<details>
+<summary><strong>Engineering proof</strong> (for the curious — Orca is heavily tested)</summary>
 
-```bash
-npm run operator:completion-audit
-```
+Don't rely on prose alone; the authority is the
+[completion ledger](docs/full-buildout-ledger.md) and the smoke gates.
 
-This reads the acceptance summary, full-buildout ledger, phone preflight
-summary, and git status, then writes
-`artifacts/completion-audit/completion-audit-summary.json`.
+- `npm test` — **244 passing** unit/integration tests.
+- `npm run smoke:acceptance` — one‑command end‑to‑end acceptance gate.
+- `npm run smoke:ui-inventory` / `smoke:ui-contract` — desktop + 390px phone
+  screenshots of every route with zero horizontal overflow and a shared design
+  contract.
+- `npm run smoke:no-hardcoded-colors`, `smoke:row-menu`, `smoke:remote-workstation`,
+  `smoke:pwa-cache`, `smoke:security`, … — focused regression guards.
+- The ledger tracks **26 areas — 25 implemented & proven, 1 externally blocked**
+  (signed native packaging, which needs an Apple Developer ID).
 
-## Configuration
-
-| Variable | Purpose |
-| --- | --- |
-| `ORCA_API_TOKEN` | Required token for non-GET API calls when set. |
-| `ORCA_WORKER_TOKEN` | Optional heartbeat token for worker callers. |
-| `ORCA_HOST` | Bind interface. Defaults to `127.0.0.1`. |
-| `PORT` | HTTP port. Defaults to `3000`. |
-| `ORCA_MAX_JSON_BYTES` | JSON body limit. Defaults to `262144`. |
-| `ORCA_REPO_ROOTS` | Comma-separated approved repo/workdir roots. |
-| `ORCA_STOP_ESCALATE_MS` | Stop grace period before escalation. |
-| `ORCA_CODEX_*` | Codex binary, allowlist, args, workdir, and install policy. |
-| `ORCA_CLAUDE_*` | Claude binary, allowlist, args, workdir, and install policy. |
-| `ORCA_MCP_TOOL_COMMAND_ALLOWLIST` | Allowed MCP executable names. |
-
-Provider API keys should use OS credential references where available or
-server-side env vars as fallback. Secret values must not be stored in browser
-storage, app state, logs, screenshots, artifacts, exports, service-worker
-cache, route inventory, or MCP config.
-
-## CLI management
-
-- `GET /api/executors/{executor}/cli` reports host CLI binary, version,
-  reinstall command, and source-repo allowlist.
-- `POST /api/executors/{executor}/cli/reinstall` with `{ "approved": true,
-  "execute": false }` returns a dry-run plan.
-- Actual install/update execution requires an approved command, explicit
-  confirmation, audit logging, and user opt-in policy. Never auto-install or
-  auto-update by default.
-
-## Phone access
-
-Use [`docs/tailscale-mobile-access.md`](docs/tailscale-mobile-access.md) for
-the current HTTP-over-Tailscale and HTTPS Serve setup. The app supports both;
-HTTP over Tailscale is the default recommendation for less public hostname
-metadata, while HTTPS Serve is available when secure-context browser features
-matter.
+</details>
