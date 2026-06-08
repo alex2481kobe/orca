@@ -57,6 +57,15 @@ export const auditMethods = {
     if (!this.autoAuditEnabled) return;
     const queued = this.lanes.filter((lane) =>
       lane.auditState === 'queued' && this.isAuditableExecutorLane(lane));
+    if (!queued.length) return;
+    // Index live auditor lanes by their target once (was an O(L^2) nested find).
+    const liveAuditorTargets = new Set();
+    for (const other of this.lanes) {
+      if (other.owner === 'auditor' && other.auditTargetLaneId
+        && !['accepted', 'failed', 'stopped'].includes(String(other.state || '').toLowerCase())) {
+        liveAuditorTargets.add(other.auditTargetLaneId);
+      }
+    }
     for (const lane of queued) {
       const session = this.getSession(lane.sessionId);
       if (!session) continue;
@@ -66,11 +75,7 @@ export const auditMethods = {
       lane.updatedAt = nowIso();
       try {
         if (flow.auditTier === 'separate-auditor') {
-          const existing = this.lanes.find((other) =>
-            other.owner === 'auditor' &&
-            other.auditTargetLaneId === lane.id &&
-            !['accepted', 'failed', 'stopped'].includes(String(other.state || '').toLowerCase()));
-          if (existing) continue;
+          if (liveAuditorTargets.has(lane.id)) continue;
           await this.createLane(session.id, {
             title: `Audit · ${lane.title}`.slice(0, 200),
             taskDescription: `Review the work produced by lane "${lane.title}".`,

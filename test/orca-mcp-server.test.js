@@ -178,3 +178,27 @@ test('Orca MCP server: refusal body (with nextAction envelope) is surfaced as is
   assert.match(result.content[0].text, /nextRequiredTool/);
   assert.match(result.content[0].text, /lane\.heartbeat/);
 });
+
+test('Orca MCP server: a JSON-RPC batch gets a single array response (notifications omitted)', async () => {
+  const firstLine = await new Promise((resolve, reject) => {
+    const child = spawn('node', [serverPath], { env: { ...process.env, ORCA_ROLE: 'orchestrator' }, stdio: ['pipe', 'pipe', 'pipe'] });
+    let buffer = '';
+    child.stdout.on('data', (chunk) => {
+      buffer += chunk.toString();
+      const idx = buffer.indexOf('\n');
+      if (idx >= 0) { child.kill(); resolve(buffer.slice(0, idx).trim()); }
+    });
+    child.on('error', reject);
+    setTimeout(() => { child.kill(); reject(new Error('batch timeout')); }, 8000);
+    // One line: a batch of two requests + one notification (no id).
+    child.stdin.write(`${JSON.stringify([
+      { jsonrpc: '2.0', id: 1, method: 'ping' },
+      { jsonrpc: '2.0', method: 'notifications/initialized' },
+      { jsonrpc: '2.0', id: 2, method: 'ping' },
+    ])}\n`);
+  });
+  const parsed = JSON.parse(firstLine);
+  assert.ok(Array.isArray(parsed), 'batch response must be a single JSON array');
+  assert.equal(parsed.length, 2, 'notification contributes no response');
+  assert.deepEqual(parsed.map((r) => r.id).sort(), [1, 2]);
+});

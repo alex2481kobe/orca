@@ -398,11 +398,14 @@ function hasSpecificToolLeaseAuth(req, requirement) {
   const toolIds = Array.isArray(requirement.toolIds) ? requirement.toolIds : [requirement.toolId];
   for (const toolId of toolIds.filter(Boolean)) {
     try {
-      registry.validateToolLease(token, {
+      const lease = registry.validateToolLease(token, {
         ...requirement,
         toolId,
         toolIds: undefined,
       });
+      // Stash the validated lease so the workflow gate can reuse it for the
+      // ownership check instead of re-hashing + re-scanning toolLeases.
+      req._toolLease = lease;
       return true;
     } catch {
       // Keep checking alternate tool ids for shared routes such as evidence capture.
@@ -474,8 +477,9 @@ function enforceAgentToolStateGate(req, res, parts) {
     // orchestrator, a different orchestrator lease cannot mutate the session.
     const leaseToken = getToolLeaseToken(req);
     if (leaseToken) {
-      let lease = null;
-      try { lease = registry.validateToolLease(leaseToken, { toolId }); } catch { lease = null; }
+      // Reuse the lease validated during auth (hasSpecificToolLeaseAuth) when present.
+      let lease = req._toolLease || null;
+      if (!lease) { try { lease = registry.validateToolLease(leaseToken, { toolId }); } catch { lease = null; } }
       if (lease) {
         const ownerSessionId = requirement.sessionId
           || (requirement.laneId ? registry.getLane(requirement.laneId)?.sessionId : null);

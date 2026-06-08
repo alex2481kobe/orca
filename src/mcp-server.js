@@ -210,18 +210,20 @@ function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
 }
 
+// reply/replyError now BUILD a response object (the caller decides when/how to
+// emit it) so a JSON-RPC batch can be answered with one array, not N lines.
 function reply(id, result) {
-  send({ jsonrpc: '2.0', id, result });
+  return { jsonrpc: '2.0', id, result };
 }
 
 function replyError(id, code, message) {
-  send({ jsonrpc: '2.0', id, error: { code, message } });
+  return { jsonrpc: '2.0', id, error: { code, message } };
 }
 
 async function handle(message) {
   const { id, method, params } = message;
   // Notifications (no id) get no response.
-  if (id === undefined || id === null) return;
+  if (id === undefined || id === null) return null;
 
   switch (method) {
     case 'initialize':
@@ -252,8 +254,19 @@ async function handle(message) {
   }
 }
 
+async function handleAndCatch(message) {
+  try {
+    return await handle(message);
+  } catch (error) {
+    if (message?.id !== undefined && message?.id !== null) {
+      return replyError(message.id, -32603, `Internal error: ${error?.message || error}`);
+    }
+    return null;
+  }
+}
+
 const rl = readline.createInterface({ input: process.stdin });
-rl.on('line', (line) => {
+rl.on('line', async (line) => {
   const trimmed = line.trim();
   if (!trimmed) return;
   let message;
@@ -262,14 +275,14 @@ rl.on('line', (line) => {
   } catch {
     return; // ignore non-JSON lines
   }
-  // JSON-RPC batch: an array of requests. Each is handled independently and its
-  // response written on its own line (clients correlate by id).
-  const messages = Array.isArray(message) ? message : [message];
-  for (const entry of messages) {
-    Promise.resolve(handle(entry)).catch((error) => {
-      if (entry?.id !== undefined && entry?.id !== null) {
-        replyError(entry.id, -32603, `Internal error: ${error?.message || error}`);
-      }
-    });
+  // JSON-RPC batch: an array of requests gets ONE array response (notifications
+  // contribute nothing). A single request gets a single response.
+  if (Array.isArray(message)) {
+    if (!message.length) return; // empty batch — ignore
+    const responses = (await Promise.all(message.map(handleAndCatch))).filter((r) => r != null);
+    if (responses.length) send(responses);
+    return;
   }
+  const response = await handleAndCatch(message);
+  if (response != null) send(response);
 });

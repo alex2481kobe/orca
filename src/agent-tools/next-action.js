@@ -118,6 +118,11 @@ export function buildNextActionEnvelope(registry, {
   projectId = null,
   sessionId = null,
   laneId = null,
+  // lean omits the heavy discovery fields (executor capability matrix +
+  // mcpToolsByExecutor) — those can shell out to CLIs on a cold cache. Callers
+  // that only need flow/nextRequiredTool (e.g. orchestrator.status, often polled)
+  // pass lean:true. The flow/state fields are identical either way.
+  lean = false,
 } = {}) {
   const normalizedRole = normalizeRole(role);
   const projects = typeof registry?.listProjects === 'function' ? registry.listProjects() : [];
@@ -200,10 +205,10 @@ export function buildNextActionEnvelope(registry, {
     auditSatisfied: auditRequired ? auditSatisfied : true,
     flow,
     capacity: buildCapacity(registry, session),
-    executorCapabilities: typeof registry?.getExecutorCapabilitiesMatrix === 'function'
+    executorCapabilities: (!lean && typeof registry?.getExecutorCapabilitiesMatrix === 'function')
       ? registry.getExecutorCapabilitiesMatrix()
       : {},
-    mcpToolsByExecutor: buildMcpToolsByExecutor(registry),
+    mcpToolsByExecutor: lean ? {} : buildMcpToolsByExecutor(registry),
     links: buildLinks({ project, session, lane }),
   };
 }

@@ -280,6 +280,7 @@ export const orchestratorMethods = {
       role: 'orchestrator',
       projectId: session.projectId,
       sessionId: session.id,
+      lean: true, // status is polled; skip the heavy capability matrix
     });
     const tree = renderLaneTree({ name: session.name }, lanes, { backlog: backlog || undefined });
     return clonePayload({

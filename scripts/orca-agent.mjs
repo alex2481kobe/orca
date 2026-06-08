@@ -39,12 +39,18 @@
  */
 
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { roleInstructions } from '../src/agent-tools.js';
 
 const BASE = String(process.env.ORCA_AGENT_TOOLS_BASE_URL || 'http://127.0.0.1:3000').replace(/\/$/, '');
 const API_TOKEN = String(process.env.ORCA_API_TOKEN || '');
-const LEASE_CACHE = path.join(process.cwd(), '.orca', 'agent-lease.json');
+// Cache leases in a STABLE per-user location keyed by base URL — never in the
+// current working directory (which may not be gitignored and varies per call).
+const LEASE_CACHE = path.join(os.homedir(), '.orca', 'agent-leases.json');
+// Auto-provisioned leases are short-lived to limit blast radius if the cache file
+// leaks; rerun any command to silently re-mint when it expires.
+const AUTO_BOOTSTRAP_TTL_MS = 2 * 60 * 60 * 1000;
 let LEASE = String(process.env.ORCA_TOOL_LEASE_TOKEN || '');
 
 function die(msg, code = 1) { console.error(`orca-agent: ${msg}`); process.exit(code); }
@@ -63,24 +69,33 @@ async function adminPost(path, body) {
 
 // Resolve a lease without ceremony: env override -> cached lease -> auto-bootstrap
 // (admin/loopback) and cache it. The cache lives in .orca/ (gitignored) at 0600.
+async function readLeaseCache() {
+  try {
+    const parsed = JSON.parse(await fs.readFile(LEASE_CACHE, 'utf8'));
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch { return {}; }
+}
+
 async function ensureLease() {
   if (LEASE) return LEASE;
-  try {
-    const cached = JSON.parse(await fs.readFile(LEASE_CACHE, 'utf8'));
-    if (cached.baseUrl === BASE && cached.leaseToken
-      && (!cached.expiresAt || Date.parse(cached.expiresAt) > Date.now() + 30000)) {
-      LEASE = cached.leaseToken;
-      return LEASE;
-    }
-  } catch { /* no/invalid cache */ }
-  const r = await adminPost('/api/mcp/orchestrator-bootstrap', {});
+  const cache = await readLeaseCache();
+  const entry = cache[BASE];
+  if (entry && entry.leaseToken && (!entry.expiresAt || Date.parse(entry.expiresAt) > Date.now() + 30000)) {
+    LEASE = entry.leaseToken;
+    return LEASE;
+  }
+  const r = await adminPost('/api/mcp/orchestrator-bootstrap', { ttlMs: AUTO_BOOTSTRAP_TTL_MS });
   if (!r.ok || !r.data?.leaseToken) {
     die(`could not auto-provision a lease (${r.status}). On a hardened or remote Orca, set ORCA_TOOL_LEASE_TOKEN, or ORCA_API_TOKEN to bootstrap. ${r.data?.error || ''}`.trim(), 2);
   }
   LEASE = r.data.leaseToken;
+  // Update the per-baseUrl entry and write atomically (temp + rename, 0600).
+  cache[BASE] = { leaseToken: LEASE, expiresAt: r.data.lease?.expiresAt || null };
   try {
     await fs.mkdir(path.dirname(LEASE_CACHE), { recursive: true });
-    await fs.writeFile(LEASE_CACHE, JSON.stringify({ leaseToken: LEASE, expiresAt: r.data.lease?.expiresAt || null, baseUrl: BASE }), { mode: 0o600 });
+    const tmp = `${LEASE_CACHE}.tmp-${process.pid}`;
+    await fs.writeFile(tmp, JSON.stringify(cache), { mode: 0o600 });
+    await fs.rename(tmp, LEASE_CACHE);
   } catch { /* cache is best-effort */ }
   return LEASE;
 }
