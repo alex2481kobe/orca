@@ -602,7 +602,7 @@ document.addEventListener('click', async (event) => {
     return;
   }
 
-  if (['refresh', 'auditDone'].includes(action)) {
+  if (action === 'auditDone') {
     await handleSessionActions({ currentTarget: actionTarget });
     return;
   }
@@ -640,7 +640,6 @@ document.addEventListener('click', async (event) => {
     // did nothing. Wire them up.
     'approveApproval',
     'denyApproval',
-    'saveSessionPlan',
     'pickAttachment',
     'removeAttachment',
     'setupCapture',

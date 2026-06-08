@@ -7,13 +7,9 @@ import { api } from './api.js';
 
 export async function handleSessionActions(event) {
   const action = event.currentTarget.dataset.action;
-  if (action === 'refresh') {
-    await refresh();
-    return;
-  }
   if (action === 'auditDone') {
     const sessionId = event.currentTarget.dataset.sessionId;
-    const approved = await confirmHighRiskAction('Queue audit for finished lanes in this session?', 'auditDoneLanes');
+    const approved = await confirmHighRiskAction('Audit all completed lanes in this session?', 'auditDoneLanes');
     if (!approved) {
       renderAlert('Session audit request canceled.');
       return;

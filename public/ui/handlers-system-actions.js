@@ -124,23 +124,6 @@ export async function handleSystemActions(event) {
     }
     return;
   }
-  if (action === 'saveSessionPlan') {
-    const form = document.getElementById('session-plan-form');
-    const sessionId = form?.dataset.sessionId;
-    const goal = form?.querySelector('[name="goal"]')?.value || '';
-    const plan = form?.querySelector('[name="plan"]')?.value || '';
-    const response = await api(`/api/sessions/${sessionId}/plan`, {
-      method: 'POST',
-      body: { actor: 'dashboard', goal, plan },
-    });
-    if (response.ok) {
-      renderAlert('Goal & plan saved.');
-      await refresh();
-    } else {
-      renderAlert(response.data?.error || 'Could not save plan.', 'bad');
-    }
-    return;
-  }
   if (action === 'approveApproval' || action === 'denyApproval') {
     const laneId = event.currentTarget.dataset.laneId;
     const approvalId = event.currentTarget.dataset.approvalId;

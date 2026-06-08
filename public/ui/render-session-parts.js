@@ -268,26 +268,10 @@ export function renderExecutorSidePanel(session) {
       </div>
       <div class="info-panel-body">
         <section class="info-section">
-          <h4 class="info-title">Goal &amp; plan</h4>
-          <form id="session-plan-form" data-session-id="${safeAttr(session.id)}">
-            <label>Goal
-              <input name="goal" value="${safeAttr(session.goal || '')}" placeholder="What are we trying to achieve?" />
-            </label>
-            <label>Plan
-              <textarea name="plan" rows="3" placeholder="Steps / approach">${safeText(session.plan || '')}</textarea>
-            </label>
-            <button class="secondary" data-action="saveSessionPlan" type="button">Save</button>
-          </form>
-        </section>
-
-        <section class="info-section">
-          <h4 class="info-title">Executors <span class="info-count">${safeText(executorLanes.length)}</span></h4>
+          <h4 class="info-title">Executor lanes <span class="info-count">${safeText(executorLanes.length)}</span></h4>
           <div class="executor-panel-list" id="executor-list-${safeAttr(session.id)}"></div>
-        </section>
-
-        <section class="info-section">
           <details class="info-disclosure">
-            <summary><span class="info-title">New lane</span><span class="info-disclosure-add">+</span></summary>
+            <summary><span class="info-disclosure-add">+</span><span>New executor lane</span></summary>
           <form id="create-lane-form" data-session-id="${safeAttr(session.id)}">
             <label>Title
               <input name="title" required placeholder="What should this lane do?" />
@@ -341,16 +325,16 @@ export function renderExecutorSidePanel(session) {
                 <input type="hidden" name="mcpToolIdsRaw" />
               </div>
             </details>
-            <button type="submit">Queue lane</button>
+            <button type="submit">Create lane</button>
           </form>
           </details>
         </section>
 
         <section class="info-section">
-          <h4 class="info-title">Tools</h4>
+          <h4 class="info-title">Audit</h4>
+          <p class="tiny muted">Hand finished executor lanes to the auditor for review.</p>
           <div class="info-tools">
-            <button class="secondary" data-action="auditDone" data-session-id="${safeAttr(session.id)}" type="button">Audit done lanes${pendingAudits.length ? ` (${pendingAudits.length})` : ''}</button>
-            <button class="secondary" data-action="refresh" type="button">Refresh</button>
+            <button class="secondary" data-action="auditDone" data-session-id="${safeAttr(session.id)}" type="button">Audit completed lanes${pendingAudits.length ? ` (${pendingAudits.length})` : ''}</button>
           </div>
         </section>
       </div>
