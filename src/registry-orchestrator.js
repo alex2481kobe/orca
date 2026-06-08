@@ -333,8 +333,15 @@ export const orchestratorMethods = {
     if (requested && supported.includes(requested)) return requested;
     const leader = normalizeExecutorType(session?.leader);
     if (leader && supported.includes(leader) && leader !== 'mock') return leader;
-    // Prefer the first INSTALLED first-class CLI rather than blindly defaulting to
-    // codex (which may not be installed); fall back to codex, then mock.
+    // Prefer claude for the orchestrator turn when no explicit/leader choice:
+    // it's the only headless CLI that can drive Orca's MCP tools (approvals route
+    // through --permission-prompt-tool). codex `exec` cancels MCP tool calls under
+    // any sandbox, so it can't orchestrate Orca tools — an explicit codex choice
+    // above still wins, but the auto default should be the one that works.
+    if (supported.includes('claude')) {
+      try { if (this.getExecutorCapabilities('claude')?.binaryExists) return 'claude'; } catch { /* fall through */ }
+    }
+    // Otherwise the first INSTALLED first-class CLI; fall back to codex, then mock.
     for (const type of FIRST_CLASS_CLI_EXECUTOR_TYPES) {
       if (!supported.includes(type)) continue;
       try { if (this.getExecutorCapabilities(type)?.binaryExists) return type; } catch { /* keep looking */ }

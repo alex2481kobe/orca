@@ -9,6 +9,15 @@ The orchestrator owns project/session direction, lane decomposition, tool
 selection, progress review, and handoff quality. It does not directly bypass
 Orca policy gates.
 
+> **Executor note:** the in-app orchestrator *turn* (a headless lane Orca spawns
+> for a session chat) defaults to **claude**, because claude's headless mode can
+> drive Orca's MCP tools (approvals route through `--permission-prompt-tool`).
+> Headless **`codex exec` cannot call MCP tools under a sandbox** (it cancels
+> them unless run with full, unsandboxed access), so codex is best used as an
+> *executor* doing scoped code work — not as the headless orchestrator. External
+> interactive MCP clients (the Codex app, Claude Desktop, Claude Code CLI) are
+> unaffected: they approve tool calls interactively and can orchestrate fully.
+
 ## Required behavior
 
 - Read the current project, session, and lane state before assigning work.

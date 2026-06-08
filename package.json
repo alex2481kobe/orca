@@ -63,6 +63,7 @@
     "smoke:mcp-flow": "node scripts/mcp-flow-smoke.mjs",
     "smoke:mcp-backlog-flow": "node scripts/mcp-backlog-flow-smoke.mjs",
     "smoke:mcp-cli-handshake": "node scripts/mcp-cli-handshake-smoke.mjs",
+    "smoke:real-executor": "node scripts/real-executor-smoke.mjs",
     "smoke:pwa-cache": "node scripts/pwa-cache-smoke.mjs",
     "smoke:providers": "node scripts/provider-smoke.mjs",
     "smoke:api-provider": "node scripts/api-provider-smoke.mjs",

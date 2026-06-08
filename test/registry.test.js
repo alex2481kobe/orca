@@ -1865,7 +1865,11 @@ test('buildExecutorCommandArgs derives safe argv from lane task prompt', async (
   assert.deepEqual(codexArgs.slice(0, 2), ['exec', '--json']);
   assert.ok(codexArgs.includes('--model'));
   assert.ok(codexArgs.includes('gpt-5'));
-  assert.ok(codexArgs.includes('--full-auto'));
+  // --full-auto is deprecated; force/auto-edit maps to --sandbox workspace-write.
+  assert.ok(!codexArgs.includes('--full-auto'), 'codex must not use the deprecated --full-auto flag');
+  assert.ok(codexArgs.includes('--sandbox'));
+  assert.ok(codexArgs.includes('workspace-write'));
+  assert.ok(codexArgs.includes('--skip-git-repo-check'));
   // codex has NO --mcp-config flag (Claude-only); MCP is wired via -c overrides.
   assert.ok(!codexArgs.includes('--mcp-config'), 'codex must not use the invalid --mcp-config flag');
   assert.ok(codexArgs.includes('-c'));

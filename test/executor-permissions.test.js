@@ -6,8 +6,11 @@ import { buildExecutorCommandArgs } from '../src/executor-factory.js';
 const lane = (permissions) => ({ taskPrompt: 'do x', permissionsProfile: permissions, mcpConfigPath: '/tmp/m.json' });
 
 test('codex sandbox governance maps from lane permissions', () => {
+  // --full-auto is deprecated (codex 0.134+) -> force/auto maps to workspace-write.
   const force = buildExecutorCommandArgs('codex', lane('bypass'));
-  assert.ok(force.includes('--full-auto'));
+  assert.ok(!force.includes('--full-auto'), 'must not use deprecated --full-auto');
+  assert.ok(force.includes('--sandbox') && force.includes('workspace-write'));
+  assert.ok(force.includes('--skip-git-repo-check'));
 
   const plan = buildExecutorCommandArgs('codex', lane('plan'));
   assert.ok(plan.includes('--sandbox') && plan.includes('read-only'));

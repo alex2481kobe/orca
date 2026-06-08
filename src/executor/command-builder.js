@@ -56,11 +56,14 @@ export function buildExecutorCommandArgs(label, lane, options = {}) {
       // Speed (terminal "/fast") -> the fast_mode feature flag.
       if (String(lane.speed || '').trim().toLowerCase() === 'fast') out.push('--config', 'features.fast_mode=true');
       // codex exec is non-interactive; governance is by sandbox policy.
-      // force -> full-auto, plan/ask -> read-only, other governed modes ->
-      // workspace-write (edit the workspace, no network/system escape).
-      if (isForceMode(permissions)) out.push('--full-auto');
-      else if (isPlanMode(permissions)) out.push('--sandbox', 'read-only');
-      else if (permissions) out.push('--sandbox', 'workspace-write');
+      // (--full-auto is deprecated in codex 0.134+ in favor of --sandbox
+      // workspace-write.) plan/ask -> read-only; everything else -> workspace-write
+      // (edit the workspace, no network/system escape).
+      if (isPlanMode(permissions)) out.push('--sandbox', 'read-only');
+      else out.push('--sandbox', 'workspace-write');
+      // Run in non-git session folders and fresh per-lane worktrees without the
+      // interactive "not a trusted git repo" refusal.
+      out.push('--skip-git-repo-check');
       // Codex has NO `--mcp-config` flag (that's Claude-only); passing it makes
       // `codex exec` exit 2. Configure MCP servers via `-c mcp_servers.<name>.*`
       // config overrides instead, which keep the user's default ~/.codex auth.
