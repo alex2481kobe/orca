@@ -111,6 +111,8 @@ async function flows(page, mobile) {
     const url = page.url();
     out.newSessionRightProject = url.includes(`/projects/${project.slug}/`) && /draft-/.test(url);
     out.newSessionNoPersist = (await sessionsOf(project.id)).length === sessAt.length;
+    // On mobile, a new chat should land you on the chat with the drawer closed.
+    if (mobile) out.newSessionClosesDrawer = !(await page.evaluate(() => document.body.classList.contains('nav-open')));
   }
   // 2. Rename project (prompt → approve) → server reflects.
   {

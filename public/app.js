@@ -519,6 +519,10 @@ document.addEventListener('click', async (event) => {
 
   if (action === 'newSession') {
     await handleNewSession({ currentTarget: actionTarget });
+    // Right UX: a new chat navigates to the draft, so close the mobile drawer (and
+    // any row menu) — land the user on the new chat, not the project list.
+    closeMobileNavPanel();
+    closeRowMenu();
     return;
   }
   if (action === 'newProject') {
