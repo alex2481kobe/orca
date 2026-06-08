@@ -86,6 +86,38 @@ and review screenshots — from the couch.
 Setup is in [`docs/tailscale-mobile-access.md`](docs/tailscale-mobile-access.md).
 Tailscale Funnel (public exposure) is intentionally not supported.
 
+## Drive it from your AI chat (MCP)
+
+Don't want a terminal open per project? Point one chat — **Claude Code CLI, the
+Codex app, or Claude Desktop** — at Orca over MCP and let it orchestrate everything.
+
+1. On the workstation, generate a scoped orchestrator config (dashboard →
+   **Pair → Generate config**, or `POST /api/mcp/orchestrator-bootstrap`). It mints a
+   short-lived orchestrator **tool lease** (never your API token) and prints a
+   ready-to-run command. For Claude Code:
+
+   ```bash
+   claude mcp add orca \
+     -e ORCA_AGENT_TOOLS_BASE_URL=http://127.0.0.1:3000 \
+     -e ORCA_TOOL_LEASE_TOKEN=<scoped-lease-token> \
+     -e ORCA_ROLE=orchestrator \
+     -- node /abs/path/to/src/mcp-server.js
+   ```
+
+   (Codex CLI: `codex mcp add orca --env … -- node …`. Claude Desktop / Codex app:
+   paste the generated JSON / TOML. Orca isn't on npm — the config uses an absolute
+   `node` + `mcp-server.js` path, so no source checkout is needed.)
+
+2. In the chat, tell it to act as the orchestrator. It will `session__next_action`,
+   `orchestrator__enroll` to claim the session, load a backlog with `task__bulk_add`,
+   and — with `spawnPolicy:"auto"` — Orca fans those tasks out across executor lanes
+   up to capacity, refilling as they finish and running each through
+   executor → critique → audit → accepted. Ask it to *"show me the lanes"* and
+   `orchestrator__status` returns a live tree. `orchestrator__resign` hands off.
+
+The server enforces the workflow with `nextAction` envelopes, so the chat can't skip
+steps. See [`docs/desktop-app-control.md`](docs/desktop-app-control.md).
+
 ## How it works
 
 ```text
@@ -143,6 +175,7 @@ See [`SECURITY.md`](SECURITY.md) to report issues.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) · [`SECURITY.md`](SECURITY.md) · [`SUPPORT.md`](SUPPORT.md)
 - [Tailscale mobile access](docs/tailscale-mobile-access.md)
 - [Agent orchestrator / executor skills](docs/agent-orchestrator-skill.md)
+- [Control Orca from a chat (MCP)](docs/desktop-app-control.md) · [Companion mode (drive Orca from any agent)](docs/agent-companion-mode.md)
 - [Live project links](docs/live-project-links.md)
 
 ## License

@@ -18,7 +18,7 @@
 //   ORCA_LANE_ID / ORCA_SESSION_ID / ORCA_PROJECT_ID - default path params
 
 import readline from 'node:readline';
-import { TOOL_DEFINITIONS, normalizeRole } from './agent-tools.js';
+import { TOOL_DEFINITIONS, normalizeRole, CONTRACT_VERSION } from './agent-tools.js';
 
 const BASE_URL = String(process.env.ORCA_AGENT_TOOLS_BASE_URL || 'http://127.0.0.1:3000').replace(/\/$/, '');
 const LEASE_TOKEN = String(process.env.ORCA_TOOL_LEASE_TOKEN || '');
@@ -49,12 +49,16 @@ const ROLE_INSTRUCTIONS = {
   orchestrator:
     'You are acting as the Orca ORCHESTRATOR. You own project/session direction, lane decomposition, '
     + 'tool selection, progress review, and handoff quality. You must not bypass Orca policy gates.\n'
-    + 'Always: (1) call session__next_action FIRST and obey its returned envelope — it names the only legal next tool; '
-    + '(2) read session__describe and executor__capabilities before assigning work or spawning lanes; '
-    + '(3) create a lane (lane__create) only when work is scoped, reviewable, and within capacity, with exactly one owner and a named reviewer; '
-    + '(4) respond to executor approval requests via approval__list / approval__respond; '
-    + '(5) require evidence (evidence__capture_screenshot / evidence__list) for UI/browser/artifact changes before acceptance; '
-    + '(6) use audit/critique tools to verify completed lanes — never treat an executor summary as final. '
+    + 'Getting started: (0) call session__next_action FIRST to see the current session, then orchestrator__enroll '
+    + '{ sessionId } to become this session\'s active orchestrator (orchestrator__resign hands off; orchestrator__status '
+    + 'shows the lane tree + backlog — your "what is happening" view, call it whenever you need the picture). '
+    + 'If you have no session yet, project__list then session__create one (set spawnPolicy:"auto" to let the backlog fan out automatically). '
+    + 'Then: (1) load work with task__bulk_add (a durable backlog) or session__plan__update (free-text goal); '
+    + '(2) read executor__capabilities before assigning work; with spawnPolicy:"auto" Orca creates executor lanes from pending tasks up to capacity and refills as they finish — otherwise create them yourself with lane__create; '
+    + '(3) respond to executor approval requests via approval__list / approval__respond; '
+    + '(4) require evidence (evidence__capture_screenshot / evidence__list) for UI/browser/artifact changes before acceptance; '
+    + '(5) verify completed lanes with audit/critique tools — never treat an executor summary as final; '
+    + '(6) watch backlog__status / orchestrator__status until the backlog is complete, then orchestrator__resign. '
     + 'The server returns a nextAction envelope on any out-of-order or disallowed call; follow it rather than retrying blindly.',
   executor:
     'You are acting as an Orca EXECUTOR for a single lane. Call session__next_action FIRST and obey the envelope. '
@@ -248,7 +252,7 @@ async function handle(message) {
       return reply(id, {
         protocolVersion: params?.protocolVersion || SERVER_PROTOCOL_VERSION,
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: 'orca', version: '0.1.0' },
+        serverInfo: { name: 'orca', version: '0.1.0', contractVersion: CONTRACT_VERSION },
         instructions: instructionsForRole(),
       });
     case 'ping':
@@ -282,9 +286,14 @@ rl.on('line', (line) => {
   } catch {
     return; // ignore non-JSON lines
   }
-  Promise.resolve(handle(message)).catch((error) => {
-    if (message?.id !== undefined && message?.id !== null) {
-      replyError(message.id, -32603, `Internal error: ${error?.message || error}`);
-    }
-  });
+  // JSON-RPC batch: an array of requests. Each is handled independently and its
+  // response written on its own line (clients correlate by id).
+  const messages = Array.isArray(message) ? message : [message];
+  for (const entry of messages) {
+    Promise.resolve(handle(entry)).catch((error) => {
+      if (entry?.id !== undefined && entry?.id !== null) {
+        replyError(entry.id, -32603, `Internal error: ${error?.message || error}`);
+      }
+    });
+  }
 });
