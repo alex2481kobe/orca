@@ -311,7 +311,10 @@ export const laneOpsMethods = {
       };
     }
 
-    if (![FAILED_STATE, STOPPED_STATE, FIX_REQUESTED_STATE].includes(lane.state)) {
+    // Blocked lanes are retryable too — a deliberate "reset & retry" after the
+    // operator has addressed why the auditor blocked it (retryLane clears the
+    // audit/critique state below).
+    if (![FAILED_STATE, STOPPED_STATE, FIX_REQUESTED_STATE, BLOCKED_STATE].includes(lane.state)) {
       throw { status: 409, message: `Lane state "${lane.state}" is not retryable.` };
     }
     this.clearLaneExecutor(lane.id);

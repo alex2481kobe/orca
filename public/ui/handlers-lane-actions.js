@@ -1,7 +1,7 @@
 // Split from handlers-actions.js.
 
 import { refresh, showArtifacts } from './controller.js';
-import { confirmDialog } from './dialog.js';
+import { confirmDialog, promptDialog } from './dialog.js';
 import { confirmHighRiskAction, isLiveLaneState } from './render-helpers.js';
 import { api } from './api.js';
 import { renderAlert } from './dom.js';
@@ -79,6 +79,45 @@ export async function handleLaneActions(event) {
     } else {
       renderAlert(restarted.data?.error || 'Could not restart lane.', 'bad');
     }
+    return;
+  }
+  if (action === 'markCritiqueDone') {
+    const ok = await confirmDialog('Mark self-review complete? The lane moves on to audit.');
+    if (!ok) { renderAlert('Self-review canceled.'); return; }
+    // A critique bundle issues the current nonce; record a ready finding against it.
+    const bundle = await api(`/api/lanes/${laneId}/critique/bundle`, {
+      method: 'POST', body: { actor: 'dashboard' },
+    });
+    if (!bundle.ok || !bundle.data?.critiqueNonce) {
+      renderAlert(bundle.data?.error || 'Could not start self-review.', 'bad');
+      return;
+    }
+    const response = await api(`/api/lanes/${laneId}/critique/findings`, {
+      method: 'POST',
+      body: {
+        actor: 'dashboard',
+        critiqueNonce: bundle.data.critiqueNonce,
+        ready: true,
+        visualEvidenceReviewed: true,
+        checksRun: ['Manual self-review from dashboard'],
+      },
+    });
+    if (response.ok) { renderAlert('Self-review complete — ready for audit.'); await refresh(); }
+    else { renderAlert(response.data?.error || 'Could not complete self-review.', 'bad'); }
+    return;
+  }
+  if (action === 'waiveCritique') {
+    const reason = await promptDialog('Reason for waiving self-review:');
+    if (reason === null) { renderAlert('Waiver canceled.'); return; }
+    const trimmed = String(reason || '').trim();
+    if (!trimmed) { renderAlert('A reason is required to waive self-review.', 'bad'); return; }
+    const approved = await confirmHighRiskAction('Waive the self-review gate for this lane?', 'waiveCritique');
+    if (!approved) { renderAlert('Waiver canceled.'); return; }
+    const response = await api(`/api/lanes/${laneId}/critique/waive`, {
+      method: 'POST', body: { actor: 'dashboard', approved, reason: trimmed },
+    });
+    if (response.ok) { renderAlert('Self-review waived — ready for audit.'); await refresh(); }
+    else { renderAlert(response.data?.error || 'Could not waive self-review.', 'bad'); }
     return;
   }
   const routeMap = {

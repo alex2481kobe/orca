@@ -67,6 +67,15 @@ export function renderLane(project, session, lane) {
           <button class="secondary" data-action="auditLane" data-lane-id="${safeAttr(lane.id)}" type="button">${auditLabel}</button>
         </div>
       </div>
+      ${lane.state === 'needs_critique' ? `
+      <div class="card">
+        <div class="card-kicker">Self-review required</div>
+        <p class="tiny muted">This lane finished but needs a self-review before it can go to audit.${lane.critiqueMode === 'visual-required' ? ' Capture a screenshot first, or waive.' : ''}</p>
+        <div class="lane-row">
+          <button data-action="markCritiqueDone" data-lane-id="${safeAttr(lane.id)}" type="button">Mark self-review complete</button>
+          <button class="secondary" data-action="waiveCritique" data-lane-id="${safeAttr(lane.id)}" type="button">Waive review</button>
+        </div>
+      </div>` : ''}
       <details class="disclosure card">
         <summary>
           <span>Details</span>

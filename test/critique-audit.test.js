@@ -258,3 +258,16 @@ test('audit fix and block transitions are explicit and retryable where safe', as
     assert.equal(blocked.lane.auditState, 'blocked');
   });
 });
+
+test('a blocked lane can be reset and retried (no dead end)', async () => {
+  await withRegistry(async (registry) => {
+    const { lane } = createProjectSessionLane(registry);
+    registry.markLaneCompleted(registry.getLane(lane.id));
+    registry.blockLaneAudit(lane.id, { actor: 'auditor', reason: 'Out of scope; needs human direction.' });
+    assert.equal(registry.getLane(lane.id).state, 'blocked');
+    // Previously blocked was not retryable -> a true dead end. Now it resets.
+    const retried = registry.retryLane(lane.id, { actor: 'dashboard', approved: true });
+    assert.equal(retried.state, 'queued');
+    assert.equal(retried.auditState, 'not_queued');
+  });
+});

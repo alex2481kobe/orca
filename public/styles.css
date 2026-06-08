@@ -1443,6 +1443,15 @@ body.sidebar-collapsed .sidebar-project-line {
 .auditor-lane-row { align-items: center; display: flex; gap: var(--space-2); justify-content: space-between; }
 .auditor-lane-link { color: var(--text); font-size: 0.84rem; overflow: hidden; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
 @media (hover: hover) { .auditor-lane-link:hover { text-decoration: underline; } }
+/* Project quick-link rows: name + health + check/remove controls. */
+.quick-link-row { align-items: center; display: flex; flex-wrap: wrap; gap: var(--space-2); width: 100%; }
+.quick-link-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quick-link-health { flex: 0 0 auto; }
+.quick-link-btn {
+  background: var(--panel-soft); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  color: var(--muted); cursor: pointer; flex: 0 0 auto; font-size: 0.74rem; min-height: 28px; padding: 0.2rem 0.55rem;
+}
+@media (hover: hover) { .quick-link-btn:hover { background: var(--hover); color: var(--text); } }
 
 .lane-controls-form {
   display: grid;

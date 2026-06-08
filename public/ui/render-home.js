@@ -221,7 +221,13 @@ export function renderHome() {
       .filter((quick) => !quick.hidden)
       .map((quick) => {
         const url = clientUrl(effectiveProjectQuickLinkUrl(quick));
-        return `<div><a href="${safeHref(url)}" target="_blank" rel="noopener noreferrer">${safeText(quick.label)}</a></div>`;
+        const health = quick.healthStatus ? `<span class="tiny muted quick-link-health">${safeText(quick.healthStatus)}</span>` : '';
+        return `<div class="quick-link-row">
+          <a class="quick-link-name" href="${safeHref(url)}" target="_blank" rel="noopener noreferrer">${safeText(quick.label)}</a>
+          ${health}
+          <button class="quick-link-btn" data-action="checkProjectQuickLink" data-project-id="${safeAttr(project.id)}" data-link-id="${safeAttr(quick.id)}" type="button" title="Check this link" aria-label="Check link">Check</button>
+          <button class="quick-link-btn" data-action="deleteProjectQuickLink" data-project-id="${safeAttr(project.id)}" data-link-id="${safeAttr(quick.id)}" type="button" title="Remove this link" aria-label="Remove link">Remove</button>
+        </div>`;
       }).join('');
     return `
       <article class="card click-card project-card" data-href="${safeAttr(project.route)}" tabindex="0" role="link" aria-label="Open ${safeAttr(project.name)} project">
