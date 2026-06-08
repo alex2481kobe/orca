@@ -262,9 +262,14 @@ export function renderExecutorSidePanel(session) {
     <aside class="info-panel" aria-label="Session info">
       <div class="info-panel-head">
         <strong>Session</strong>
-        <button class="info-close" data-action="toggleExecutorPanel" type="button" aria-label="Close panel">
-          ${icon('close', { size: 15 })}
-        </button>
+        <div class="info-panel-head-actions">
+          <button class="info-close" data-action="openSessionSettings" data-session-id="${safeAttr(session.id)}" data-session-name="${safeAttr(session.name || '')}" type="button" aria-label="Session settings" title="Session settings">
+            ${icon('settings', { size: 16 })}
+          </button>
+          <button class="info-close" data-action="toggleExecutorPanel" type="button" aria-label="Close panel">
+            ${icon('close', { size: 15 })}
+          </button>
+        </div>
       </div>
       <div class="info-panel-body">
         <section class="info-section">

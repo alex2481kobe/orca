@@ -21,6 +21,8 @@ const STROKE_ICONS = {
   'panel-right': { vb: '0 0 20 20', sw: 1.5, inner: '<rect x="2.5" y="3.5" width="15" height="13" rx="2.2"/><path d="M12.5 3.5v13"/>' },
   'folder-rounded': { vb: '0 0 24 24', sw: 1.6, inner: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2.2h6a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/>' },
   more: { vb: '0 0 20 20', sw: 0, inner: '<circle cx="4.5" cy="10" r="1.4" fill="currentColor"/><circle cx="10" cy="10" r="1.4" fill="currentColor"/><circle cx="15.5" cy="10" r="1.4" fill="currentColor"/>' },
+  // Settings as control sliders (reads as "configure", lighter than a cog).
+  settings: { vb: '0 0 20 20', sw: 1.7, inner: '<path d="M3 6.5h6M13 6.5h4M3 13.5h2M9 13.5h8"/><circle cx="11" cy="6.5" r="2"/><circle cx="7" cy="13.5" r="2"/>' },
 };
 
 export function icon(name, { cls = '', size = 16 } = {}) {

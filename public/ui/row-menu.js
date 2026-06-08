@@ -40,12 +40,14 @@ function itemsFor(dataset) {
     const data = `data-project-id="${safeAttr(dataset.projectId)}" data-project-name="${safeAttr(dataset.projectName || '')}"`;
     return [
       { label: 'New session', action: 'newSession', data: `data-project-id="${safeAttr(dataset.projectId)}"` },
+      { label: 'Project settings', action: 'openProjectSettings', data },
       { label: 'Rename project', action: 'renameProject', data },
       { label: 'Archive project', action: 'archiveProject', data, danger: true },
     ];
   }
   const data = `data-session-id="${safeAttr(dataset.sessionId)}" data-session-name="${safeAttr(dataset.sessionName || '')}"`;
   return [
+    { label: 'Session settings', action: 'openSessionSettings', data },
     { label: 'Rename', action: 'renameSession', data },
     { label: 'Archive chat', action: 'archiveSession', data, danger: true },
   ];

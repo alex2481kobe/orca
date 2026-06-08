@@ -2746,6 +2746,23 @@ button.home-cta { cursor: pointer; font: inherit; }
 .modal-confirm.danger { background: var(--danger); color: var(--ink-on-light); }
 @media (hover: hover) { .modal-confirm.danger:hover { background: color-mix(in srgb, var(--danger) 82%, #fff); } }
 
+/* Scoped project/session settings modal (settings-dialog.js). Reuses the modal
+   chrome with a wider, scrollable body of grouped fields. */
+.info-panel-head-actions { align-items: center; display: flex; gap: var(--space-1); }
+.modal.modal-wide { max-width: 540px; }
+.settings-modal { gap: var(--space-4); }
+.settings-modal-head { display: flex; flex-direction: column; gap: 2px; }
+.settings-modal-sub { color: var(--muted); font-size: 0.8rem; margin: 0; }
+.settings-modal-body { display: flex; flex-direction: column; gap: var(--space-5); max-height: 60vh; overflow-y: auto; padding-right: 0.2rem; }
+.settings-section { display: flex; flex-direction: column; gap: var(--space-3); }
+.settings-section-title { color: var(--muted); font-size: 0.7rem; letter-spacing: 0.07em; margin: 0; text-transform: uppercase; }
+.settings-field { display: flex; flex-direction: column; gap: 0.2rem; }
+.settings-field-label { font-size: 0.85rem; }
+.settings-field-hint { color: var(--muted); display: block; font-size: 0.75rem; line-height: 1.35; }
+.settings-field-row { align-items: flex-start; display: flex; flex-direction: row; gap: var(--space-2); }
+.settings-field-row input { flex: 0 0 auto; margin-top: 0.15rem; }
+.settings-field-row > span { display: flex; flex-direction: column; gap: 1px; }
+
 /* ===== Home welcome (empty state when no project is open) ===== */
 /* Vertically center the empty-state welcome WITHOUT overflowing: subtract the
    .ops-main safe-area padding + topbar + breadcrumb row, or the screen scrolls

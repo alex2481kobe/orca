@@ -17,6 +17,7 @@ import { initTheme, setThemePref, appendThemeParam } from './ui/theme.js';
 import { defaultModelFor } from './ui/executor.js';
 import { normalizeWorkstationUrl, rememberWorkstation, setPendingWorkstationUrl, activeWorkstationUrl } from './ui/workstations.js';
 import { openRowMenuFromTrigger, closeRowMenu, isRowMenuOpenFor } from './ui/row-menu.js';
+import { openScopedSettingsDialog } from './ui/settings-dialog.js';
 
 // Deep-link entry point for the native app: the Rust side (run_mobile) calls this
 // when an `orca://connect?ws=<workstation-url>` link is opened (e.g. a QR scanned
@@ -604,6 +605,15 @@ document.addEventListener('click', async (event) => {
 
   if (action === 'auditDone') {
     await handleSessionActions({ currentTarget: actionTarget });
+    return;
+  }
+
+  if (action === 'openProjectSettings' || action === 'openSessionSettings') {
+    const scope = action === 'openProjectSettings' ? 'project' : 'session';
+    const id = scope === 'project' ? actionTarget.dataset.projectId : actionTarget.dataset.sessionId;
+    const name = scope === 'project' ? actionTarget.dataset.projectName : actionTarget.dataset.sessionName;
+    closeRowMenu();
+    await openScopedSettingsDialog({ scope, id, name });
     return;
   }
 
