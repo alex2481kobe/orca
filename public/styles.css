@@ -2078,20 +2078,29 @@ body.sidebar-collapsed .pill {
 .lane-controls-form {
     grid-template-columns: 1fr;
   }
-  /* Mobile composer: never let Send get pushed off the right edge. The bar wraps
-     (so Send drops to its own row before it would clip), the spacer is removed so
-     items pack from the left, and the agent/mode/model chips shrink + truncate. */
-.composer-bar { flex-wrap: wrap; gap: 0.3rem 0.4rem; }
+  /* Mobile composer: ONE clean control row (Codex / ChatGPT-mobile style) — never
+     wrap. The + stays left, Send pins right, and the agent/mode/model controls
+     share the remaining width on a single line, shrinking + truncating instead of
+     dropping to a second row. */
+.composer-bar { flex-wrap: nowrap; gap: 0.15rem; align-items: center; min-width: 0; }
   .composer-spacer { display: none; }
-  .composer-send { margin-left: auto; }
   .composer-attach,
 .composer-send { flex: 0 0 auto; }
-  .composer-bar .dd { min-width: 0; }
-  .dd-compact .dd-trigger { min-width: 0; padding: 0.3rem 0.4rem; }
-  .dd-compact .dd-value { display: inline-block; max-width: 6rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
-  .cfg { min-width: 0; }
-  .cfg-label { max-width: 7rem; overflow: hidden; }
-  .cfg-lab-model { overflow: hidden; text-overflow: ellipsis; }
+  /* Controls keep their natural width and only shrink/truncate as needed (so short
+     labels like "codex" stay readable); + and Send are pinned. Chevrons hide on
+     mobile to claw back ~16px each — the chips still read as tappable. */
+  .composer-bar .dd,
+.composer-bar .cfg { flex: 0 1 auto; min-width: 0; }
+  .composer-bar .dd:first-of-type { flex: 0 0 auto; }
+  .composer-bar .dd-chevron,
+.composer-bar .cfg-caret { display: none; }
+  /* The config's short model token (e.g. "5.5") is cryptic at chip size — show just
+     the reasoning ("High") on mobile; the full model is one tap into the popover. */
+  .composer-bar .cfg-lab-model { display: none; }
+  .dd-compact .dd-trigger,
+.cfg-trigger { min-width: 0; padding: 0.3rem 0.3rem; width: 100%; }
+  .dd-compact .dd-value { display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+  .cfg-label { display: inline-flex; overflow: hidden; }
   .grid-2 { grid-template-columns: 1fr; }
   .lane-row {
     width: 100%;
