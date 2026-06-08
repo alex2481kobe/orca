@@ -179,6 +179,7 @@ Task: ${lane.taskDescription || 'No task description'}
 Task prompt: ${lane.taskPrompt || ''}
 Status: ${status}
 Exit reason: ${lane.exitReason || ''}
+Result: ${lane.resultText || ''}
 Executor: ${lane.executorType}
 Model: ${lane.model || ''}
 Permissions profile: ${lane.permissionsProfile || ''}
@@ -205,6 +206,8 @@ Changed files: ${changedFiles.length}
       status,
       taskDescription: lane.taskDescription,
       taskPrompt: lane.taskPrompt || null,
+      resultText: lane.resultText || null,
+      resultAt: lane.resultAt || null,
       model: lane.model || null,
       permissionsProfile: lane.permissionsProfile || null,
       intelligenceProfile: lane.intelligenceProfile || null,

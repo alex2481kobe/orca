@@ -100,10 +100,13 @@ export async function handleSystemActions(event) {
   }
   if (action === 'copyDesktopConfig') {
     const client = event.currentTarget.dataset.client || 'claudeDesktop';
-    const snippet = shell.lastDesktopBootstrap?.bootstrap?.clients?.[client]?.snippet || '';
+    const entry = shell.lastDesktopBootstrap?.bootstrap?.clients?.[client] || null;
+    // CLI clients expose a ready-to-run command; app clients expose a file snippet.
+    const snippet = entry?.command || entry?.snippet || '';
+    const labels = { claudeCli: 'claude mcp add command', codexCli: 'codex mcp add command', claudeDesktop: 'Claude Desktop config', codex: 'Codex config' };
     try {
       await navigator.clipboard.writeText(snippet);
-      renderAlert(`${client === 'codex' ? 'Codex' : 'Claude Desktop'} config copied.`);
+      renderAlert(`${labels[client] || 'Config'} copied.`);
     } catch {
       renderAlert(snippet || 'Nothing to copy.');
     }

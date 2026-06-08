@@ -55,6 +55,7 @@ function detailLines(lane) {
   if (meta.length) lines.push(meta.join('   '));
   if (lane.targetUrl) lines.push(`url: ${clip(lane.targetUrl, 60)}`);
   else if (lane.branch) lines.push(`branch: ${clip(lane.branch, 56)}`);
+  if (lane.resultText) lines.push(`result: ${clip(lane.resultText, 64)}`);
   return lines.filter(Boolean);
 }
 
