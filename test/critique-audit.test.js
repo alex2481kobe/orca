@@ -40,9 +40,9 @@ function createProjectSessionLane(registry, laneBody = {}, sessionBody = {}) {
 
 test('agent-flow: audit mandatory + fix loop budget + routing per config', async () => {
   await withRegistry(async (registry) => {
-    // Default flow: audit is optional.
+    // Default flow: audit is required (require-audit-pass is on by default).
     const plain = createProjectSessionLane(registry);
-    assert.equal(registry.auditRequiredForLane(registry.getLane(plain.lane.id)), false);
+    assert.equal(registry.auditRequiredForLane(registry.getLane(plain.lane.id)), true);
 
     // Configure an audit flow with a small loop budget and new-agent fix routing.
     const project = registry.createProject({ name: 'Flow Project' }, { actor: 'test', approved: true });

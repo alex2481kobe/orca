@@ -47,7 +47,7 @@ test('effective settings expose locked product defaults without secrets', () => 
   assert.equal(effective.settings.flow.auditTier, 'orchestrator');
   assert.equal(effective.settings.flow.fixRouting, 'same-agent');
   assert.equal(effective.settings.flow.maxAuditLoops, 2);
-  assert.equal(effective.settings.flow.requireAuditPass, false);
+  assert.equal(effective.settings.flow.requireAuditPass, true);
 });
 
 test('agent-flow settings layer and validate per scope', () => {

@@ -106,6 +106,10 @@ export const sessionMethods = {
       session.leader = nextLeader;
     }
 
+    if (patch.defaultModel !== undefined) {
+      session.defaultModel = String(patch.defaultModel || '').trim().slice(0, 120);
+    }
+
     session.updatedAt = nowIso();
     this.recordAudit({
       type: 'session_updated',
@@ -202,6 +206,7 @@ export const sessionMethods = {
     critiqueMode = 'suggested',
     artifactRetentionDays = 14,
     settingsOverrides = {},
+    defaultModel = '',
     actor = 'dashboard',
     repoRoot = '',
   } = {}, context = {}) {
@@ -271,6 +276,9 @@ export const sessionMethods = {
       capacityRequests: [],
       artifactRetentionDays: retention,
       settingsOverrides: sanitizeSettingsOverrides(settingsOverrides),
+      // Per-session default model; '' inherits project.defaultModel, then the
+      // executor's built-in default (resolved in the composer).
+      defaultModel: String(defaultModel || '').trim().slice(0, 120),
       route: `/projects/${project.slug}/sessions/${sessionId}`,
       createdAt: now,
       updatedAt: now,

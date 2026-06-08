@@ -1425,13 +1425,13 @@ body.sidebar-collapsed .sidebar-project-line {
   padding-right: 0.2rem;
 }
 
-/* Right-panel lane = canonical card surface (matches .card: --panel / --line /
-   --radius-lg) so the session panel follows the design system instead of a
-   bespoke divider list. */
+/* Right-panel lane = a soft card surface. Subtle fill + soft hairline + a larger
+   radius (xl) so the panel reads as gentle grouped cards, not hard boxes with
+   pointed corners. */
 .executor-panel-lane {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
+  background: var(--panel-soft);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-xl);
   display: grid;
   gap: var(--space-3);
   padding: var(--space-4);
@@ -2387,8 +2387,8 @@ body.sidebar-collapsed .pill {
    (the + rotates to a × close glyph) when open. */
 .info-disclosure > summary {
   align-items: center; cursor: pointer; display: flex; gap: var(--space-2); justify-content: center;
-  list-style: none; padding: var(--space-2); border: 1px dashed var(--line);
-  border-radius: var(--radius-md); color: var(--muted); font-size: 0.85rem;
+  list-style: none; padding: var(--space-2); border: 1px dashed var(--line-soft);
+  border-radius: var(--radius-xl); color: var(--muted); font-size: 0.85rem;
 }
 @media (hover: hover) { .info-disclosure > summary:hover { background: var(--hover); color: var(--text); } }
 .info-disclosure > summary::-webkit-details-marker { display: none; }
@@ -2762,6 +2762,37 @@ button.home-cta { cursor: pointer; font: inherit; }
 .settings-field-row { align-items: flex-start; display: flex; flex-direction: row; gap: var(--space-2); }
 .settings-field-row input { flex: 0 0 auto; margin-top: 0.15rem; }
 .settings-field-row > span { display: flex; flex-direction: column; gap: 1px; }
+
+/* Custom dropdown (settings-dialog.js) — replaces native <select> so the whole
+   pill is themed and every option carries a description. The popover expands
+   inline (in flow) rather than absolutely, so it never clips inside the modal's
+   scroll container. */
+.sd-select { position: relative; }
+.sd-trigger {
+  align-items: center; background: var(--panel-soft); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); color: var(--text); cursor: pointer; display: flex;
+  font: inherit; font-size: 0.9rem; gap: var(--space-2); justify-content: space-between;
+  padding: 0.5rem 0.65rem; text-align: left; width: 100%;
+}
+@media (hover: hover) { .sd-trigger:hover { background: var(--hover); } }
+.sd-trigger[aria-expanded="true"] { border-color: var(--accent); }
+.sd-caret { color: var(--muted); flex: 0 0 auto; transition: transform 0.12s ease; }
+.sd-trigger[aria-expanded="true"] .sd-caret { transform: rotate(180deg); }
+.sd-pop {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-md);
+  display: flex; flex-direction: column; gap: 1px; margin-top: 0.3rem; padding: var(--space-1);
+}
+.sd-pop[hidden] { display: none; }
+.sd-opt {
+  background: transparent; border: 0; border-radius: var(--radius-sm); color: var(--text);
+  cursor: pointer; display: flex; flex-direction: column; font: inherit; gap: 1px;
+  padding: 0.45rem 0.55rem; text-align: left; width: 100%;
+}
+.sd-opt.is-sel { background: var(--active); }
+@media (hover: hover) { .sd-opt:hover { background: var(--hover); } }
+.sd-opt-main { align-items: center; display: flex; font-size: 0.88rem; gap: 0.4rem; justify-content: space-between; }
+.sd-opt-check { color: var(--muted); }
+.sd-opt-desc { color: var(--muted); font-size: 0.75rem; line-height: 1.3; }
 
 /* ===== Home welcome (empty state when no project is open) ===== */
 /* Vertically center the empty-state welcome WITHOUT overflowing: subtract the

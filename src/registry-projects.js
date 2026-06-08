@@ -23,6 +23,8 @@ export const projectMethods = {
     owner = 'dashboard',
     settingsOverrides = {},
     repoRoot = '',
+    leader = '',
+    defaultModel = '',
   } = {}, context = {}) {
     const actor = context.actor || owner;
     const policyCheck = this.evaluateActionPolicy('createProject', context);
@@ -76,6 +78,11 @@ export const projectMethods = {
       policyProfile,
       repoRoot: validatedRepoRoot,
       settingsOverrides: sanitizeSettingsOverrides(settingsOverrides),
+      // Per-project agent defaults: new sessions inherit `leader` (default
+      // executor), and the composer falls back to `defaultModel` when a lane
+      // hasn't pinned one. Both optional ('' = no project-level default).
+      leader: String(leader || '').trim().slice(0, 120),
+      defaultModel: String(defaultModel || '').trim().slice(0, 120),
       owner: actor,
       createdAt: now,
       updatedAt: now,
@@ -159,6 +166,14 @@ export const projectMethods = {
 
     if (patch.settingsOverrides !== undefined) {
       project.settingsOverrides = sanitizeSettingsOverrides(patch.settingsOverrides);
+    }
+
+    if (patch.leader !== undefined) {
+      project.leader = String(patch.leader || '').trim().slice(0, 120);
+    }
+
+    if (patch.defaultModel !== undefined) {
+      project.defaultModel = String(patch.defaultModel || '').trim().slice(0, 120);
     }
 
     project.updatedAt = nowIso();

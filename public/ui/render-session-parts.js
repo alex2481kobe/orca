@@ -161,7 +161,13 @@ export function renderOrchestratorConsole(session) {
   // otherwise show the selected agent's own defaults (fixes e.g. codex showing
   // claude's 'opus' because a prior lane used it).
   const laneMatches = activeLane && normalizeExecutorType(activeLane.executorType || '') === selectedExecutor;
-  const selectedModel = (laneMatches && activeLane.model) ? activeLane.model : defaultModelFor(selectedExecutor);
+  // Model precedence: the active matching lane's pin → the per-session default →
+  // the per-project default → the executor's built-in default.
+  const project = shell.projects.find((p) => p.id === session.projectId);
+  const scopedDefaultModel = session.defaultModel || project?.defaultModel || '';
+  const selectedModel = (laneMatches && activeLane.model)
+    ? activeLane.model
+    : (scopedDefaultModel || defaultModelFor(selectedExecutor));
   const selectedRunMode = (laneMatches && activeLane.permissionsProfile) || 'auto-edit';
   const selectedIntelligence = (laneMatches && activeLane.intelligenceProfile) || 'high';
   return `

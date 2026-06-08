@@ -50,8 +50,9 @@ export const DEFAULT_EFFECTIVE_SETTINGS = {
     // How many audit -> fix -> re-audit loops are allowed before escalating to the user.
     maxAuditLoops: 2,
     // If true, a lane cannot be reported done / returned to the orchestrator until
-    // an audit accepts it.
-    requireAuditPass: false,
+    // an audit accepts it. On by default — finished work gets reviewed unless you
+    // deliberately opt out per project/session.
+    requireAuditPass: true,
   },
   evidence: {
     screenshotRequiredForVisual: true,
