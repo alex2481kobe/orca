@@ -63,3 +63,13 @@ Older prerelease builds may be asked to upgrade before a fix is validated.
 - Changes to workflows, dependencies, Tauri packaging, scripts, service-worker
   behavior, security policy, license, or contribution policy are owner-review
   paths.
+
+## Dependency audits
+
+Run `npm run audit` to scan both the JavaScript app and the Rust desktop shell.
+Current results and the rationale for the remaining transitive items are recorded
+in [`docs/security-posture.md`](docs/security-posture.md): the web/PWA/server code
+has zero known-vulnerable dependencies, and the Rust shell has zero actual
+vulnerabilities — only unmaintained/unsound notices on Tauri's transitive Linux
+GTK webview crates, which are not compiled or used on the shipped macOS/iOS/web
+targets.

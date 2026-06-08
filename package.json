@@ -85,7 +85,8 @@
     "smoke:pair-repair-renders": "node scripts/verify-pair-repair-renders.mjs",
     "smoke:pair-reflect-ratelimit": "node scripts/verify-pair-reflect-ratelimit.mjs",
     "assets:version": "node scripts/sync-asset-version.mjs",
-    "assets:shots": "node scripts/capture-readme-shots.mjs"
+    "assets:shots": "node scripts/capture-readme-shots.mjs",
+    "audit": "npm audit --omit=dev && cargo audit --file src-tauri/Cargo.lock"
   },
   "devDependencies": {
     "@tauri-apps/api": "2.11.0",
