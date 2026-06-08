@@ -62,6 +62,31 @@ await fs.mkdir(shotDir, { recursive: true }).catch(() => {});
 await p.screenshot({ path: path.join(shotDir, 'project-menu-open.png') }).catch(() => {});
 await p.mouse.click(5, 5);
 
+// Press feedback (mobile/touch): pointerdown adds .is-pressing immediately for a
+// smooth grey-in (no laggy native tap highlight); a long-press opens the menu and
+// clears the press state; a move/scroll drops it.
+const mp = await b.newContext({ viewport: { width: 390, height: 800 }, hasTouch: true }).then((c) => c.newPage());
+await mp.goto(base + (session.route || '/'), { waitUntil: 'domcontentloaded' });
+await mp.waitForTimeout(1200);
+const press = await mp.evaluate(async () => {
+  const row = document.querySelector('.sidebar-session-line');
+  if (!row) return { err: 'no row' };
+  const fire = (target, type, x = 120, y = 120) => target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 1, button: 0, clientX: x, clientY: y }));
+  fire(row, 'pointerdown');
+  const pressedImmediately = row.classList.contains('is-pressing');
+  await new Promise((r) => setTimeout(r, 540)); // past the 450ms long-press
+  const menuOpen = Boolean(document.querySelector('.row-menu'));
+  const pressedClearedAfterMenu = !row.classList.contains('is-pressing');
+  fire(document, 'pointerup');
+  // Quick-tap case: pointerdown then immediate pointerup clears the press state.
+  fire(row, 'pointerdown');
+  fire(document, 'pointerup');
+  await new Promise((r) => setTimeout(r, 20));
+  const clearedAfterTap = !row.classList.contains('is-pressing');
+  return { pressedImmediately, menuOpen, pressedClearedAfterMenu, clearedAfterTap };
+});
+await mp.close();
+
 const has = (menu, action) => menu.items.some((i) => i.action === action);
 const result = {
   sessionMenuItems: sessionMenu.items,
@@ -70,6 +95,7 @@ const result = {
   projectClosesOnOutside: projectMenu.closed,
   openedAfterFirstClick,
   closedAfterSecondClick,
+  press,
 };
 result.pass = has(sessionMenu, 'renameSession')
   && has(sessionMenu, 'archiveSession')
@@ -79,7 +105,11 @@ result.pass = has(sessionMenu, 'renameSession')
   && sessionMenu.closed
   && projectMenu.closed
   && openedAfterFirstClick
-  && closedAfterSecondClick;
+  && closedAfterSecondClick
+  && press.pressedImmediately
+  && press.menuOpen
+  && press.pressedClearedAfterMenu
+  && press.clearedAfterTap;
 
 console.log('[verify] row-menu:', JSON.stringify(result, null, 2));
 

@@ -346,6 +346,7 @@ function clearSidebarSwipeState() {
     clearTimeout(sidebarLongPressTimer);
     sidebarLongPressTimer = null;
   }
+  if (sidebarSwipeState?.targetGroup) sidebarSwipeState.targetGroup.classList.remove('is-pressing');
   sidebarSwipeState = null;
 }
 
@@ -386,9 +387,12 @@ document.addEventListener('pointerdown', (event) => {
   const group = event.target?.closest?.('.sidebar-project-group, .sidebar-session-line');
   if (!group || event.target?.closest?.('button, a.sidebar-compose')) return;
   sidebarSwipeState.targetGroup = group;
+  // Immediate, smooth press feedback (replaces the laggy native tap highlight).
+  group.classList.add('is-pressing');
   sidebarLongPressOpened = false;
   sidebarLongPressTimer = setTimeout(() => {
     closeSidebarActionMenus();
+    group.classList.remove('is-pressing');
     // Long-press opens the same context menu as the 3-dot trigger, anchored at
     // the touch point so it sits under the finger.
     const trigger = group.querySelector('.sidebar-menu-btn');
@@ -412,6 +416,8 @@ document.addEventListener('pointermove', (event) => {
     sidebarSwipeState.moved = true;
     clearTimeout(sidebarLongPressTimer);
     sidebarLongPressTimer = null;
+    // It's a scroll/swipe, not a press — drop the press feedback immediately.
+    sidebarSwipeState.targetGroup?.classList.remove('is-pressing');
   }
   if (!sidebarSwipeState.moved || absX <= absY) return;
   if (sidebarSwipeState.navOpen && deltaX < -55) {

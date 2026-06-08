@@ -620,10 +620,10 @@ body.sidebar-collapsed .sidebar-pair-label {
 }
 
 .sidebar-session-line:focus-within {
-  background: rgba(255, 255, 255, 0.045);
+  background: var(--hover);
 }
 @media (hover: hover) { .sidebar-session-line:hover {
-  background: rgba(255, 255, 255, 0.045);
+  background: var(--hover);
 } }
 
 .sidebar-thread {
@@ -653,10 +653,10 @@ body.sidebar-collapsed .sidebar-pair-label {
 
 .sidebar-session-line:focus-within,
 .sidebar-session-line.actions-open {
-  background: rgba(255, 255, 255, 0.045);
+  background: var(--hover);
 }
 @media (hover: hover) { .sidebar-session-line:hover {
-  background: rgba(255, 255, 255, 0.045);
+  background: var(--hover);
 } }
 
 .sidebar-thread small {
@@ -787,13 +787,20 @@ body.sidebar-collapsed .sidebar-pair-label {
 
 /* Long-press on a sidebar row opens our context menu ONLY — suppress the iOS
    native callout (link preview / copy) and text-selection that a long-press would
-   otherwise trigger on the row's links. */
+   otherwise trigger on the row's links. -webkit-tap-highlight-color:transparent
+   removes the laggy native grey flash (it fades in/out on its own delayed timing);
+   our own .is-pressing feedback (set on pointerdown) is immediate and rides the
+   short background transition for a smooth grey-in / grey-out instead. */
 .sidebar-project-line,
 .sidebar-session-line {
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.12s ease;
 }
+.sidebar-project-line.is-pressing,
+.sidebar-session-line.is-pressing { background: var(--hover); }
 
 .sidebar-archive svg {
   fill: none;
@@ -2596,7 +2603,7 @@ button.home-cta { cursor: pointer; font: inherit; }
 /* Project row: the whole line is the hover/active surface (incl. the trailing
    new-session icon); the name truncates before the icon so they never overlap. */
 .sidebar-project-line { align-items: center; border-radius: var(--radius-sm); display: flex; }
-@media (hover: hover) { .sidebar-project-line:hover { background: rgba(255, 255, 255, 0.045); } }
+@media (hover: hover) { .sidebar-project-line:hover { background: var(--hover); } }
 .sidebar-project-line > .sidebar-project { flex: 1 1 auto; min-width: 0; }
 /* New-session icon: hidden until the row is hovered, but it ALWAYS occupies its
    slot so the project name truncates at the same point (a consistent text↔icon
