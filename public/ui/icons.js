@@ -23,6 +23,8 @@ const STROKE_ICONS = {
   more: { vb: '0 0 20 20', sw: 0, inner: '<circle cx="4.5" cy="10" r="1.4" fill="currentColor"/><circle cx="10" cy="10" r="1.4" fill="currentColor"/><circle cx="15.5" cy="10" r="1.4" fill="currentColor"/>' },
   // Settings as control sliders (reads as "configure", lighter than a cog).
   settings: { vb: '0 0 20 20', sw: 1.7, inner: '<path d="M3 6.5h6M13 6.5h4M3 13.5h2M9 13.5h8"/><circle cx="11" cy="6.5" r="2"/><circle cx="7" cy="13.5" r="2"/>' },
+  // Microphone (voice dictation into the composer).
+  mic: { vb: '0 0 20 20', sw: 1.6, inner: '<rect x="7.5" y="2.5" width="5" height="9" rx="2.5"/><path d="M5 9.5a5 5 0 0 0 10 0M10 14.5v3M7.5 17.5h5"/>' },
 };
 
 export function icon(name, { cls = '', size = 16 } = {}) {

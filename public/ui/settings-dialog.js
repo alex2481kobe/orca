@@ -28,7 +28,6 @@ const EXECUTOR_CATALOG = [
   ['kimi', 'Kimi API', 'Moonshot Kimi API'],
   ['deepseek', 'DeepSeek API', 'DeepSeek API'],
   ['openrouter', 'OpenRouter API', 'OpenRouter gateway'],
-  ['mock', 'Mock', 'Built-in stand-in — no external agent'],
 ];
 
 // Declarative field spec. `path` is "group.key" into the effective-settings

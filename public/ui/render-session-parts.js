@@ -190,18 +190,23 @@ export function renderOrchestratorConsole(session) {
             <select name="executorType" class="composer-select" aria-label="Agent"${locked ? ' disabled' : ''}>
               ${cliExecutorOptions(selectedExecutor)}
               ${apiProviderOptions()}
-              ${anyCliInstalled() ? '' : `<option value="mock"${normalizeExecutorType(selectedExecutor) === 'mock' ? ' selected' : ''}>mock</option>`}
             </select>
             <select name="permissionsProfile" class="composer-select" aria-label="Mode">
               ${runModeOptionsFor(selectedExecutor, selectedRunMode)}
             </select>
-            ${renderComposerConfig(selectedExecutor, { model: selectedModel, intelligence: selectedIntelligence, speed: 'standard' })}
           </div>
           <span class="composer-spacer"></span>
-          <button class="composer-send" type="submit" aria-label="Send message">
-            ${icon('send', { size: 19 })}
-          </button>
+          <div class="composer-right">
+            ${renderComposerConfig(selectedExecutor, { model: selectedModel, intelligence: selectedIntelligence, speed: 'standard' })}
+            <button class="composer-mic" data-action="composerMic" data-session-id="${safeAttr(session.id)}" type="button" title="Speak to type" aria-label="Dictate by voice">
+              ${icon('mic', { size: 19 })}
+            </button>
+            <button class="composer-send" type="submit" aria-label="Send message">
+              ${icon('send', { size: 19 })}
+            </button>
+          </div>
         </div>
+        ${anyCliInstalled() ? '' : `<div class="composer-nocli">No CLI agent found — <a href="/#system" class="composer-nocli-link">set up agents</a> so Orca can run real ones.</div>`}
         <div class="composer-context" id="composer-context-${safeAttr(session.id)}"></div>
       </form>
     </article>
@@ -263,7 +268,12 @@ export function renderExecutorListInner(session) {
 export function renderExecutorSidePanel(session) {
   const executorLanes = executorLanesForSession(session);
   const pendingAudits = pendingAuditsForSession(session.id);
-  const agentOptions = `<option value="mock">mock</option>${cliExecutorOptions()}${shell.executorProfiles?.cli ? '<option value="cli">cli</option>' : ''}${apiProviderOptions()}`;
+  // Only offer "Audit completed lanes" when there's actually finished work awaiting
+  // review (or an audit already queued) — no point showing it with nothing to audit.
+  const AUDITABLE_STATES = ['done', 'completed', 'ready_for_audit', 'needs_critique'];
+  const hasAuditable = pendingAudits.length > 0
+    || executorLanes.some((lane) => AUDITABLE_STATES.includes(String(lane.state || '').toLowerCase()));
+  const agentOptions = `${cliExecutorOptions()}${shell.executorProfiles?.cli ? '<option value="cli">cli</option>' : ''}${apiProviderOptions()}`;
   return `
     <aside class="info-panel" aria-label="Session info">
       <div class="info-panel-head">
@@ -341,13 +351,13 @@ export function renderExecutorSidePanel(session) {
           </details>
         </section>
 
-        <section class="info-section">
+        ${hasAuditable ? `<section class="info-section">
           <h4 class="info-title">Audit</h4>
           <p class="tiny muted">Hand finished executor lanes to the auditor for review.</p>
           <div class="info-tools">
             <button class="secondary" data-action="auditDone" data-session-id="${safeAttr(session.id)}" type="button">Audit completed lanes${pendingAudits.length ? ` (${pendingAudits.length})` : ''}</button>
           </div>
-        </section>
+        </section>` : ''}
       </div>
     </aside>
   `;

@@ -18,6 +18,7 @@ import { defaultModelFor } from './ui/executor.js';
 import { normalizeWorkstationUrl, rememberWorkstation, setPendingWorkstationUrl, activeWorkstationUrl } from './ui/workstations.js';
 import { openRowMenuFromTrigger, closeRowMenu, isRowMenuOpenFor } from './ui/row-menu.js';
 import { openScopedSettingsDialog } from './ui/settings-dialog.js';
+import { toggleComposerDictation, voiceSupported } from './ui/voice.js';
 
 // Deep-link entry point for the native app: the Rust side (run_mobile) calls this
 // when an `orca://connect?ws=<workstation-url>` link is opened (e.g. a QR scanned
@@ -608,6 +609,11 @@ document.addEventListener('click', async (event) => {
     return;
   }
 
+  if (action === 'composerMic') {
+    toggleComposerDictation(actionTarget);
+    return;
+  }
+
   if (action === 'openProjectSettings' || action === 'openSessionSettings') {
     const scope = action === 'openProjectSettings' ? 'project' : 'session';
     const id = scope === 'project' ? actionTarget.dataset.projectId : actionTarget.dataset.sessionId;
@@ -761,6 +767,8 @@ initTheme();
 // Tag the body for the native app (mirrors data-native set pre-paint on <html> by
 // theme-init.js) so any body-scoped styling/JS can key off it too.
 document.body.classList.toggle('is-native-app', isNativeApp());
+// Hide the composer mic when the browser has no SpeechRecognition (e.g. Safari / iOS).
+if (!voiceSupported()) document.body.classList.add('no-voice');
 initMobileShell();
 renderMobileManifest();
 setupSidebarReorder();

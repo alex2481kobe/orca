@@ -434,13 +434,16 @@ export function renderCapturePanel(ctx) {
 export function renderCliHealthPanel(ctx) {
   const { cliRows } = ctx;
   return `
-      <article class="card control-card" data-panel-card="system">
-        <details class="disclosure">
+      <article class="card control-card" id="section-cli-setup" data-panel-card="system">
+        <details class="disclosure" open>
           <summary>
-            <span>Executor CLI health and updates</span>
-            <small>Codex, Claude, reinstall dry-runs</small>
+            <span>Agent CLIs &amp; setup</span>
+            <small>Codex, Claude, Gemini · how discovery works</small>
           </summary>
-          <div class="disclosure-body">${cliRows || '<div class="muted">No CLI data yet.</div>'}</div>
+          <div class="disclosure-body">
+            <p class="tiny muted" style="margin:0 0 0.6rem">Orca auto-discovers agent CLIs by running <code>which &lt;cli&gt;</code> on the PATH it was launched from. To add one: install the agent's official CLI (e.g. Codex, Claude, Gemini), confirm <code>which codex</code> succeeds in that shell, then relaunch Orca or hit Refresh below. Installed-but-not-found almost always means Orca was started from a shell that didn't have the CLI on its PATH.</p>
+            ${cliRows || '<div class="muted">No CLI data yet.</div>'}
+          </div>
         </details>
       </article>`;
 }

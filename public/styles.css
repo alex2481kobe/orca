@@ -2251,8 +2251,14 @@ body.sidebar-collapsed .pill {
   transition: width 0.24s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .session-shell.info-open .session-workbench > .info-col { width: 360px; }
-/* Fixed inner width so the panel content doesn't squish while the width animates. */
-.info-col > .info-panel { display: flex; flex-direction: column; min-height: 0; width: 360px; }
+/* Fixed inner width so the panel content doesn't squish while the width animates.
+   Floated as a rounded card (border + radius all around) so it matches the rest of
+   the app instead of a flush slab with pointy corners. */
+.info-col > .info-panel {
+  display: flex; flex-direction: column; min-height: 0; width: 344px;
+  margin: 0.5rem 0.6rem 0.5rem 0.25rem; height: calc(100% - 1rem);
+  border: 1px solid var(--line); border-radius: var(--radius-lg);
+}
 
 .chat-column { display: flex; min-height: 0; min-width: 0; }
 .chat { display: flex; flex: 1; flex-direction: column; min-height: 0; padding: 0 1rem; width: 100%; }
@@ -2306,14 +2312,24 @@ body.sidebar-collapsed .pill {
 }
 .composer-bar { align-items: center; display: flex; gap: var(--space-1); padding: 0 0.15rem; }
 .composer-attach,
+.composer-mic,
 .composer-send {
   align-items: center; border: 0; border-radius: 50%; cursor: pointer; display: inline-flex; flex: 0 0 auto;
   height: 2rem; justify-content: center; width: 2rem;
 }
-.composer-attach { background: transparent; color: var(--muted); }
-@media (hover: hover) { .composer-attach:hover { background: var(--hover); color: var(--text); } }
+.composer-attach,
+.composer-mic { background: transparent; color: var(--muted); }
+@media (hover: hover) { .composer-attach:hover, .composer-mic:hover { background: var(--hover); color: var(--text); } }
+.composer-mic.is-listening { color: var(--danger); }
 .composer-send { background: var(--text); color: var(--ink-on-light); }
 @media (hover: hover) { .composer-send:hover { background: var(--accent-strong); } }
+/* Right cluster: model/intelligence config sits next to mic + send (Codex-style),
+   pinned to the right edge of the composer. */
+.composer-right { align-items: center; display: flex; flex: 0 0 auto; gap: var(--space-1); }
+body.no-voice .composer-mic { display: none; }
+.composer-nocli { color: var(--muted); font-size: 0.78rem; padding: 0.25rem 0.35rem 0; }
+.composer-nocli-link { color: var(--accent-strong); text-decoration: none; }
+@media (hover: hover) { .composer-nocli-link:hover { text-decoration: underline; } }
 .composer-select {
   background-color: transparent; border: 0; border-radius: var(--radius-sm); color: var(--muted);
   font-size: 0.82rem; max-width: 9rem; padding: 0.3rem 1.45rem 0.3rem 0.5rem;
@@ -2351,17 +2367,21 @@ body.sidebar-collapsed .pill {
 /* Composer textarea: start at one line, grow with content. */
 .composer textarea { min-height: 1.5rem; padding: 0.45rem 0.55rem 0.2rem; }
 .composer.composer-shell { padding: 0.45rem 0.5rem 0.4rem; }
-.composer-attach { color: var(--text); opacity: 0.78; }
-@media (hover: hover) { .composer-attach:hover { opacity: 1; } }
+.composer-attach,
+.composer-mic { color: var(--text); opacity: 0.78; }
+@media (hover: hover) { .composer-attach:hover, .composer-mic:hover { opacity: 1; } }
+.composer-mic.is-listening { color: var(--danger); opacity: 1; }
 .composer-send svg { transform: translateY(-0.5px); }
 .composer-send[disabled] { opacity: 0.4; cursor: default; }
 /* Composer stays put; only the thread scrolls. Big, clearly visible toolbar icons. */
 .composer { flex: 0 0 auto; }
 .composer-attach,
+.composer-mic,
 .composer-send { height: 2.6rem !important; width: 2.6rem !important; }
 /* flex:0 0 auto so the icon isn't shrunk along the button's main axis (that was
    squishing every toolbar glyph to a sliver — width collapsed while height held). */
 .composer-attach svg,
+.composer-mic svg,
 .composer-send svg,
 .info-toggle svg,
 .dd-trigger .dd-chevron,
@@ -2369,8 +2389,10 @@ body.sidebar-collapsed .pill {
 .sidebar-reopen svg,
 .sidebar-project-new svg { flex: 0 0 auto; }
 .composer-attach svg,
+.composer-mic svg,
 .composer-send svg { height: 30px !important; width: 30px !important; }
 .composer-attach svg path,
+.composer-mic svg path,
 .composer-send svg path { stroke-width: 2.2; }
 .composer-bar { gap: var(--space-2); padding: 0.15rem 0.15rem 0; }
 .composer-select { font-size: 0.9rem; }
