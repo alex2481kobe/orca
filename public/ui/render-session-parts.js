@@ -180,16 +180,18 @@ export function renderOrchestratorConsole(session) {
           <button class="composer-attach" data-action="pickAttachment" data-session-id="${safeAttr(session.id)}" type="button" title="Attach screenshot or document" aria-label="Attach file">
             ${icon('plus', { size: 19 })}
           </button>
-          <select name="executorType" class="composer-select" aria-label="Agent"${locked ? ' disabled' : ''}>
-            ${cliExecutorOptions(selectedExecutor)}
-            ${apiProviderOptions()}
-            ${anyCliInstalled() ? '' : `<option value="mock"${normalizeExecutorType(selectedExecutor) === 'mock' ? ' selected' : ''}>mock</option>`}
-          </select>
-          <select name="permissionsProfile" class="composer-select" aria-label="Mode">
-            ${runModeOptionsFor(selectedExecutor, selectedRunMode)}
-          </select>
+          <div class="composer-controls">
+            <select name="executorType" class="composer-select" aria-label="Agent"${locked ? ' disabled' : ''}>
+              ${cliExecutorOptions(selectedExecutor)}
+              ${apiProviderOptions()}
+              ${anyCliInstalled() ? '' : `<option value="mock"${normalizeExecutorType(selectedExecutor) === 'mock' ? ' selected' : ''}>mock</option>`}
+            </select>
+            <select name="permissionsProfile" class="composer-select" aria-label="Mode">
+              ${runModeOptionsFor(selectedExecutor, selectedRunMode)}
+            </select>
+            ${renderComposerConfig(selectedExecutor, { model: selectedModel, intelligence: selectedIntelligence, speed: 'standard' })}
+          </div>
           <span class="composer-spacer"></span>
-          ${renderComposerConfig(selectedExecutor, { model: selectedModel, intelligence: selectedIntelligence, speed: 'standard' })}
           <button class="composer-send" type="submit" aria-label="Send message">
             ${icon('send', { size: 19 })}
           </button>
