@@ -1,0 +1,32 @@
+# Keep dependencies patched and continuously scanned for advisories.
+# Updates are GROUPED (one PR per ecosystem) to stay low-noise.
+version: 2
+updates:
+  # JavaScript app (server + dashboard + PWA) — what users actually run.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      npm-dependencies:
+        patterns: ["*"]
+
+  # Rust desktop shell (Tauri v2).
+  - package-ecosystem: "cargo"
+    directory: "/src-tauri"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      cargo-dependencies:
+        patterns: ["*"]
+
+  # GitHub Actions used by CI.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions:
+        patterns: ["*"]
