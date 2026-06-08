@@ -25,8 +25,8 @@ tauri = { version = "2.11.2", features = ["tray-icon"] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-deep-link = "2"
-keyring = "3.6.3"
-rand = "0.9.4"
+keyring = "4.0.1"
+rand = "0.10.1"
 arboard = "3.6.1"
 anyhow = "1.0.102"
 
