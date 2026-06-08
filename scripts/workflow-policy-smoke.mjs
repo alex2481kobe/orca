@@ -5,6 +5,10 @@ import path from 'node:path';
 const workflowsDir = path.resolve('.github', 'workflows');
 const disallowedTriggers = ['push', 'pull_request', 'pull_request_target', 'schedule'];
 const allowedTrigger = 'workflow_dispatch';
+// Exempt: GitHub's CodeQL scanner legitimately needs automatic push/PR/schedule
+// triggers to keep the Security tab populated — it's a trusted first-party
+// scanner, not one of our own CI workflows the manual-only rule is meant to gate.
+const exemptFiles = new Set(['codeql.yml', 'codeql.yaml']);
 
 function stripComments(line) {
   const hash = line.indexOf('#');
@@ -27,7 +31,13 @@ async function main() {
     .filter((entry) => entry.isFile() && /\.(ya?ml)$/i.test(entry.name))
     .map((entry) => path.join(workflowsDir, entry.name));
 
+  let checked = 0;
   for (const file of files) {
+    if (exemptFiles.has(path.basename(file))) {
+      console.log(`[workflow-policy] exempt — ${path.basename(file)} (trusted scanner, auto-triggers allowed)`);
+      continue;
+    }
+    checked += 1;
     const text = await fs.readFile(file, 'utf8');
     const activeLines = text
       .split(/\r?\n/)
@@ -45,7 +55,7 @@ async function main() {
     }
   }
 
-  console.log(`[workflow-policy] done — ${files.length} workflow(s) manual-only`);
+  console.log(`[workflow-policy] done — ${checked} workflow(s) manual-only, ${files.length - checked} exempt`);
 }
 
 main().catch((error) => {
