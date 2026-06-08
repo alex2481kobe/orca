@@ -368,6 +368,11 @@ document.addEventListener('pointerdown', (event) => {
     // was the REAL cause of the picker collapsing the left panel (the click-handler
     // guard alone wasn't enough).
     && !event.target?.closest?.('.modal-overlay')
+    // The row context menu is appended to <body> (outside .ops-sidebar) but is part
+    // of the sidebar interaction — tapping its items must NOT close the drawer +
+    // menu on pointerdown, which would destroy the menu before the click runs the
+    // action (rename/archive/new-session silently did nothing on touch).
+    && !event.target?.closest?.('.row-menu')
   ) {
     hideMobileSidebar();
   }
