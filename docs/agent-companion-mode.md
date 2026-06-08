@@ -60,9 +60,13 @@ orca-agent bootstrap --project <projectId>
 
 With `--auto` (spawnPolicy `auto`), Orca fans the backlog out across executor lanes
 up to capacity and refills as they finish; each lane runs the
-executor → critique → audit flow. Drive the audits with `orca-agent call
-…/audit/accept` (or let a separate-auditor lane do it), and `backlog.status` reports
-`complete` when every task is accepted.
+executor → critique → audit flow. **Unattended completion is automatic:** when no
+live orchestrator is enrolled, Orca audits each finished lane with a dedicated
+auditor lane (so you can truly walk away); if you stay enrolled, you audit it
+yourself (or via `orca-agent call …/audit/accept`). `backlog.status` reports
+`complete`/`allAccepted` when every task is accepted — and, if a run stalls, a
+`stalled` flag plus `stallReasons` (capacity 0, non-auto policy, escalated audits,
+blocked tasks) so you can see why at a glance.
 
 ## Using it from a chat right now
 

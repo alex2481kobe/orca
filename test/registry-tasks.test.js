@@ -248,6 +248,35 @@ test('tasks: a session-scoped lease cannot mutate another session\'s task', asyn
   });
 });
 
+test('tasks: deleting a session removes its backlog tasks (no orphans)', async () => {
+  await withRegistry(async (registry) => {
+    const { session } = makeSession(registry);
+    registry.addTask(session.id, { title: 't1' });
+    registry.addTask(session.id, { title: 't2' });
+    registry.updateSession(session.id, { state: 'archived' }, { actor: 'test', approved: true });
+    await registry.deleteSession(session.id, { actor: 'test' });
+    assert.equal(registry.tasks.filter((t) => t.sessionId === session.id).length, 0);
+  });
+});
+
+test('tasks: addTask rejects an unsupported executorType', async () => {
+  await withRegistry(async (registry) => {
+    const { session } = makeSession(registry);
+    assert.throws(() => registry.addTask(session.id, { title: 't', executorType: 'nope-cli' }), (e) => e.status === 422);
+    registry.addTask(session.id, { title: 'ok', executorType: 'mock' }); // supported -> fine
+  });
+});
+
+test('tasks: backlog.status surfaces a stall reason when pending tasks cannot spawn', async () => {
+  await withRegistry(async (registry) => {
+    const { session } = makeSession(registry, { spawnPolicy: 'never' });
+    registry.addTask(session.id, { title: 'stuck' });
+    const status = registry.sessionBacklogStatus(session.id);
+    assert.equal(status.stalled, true);
+    assert.ok(status.stallReasons.some((r) => /spawnPolicy/.test(r)), JSON.stringify(status.stallReasons));
+  });
+});
+
 test('tasks: batch-completion signal latches once when all tasks accepted', async () => {
   await withRegistry(async (registry) => {
     const { session } = makeSession(registry);

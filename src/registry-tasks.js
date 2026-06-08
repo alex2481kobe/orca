@@ -69,6 +69,13 @@ export const taskMethods = {
     if (!session) throw { status: 404, message: 'Session not found.' };
     const cleanTitle = sanitizeStr(title, 200);
     if (!cleanTitle) throw { status: 422, message: 'Task title is required.' };
+    const cleanExecutorType = executorType ? sanitizeStr(executorType, 40).toLowerCase() : null;
+    if (cleanExecutorType && typeof this.getSupportedExecutorTypes === 'function') {
+      const supported = this.getSupportedExecutorTypes();
+      if (!supported.includes(cleanExecutorType)) {
+        throw { status: 422, message: `Task executorType must be one of: ${supported.join(', ')}.` };
+      }
+    }
 
     const seq = (this.tasks || [])
       .filter((task) => task.sessionId === session.id)
@@ -83,7 +90,7 @@ export const taskMethods = {
       title: cleanTitle,
       description: sanitizeStr(description, 4000),
       taskPrompt: sanitizeStr(taskPrompt, 8000),
-      executorType: executorType ? sanitizeStr(executorType, 40).toLowerCase() : null,
+      executorType: cleanExecutorType,
       model: model ? sanitizeStr(model, 120) : null,
       targetUrl: targetUrl ? sanitizeStr(targetUrl, 500) : null,
       verificationCommand: verificationCommand ? sanitizeStr(verificationCommand, 1000) : null,
@@ -403,14 +410,35 @@ export const taskMethods = {
     const allAccepted = counts.total > 0 && counts.accepted === counts.total;
     const complete = counts.total > 0 && counts.pending === 0 && counts.assigned === 0
       && counts.in_lane === 0 && counts.blocked === 0;
+    const spawnPolicy = normalizeSpawnPolicy(session.spawnPolicy);
+    // Diagnose why a backlog isn't progressing (the #1 unattended failure mode is
+    // a silent stall) so the orchestrator/CLI can see it at a glance.
+    const escalatedAudits = (this.lanes || []).filter((lane) =>
+      lane.sessionId === session.id && lane.auditState === 'escalated').length;
+    const stallReasons = [];
+    if (counts.pending > 0 && spawnPolicy !== 'auto') {
+      stallReasons.push(`${counts.pending} task(s) pending but spawnPolicy is "${spawnPolicy}" (set it to "auto" or create lanes manually).`);
+    }
+    if (counts.pending > 0 && approvedCapacity <= 0) {
+      stallReasons.push('approvedCapacity is 0 — no lanes can start.');
+    }
+    if (escalatedAudits > 0) {
+      stallReasons.push(`${escalatedAudits} audit(s) escalated — they need human review (accept or request a fix).`);
+    }
+    if (counts.blocked > 0) {
+      stallReasons.push(`${counts.blocked} task(s) blocked — unblock them to proceed.`);
+    }
     return {
       sessionId: session.id,
       counts,
-      capacity: { approvedCapacity, spawnPolicy: normalizeSpawnPolicy(session.spawnPolicy) },
+      capacity: { approvedCapacity, spawnPolicy },
       active,
       complete,
       allAccepted,
       hasFailures: counts.failed > 0,
+      escalatedAudits,
+      stalled: !complete && stallReasons.length > 0,
+      stallReasons,
       completedAt: session.backlogCompletedAt || null,
     };
   },

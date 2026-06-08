@@ -314,6 +314,11 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
       if (rejectSpoofedActor(body, res)) return;
       try {
         const result = registry.bulkAddTasks(session.id, body, { actor: body.actor || 'orchestrator' });
+        // If nothing was added but there were per-task errors, that's a failure —
+        // don't report 201 success with the errors buried in the body.
+        if (result.added === 0 && Array.isArray(result.errors) && result.errors.length) {
+          return sendJson(res, 422, { error: 'No tasks could be added.', ...result });
+        }
         return sendJson(res, 201, result);
       } catch (error) {
         return sendJson(res, error.status || 500, { error: error.message || 'Could not add tasks.' });

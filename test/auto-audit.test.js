@@ -89,6 +89,37 @@ test('auto-audit: orchestrator tier nudges the orchestrator (creates an orchestr
   });
 });
 
+test('auto-audit: an unattended auto session (no live orchestrator) auto-uses a separate auditor', async () => {
+  await withAutoAuditRegistry(async (registry) => {
+    // spawnPolicy 'auto', default audit tier 'orchestrator', nobody enrolled —
+    // an orchestrator nudge would go unread and stall, so we must spawn an auditor.
+    const { lane } = seed(registry, { spawnPolicy: 'auto' });
+    registry.markLaneCompleted(registry.getLane(lane.id));
+    await registry.dispatchPendingAudits();
+    const auditor = registry.lanes.find((l) => l.owner === 'auditor' && l.auditTargetLaneId === lane.id);
+    assert.ok(auditor, 'unattended auto must spawn a separate auditor rather than only nudging a thread');
+  });
+});
+
+test('auto-audit: an auditor that finishes without a verdict re-dispatches, then escalates', async () => {
+  await withAutoAuditRegistry(async (registry) => {
+    const { lane } = seed(registry, {
+      settingsOverrides: { flow: { auditTier: 'separate-auditor', requireAuditPass: true } },
+    });
+    registry.markLaneCompleted(registry.getLane(lane.id));
+    await registry.dispatchPendingAudits(); // spawn auditor #1 -> target 'auditing', count 1
+    // Repeatedly finish the auditor lane(s) without a verdict and re-tick.
+    for (let i = 0; i < 3; i += 1) {
+      registry.lanes
+        .filter((l) => l.owner === 'auditor' && l.auditTargetLaneId === lane.id)
+        .forEach((a) => { a.state = 'done'; });
+      await registry.dispatchPendingAudits();
+    }
+    assert.equal(registry.getLane(lane.id).auditState, 'escalated');
+    assert.ok(registry.auditEvents.some((e) => e.type === 'lane_audit_escalated' && e.laneId === lane.id));
+  });
+});
+
 test('auto-audit: auditor lanes do not recursively audit themselves', async () => {
   await withAutoAuditRegistry(async (registry) => {
     const { session } = seed(registry, {

@@ -357,6 +357,9 @@ export const sessionMethods = {
       }
     }
     this.lanes = (this.lanes || []).filter((lane) => lane.sessionId !== session.id);
+    // Backlog tasks are top-level state keyed by sessionId — drop this session's
+    // so they don't orphan in state.json after the session is gone.
+    this.tasks = (this.tasks || []).filter((task) => task.sessionId !== session.id);
     if (session.worktreeRoot) {
       try { await fs.rm(session.worktreeRoot, { recursive: true, force: true }); } catch { /* best effort */ }
     }

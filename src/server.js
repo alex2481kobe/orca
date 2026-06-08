@@ -335,6 +335,9 @@ function toolLeaseRequirementForRoute(method, parts) {
   if (parts[1] === 'artifacts' && parts[2] === 'cleanup' && method === 'POST') {
     return { toolIds: ['evidence.cleanup_dry_run', 'evidence.cleanup_apply'] };
   }
+  if (parts[1] === 'lanes' && parts[2] && parts.length === 3 && method === 'GET') {
+    return { toolId: 'lane.get', laneId: parts[2] };
+  }
   if (parts[1] === 'lanes' && parts[2] && parts[3] === 'heartbeat' && method === 'POST') {
     return { toolId: 'lane.heartbeat', laneId: parts[2] };
   }

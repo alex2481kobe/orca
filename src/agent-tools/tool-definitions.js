@@ -83,6 +83,16 @@ export const TOOL_DEFINITIONS = [
     summary: 'List lanes in a session (compact: state, owner, executor type, audit/critique state) — your "what is running" view.',
   },
   {
+    id: 'lane.get',
+    group: 'lane',
+    roles: ['orchestrator', 'executor', 'auditor', 'dashboard'],
+    method: 'GET',
+    route: '/api/lanes/{laneId}',
+    implemented: true,
+    mutating: false,
+    summary: 'Read one lane in full: logs, agent events, changed files, the captured result (resultText), and processMeta — use this to see WHY a lane failed or what it produced.',
+  },
+  {
     id: 'lane.claim',
     group: 'lane',
     roles: ['executor'],
