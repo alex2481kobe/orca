@@ -88,18 +88,19 @@ Tailscale Funnel (public exposure) is intentionally not supported.
 
 ## How it works
 
-```mermaid
-flowchart LR
-  subgraph Mac["Your workstation"]
-    S["Orca server<br/>(local-first)"]
-    O["Orchestrator"]
-    E1["Executor lane<br/>Codex / Claude / ..."]
-    E2["Auditor lane"]
-    S --- O
-    O --- E1
-    O --- E2
-  end
-  P["Phone / laptop"] -- "pairing code over Tailscale" --> S
+```text
+  Your workstation  —  local-first, never exposed publicly
+  ──────────────────────────────────────────────────────────
+    Orca server
+       └─►  Orchestrator
+              ├─►  Executor lane   (Codex / Claude / API)
+              └─►  Auditor lane
+  ──────────────────────────────────────────────────────────
+                          ▲
+                          │   pair once with a one-time code,
+                          │   then drive it over Tailscale
+                          │
+              Phone   ·   laptop   ·   tablet
 ```
 
 - **Three trust tiers.** *Public* (liveness only) → *operator* (paired devices:
