@@ -16,6 +16,7 @@ import { initMobileShell } from './ui/mobile-shell.js';
 import { initTheme, setThemePref, appendThemeParam } from './ui/theme.js';
 import { defaultModelFor } from './ui/executor.js';
 import { normalizeWorkstationUrl, rememberWorkstation, setPendingWorkstationUrl, activeWorkstationUrl } from './ui/workstations.js';
+import { openRowMenuFromTrigger, closeRowMenu } from './ui/row-menu.js';
 
 // Deep-link entry point for the native app: the Rust side (run_mobile) calls this
 // when an `orca://connect?ws=<workstation-url>` link is opened (e.g. a QR scanned
@@ -117,6 +118,7 @@ function hideMobileSidebar() {
   sidebarLongPressIgnoreUntil = 0;
   sidebarLongPressOpened = false;
   closeSidebarActionMenus();
+  closeRowMenu();
 }
 
 function registerServiceWorker() {
@@ -387,7 +389,14 @@ document.addEventListener('pointerdown', (event) => {
   sidebarLongPressOpened = false;
   sidebarLongPressTimer = setTimeout(() => {
     closeSidebarActionMenus();
-    group.classList.add('actions-open');
+    // Long-press opens the same context menu as the 3-dot trigger, anchored at
+    // the touch point so it sits under the finger.
+    const trigger = group.querySelector('.sidebar-menu-btn');
+    if (trigger) {
+      const sx = sidebarSwipeState?.startX ?? trigger.getBoundingClientRect().right;
+      const sy = sidebarSwipeState?.startY ?? trigger.getBoundingClientRect().bottom;
+      openRowMenuFromTrigger(trigger, { right: sx + 6, left: sx, top: sy, bottom: sy + 4 });
+    }
     sidebarLongPressOpened = true;
     sidebarLongPressIgnoreUntil = performance.now() + 1400;
   }, 450);
@@ -466,11 +475,19 @@ document.addEventListener('click', async (event) => {
     }
   }
 
-  if (isMobileLayout() && document.body.classList.contains('nav-open') && !inSidebar && !inTopbar && !inModal) {
+  const inRowMenu = event.target?.closest?.('.row-menu');
+  if (isMobileLayout() && document.body.classList.contains('nav-open') && !inSidebar && !inTopbar && !inModal && !inRowMenu) {
     closeMobileNavPanel();
   }
-  if (!inSidebar && !inModal) {
+  if (!inSidebar && !inModal && !inRowMenu) {
     closeSidebarActionMenus();
+  }
+
+  // Project/session 3-dot trigger → open the floating row context menu. Its items
+  // carry data-action so the existing handlers run when chosen.
+  if (action === 'openProjectMenu' || action === 'openSessionMenu') {
+    openRowMenuFromTrigger(actionTarget);
+    return;
   }
 
   if (['browseWorkstation', 'workstationOpenDir', 'workstationUseDir', 'workstationPickerClose'].includes(action)) {
@@ -587,6 +604,7 @@ document.addEventListener('click', async (event) => {
     'refreshExecutorCli',
     'reinstallExecutorCli',
     'archiveSession',
+    'archiveProject',
     'restoreProject',
     'restoreSession',
     'renameProject',

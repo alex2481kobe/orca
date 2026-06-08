@@ -44,6 +44,7 @@ const STATIC_ASSETS = [
   '/ui/render-session.js',
   '/ui/render-shell.js',
   '/ui/render-views.js',
+  '/ui/row-menu.js',
   '/ui/sidebar.js',
   '/ui/slash-commands.js',
   '/ui/state.js',

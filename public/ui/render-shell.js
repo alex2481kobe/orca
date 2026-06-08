@@ -105,7 +105,7 @@ import { subscribeLaneStream, unsubscribeLaneStream, fillLaneStream } from './la
 import { enhanceSelects } from './dropdown.js';
 import { FIRST_CLASS_CLI_EXECUTOR_TYPES } from './constants.js';
 import { orderItems, readSidebarOrder, isProjectExpanded } from './sidebar.js';
-import { COMPOSE_ICON, FOLDER_ICON, PENCIL_ICON, ARCHIVE_ICON } from './icons.js';
+import { icon, COMPOSE_ICON, FOLDER_ICON, ARCHIVE_ICON } from './icons.js';
 
 // Mobile pairing gate — the same clean connect-shell look as the unconnected app
 // (renderMobileConnect), but for a device that's ALREADY reached the workstation
@@ -496,8 +496,8 @@ export function renderSidebarProjects(activeProject) {
           <a class="sidebar-thread ${isCurrentSession ? 'active' : ''}" href="${safeAttr(session.route)}">
             <span>${safeText(session.name)}</span>
           </a>
-          <button class="sidebar-rename" type="button" data-action="renameSession" data-session-id="${safeAttr(session.id)}" data-session-name="${safeAttr(session.name)}" aria-label="Rename ${safeAttr(session.name)} session" title="Rename session">
-            ${PENCIL_ICON}
+          <button class="sidebar-menu-btn" type="button" data-action="openSessionMenu" data-menu="session" data-session-id="${safeAttr(session.id)}" data-session-name="${safeAttr(session.name)}" aria-haspopup="menu" aria-label="Menu for ${safeAttr(session.name)}" title="More">
+            ${icon('more', { size: 16 })}
           </button>
           <button class="sidebar-archive" type="button" data-action="archiveSession" data-session-id="${safeAttr(session.id)}" data-session-name="${safeAttr(session.name)}" aria-label="Archive ${safeAttr(session.name)} session" title="Archive session">
             ${archiveIcon}
@@ -513,6 +513,7 @@ export function renderSidebarProjects(activeProject) {
             <span class="sidebar-project-name">${safeText(project.name)}</span>
             ${active ? `<span class="pill" title="${active} active lanes">${active}</span>` : ''}
           </a>
+          <button class="sidebar-menu-btn" type="button" data-action="openProjectMenu" data-menu="project" data-project-id="${safeAttr(project.id)}" data-project-name="${safeAttr(project.name)}" aria-haspopup="menu" aria-label="Menu for ${safeAttr(project.name)}" title="More">${icon('more', { size: 16 })}</button>
           <button class="sidebar-project-new" data-action="newSession" data-project-id="${safeAttr(project.id)}" aria-label="New session in ${safeAttr(project.name)}" title="New session" type="button">${COMPOSE_ICON}</button>
         </div>
         <div class="sidebar-sessions">

@@ -14,6 +14,7 @@ import { normalizeWorkstationUrl, rememberWorkstation, forgetWorkstation, isActi
 import { render } from './render-views.js';
 import { captureContentUiState } from './render-fragments.js';
 import { appendThemeParam } from './theme.js';
+import { isLiveLaneState } from './render-helpers.js';
 
 export async function handleSystemActions(event) {
   const action = event.currentTarget.dataset.action;
@@ -522,8 +523,39 @@ export async function handleSystemActions(event) {
     return;
   }
 
-  // Projects are never archived — only sessions/chats are. (No archiveProject
-  // action is rendered; the handler was removed so the capability can't exist.)
+  if (action === 'archiveProject') {
+    const projectId = event.currentTarget.dataset.projectId;
+    const projectName = event.currentTarget.dataset.projectName || 'this project';
+    if (!projectId) return;
+    const project = shell.projects.find((value) => value.id === projectId);
+    if (!project) { renderAlert('Project not found.'); return; }
+    // Agent guard: collect this project's still-running lanes so we can stop them
+    // before the project (and its chats) leave the rail — nothing should keep
+    // working inside an archived project.
+    const runningLanes = (shell.lanes || []).filter((lane) => lane.projectId === projectId && isLiveLaneState(lane.state));
+    const guardNote = runningLanes.length
+      ? ` This stops ${runningLanes.length} running agent${runningLanes.length === 1 ? '' : 's'} first.`
+      : '';
+    const approval = await buildApprovedActionBody('updateProject', `Archive ${projectName} and all its chats?${guardNote} You can restore it later from Settings → Archive.`);
+    if (!approval.approved) { renderAlert('Project archive canceled.'); return; }
+    for (const lane of runningLanes) {
+      try {
+        await api(`/api/lanes/${lane.id}/stop`, { method: 'POST', body: { actor: approval.actor, approved: true } });
+      } catch { /* best effort — proceed to archive regardless */ }
+    }
+    const response = await api(`/api/projects/${projectId}`, {
+      method: 'PATCH',
+      body: { actor: approval.actor, approved: approval.approved, state: 'archived' },
+    });
+    if (response.ok) {
+      renderAlert('Project archived.');
+      safeNavigate('/#projects');
+      await refresh();
+      return;
+    }
+    renderAlert(response.status === 401 ? authRequiredMessage() : (response.data?.error || 'Could not archive project.'), 'bad');
+    return;
+  }
 
   if (action === 'renameProject') {
     const projectId = event.currentTarget.dataset.projectId;

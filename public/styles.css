@@ -713,16 +713,20 @@ body.sidebar-collapsed .sidebar-pair-label {
   border-color: transparent !important;
 }
 
-/* Rename buttons mirror the archive button treatment (revealed via hover on a
-   pointer device, or long-press "actions-open" on touch). */
-.sidebar-rename {
+/* 3-dot row-menu trigger — shares the revealed-icon treatment of the other row
+   action buttons (hover on a pointer device, .actions-open on touch/long-press).
+   On session rows it sits absolute in the left action slot (where the pencil was);
+   on project rows it's a flex icon before the new-session button. */
+.sidebar-menu-btn {
   align-items: center;
   background: transparent !important;
   border: 0;
   border-color: transparent !important;
   border-radius: 50%;
   color: var(--muted);
+  cursor: pointer;
   display: inline-flex;
+  flex: 0 0 auto;
   height: 2rem;
   justify-content: center;
   opacity: 0;
@@ -730,36 +734,56 @@ body.sidebar-collapsed .sidebar-pair-label {
   transition: opacity 0.12s ease, color 0.12s ease;
   width: 2rem;
 }
-.sidebar-rename {
+.sidebar-menu-btn svg { height: 14px; width: 14px; }
+.sidebar-session-line .sidebar-menu-btn {
   position: absolute;
   right: 1.85rem;
   top: 50%;
   transform: translateY(-50%);
 }
-.sidebar-session-line.actions-open .sidebar-rename,
-.sidebar-rename:focus-visible {
-  opacity: 1;
+.sidebar-session-line:focus-within .sidebar-menu-btn,
+.sidebar-session-line.actions-open .sidebar-menu-btn,
+.sidebar-menu-btn:focus-visible { opacity: 1; }
+.sidebar-project-line:focus-within .sidebar-menu-btn,
+.sidebar-project-group.actions-open .sidebar-menu-btn { opacity: 0.7; }
+@media (hover: hover) {
+  .sidebar-session-line:hover .sidebar-menu-btn { opacity: 1; }
+  .sidebar-project-line:hover .sidebar-menu-btn { opacity: 0.7; }
+  .sidebar-menu-btn:hover { color: var(--text); }
 }
-@media (hover: hover) { .sidebar-session-line:hover .sidebar-rename {
-  opacity: 1;
-} }
-.sidebar-rename:focus-visible {
+.sidebar-menu-btn:focus-visible { color: var(--text); outline: none; }
+
+/* Floating row context menu (project/session 3-dot + long-press). Appended to
+   <body>, fixed-positioned by row-menu.js so a sidebar re-render can't close it. */
+.row-menu {
+  position: fixed;
+  z-index: 200;
+  min-width: 172px;
+  padding: 0.3rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.row-menu-item {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
   color: var(--text);
-  outline: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.875rem;
+  padding: 0.5rem 0.65rem;
+  text-align: left;
+  width: 100%;
 }
-@media (hover: hover) { .sidebar-rename:hover {
-  color: var(--text);
-  outline: none;
-} }
-.sidebar-rename svg {
-  fill: none;
-  height: 14px;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.6;
-  width: 14px;
-}
+.row-menu-item.danger { color: var(--danger); }
+.row-menu-item:focus-visible { background: var(--hover); outline: none; }
+@media (hover: hover) { .row-menu-item:hover { background: var(--hover); } }
 
 .sidebar-archive svg {
   fill: none;
