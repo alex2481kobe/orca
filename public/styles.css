@@ -791,6 +791,7 @@ body.sidebar-collapsed .sidebar-pair-label {
    removes the laggy native grey flash (it fades in/out on its own delayed timing);
    our own .is-pressing feedback (set on pointerdown) is immediate and rides the
    short background transition for a smooth grey-in / grey-out instead. */
+.ops-sidebar { -webkit-tap-highlight-color: transparent; }
 .sidebar-project-line,
 .sidebar-session-line {
   -webkit-touch-callout: none;
@@ -799,8 +800,13 @@ body.sidebar-collapsed .sidebar-pair-label {
   -webkit-tap-highlight-color: transparent;
   transition: background 0.12s ease;
 }
+/* One continuous highlight through the whole long-press → menu interaction: press
+   feedback (.is-pressing) flows into a held highlight while the menu is open
+   (.row-menu-active), then fades out when the menu closes — no grey→white flicker. */
 .sidebar-project-line.is-pressing,
-.sidebar-session-line.is-pressing { background: var(--hover); }
+.sidebar-session-line.is-pressing,
+.sidebar-project-line.row-menu-active,
+.sidebar-session-line.row-menu-active { background: var(--hover); }
 
 .sidebar-archive svg {
   fill: none;

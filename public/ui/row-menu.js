@@ -10,12 +10,14 @@ import { safeText, safeAttr } from './format.js';
 
 let _menu = null;
 let _anchor = null;
+let _row = null;
 let _onDocPointer = null;
 let _onKey = null;
 let _onScroll = null;
 
 export function closeRowMenu() {
   if (_menu) { _menu.remove(); _menu = null; }
+  if (_row) { _row.classList.remove('row-menu-active'); _row = null; }
   _anchor = null;
   if (_onDocPointer) { document.removeEventListener('pointerdown', _onDocPointer, true); _onDocPointer = null; }
   if (_onKey) { document.removeEventListener('keydown', _onKey, true); _onKey = null; }
@@ -80,6 +82,10 @@ export function openRowMenuFromTrigger(anchorEl, rect = null) {
   placeMenu(menu, rect || anchorEl.getBoundingClientRect());
   _menu = menu;
   _anchor = anchorEl;
+  // Hold a highlight on the row this menu belongs to (so it stays grey while the
+  // menu is open instead of flickering back to white), cleared on close.
+  _row = anchorEl.closest('.sidebar-project-line, .sidebar-session-line');
+  if (_row) _row.classList.add('row-menu-active');
 
   // Choosing an item: let the delegated handler run (it sees the item's data-*),
   // then close on the next tick.

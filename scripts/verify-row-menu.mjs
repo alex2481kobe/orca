@@ -162,6 +162,7 @@ async function flows(page, mobile) {
     const { project } = await seedProject('Toggle');
     await goProject(project.slug);
     const { btnSel, opened } = await openMenu(page, 'project', project.id, mobile);
+    out.heldHighlightWhileOpen = await page.$eval(`.sidebar-project-group[data-project-id="${project.id}"] .sidebar-project-line`, (el) => el.classList.contains('row-menu-active')).catch(() => false);
     await page.click(btnSel, { force: true }); // second click of same trigger
     await page.waitForTimeout(120);
     out.toggleClosesOnSecondClick = opened && (await page.$$('.row-menu')).length === 0;
@@ -172,6 +173,7 @@ async function flows(page, mobile) {
     await page.mouse.click(mobile ? 360 : 1000, 420); // click empty area
     await page.waitForTimeout(150);
     out.noRespawnOnOutsideClick = (await page.$$('.row-menu')).length === 0;
+    out.highlightClearedOnClose = !(await page.$(`.sidebar-project-group[data-project-id="${project.id}"] .sidebar-project-line.row-menu-active`));
   }
   return out;
 }
