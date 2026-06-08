@@ -273,10 +273,12 @@ export function renderHome() {
       <strong>Generated orchestrator config</strong>
       <div class="tiny muted">Scoped orchestrator lease (expires ${safeText(formatRelative(desktopBootstrap.lease?.expiresAt))}). Paste into your desktop app and restart it. This grants Orca's orchestrator tools — never the API token.</div>
       <div class="lane-row">
+        <button class="secondary" data-action="copyDesktopConfig" data-client="claudeCli" type="button">Copy claude mcp add</button>
+        <button class="secondary" data-action="copyDesktopConfig" data-client="codexCli" type="button">Copy codex mcp add</button>
         <button class="secondary" data-action="copyDesktopConfig" data-client="claudeDesktop" type="button">Copy Claude Desktop JSON</button>
         <button class="secondary" data-action="copyDesktopConfig" data-client="codex" type="button">Copy Codex TOML</button>
       </div>
-      <div class="tiny muted">Claude Desktop: ${safeText(desktopBootstrap.bootstrap?.clients?.claudeDesktop?.configPath || '')} · Codex: ${safeText(desktopBootstrap.bootstrap?.clients?.codex?.configPath || '')}</div>
+      <div class="tiny muted">Claude Code / Codex CLI: run the copied <code>mcp add</code> command, then restart the session. Claude Desktop / Codex app: paste the JSON/TOML into ${safeText(desktopBootstrap.bootstrap?.clients?.claudeDesktop?.configPath || 'its config')}.</div>
     </div>
   ` : '<div class="tiny muted">Generates a scoped orchestrator MCP config you paste into Codex app or Claude Desktop. Those apps then drive Orca as the orchestrator with full tooling. You can still use Orca\'s own chats for full control.</div>';
   const primaryProjects = shell.projects.filter((project) => !isVerificationProject(project));

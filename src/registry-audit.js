@@ -241,6 +241,14 @@ export const auditMethods = {
     lane.state = ACCEPTED_STATE;
     lane.auditLoopCount = 0; // work passed audit — reset the fix-loop budget
     lane.updatedAt = nowIso();
+    // Sync the backlog task (if any) linked to this lane to accepted, then check
+    // whether that completed the whole backlog (fires regardless of spawn policy).
+    if (typeof this.markTaskAcceptedFromLane === 'function') {
+      const syncedTask = this.markTaskAcceptedFromLane(lane.id);
+      if (syncedTask && typeof this.evaluateBacklogCompletion === 'function') {
+        this.evaluateBacklogCompletion(lane.sessionId);
+      }
+    }
     const record = {
       id: randomUUID(),
       actor: String(actor || 'dashboard').slice(0, 120),

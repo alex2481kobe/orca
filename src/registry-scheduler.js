@@ -200,6 +200,13 @@ export const schedulerMethods = {
       }
     }
 
+    // Fan out the task backlog: for 'auto' sessions, create executor lanes from
+    // pending tasks up to capacity, refilling as tasks finish. Runs before audit
+    // dispatch so newly spawned lanes are picked up next tick.
+    if (typeof this.dispatchPendingTasks === 'function') {
+      await this.dispatchPendingTasks().catch(() => {});
+    }
+
     // Autonomously run audits for lanes whose work is queued for review.
     if (typeof this.dispatchPendingAudits === 'function') {
       await this.dispatchPendingAudits().catch(() => {});

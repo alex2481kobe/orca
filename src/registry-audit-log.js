@@ -52,6 +52,14 @@ export const auditLogMethods = {
     if (lane.agentEvents.length > MAX_AGENT_EVENT_ENTRIES) {
       lane.agentEvents = lane.agentEvents.slice(-MAX_AGENT_EVENT_ENTRIES);
     }
+    // Promote the agent's final assistant message (parsed from the executor's
+    // stream-json / json result by the event normalizer) to a first-class lane
+    // field, so the orchestrator/audit see the actual outcome — not just exit code
+    // + raw logs. Last final message wins; uniform across all executor types.
+    if (agentEvent.type === 'message.assistant.final' && agentEvent.content) {
+      lane.resultText = String(agentEvent.content).slice(0, 12000);
+      lane.resultAt = now;
+    }
     lane.updatedAt = now;
     this._streamRevision = (this._streamRevision || 0) + 1;
     if (!this._starting && persist) {

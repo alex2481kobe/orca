@@ -45,6 +45,13 @@ const fail = (label, info = '') => {
 const WIRED_ACTIONS = new Set([
   'newSession',
   'newProject',
+  'openProjectMenu',
+  'openSessionMenu',
+  'openProjectSettings',
+  'openSessionSettings',
+  'composerMic',
+  'markCritiqueDone',
+  'waiveCritique',
   'setTheme',
   'ackAuditEvent',
   'applyAppImport',

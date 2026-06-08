@@ -1,4 +1,4 @@
-# Controlling Orca from Codex app / Claude Desktop
+# Controlling Orca from Claude Code CLI / Codex app / Claude Desktop
 
 Orca can be driven from a desktop AI app (the Codex app or Claude Desktop) in two
 complementary ways. Both run entirely on the local machine (loopback); neither
@@ -30,6 +30,35 @@ returns paste-ready config for each client.
 
 The lease can be scoped to a single project/session by passing `projectId` /
 `sessionId`; unscoped leases work session/project-wide.
+
+### Claude Code CLI (recommended)
+
+Register the server in one command (the dashboard generates this exact line with
+your live lease and paths), then start a new session:
+
+```bash
+claude mcp add orca \
+  -e ORCA_AGENT_TOOLS_BASE_URL=http://127.0.0.1:3000 \
+  -e ORCA_TOOL_LEASE_TOKEN=<scoped-lease-token> \
+  -e ORCA_ROLE=orchestrator \
+  -- node /abs/path/to/src/mcp-server.js
+```
+
+Then tell the chat to act as the orchestrator. The loop is:
+`session__next_action` → `orchestrator__enroll { sessionId }` (claim the session;
+`orchestrator__resign` hands off) → `task__bulk_add` a backlog → with
+`spawnPolicy:"auto"` Orca fans tasks out across executor lanes and audits them to
+accepted → `orchestrator__status` shows the live lane tree.
+
+### Codex CLI
+
+```bash
+codex mcp add orca \
+  --env ORCA_AGENT_TOOLS_BASE_URL=http://127.0.0.1:3000 \
+  --env ORCA_TOOL_LEASE_TOKEN=<scoped-lease-token> \
+  --env ORCA_ROLE=orchestrator \
+  -- node /abs/path/to/src/mcp-server.js
+```
 
 ### Claude Desktop
 
@@ -78,9 +107,10 @@ generated config can point at the stdio MCP server:
 1. **Installed app (default):** the generated config's absolute path resolves to
    the `mcp-server.js` shipped inside the installed Orca app bundle — not a dev
    source tree.
-2. **Global install:** run `npm i -g orca` (or `npm link` in a checkout) to put
-   the `orca-mcp` command on your `PATH`. The bootstrap's `globalInstall` config
-   variant uses `command: "orca-mcp"` with no absolute path at all.
+2. **`orca-mcp` on PATH:** Orca is **not published to npm**, so `npm i -g orca`
+   will not work. To get the `orca-mcp` command, run `npm link` inside a checkout.
+   The bootstrap's `globalInstall` config variant then uses `command: "orca-mcp"`
+   with no absolute path at all.
 3. **Source checkout:** `command: node`, `args: ["…/src/mcp-server.js"]`.
 
 In every case the desktop app/CLI spawns the stdio MCP server itself and it talks
@@ -114,8 +144,12 @@ agent told "act as the orchestrator" knows the rules at connect time.
 
 - The lease grants only the orchestrator toolset and expires. The full API token
   is never placed in any client config.
-- The bootstrap endpoint is API-token (or paired-browser) gated, so only an
-  authenticated operator can issue a lease.
+- The bootstrap endpoint is **admin-gated** (API token, or the loopback
+  workstation when no token is set) — a paired phone/browser is operator-only and
+  cannot mint an orchestrator lease.
+- `orchestrator__enroll` only **binds** an already-issued lease to a session and
+  marks ownership; it never mints or widens a credential. Takeover/resign
+  coordinate handoff between chats.
 - All tool calls stay on loopback; nothing is exposed to the tailnet by this flow.
 
 ## Both paths together

@@ -69,7 +69,26 @@ test('builder offers a source-free global-install (orca-mcp) launcher variant', 
   assert.equal(g.env.ORCA_ROLE, 'orchestrator');
   assert.match(out.globalInstall.codex.snippet, /command = "orca-mcp"/);
   assert.match(out.globalInstall.codex.snippet, /args = \[\]/);
-  assert.ok(out.instructions.some((line) => /No Orca source checkout is required/.test(line)));
+  assert.ok(out.instructions.some((line) => /no Orca source checkout is required/i.test(line)));
+  // The package is private/unpublished: never tell users to `npm i -g orca`.
+  assert.ok(!out.instructions.some((line) => /npm i -g orca/.test(line)), 'no fake npm i -g orca claim');
+});
+
+test('builder emits ready-to-run claude/codex "mcp add" CLI one-liners', () => {
+  const out = buildOrchestratorMcpConfigs({
+    baseUrl: 'http://127.0.0.1:3000',
+    leaseToken: 'lease-xyz',
+    projectId: 'p1',
+    nodePath: '/usr/local/bin/node',
+  });
+  const claude = out.clients.claudeCli.command;
+  assert.match(claude, /^claude mcp add orca /);
+  assert.match(claude, /-e ORCA_TOOL_LEASE_TOKEN=lease-xyz/);
+  assert.match(claude, /-e ORCA_ROLE=orchestrator/);
+  assert.match(claude, /-- \/usr\/local\/bin\/node /);
+  const codex = out.clients.codexCli.command;
+  assert.match(codex, /^codex mcp add orca /);
+  assert.match(codex, /--env ORCA_AGENT_TOOLS_BASE_URL=http:\/\/127\.0\.0\.1:3000/);
 });
 
 test('package.json exposes the orca-mcp standalone bin pointing at the MCP server', async () => {

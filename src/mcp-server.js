@@ -18,7 +18,7 @@
 //   ORCA_LANE_ID / ORCA_SESSION_ID / ORCA_PROJECT_ID - default path params
 
 import readline from 'node:readline';
-import { TOOL_DEFINITIONS, normalizeRole } from './agent-tools.js';
+import { TOOL_DEFINITIONS, normalizeRole, CONTRACT_VERSION, roleInstructions } from './agent-tools.js';
 
 const BASE_URL = String(process.env.ORCA_AGENT_TOOLS_BASE_URL || 'http://127.0.0.1:3000').replace(/\/$/, '');
 const LEASE_TOKEN = String(process.env.ORCA_TOOL_LEASE_TOKEN || '');
@@ -41,39 +41,19 @@ function callableTools() {
   );
 }
 
-// Role operating rules delivered in the MCP initialize response, so a desktop
-// agent told to "act as the orchestrator" receives the rulebook at connect time
-// instead of having to be pointed at docs/agent-orchestrator-skill.md. The
-// server still enforces the workflow with nextAction envelopes regardless.
-const ROLE_INSTRUCTIONS = {
-  orchestrator:
-    'You are acting as the Orca ORCHESTRATOR. You own project/session direction, lane decomposition, '
-    + 'tool selection, progress review, and handoff quality. You must not bypass Orca policy gates.\n'
-    + 'Always: (1) call session__next_action FIRST and obey its returned envelope — it names the only legal next tool; '
-    + '(2) read session__describe and executor__capabilities before assigning work or spawning lanes; '
-    + '(3) create a lane (lane__create) only when work is scoped, reviewable, and within capacity, with exactly one owner and a named reviewer; '
-    + '(4) respond to executor approval requests via approval__list / approval__respond; '
-    + '(5) require evidence (evidence__capture_screenshot / evidence__list) for UI/browser/artifact changes before acceptance; '
-    + '(6) use audit/critique tools to verify completed lanes — never treat an executor summary as final. '
-    + 'The server returns a nextAction envelope on any out-of-order or disallowed call; follow it rather than retrying blindly.',
-  executor:
-    'You are acting as an Orca EXECUTOR for a single lane. Call session__next_action FIRST and obey the envelope. '
-    + 'Do the scoped work, request approval (approval__request) before high-risk actions, capture evidence for UI/artifact changes, '
-    + 'then lane__submit with a summary + files for review. Do not spawn or manage other lanes. Follow nextAction envelopes on refusal.',
-  auditor:
-    'You are acting as an Orca AUDITOR. Call session__next_action FIRST. Review completed lanes against evidence; '
-    + 'record findings (audit__findings_record) and accept/request-fix/block — do not accept on summary alone.',
-  critique:
-    'You are acting as an Orca CRITIQUE agent. Call session__next_action FIRST. Produce critique bundles and record findings; '
-    + 'do not modify lanes directly. Follow nextAction envelopes.',
-  dashboard:
-    'You are acting on behalf of the Orca DASHBOARD operator. Call session__next_action FIRST and follow returned envelopes.',
-};
-
+// Role operating rules are delivered in the MCP initialize response, so a desktop
+// agent told to "act as the orchestrator" receives the rulebook at connect time.
+// The text is the SINGLE shared rulebook (agent-tools/role-instructions.js) used by
+// every surface; the server still enforces the workflow with nextAction envelopes.
 function instructionsForRole() {
-  const roleRules = ROLE_INSTRUCTIONS[ROLE] || ROLE_INSTRUCTIONS.executor;
+  // The shared rulebook references canonical dotted tool ids; MCP clients see the
+  // "__" names, so translate each real tool id (precise — only known ids).
+  let rules = roleInstructions(ROLE);
+  for (const tool of TOOL_DEFINITIONS) {
+    if (tool.id.includes('.')) rules = rules.split(tool.id).join(toMcpName(tool.id));
+  }
   return (
-    `${roleRules}\n\n`
+    `${rules}\n\n`
     + 'Tool names use "__" where the contract uses "." (e.g. session.next_action -> session__next_action). '
     + 'Path params (sessionId/laneId/projectId) default from this connection when omitted. '
     + 'Mutating tools take a "body" object. The server is authoritative: it enforces ordering and policy and '
@@ -248,7 +228,7 @@ async function handle(message) {
       return reply(id, {
         protocolVersion: params?.protocolVersion || SERVER_PROTOCOL_VERSION,
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: 'orca', version: '0.1.0' },
+        serverInfo: { name: 'orca', version: '0.1.0', contractVersion: CONTRACT_VERSION },
         instructions: instructionsForRole(),
       });
     case 'ping':
@@ -282,9 +262,14 @@ rl.on('line', (line) => {
   } catch {
     return; // ignore non-JSON lines
   }
-  Promise.resolve(handle(message)).catch((error) => {
-    if (message?.id !== undefined && message?.id !== null) {
-      replyError(message.id, -32603, `Internal error: ${error?.message || error}`);
-    }
-  });
+  // JSON-RPC batch: an array of requests. Each is handled independently and its
+  // response written on its own line (clients correlate by id).
+  const messages = Array.isArray(message) ? message : [message];
+  for (const entry of messages) {
+    Promise.resolve(handle(entry)).catch((error) => {
+      if (entry?.id !== undefined && entry?.id !== null) {
+        replyError(entry.id, -32603, `Internal error: ${error?.message || error}`);
+      }
+    });
+  }
 });

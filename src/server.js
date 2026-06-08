@@ -22,6 +22,7 @@ import {
 import { buildRouteInventory } from './route-inventory.js';
 import { handleLaneRoutes, FALL_THROUGH as LANE_FALL_THROUGH } from './server-routes/lanes.js';
 import { handleSessionRoutes } from './server-routes/sessions.js';
+import { handleTaskRoutes } from './server-routes/tasks.js';
 import { handleProjectRoutes } from './server-routes/projects.js';
 import { handleMcpRoutes } from './server-routes/mcp.js';
 import { handleNotificationRoutes } from './server-routes/notifications.js';
@@ -51,6 +52,10 @@ const providerProfiles = new ProviderProfileStore();
 const registry = new OrcaRegistry({
   credentialStore: providerProfiles.credentialStore,
   providerProfileStore: providerProfiles,
+  // Optional tuning (mainly for tests/smokes): speed up the scheduler heartbeat
+  // and the mock executor's auto-complete. Unset -> registry defaults.
+  heartbeatIntervalMs: Number.parseInt(process.env.ORCA_HEARTBEAT_MS, 10) || undefined,
+  autoCompleteMs: Number.parseInt(process.env.ORCA_AUTO_COMPLETE_MS, 10) || undefined,
 });
 const privateAccess = new PrivateAccessStore();
 const authSessions = new AuthSessionStore();
@@ -265,6 +270,13 @@ function toolLeaseRequirementForRoute(method, parts) {
   if (parts[1] === 'projects' && parts[2] && parts[3] === 'quick-links' && parts[4] && parts[5] === 'check' && method === 'POST') {
     return { toolId: 'project.quick_link.health', projectId: parts[2] };
   }
+  if (parts[1] === 'projects' && parts[2] && parts[3] === 'sessions' && parts.length === 4) {
+    if (method === 'GET') return { toolId: 'session.list', projectId: parts[2] };
+    if (method === 'POST') return { toolId: 'session.create', projectId: parts[2] };
+  }
+  if (parts[1] === 'settings' && ['project', 'session', 'lane'].includes(parts[2]) && parts[3] && method === 'PATCH') {
+    return { toolId: 'settings.update' };
+  }
   if (parts[1] === 'policy' && parts.length === 2 && method === 'GET') {
     return { toolId: 'settings.describe_effective' };
   }
@@ -292,6 +304,29 @@ function toolLeaseRequirementForRoute(method, parts) {
   }
   if (parts[1] === 'sessions' && parts[2] && parts[3] === 'plan' && method === 'POST') {
     return { toolId: 'session.plan.update', sessionId: parts[2] };
+  }
+  if (parts[1] === 'sessions' && parts[2] && parts[3] === 'tasks' && parts.length === 4) {
+    if (method === 'GET') return { toolId: 'task.list', sessionId: parts[2] };
+    if (method === 'POST') return { toolId: 'task.add', sessionId: parts[2] };
+  }
+  if (parts[1] === 'sessions' && parts[2] && parts[3] === 'tasks' && parts[4] === 'bulk' && method === 'POST') {
+    return { toolId: 'task.bulk_add', sessionId: parts[2] };
+  }
+  if (parts[1] === 'sessions' && parts[2] && parts[3] === 'backlog' && method === 'GET') {
+    return { toolId: 'backlog.status', sessionId: parts[2] };
+  }
+  if (parts[1] === 'sessions' && parts[2] && parts[3] === 'orchestrator' && parts[4] === 'enroll' && method === 'POST') {
+    return { toolId: 'orchestrator.enroll', sessionId: parts[2] };
+  }
+  if (parts[1] === 'sessions' && parts[2] && parts[3] === 'orchestrator' && parts[4] === 'resign' && method === 'POST') {
+    return { toolId: 'orchestrator.resign', sessionId: parts[2] };
+  }
+  if (parts[1] === 'sessions' && parts[2] && parts[3] === 'orchestrator' && parts[4] === 'status' && method === 'GET') {
+    return { toolId: 'orchestrator.status', sessionId: parts[2] };
+  }
+  if (parts[1] === 'tasks' && parts[2] && parts.length === 3) {
+    if (method === 'PATCH') return { toolId: 'task.update' };
+    if (method === 'DELETE') return { toolId: 'task.delete' };
   }
   if (parts[1] === 'artifacts' && parts[2] === 'cleanup' && method === 'POST') {
     return { toolIds: ['evidence.cleanup_dry_run', 'evidence.cleanup_apply'] };
@@ -431,6 +466,18 @@ function enforceAgentToolStateGate(req, res, parts) {
   if (!toolId) return true;
   try {
     registry.assertAgentToolAllowed(toolId, { laneId: requirement.laneId });
+    // Exclusive-ownership gate: once a chat has enrolled as the active
+    // orchestrator, a different orchestrator lease cannot mutate the session.
+    const leaseToken = getToolLeaseToken(req);
+    if (leaseToken) {
+      let lease = null;
+      try { lease = registry.validateToolLease(leaseToken, { toolId }); } catch { lease = null; }
+      if (lease) {
+        const ownerSessionId = requirement.sessionId
+          || (requirement.laneId ? registry.getLane(requirement.laneId)?.sessionId : null);
+        registry.assertOrchestratorOwnership({ toolId, sessionId: ownerSessionId, lease });
+      }
+    }
     return true;
   } catch (error) {
     sendJson(res, error.status || 409, {
@@ -641,6 +688,7 @@ const ROUTE_CTX = {
   getSearchParams,
   constantTimeEqual,
   hasSpecificToolLeaseAuth,
+  getToolLeaseToken,
   WORKER_TOKEN,
   buildNextActionEnvelope,
   requestOrigin,
@@ -747,6 +795,11 @@ async function handleApi(req, res, pathname, method, parts) {
 
   if (parts[1] === 'lanes') {
     const result = await handleLaneRoutes(ROUTE_CTX, req, res, method, parts);
+    if (result !== LANE_FALL_THROUGH) return;
+  }
+
+  if (parts[1] === 'tasks') {
+    const result = await handleTaskRoutes(ROUTE_CTX, req, res, method, parts);
     if (result !== LANE_FALL_THROUGH) return;
   }
 

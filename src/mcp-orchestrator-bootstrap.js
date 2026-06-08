@@ -71,10 +71,37 @@ function buildCodexConfigToml({ launcher, env }) {
   return `${lines.join('\n')}\n`;
 }
 
+// Shell-quote a value for a copy-paste command line (single-quote unless safe).
+function shArg(value) {
+  const str = String(value);
+  return /^[A-Za-z0-9_./:=-]+$/.test(str) ? str : `'${str.replace(/'/g, `'\\''`)}'`;
+}
+
+// `claude mcp add` / `codex mcp add` one-liners — the simplest connect path for
+// the CLI clients (vs hand-editing JSON/TOML). flagStyle is how each CLI passes
+// env: Claude Code uses repeated `-e K=V`, Codex CLI uses repeated `--env K=V`.
+function buildCliCommand(binary, flag, launcher, env) {
+  const envFlags = Object.entries(env).map(([k, v]) => `${flag} ${shArg(`${k}=${v}`)}`).join(' ');
+  const launch = [launcher.command, ...launcher.args].map(shArg).join(' ');
+  return `${binary} mcp add ${SERVER_KEY} ${envFlags} -- ${launch}`;
+}
+
 // All client snippets for one launcher (node+path, or a PATH command).
 function buildClientConfigs(launcher, env) {
   const claudeDesktop = buildClaudeDesktopConfig({ launcher, env });
   return {
+    claudeCli: {
+      label: 'Claude Code CLI',
+      merge: 'Run this once; it registers the "orca" MCP server for Claude Code, then restart your session.',
+      command: buildCliCommand('claude', '-e', launcher, env),
+      snippet: buildCliCommand('claude', '-e', launcher, env),
+    },
+    codexCli: {
+      label: 'Codex CLI',
+      merge: 'Run this once to register the "orca" MCP server for the Codex CLI.',
+      command: buildCliCommand('codex', '--env', launcher, env),
+      snippet: buildCliCommand('codex', '--env', launcher, env),
+    },
     claudeDesktop: {
       label: 'Claude Desktop',
       configPath: '~/Library/Application Support/Claude/claude_desktop_config.json',
@@ -135,10 +162,10 @@ export function buildOrchestratorMcpConfigs({
     // Way A — visual: open the dashboard in the desktop app's in-app browser.
     // Way B — programmatic: wire one of the MCP configs below for full tooling.
     instructions: [
-      `No Orca source checkout is required: install the Orca app (or 'npm i -g orca'), then paste a config below into your desktop app/CLI and restart it.`,
+      `Fastest path (Claude Code CLI / Codex CLI): run the one-line "claude mcp add"/"codex mcp add" command below, then restart your session.`,
+      `Otherwise paste the Claude Desktop JSON or Codex TOML into that client's config and restart it. The config uses an absolute node + bundled mcp-server.js path, so no Orca source checkout is required (Orca is not published to npm; the 'orca-mcp' bin variant only works after 'npm link' in a checkout).`,
       `Open ${dashboardUrl || baseUrl || 'the Orca dashboard URL'} in the desktop app's in-app browser to drive Orca visually.`,
-      `For programmatic control, add the MCP server config for your client (Claude Desktop JSON or Codex TOML).`,
-      `The server exposes Orca's orchestrator tools; call session__next_action first — the server enforces the workflow.`,
+      `The server exposes Orca's orchestrator tools; call session__next_action first, then orchestrator__enroll — the server enforces the workflow.`,
     ],
     clients,
     // Same configs but launched via the PATH-resolved 'orca-mcp' command instead

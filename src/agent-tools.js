@@ -6,3 +6,4 @@ export { TOOL_DEFINITIONS, findTool } from './agent-tools/tool-definitions.js';
 export { normalizeRole, availableToolIdsForRole } from './agent-tools/roles.js';
 export { buildAgentToolDiscovery } from './agent-tools/discovery.js';
 export { buildNextActionEnvelope } from './agent-tools/next-action.js';
+export { ROLE_INSTRUCTIONS, roleInstructions } from './agent-tools/role-instructions.js';
