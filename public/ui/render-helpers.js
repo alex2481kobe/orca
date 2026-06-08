@@ -11,6 +11,52 @@ export function laneDetailRoute(project, session, lane) {
   return lane.route || `/projects/${project.slug}/sessions/${session.id}/lanes/${lane.id}`;
 }
 
+// --- Unread / "done, take a look" session indicator (the blue dot) -------------
+// Per-device record of when each session was last opened. A session shows the dot
+// when its latest activity (session.updatedAt or any of its lanes' updatedAt) is
+// newer than that, AND no lane is currently live — so the dot means "the agent
+// finished and you haven't looked", not "still working" (which the project's (N)
+// count already shows). Opening a session clears it.
+const SESSION_SEEN_KEY = 'orca.sessionSeen:v1';
+function readSessionSeen() {
+  try { return JSON.parse(window.localStorage.getItem(SESSION_SEEN_KEY) || '{}') || {}; } catch { return {}; }
+}
+function writeSessionSeen(map) {
+  try { window.localStorage.setItem(SESSION_SEEN_KEY, JSON.stringify(map)); } catch { /* storage unavailable */ }
+}
+const parseTs = (value) => { const n = Date.parse(value || ''); return Number.isNaN(n) ? 0 : n; };
+
+export function computeUnreadSessions(sessions = [], lanes = [], openSessionId = null) {
+  const seen = readSessionSeen();
+  const unread = new Set();
+  let changed = false;
+  const activityBySession = new Map();
+  const liveBySession = new Set();
+  for (const lane of lanes) {
+    const sid = lane && lane.sessionId;
+    if (!sid) continue;
+    activityBySession.set(sid, Math.max(activityBySession.get(sid) || 0, parseTs(lane.updatedAt)));
+    if (isLiveLaneState(lane.state)) liveBySession.add(sid);
+  }
+  for (const session of sessions) {
+    if (!session || !session.id) continue;
+    const lastActivity = Math.max(parseTs(session.updatedAt), parseTs(session.createdAt), activityBySession.get(session.id) || 0);
+    const isOpen = session.id === openSessionId;
+    // Opening a session, or first-observing one (so existing chats don't all light
+    // up on first load), baselines it as seen up to its current activity.
+    if (isOpen || !(session.id in seen)) {
+      const stamp = new Date(lastActivity || Date.now()).toISOString();
+      if (seen[session.id] !== stamp) { seen[session.id] = stamp; changed = true; }
+      continue;
+    }
+    if (!liveBySession.has(session.id) && lastActivity > parseTs(seen[session.id])) {
+      unread.add(session.id);
+    }
+  }
+  if (changed) writeSessionSeen(seen);
+  return unread;
+}
+
 export function isVerificationProject(project) {
   const slug = String(project?.slug || '').toLowerCase();
   const name = String(project?.name || '').toLowerCase();

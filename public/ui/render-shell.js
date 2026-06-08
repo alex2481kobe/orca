@@ -94,7 +94,7 @@ function renderIosAppPromo() {
 import { refs, shell, makeDraftSession } from './state.js';
 import { safeAttr, safeText } from './format.js';
 import { api, browserAccessBlocked, setApiToken } from './api.js';
-import { activeHomePanel, isLiveLaneState, isRunningLaneState, isVerificationProject, renderBreadcrumbs, renderTopbarTitle } from './render-helpers.js';
+import { activeHomePanel, computeUnreadSessions, isLiveLaneState, isRunningLaneState, isVerificationProject, renderBreadcrumbs, renderTopbarTitle } from './render-helpers.js';
 import { renderHome } from './render-home.js';
 import { renderAppearancePanel, renderWorkstationList } from './render-home-panels.js';
 import { renderWorkstationPickerPanel } from './render-project.js';
@@ -478,6 +478,8 @@ export function renderSidebarProjects(activeProject) {
   }
   const storedOrder = readSidebarOrder();
   const archiveIcon = ARCHIVE_ICON;
+  // Sessions with finished, unseen agent activity get a blue "unread" dot.
+  const unreadSessions = computeUnreadSessions(shell.sessions || [], shell.lanes || [], shell.route?.sessionId);
   const renderSidebarProject = (project) => {
     const projectSessions = orderItems(
       (shell.sessions || []).filter((session) => session.projectId === project.id),
@@ -502,6 +504,7 @@ export function renderSidebarProjects(activeProject) {
           <button class="sidebar-archive" type="button" data-action="archiveSession" data-session-id="${safeAttr(session.id)}" data-session-name="${safeAttr(session.name)}" aria-label="Archive ${safeAttr(session.name)} session" title="Archive session">
             ${archiveIcon}
           </button>
+          ${unreadSessions.has(session.id) ? '<span class="session-unread-dot" title="New activity — open to view" aria-label="Unread activity"></span>' : ''}
         </div>
       `;
     }).join('');

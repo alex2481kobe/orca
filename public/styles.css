@@ -29,6 +29,7 @@
   --ok: #7fbf8f;
   --warn: #d8a657;
   --bad: #ef8377;
+  --accent-blue: #4d9fff;
   --shell-gap: 1rem;
   /* Global radius scale — every rounded element references these so corners are
      consistent app-wide (no ad-hoc px values, no sharp corners). */
@@ -97,6 +98,7 @@
   --ok: #2e7d4f;
   --warn: #9a6a00;
   --bad: #c0392b;
+  --accent-blue: #2563eb;
   /* Primary buttons use --text as fill (near-black in light) → label is white. */
   --ink-on-light: #ffffff;
 }
@@ -770,6 +772,24 @@ body.sidebar-collapsed .sidebar-pair-label {
   .sidebar-menu-btn:hover { color: var(--text); }
 }
 .sidebar-menu-btn:focus-visible { color: var(--text); outline: none; }
+
+/* "Unread" dot — a session finished work you haven't opened yet (Codex-style).
+   Sits at the row's right edge; hides when the hover action icons appear so they
+   don't overlap, and clears the moment you open the session (computed seen-state). */
+.session-unread-dot {
+  position: absolute;
+  right: 0.62rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent-blue);
+  pointer-events: none;
+}
+.sidebar-session-line:focus-within .session-unread-dot,
+.sidebar-session-line.actions-open .session-unread-dot { opacity: 0; }
+@media (hover: hover) { .sidebar-session-line:hover .session-unread-dot { opacity: 0; } }
 
 /* Floating row context menu (project/session 3-dot + long-press). Appended to
    <body>, fixed-positioned by row-menu.js so a sidebar re-render can't close it. */

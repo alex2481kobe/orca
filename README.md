@@ -63,8 +63,10 @@ npm start
 Open **http://127.0.0.1:3000/** and create your first project. That's it — it starts
 empty and clean; you bring the projects.
 
-> Running over a network (e.g. to reach it from your phone)? Start it with an API
-> token so only paired devices get in:
+> Orca binds to **`127.0.0.1` (localhost)** by default — it's not on any network.
+> To use it from your phone, see [Drive it from your phone](#drive-it-from-your-phone)
+> below. Remote devices see nothing until they pair. For extra hardening you can also
+> require auth on the workstation itself (no implicit local admin):
 > ```bash
 > ORCA_API_TOKEN="$(openssl rand -hex 32)" npm start
 > ```
@@ -130,13 +132,10 @@ See [`SECURITY.md`](SECURITY.md) to report issues.
 
 ## Platforms
 
-- **Web / PWA — today, everywhere.** Run from source with Node.js on macOS, Windows,
-  or Linux; install it to your home screen.
-- **macOS desktop app.** A Tauri v2 shell is built and locally verified; signed/
-  notarized DMG distribution is the remaining packaging step
-  ([`docs/tauri-release.md`](docs/tauri-release.md)).
-- **iOS.** A thin native shell wraps the same dashboard for a full‑screen phone
-  experience ([`docs/ios-app.md`](docs/ios-app.md)).
+- **Web / PWA — runs everywhere.** Start it with Node.js on macOS, Windows, or Linux,
+  and install it to your home screen.
+- **macOS desktop app.** A native Tauri v2 build — `npm run tauri:build`.
+- **iOS.** A native shell gives the dashboard a full‑screen, app‑like phone experience.
 
 ## Docs
 

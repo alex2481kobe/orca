@@ -48,6 +48,7 @@
     "smoke:no-hardcoded-colors": "node scripts/verify-no-hardcoded-colors.mjs",
     "smoke:remote-workstation": "node scripts/verify-remote-workstation-settings.mjs",
     "smoke:row-menu": "node scripts/verify-row-menu.mjs",
+    "smoke:unread-dot": "node scripts/verify-unread-dot.mjs",
     "smoke:disclosure": "node scripts/disclosure-persistence-smoke.mjs",
     "smoke:realtime": "node scripts/realtime-update-smoke.mjs",
     "smoke:dropdown": "node scripts/dropdown-smoke.mjs",
