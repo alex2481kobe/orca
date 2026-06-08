@@ -798,7 +798,7 @@ function startServer(port = PORT, host = HOST) {
       server.off('error', onError);
       const address = server.address();
       const effectivePort = typeof address === 'string' ? address : (address?.port || port);
-      console.log(`Orca prototype listening at http://${host}:${effectivePort}`);
+      console.log(`Orca listening at http://${host}:${effectivePort}`);
       console.log(`Dashboard route root: /`);
       console.log(`Health: /api/health`);
       resolve(server);
