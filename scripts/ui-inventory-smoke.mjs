@@ -331,8 +331,11 @@ async function checkRoute(page, viewport, screen) {
   });
 
   const target = new URL(screen.path, base);
+  // NOT networkidle: lane-detail (and the dashboard) hold an open SSE stream, so
+  // the network never goes idle and networkidle times out. domcontentloaded +
+  // the explicit waitForApp() readiness gate is correct for an SSE app.
   await page.goto(target.toString(), {
-    waitUntil: 'networkidle',
+    waitUntil: 'domcontentloaded',
     timeout: 20000,
   });
   await waitForApp(page);
