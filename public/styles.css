@@ -181,7 +181,7 @@ a {
 .status-strip {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem;
+  gap: var(--space-1);
   margin-top: 0.5rem;
   font-size: 0.78rem;
 }
@@ -448,7 +448,7 @@ body.sidebar-collapsed .sidebar-pair-label {
 .pair-step {
   margin-top: 1rem;
   display: grid;
-  gap: 0.45rem;
+  gap: var(--space-2);
 }
 
 .sidebar-title {
@@ -462,7 +462,7 @@ body.sidebar-collapsed .sidebar-pair-label {
 
 .sidebar-list {
   display: grid;
-  gap: 0.55rem;
+  gap: var(--space-3);
   /* Constrain the single column to the panel width so long project/session names
      truncate (…) instead of widening the row and overflowing the static sidebar. */
   grid-template-columns: minmax(0, 1fr);
@@ -869,7 +869,7 @@ body.sidebar-collapsed .sidebar-project-line {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  padding: 0.85rem;
+  padding: var(--space-5);
   margin-top: 0.65rem;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.2);
 }
@@ -902,7 +902,7 @@ body.sidebar-collapsed .sidebar-project-line {
   background: var(--panel-soft);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 0.55rem;
+  padding: var(--space-3);
 }
 
 .stat b {
@@ -1019,7 +1019,7 @@ body.sidebar-collapsed .sidebar-project-line {
   color: var(--muted);
   display: grid;
   font-size: 0.72rem;
-  gap: 0.35rem;
+  gap: var(--space-1);
   justify-items: center;
   /* Keep the QR column from growing with its caption — the caption wraps to the
      QR's width and sits centered beneath it, instead of widening the grid and
@@ -1065,12 +1065,12 @@ body.sidebar-collapsed .sidebar-project-line {
 
 .setup-wizard {
   display: grid;
-  gap: 0.85rem;
+  gap: var(--space-5);
 }
 
 .setup-steps {
   display: grid;
-  gap: 0.45rem;
+  gap: var(--space-2);
 }
 
 .setup-step {
@@ -1081,7 +1081,7 @@ body.sidebar-collapsed .sidebar-project-line {
   display: grid;
   gap: 0.7rem;
   grid-template-columns: auto minmax(0, 1fr);
-  padding: 0.65rem;
+  padding: var(--space-4);
 }
 
 .setup-step > span {
@@ -1118,7 +1118,7 @@ body.sidebar-collapsed .sidebar-project-line {
   display: grid;
   gap: 0.25rem;
   margin-top: 0.65rem;
-  padding: 0.65rem;
+  padding: var(--space-4);
 }
 
 .pairing-code-box strong {
@@ -1206,12 +1206,12 @@ body.sidebar-collapsed .sidebar-project-line {
 .session-shell,
 .lane-detail-shell {
   display: grid;
-  gap: 0.85rem;
+  gap: var(--space-5);
 }
 
 .session-workbench {
   display: grid;
-  gap: 0.85rem;
+  gap: var(--space-5);
   grid-template-columns: minmax(0, 1fr) minmax(20rem, 27rem);
   align-items: start;
 }
@@ -1257,10 +1257,10 @@ body.sidebar-collapsed .sidebar-project-line {
 
 .agent-event-list {
   display: grid;
-  gap: 0.45rem;
+  gap: var(--space-2);
   max-height: 28rem;
   overflow: auto;
-  padding: 0.65rem;
+  padding: var(--space-4);
 }
 
 .agent-event-list.compact {
@@ -1274,7 +1274,7 @@ body.sidebar-collapsed .sidebar-project-line {
   border-radius: var(--radius-sm);
   display: grid;
   gap: 0.4rem;
-  padding: 0.55rem;
+  padding: var(--space-3);
 }
 
 .agent-event.message-assistant-delta,
@@ -1318,7 +1318,7 @@ body.sidebar-collapsed .sidebar-project-line {
 }
 
 .agent-event-empty {
-  padding: 0.65rem;
+  padding: var(--space-4);
 }
 
 .composer-shell {
@@ -1326,22 +1326,22 @@ body.sidebar-collapsed .sidebar-project-line {
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   display: grid;
-  gap: 0.45rem;
-  padding: 0.55rem;
+  gap: var(--space-2);
+  padding: var(--space-3);
 }
 
 .composer-shell textarea {
   background: transparent;
   border: 0;
   min-height: 5.5rem;
-  padding: 0.35rem;
+  padding: var(--space-1);
   resize: vertical;
 }
 
 .composer-bar {
   align-items: center;
   display: grid;
-  gap: 0.45rem;
+  gap: var(--space-2);
   grid-template-columns: minmax(7rem, 1fr) minmax(7rem, 1fr) minmax(7rem, 1fr) minmax(6rem, 0.8fr) minmax(7rem, 1fr) auto;
 }
 
@@ -1353,13 +1353,13 @@ body.sidebar-collapsed .sidebar-project-line {
 .executor-panel-lane-head {
   align-items: flex-start;
   display: flex;
-  gap: 0.65rem;
+  gap: var(--space-4);
   justify-content: space-between;
 }
 
 .executor-panel-list {
   display: grid;
-  gap: 0.65rem;
+  gap: var(--space-4);
   overflow: auto;
   padding-right: 0.2rem;
 }
@@ -1368,14 +1368,14 @@ body.sidebar-collapsed .sidebar-project-line {
   border: 0;
   border-bottom: 1px solid var(--line);
   display: grid;
-  gap: 0.55rem;
+  gap: var(--space-3);
   padding: 0 0 0.85rem;
 }
 .executor-panel-list > .executor-panel-lane:last-child { border-bottom: 0; padding-bottom: 0; }
 
 .lane-controls-form {
   display: grid;
-  gap: 0.45rem;
+  gap: var(--space-2);
   grid-template-columns: minmax(0, 1fr) minmax(5.8rem, 0.8fr) minmax(6.8rem, 0.9fr) auto;
 }
 
@@ -1502,7 +1502,7 @@ body.sidebar-collapsed .sidebar-project-line {
   color: var(--text);
   cursor: pointer;
   display: flex;
-  gap: 0.65rem;
+  gap: var(--space-4);
   justify-content: space-between;
   list-style: none;
 }
@@ -1730,7 +1730,7 @@ button.warn {
 
 .grid-2 {
   display: grid;
-  gap: 0.85rem;
+  gap: var(--space-5);
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
 }
 
@@ -1818,7 +1818,7 @@ select[multiple] {
 
 pre {
   background: rgba(4, 18, 34, 0.9);
-  padding: 0.55rem;
+  padding: var(--space-3);
   border-radius: var(--radius);
   overflow: auto;
   color: #e4f2ff;
@@ -1848,7 +1848,7 @@ pre {
 
 .access-summary {
   display: grid;
-  gap: 0.55rem;
+  gap: var(--space-3);
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
 }
 
@@ -1876,7 +1876,7 @@ pre {
 
 .provider-list {
   display: grid;
-  gap: 0.55rem;
+  gap: var(--space-3);
 }
 
 .provider-row {
@@ -2011,7 +2011,7 @@ body.sidebar-collapsed .pill {
   .ops-content { padding: 0; border-radius: 0; }
   .home-hero {
     grid-template-columns: 1fr;
-    padding: 0.85rem;
+    padding: var(--space-5);
   }
   .session-workbench,
 .lane-controls-form {
@@ -2096,7 +2096,7 @@ body.sidebar-collapsed .pill {
 .composer-attachments { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .composer-attachments:empty { display: none; }
 .attach-chip {
-  display: inline-flex; align-items: center; gap: 0.35rem;
+  display: inline-flex; align-items: center; gap: var(--space-1);
   background: var(--panel-soft); border: 1px solid var(--line);
   border-radius: var(--radius-pill); padding: 0.2rem 0.6rem; font-size: 0.78rem;
 }
@@ -2189,7 +2189,7 @@ body.sidebar-collapsed .pill {
 .msg-user .msg-body { background: var(--panel-soft); border: 0; border-radius: var(--radius-xl); max-width: 82%; padding: 0.6rem 0.95rem; }
 .msg-assistant .msg-body { color: var(--text); line-height: 1.6; max-width: 100%; }
 /* Live agent transcript (tools + streamed output) inside an assistant turn. */
-.chat-activity { display: flex; flex-direction: column; gap: 0.55rem; width: 100%; }
+.chat-activity { display: flex; flex-direction: column; gap: var(--space-3); width: 100%; }
 .chat-activity-status { align-items: center; color: var(--text); display: flex; font-size: 0.88rem; gap: 0.5rem; }
 .chat-spinner { animation: chat-spin 0.7s linear infinite; border: 2px solid var(--line); border-radius: 50%; border-top-color: var(--text); display: inline-block; height: 14px; width: 14px; }
 @keyframes chat-spin { to { transform: rotate(360deg); } }
@@ -2204,7 +2204,7 @@ body.sidebar-collapsed .pill {
 .slash-menu {
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-md); bottom: calc(100% + 8px);
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; gap: 1px; left: 0;
-  max-height: 320px; overflow-y: auto; padding: 0.35rem; position: absolute; right: 0; z-index: 95;
+  max-height: 320px; overflow-y: auto; padding: var(--space-1); position: absolute; right: 0; z-index: 95;
 }
 .slash-menu[hidden] { display: none; }
 .slash-row {
@@ -2223,7 +2223,7 @@ body.sidebar-collapsed .pill {
   background: transparent; border: 0; color: var(--text); font: inherit; font-size: 0.93rem;
   max-height: 200px; outline: none; padding: 0.5rem 0.55rem; resize: none; width: 100%;
 }
-.composer-bar { align-items: center; display: flex; gap: 0.35rem; padding: 0 0.15rem; }
+.composer-bar { align-items: center; display: flex; gap: var(--space-1); padding: 0 0.15rem; }
 .composer-attach,
 .composer-send {
   align-items: center; border: 0; border-radius: 50%; cursor: pointer; display: inline-flex; flex: 0 0 auto;
@@ -2241,7 +2241,7 @@ body.sidebar-collapsed .pill {
 @media (hover: hover) { .composer-select:hover { background-color: var(--hover); color: var(--text); } }
 .composer-spacer { flex: 1; }
 .composer-attachments:empty { display: none; }
-.composer-attachments { display: flex; flex-wrap: wrap; gap: 0.35rem; padding: 0 0.3rem 0.3rem; }
+.composer-attachments { display: flex; flex-wrap: wrap; gap: var(--space-1); padding: 0 0.3rem 0.3rem; }
 
 /* Right info panel */
 .info-panel { background: var(--sidebar); border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
@@ -2290,7 +2290,7 @@ body.sidebar-collapsed .pill {
 .composer-send svg { height: 30px !important; width: 30px !important; }
 .composer-attach svg path,
 .composer-send svg path { stroke-width: 2.2; }
-.composer-bar { gap: 0.45rem; padding: 0.15rem 0.15rem 0; }
+.composer-bar { gap: var(--space-2); padding: 0.15rem 0.15rem 0; }
 .composer-select { font-size: 0.9rem; }
 .dd-compact .dd-chevron { height: 18px; width: 18px; }
 /* Top-right session panel toggle — make the icon clearly visible. */
@@ -2400,7 +2400,7 @@ body.sidebar-collapsed .pill {
    Codex-style. */
 .cfg-trigger {
   align-items: center; background: transparent; border: 1px solid transparent; border-radius: var(--radius-pill);
-  color: var(--text); cursor: pointer; display: inline-flex; font: inherit; font-size: 0.85rem; gap: 0.35rem;
+  color: var(--text); cursor: pointer; display: inline-flex; font: inherit; font-size: 0.85rem; gap: var(--space-1);
   min-height: 2rem; padding: 0.32rem 0.6rem; transition: background-color 0.12s ease, border-color 0.12s ease;
 }
 .cfg.cfg-active .cfg-trigger { background: var(--hover); border-color: var(--line); }
@@ -2412,14 +2412,14 @@ body.sidebar-collapsed .pill {
 .cfg-pop {
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-md); bottom: calc(100% + 6px);
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; gap: 1px; max-height: 360px;
-  min-width: min(230px, calc(100vw - 1.5rem)); max-width: calc(100vw - 1rem); overflow-y: auto; padding: 0.35rem; position: absolute; right: 0; z-index: 90;
+  min-width: min(230px, calc(100vw - 1.5rem)); max-width: calc(100vw - 1rem); overflow-y: auto; padding: var(--space-1); position: absolute; right: 0; z-index: 90;
 }
 .cfg-pop[hidden] { display: none; }
 /* Submenu flyout — appears beside the main menu (Codex-style), positioned by JS. */
 .cfg-flyout {
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-md);
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; gap: 1px;
-  max-height: 320px; min-width: min(210px, calc(100vw - 1.5rem)); max-width: calc(100vw - 1rem); overflow-y: auto; padding: 0.35rem; position: absolute; z-index: 91;
+  max-height: 320px; min-width: min(210px, calc(100vw - 1.5rem)); max-width: calc(100vw - 1rem); overflow-y: auto; padding: var(--space-1); position: absolute; z-index: 91;
 }
 .cfg-flyout[hidden] { display: none; }
 .cfg-row.active { background: var(--hover); }
@@ -2485,7 +2485,7 @@ body.sidebar-collapsed .pill {
 .composer-context:empty { display: none; }
 .ctx-pill {
   align-items: center; background: transparent; border: 1px solid transparent; border-radius: var(--radius-pill);
-  color: var(--muted); cursor: pointer; display: inline-flex; font: inherit; font-size: 0.82rem; gap: 0.35rem;
+  color: var(--muted); cursor: pointer; display: inline-flex; font: inherit; font-size: 0.82rem; gap: var(--space-1);
   min-height: 1.95rem; padding: 0.3rem 0.55rem; transition: background-color 0.12s ease, color 0.12s ease;
 }
 @media (hover: hover) { .ctx-pill:hover { background: var(--hover); color: var(--text); } }
@@ -2496,7 +2496,7 @@ body.sidebar-collapsed .pill {
 .ctx-pop {
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-md); bottom: calc(100% + 6px);
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; gap: 1px; left: 0;
-  max-height: 340px; min-width: min(250px, calc(100vw - 1.5rem)); max-width: calc(100vw - 1rem); overflow-y: auto; padding: 0.35rem; position: absolute; z-index: 90;
+  max-height: 340px; min-width: min(250px, calc(100vw - 1.5rem)); max-width: calc(100vw - 1rem); overflow-y: auto; padding: var(--space-1); position: absolute; z-index: 90;
 }
 .ctx-pop[hidden] { display: none; }
 .ctx-head { color: var(--muted); font-size: 0.7rem; letter-spacing: 0.06em; padding: 0.45rem 0.6rem 0.2rem; text-transform: uppercase; }
@@ -2505,7 +2505,7 @@ body.sidebar-collapsed .pill {
 .ctx-scroll { display: flex; flex-direction: column; gap: 1px; max-height: 220px; overflow-y: auto; }
 .ctx-item {
   align-items: center; background: transparent; border: 0; border-radius: var(--radius-sm); color: var(--text); cursor: pointer;
-  display: flex; font: inherit; font-size: 0.86rem; gap: 0.55rem; justify-content: flex-start; padding: 0.45rem 0.6rem;
+  display: flex; font: inherit; font-size: 0.86rem; gap: var(--space-3); justify-content: flex-start; padding: 0.45rem 0.6rem;
   text-align: left; width: 100%;
 }
 @media (hover: hover) { .ctx-item:hover { background: var(--hover); } }
@@ -2646,7 +2646,7 @@ button.home-cta { cursor: pointer; font: inherit; }
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  gap: var(--space-5);
   max-width: 420px;
   padding: 1.25rem;
   width: 100%;
@@ -2667,7 +2667,7 @@ button.home-cta { cursor: pointer; font: inherit; }
    (it did once --vph switched to 100vh in the native app / installed PWA). */
 .home-welcome { align-items: center; display: flex; justify-content: center; min-height: calc(var(--vph) - var(--topbar-height) - var(--safe-area-top) - var(--safe-area-bottom) - 8rem); padding: 2rem; }
 .home-welcome.is-hidden { display: none; }
-.home-hero { display: flex; flex-direction: column; align-items: center; gap: 0.65rem; text-align: center; }
+.home-hero { display: flex; flex-direction: column; align-items: center; gap: var(--space-4); text-align: center; }
 .home-hero-logo { display: block; margin-bottom: 0.15rem; }
 .home-hero-title { font-size: 2rem; font-weight: 600; letter-spacing: -0.02em; margin: 0; }
 .home-hero-sub { color: var(--muted); font-size: 0.95rem; margin: 0; max-width: 30rem; }
@@ -2863,7 +2863,7 @@ textarea:focus-visible {
   margin: 0 auto;
   text-align: center;
 }
-.connect-brand { display: inline-flex; align-items: center; gap: 0.55rem; margin-bottom: 1.5rem; }
+.connect-brand { display: inline-flex; align-items: center; gap: var(--space-3); margin-bottom: 1.5rem; }
 .connect-logo { display: block; }
 .connect-wordmark { font-size: 1.7rem; font-weight: 600; letter-spacing: -0.02em; }
 .connect-title { font-size: 1.5rem; font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; margin: 0 0 0.5rem; }
@@ -2898,7 +2898,7 @@ textarea:focus-visible {
    logo + soft spinner; uses --vph so it fills the screen in app + browser alike. */
 .app-loading {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 0.85rem; min-height: calc(var(--vph) - var(--topbar-height) - var(--safe-area-top) - var(--safe-area-bottom) - 6rem);
+  gap: var(--space-5); min-height: calc(var(--vph) - var(--topbar-height) - var(--safe-area-top) - var(--safe-area-bottom) - 6rem);
   color: var(--muted); text-align: center;
 }
 .app-loading-logo { display: block; opacity: 0.95; animation: app-loading-pulse 1.6s ease-in-out infinite; }
@@ -2920,10 +2920,10 @@ textarea:focus-visible {
 .ws-switcher-head { color: var(--muted); font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
 /* min-width:0 down the whole flex chain so a long workstation host truncates
    (ellipsis) instead of forcing the row — and the screen — wider than the phone. */
-.ws-list { display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; }
-.ws-row { display: flex; align-items: stretch; gap: 0.35rem; min-width: 0; }
+.ws-list { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+.ws-row { display: flex; align-items: stretch; gap: var(--space-1); min-width: 0; }
 .ws-pick {
-  flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 0.55rem;
+  flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: var(--space-3);
   text-align: left; padding: 0.6rem 0.7rem; cursor: pointer;
   border-radius: var(--radius-sm); border: 1px solid var(--line); background: transparent; color: var(--text);
 }
@@ -2947,7 +2947,7 @@ textarea:focus-visible {
 
 /* Pair-gate stepper: step 1 done (connected to workstation), step 2 active (code). */
 .connect-steps { list-style: none; margin: 0 0 0.25rem; padding: 0; width: 100%; display: flex; flex-direction: column; gap: 0.5rem; text-align: left; }
-.connect-step { display: flex; align-items: flex-start; gap: 0.65rem; padding: 0.7rem 0.8rem; border-radius: var(--radius-md); border: 1px solid var(--line); background: var(--panel); }
+.connect-step { display: flex; align-items: flex-start; gap: var(--space-4); padding: 0.7rem 0.8rem; border-radius: var(--radius-md); border: 1px solid var(--line); background: var(--panel); }
 .connect-step.is-done { border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); background: color-mix(in srgb, var(--ok) 9%, var(--panel)); }
 .connect-step.is-active { border-color: color-mix(in srgb, var(--accent, var(--text)) 35%, var(--line)); }
 .connect-step-mark {

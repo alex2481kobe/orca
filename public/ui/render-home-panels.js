@@ -91,6 +91,16 @@ function pairedDeviceSummary(unit = 'device') {
 // surface (pair panel, token panel, access panel) so the structure/styling lives
 // in one place. Callers vary only the uikey, summary, empty text, and an optional
 // body prefix note.
+// Pairing-code + copy-URL buttons recur across the setup panels with only the
+// button class and label varying — one definition each keeps the data-action and
+// markup in a single place.
+function pairingCodeButton(label, cls = 'secondary') {
+  return `<button class="${cls}" data-action="createPairingCode" type="button">${safeText(label)}</button>`;
+}
+function copyUrlButton(url, label, cls = 'secondary') {
+  return `<button class="${cls}" data-action="copyPhoneUrl" data-url="${safeAttr(url)}" type="button">${safeText(label)}</button>`;
+}
+
 function pairedDevicesDisclosure({ uikey, summary, rows, emptyText, bodyPrefix = '' }) {
   return `
         <details class="disclosure compact-disclosure" data-uikey="${uikey}">
@@ -152,7 +162,7 @@ export function renderPairPanel(ctx) {
             <strong>1. Open this URL on the other device</strong>
             <div class="url-row">
               <code class="copy-url">${safeText(phoneUrl)}</code>
-              <button class="btn" data-action="copyPhoneUrl" data-url="${safeAttr(phoneUrl)}" type="button">Copy link</button>
+              ${copyUrlButton(phoneUrl, 'Copy link', 'btn')}
             </div>
             <div class="tiny muted">Your private Tailscale URL — open it from any device signed in to your tailnet.</div>
           </div>
@@ -176,7 +186,7 @@ export function renderPairPanel(ctx) {
         <div class="pair-step">
           <strong>2. Create a one-time pairing code</strong>
           <div class="lane-row">
-            <button class="btn" data-action="createPairingCode" type="button">${shell.lastPairing ? 'New code' : 'Create pairing code'}</button>
+            ${pairingCodeButton(shell.lastPairing ? 'New code' : 'Create pairing code', 'btn')}
           </div>
           ${pairingCodeBox('Create a code here, then type it into the access screen on the other device. Codes are single-use and expire quickly.')}
         </div>
@@ -214,7 +224,7 @@ export function renderDesktopControlPanel(ctx) {
           <div class="tiny muted">Open this dashboard URL in the desktop app's built-in browser to use Orca's UI and chats directly.</div>
           <code class="copy-url">${safeText(phoneUrl)}</code>
           <div class="lane-row">
-            <button class="secondary" data-action="copyPhoneUrl" data-url="${safeAttr(phoneUrl)}" type="button">Copy dashboard URL</button>
+            ${copyUrlButton(phoneUrl, 'Copy dashboard URL')}
           </div>
         </div>
         <div class="pair-step">
@@ -258,8 +268,8 @@ export function renderSetupPanel(ctx) {
             <strong>Scan or open this from your phone or laptop</strong>
             <code class="copy-url">${safeText(phoneUrl)}</code>
             <div class="lane-row">
-              <button class="secondary" data-action="copyPhoneUrl" data-url="${safeAttr(phoneUrl)}" type="button">Copy link</button>
-              <button class="secondary" data-action="createPairingCode" type="button">Create one-time code</button>
+              ${copyUrlButton(phoneUrl, 'Copy link')}
+              ${pairingCodeButton('Create one-time code')}
             </div>
             ${pairingCodeBox('Create a pairing code from the trusted workstation browser, then enter it on the phone access screen.')}
           </div>
@@ -314,7 +324,7 @@ export function renderTokenPanel(ctx) {
         <div class="lane-row">
           <button class="secondary" data-action="setApiToken" type="button">Save token</button>
           <button class="secondary" data-action="clearApiToken" type="button">Clear token</button>
-          <button class="secondary" data-action="createPairingCode" type="button">Create pairing code</button>
+          ${pairingCodeButton('Create pairing code')}
           ${browserPaired ? '<button class="secondary" data-action="logoutBrowserSession" type="button">Log out paired browser</button>' : ''}
         </div>
         ${pairedDevicesDisclosure({ uikey: 'token-paired-devices', summary: pairedDeviceSummary('session'), rows: authSessionRows, emptyText: 'No paired browser sessions yet.' })}
@@ -374,8 +384,8 @@ export function renderAccessPanel(ctx) {
                 <strong>Pair a phone or laptop</strong>
                 <div class="tiny muted">Create a fresh code only from this authenticated workstation, then enter it on the unpaired device. Codes are one-time use and expire quickly.</div>
                 <div class="lane-row">
-                  <button class="secondary" data-action="createPairingCode" type="button">Create one-time code</button>
-                  <button class="secondary" data-action="copyPhoneUrl" data-url="${safeAttr(phoneUrl)}" type="button">Copy private URL</button>
+                  ${pairingCodeButton('Create one-time code')}
+                  ${copyUrlButton(phoneUrl, 'Copy private URL')}
                 </div>
                 ${(shell.lastPairing || shell.pairingAccepted) ? pairingCodeBox('') : ''}
               </div>
@@ -588,7 +598,7 @@ export function renderPrivateAccessPanel(ctx) {
                     <div class="tiny muted">${phoneUrl && phoneUrl.startsWith('http') ? 'Open this from any device signed in to your tailnet. localhost only works on this Mac.' : 'Sign in to Tailscale above to get a device URL other devices can reach.'}</div>
                     ${phoneUrl && phoneUrl.startsWith('http') ? `<code>${safeText(phoneUrl)}</code>` : ''}
                   </div>
-                  ${phoneUrl && phoneUrl.startsWith('http') ? `<button class="btn-ghost" data-action="copyPhoneUrl" data-url="${safeAttr(phoneUrl)}" type="button">Copy</button>` : ''}
+                  ${phoneUrl && phoneUrl.startsWith('http') ? copyUrlButton(phoneUrl, 'Copy', 'btn-ghost') : ''}
                 </div>
                 <div class="card">
                   <h3>Optional: enable HTTPS Serve</h3>
