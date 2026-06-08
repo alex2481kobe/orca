@@ -77,6 +77,9 @@ export const laneTerminalMethods = {
     lane.updatedAt = now;
     lane.completedAt = now;
     lane.exitReason = reason || 'Execution failed';
+    if (typeof this.markTaskFailedFromLane === 'function') {
+      this.markTaskFailedFromLane(lane.id, lane.exitReason);
+    }
     this.appendLaneLog(lane, lane.exitReason, { persist: false });
     this.appendLaneAgentEvent(lane, {
       type: 'agent.failed',
@@ -114,6 +117,9 @@ export const laneTerminalMethods = {
     lane.updatedAt = now;
     lane.completedAt = now;
     lane.exitReason = reason;
+    if (typeof this.markTaskFailedFromLane === 'function') {
+      this.markTaskFailedFromLane(lane.id, reason);
+    }
     this.appendLaneLog(lane, reason, { persist: false });
     this.appendLaneAgentEvent(lane, {
       type: 'agent.stopped',
