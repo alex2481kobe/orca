@@ -183,7 +183,7 @@ try {
   // 4) Auto fan-out: the scheduler spawns mock lanes up to capacity and refills.
   //    Drive each finished ('done') lane to accepted via the audit tools. Watch
   //    that in-flight tasks never exceed capacity (capacity-as-target).
-  let maxInFlight = 0;
+  let maxExecuting = 0;
   const acceptedLanes = new Set();
   const deadline = Date.now() + 40_000;
   let status = null;
@@ -191,10 +191,14 @@ try {
     const backlog = await orch.call('backlog__status', { sessionId });
     if (backlog.isError) fail('backlog__status', backlog.text);
     status = backlog.data;
-    maxInFlight = Math.max(maxInFlight, status.counts.assigned + status.counts.in_lane);
+
+    // Capacity-as-target is about concurrently EXECUTING lanes (queued/starting/
+    // running), not tasks awaiting audit — a done-but-unaudited lane frees its slot.
+    const lanesRes = await orch.call('lane__list', { sessionId });
+    const executing = (lanesRes.data || []).filter((l) => ['queued', 'starting', 'running'].includes(l.state)).length;
+    maxExecuting = Math.max(maxExecuting, executing);
 
     // Accept any lane sitting at 'done' (its task is in_lane awaiting audit).
-    const lanesRes = await orch.call('lane__list', { sessionId });
     for (const lane of (lanesRes.data || [])) {
       if (lane.state === 'done' && !acceptedLanes.has(lane.id)) {
         await orch.call('audit__queue_one', { laneId: lane.id, body: { actor: 'claude-cli', approved: true } });
@@ -208,8 +212,8 @@ try {
 
   if (!status || !status.allAccepted) fail('backlog did not reach allAccepted', JSON.stringify(status));
   if (status.counts.total !== TASKS.length) fail('task count drift', JSON.stringify(status.counts));
-  if (maxInFlight > 2) fail('capacity-as-target violated (in-flight exceeded 2)', String(maxInFlight));
-  log('fan-out', `${status.counts.accepted}/${status.counts.total} accepted; peak in-flight=${maxInFlight} (cap 2)`);
+  if (maxExecuting > 2) fail('capacity-as-target violated (executing lanes exceeded 2)', String(maxExecuting));
+  log('fan-out', `${status.counts.accepted}/${status.counts.total} accepted; peak executing lanes=${maxExecuting} (cap 2)`);
 
   // 5) Batch-completion signal latched on the session.
   if (!status.completedAt) fail('batch-completion not latched', JSON.stringify(status));

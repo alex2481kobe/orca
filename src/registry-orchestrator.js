@@ -109,18 +109,27 @@ export const orchestratorMethods = {
     return { found: true, active, lease };
   },
 
-  _activeOrchestratorStale(marker) {
+  _activeOrchestratorStale(marker, session = null) {
     if (!marker) return true;
-    const last = Date.parse(marker.lastSeenAt || marker.enrolledAt || 0);
-    if (Number.isFinite(last) && (Date.now() - last) > ORCHESTRATOR_STALE_MS) return true;
+    // A dead/revoked/expired lease is always stale.
     if (marker.leaseId && marker.leaseId !== 'dashboard') {
       const status = this._leaseActiveById(marker.leaseId);
       if (!status || !status.active) return true;
     }
-    return false;
+    const last = Date.parse(marker.lastSeenAt || marker.enrolledAt || 0);
+    const idleTooLong = Number.isFinite(last) && (Date.now() - last) > ORCHESTRATOR_STALE_MS;
+    if (!idleTooLong) return false;
+    // Idle on Orca tools for a while — but a live owner whose lanes are still
+    // running shouldn't lose the lock (a long build legitimately keeps the
+    // orchestrator off the tool surface). Only a quiet, lane-less session is stale.
+    if (session && (this.lanes || []).some((lane) => lane.sessionId === session.id
+      && ['queued', 'starting', 'running', 'needs_critique', 'ready_for_audit', 'auditing', 'fix_requested'].includes(lane.state))) {
+      return false;
+    }
+    return true;
   },
 
-  publicActiveOrchestrator(marker) {
+  publicActiveOrchestrator(marker, session = null) {
     if (!marker) return { active: false };
     return {
       active: true,
@@ -130,7 +139,7 @@ export const orchestratorMethods = {
       source: marker.source || 'mcp',
       enrolledAt: marker.enrolledAt || null,
       lastSeenAt: marker.lastSeenAt || null,
-      stale: this._activeOrchestratorStale(marker),
+      stale: this._activeOrchestratorStale(marker, session),
     };
   },
 
@@ -139,7 +148,7 @@ export const orchestratorMethods = {
     if (!session) throw { status: 404, message: 'Session not found.' };
     const thread = this.ensureOrchestratorThread(session);
     const current = thread.activeOrchestrator || null;
-    if (current && current.leaseId !== leaseId && !this._activeOrchestratorStale(current)) {
+    if (current && current.leaseId !== leaseId && !this._activeOrchestratorStale(current, session)) {
       if (!takeover) {
         throw {
           status: 409,
@@ -212,7 +221,7 @@ export const orchestratorMethods = {
     const session = this.getSession(sessionLocator);
     if (!session) throw { status: 404, message: 'Session not found.' };
     const thread = this.ensureOrchestratorThread(session);
-    return this.publicActiveOrchestrator(thread.activeOrchestrator || null);
+    return this.publicActiveOrchestrator(thread.activeOrchestrator || null, session);
   },
 
   // Bump lastSeenAt for the lease that owns the session (keeps it from going
@@ -241,7 +250,7 @@ export const orchestratorMethods = {
     if (!session || !session.orchestratorThread) return;
     const marker = session.orchestratorThread.activeOrchestrator;
     if (!marker) return; // no owner claimed -> no exclusivity
-    if (this._activeOrchestratorStale(marker)) return; // dead owner never blocks a live agent
+    if (this._activeOrchestratorStale(marker, session)) return; // dead owner never blocks a live agent
     if (marker.leaseId === lease.id) {
       // Caller is the owner; keep it fresh so it doesn't go stale mid-run.
       marker.lastSeenAt = nowIso();

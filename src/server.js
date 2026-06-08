@@ -275,7 +275,11 @@ function toolLeaseRequirementForRoute(method, parts) {
     if (method === 'POST') return { toolId: 'session.create', projectId: parts[2] };
   }
   if (parts[1] === 'settings' && ['project', 'session', 'lane'].includes(parts[2]) && parts[3] && method === 'PATCH') {
-    return { toolId: 'settings.update' };
+    // Scope the requirement to the targeted record so a lease pinned to one
+    // project/session/lane cannot edit another's settings (and so the
+    // active-orchestrator ownership gate applies to session/lane-scoped settings).
+    const key = parts[2] === 'project' ? 'projectId' : parts[2] === 'session' ? 'sessionId' : 'laneId';
+    return { toolId: 'settings.update', [key]: parts[3] };
   }
   if (parts[1] === 'policy' && parts.length === 2 && method === 'GET') {
     return { toolId: 'settings.describe_effective' };

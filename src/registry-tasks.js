@@ -20,12 +20,11 @@ import { LANE_STATES } from './worker-contract.js';
 const {
   QUEUED: QUEUED_STATE,
   STARTING: STARTING_STATE,
+  RUNNING: RUNNING_STATE,
 } = LANE_STATES;
 
 export const TASK_STATES = ['pending', 'assigned', 'in_lane', 'accepted', 'failed', 'blocked'];
 const TERMINAL_TASK_STATES = new Set(['accepted', 'failed']);
-// Tasks occupying a capacity slot (in flight). 'blocked' does NOT occupy a slot.
-const OCCUPYING_TASK_STATES = new Set(['assigned', 'in_lane']);
 
 // Legal transitions. 'pending' is reachable from assigned/in_lane (requeue) and
 // from blocked (unblock). Terminal states are absorbing except via delete.
@@ -189,7 +188,13 @@ export const taskMethods = {
     task.state = next;
     task.updatedAt = now;
     if (next === 'blocked') task.blockedReason = sanitizeStr(reason, 2000) || 'Blocked';
-    if (next === 'pending') { task.blockedReason = null; task.laneId = null; }
+    if (next === 'pending') {
+      task.blockedReason = null;
+      task.laneId = null;
+      // Returning a task to pending re-opens the backlog: re-arm the signal.
+      const session = this.getSession(task.sessionId);
+      if (session && session.backlogCompletedAt) session.backlogCompletedAt = null;
+    }
     if (TERMINAL_TASK_STATES.has(next)) task.terminatedAt = now;
     this.recordAudit({
       type: 'task_state_changed',
@@ -207,8 +212,8 @@ export const taskMethods = {
   deleteTask(taskLocator, { actor = 'orchestrator' } = {}) {
     const task = this.getTask(taskLocator);
     if (!task) throw { status: 404, message: 'Task not found.' };
-    if (task.state === 'in_lane') {
-      throw { status: 422, message: 'Cannot delete a task while its lane is live; stop or accept it first.' };
+    if (task.state === 'in_lane' || task.state === 'assigned') {
+      throw { status: 422, message: 'Cannot delete a task while it is being dispatched or running; stop or accept it first.' };
     }
     this.tasks = (this.tasks || []).filter((entry) => entry.id !== task.id);
     this.recordAudit({
@@ -288,6 +293,9 @@ export const taskMethods = {
       task.state = 'pending';
       task.laneId = null;
       task.updatedAt = now;
+      // Re-arm the batch-completion signal: this session is no longer "all done".
+      const session = this.getSession(task.sessionId);
+      if (session && session.backlogCompletedAt) session.backlogCompletedAt = null;
       this.recordAudit({
         type: 'task_requeued',
         actor: 'scheduler',
@@ -324,18 +332,30 @@ export const taskMethods = {
       if (session.state === 'archived') continue;
       if (normalizeSpawnPolicy(session.spawnPolicy) !== 'auto') continue;
       const pending = this.listSpawnableTasks(session.id);
-      if (!pending.length) { this.evaluateBacklogCompletion(session); continue; }
+      // Idle fast-path: no pending tasks => no scans, no persist, no SSE-revision
+      // churn. Batch completion is fired by the accept path (acceptLaneAudit), so
+      // we don't need to re-evaluate it here every tick.
+      if (!pending.length) continue;
 
       const approvedCapacity = normalizeApprovedCapacity(
         session.approvedCapacity, normalizeApprovedCapacity(session.laneConcurrencyLimit));
-      const inFlight = (this.tasks || []).filter((task) =>
-        task.sessionId === session.id && OCCUPYING_TASK_STATES.has(task.state)).length;
-      let slots = Math.max(0, approvedCapacity - inFlight);
+      // Measure capacity against ACTUAL live lanes for the session (any owner —
+      // executor/auditor/orchestrator lanes all consume the scheduler's slots), so
+      // we never pre-create worktrees beyond capacity. Lanes past execution
+      // (done/awaiting-audit/accepted) free a slot => refill-on-finish.
+      const activeLanes = (this.lanes || []).filter((lane) =>
+        lane.sessionId === session.id
+        && [QUEUED_STATE, STARTING_STATE, RUNNING_STATE].includes(lane.state)).length;
+      let slots = Math.max(0, approvedCapacity - activeLanes);
+      let changed = false;
 
-      while (slots > 0) {
-        const task = this.claimNextPendingTask(session.id);
-        if (!task) break;
+      for (const task of pending) {
+        if (slots <= 0) break;
+        if (task.state !== 'pending') continue; // already claimed earlier in this list
+        task.state = 'assigned';
+        task.updatedAt = nowIso();
         slots -= 1;
+        changed = true;
         try {
           const lane = await this.createLane(session.id, {
             title: task.title.slice(0, 200),
@@ -365,8 +385,7 @@ export const taskMethods = {
           });
         }
       }
-      this.persistState();
-      this.evaluateBacklogCompletion(session);
+      if (changed) this.persistState();
     }
   },
 
@@ -442,19 +461,29 @@ export const taskMethods = {
   // already terminal is requeued (or failed if out of attempts). Called from
   // restoreFromDisk after recoverInterruptedLanes.
   recoverInterruptedTasks() {
-    const terminalLaneStates = new Set(['accepted', 'failed', 'stopped', 'done']);
     let changed = false;
     for (const task of this.tasks || []) {
       if (task.state === 'assigned') {
+        // Claimed but never linked to a live lane before the crash.
         task.state = 'pending';
         task.laneId = null;
         task.updatedAt = nowIso();
         changed = true;
       } else if (task.state === 'in_lane') {
         const lane = task.laneId ? this.getLane(task.laneId) : null;
-        if (!lane || terminalLaneStates.has(String(lane.state || '').toLowerCase())) {
-          // The lane outcome (accept/fail) already synced live; if we got here the
-          // lane vanished — requeue if budget remains, else fail.
+        const laneState = String(lane?.state || '').toLowerCase();
+        if (lane && laneState === 'accepted') {
+          // The lane's work was accepted before the crash but the task hadn't been
+          // synced — sync it now (do NOT re-run completed work).
+          task.state = 'accepted';
+          task.terminatedAt = nowIso();
+          task.updatedAt = nowIso();
+          changed = true;
+        } else if (lane && laneState === 'done') {
+          // Completed and awaiting audit — leave in_lane so the queued audit can
+          // still accept it. Re-running it would duplicate finished work.
+        } else if (!lane || ['failed', 'stopped'].includes(laneState)) {
+          // The lane genuinely failed/vanished — requeue if budget remains, else fail.
           if ((task.attempts || 0) < (task.maxAttempts || 1)) {
             task.state = 'pending';
             task.laneId = null;
@@ -465,6 +494,8 @@ export const taskMethods = {
           task.updatedAt = nowIso();
           changed = true;
         }
+        // Any other lane state (queued/starting/running) — recoverInterruptedLanes
+        // ran first and already failed truly-running lanes, which synced the task.
       }
     }
     return changed;
