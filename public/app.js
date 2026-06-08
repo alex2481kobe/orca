@@ -16,7 +16,7 @@ import { initMobileShell } from './ui/mobile-shell.js';
 import { initTheme, setThemePref, appendThemeParam } from './ui/theme.js';
 import { defaultModelFor } from './ui/executor.js';
 import { normalizeWorkstationUrl, rememberWorkstation, setPendingWorkstationUrl, activeWorkstationUrl } from './ui/workstations.js';
-import { openRowMenuFromTrigger, closeRowMenu } from './ui/row-menu.js';
+import { openRowMenuFromTrigger, closeRowMenu, isRowMenuOpenFor } from './ui/row-menu.js';
 
 // Deep-link entry point for the native app: the Rust side (run_mobile) calls this
 // when an `orca://connect?ws=<workstation-url>` link is opened (e.g. a QR scanned
@@ -439,6 +439,15 @@ document.addEventListener('pointercancel', () => {
   clearSidebarSwipeState();
 });
 
+// Long-pressing a sidebar row should bring up ONLY our row menu — never the
+// browser/iOS native callout (link preview, copy, text selection). Suppress the
+// context menu on the rows; -webkit-touch-callout:none in CSS covers the iOS peek.
+document.addEventListener('contextmenu', (event) => {
+  if (event.target?.closest?.('.sidebar-project-line, .sidebar-session-line')) {
+    event.preventDefault();
+  }
+});
+
 document.addEventListener('click', async (event) => {
   if (event.target?.id === 'sidebar-backdrop') {
     closeMobileNavPanel();
@@ -483,10 +492,12 @@ document.addEventListener('click', async (event) => {
     closeSidebarActionMenus();
   }
 
-  // Project/session 3-dot trigger → open the floating row context menu. Its items
+  // Project/session 3-dot trigger → toggle the floating row context menu. A second
+  // click of the same trigger closes it (rather than close-then-reopen). Its items
   // carry data-action so the existing handlers run when chosen.
   if (action === 'openProjectMenu' || action === 'openSessionMenu') {
-    openRowMenuFromTrigger(actionTarget);
+    if (isRowMenuOpenFor(actionTarget)) closeRowMenu();
+    else openRowMenuFromTrigger(actionTarget);
     return;
   }
 

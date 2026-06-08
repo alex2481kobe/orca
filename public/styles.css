@@ -785,6 +785,16 @@ body.sidebar-collapsed .sidebar-pair-label {
 .row-menu-item:focus-visible { background: var(--hover); outline: none; }
 @media (hover: hover) { .row-menu-item:hover { background: var(--hover); } }
 
+/* Long-press on a sidebar row opens our context menu ONLY — suppress the iOS
+   native callout (link preview / copy) and text-selection that a long-press would
+   otherwise trigger on the row's links. */
+.sidebar-project-line,
+.sidebar-session-line {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 .sidebar-archive svg {
   fill: none;
   height: 14px;

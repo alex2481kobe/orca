@@ -9,12 +9,14 @@
 import { safeText, safeAttr } from './format.js';
 
 let _menu = null;
+let _anchor = null;
 let _onDocPointer = null;
 let _onKey = null;
 let _onScroll = null;
 
 export function closeRowMenu() {
   if (_menu) { _menu.remove(); _menu = null; }
+  _anchor = null;
   if (_onDocPointer) { document.removeEventListener('pointerdown', _onDocPointer, true); _onDocPointer = null; }
   if (_onKey) { document.removeEventListener('keydown', _onKey, true); _onKey = null; }
   if (_onScroll) { window.removeEventListener('scroll', _onScroll, true); window.removeEventListener('resize', _onScroll); _onScroll = null; }
@@ -22,6 +24,12 @@ export function closeRowMenu() {
 
 export function isRowMenuOpen() {
   return Boolean(_menu);
+}
+
+// True when the menu is currently open AND was opened by this exact trigger — lets
+// the dispatcher toggle it closed on a second click of the same 3-dot button.
+export function isRowMenuOpenFor(el) {
+  return Boolean(_menu) && _anchor === el;
 }
 
 // Items for a trigger, derived from its data-* (data-menu = 'project' | 'session').
@@ -71,14 +79,22 @@ export function openRowMenuFromTrigger(anchorEl, rect = null) {
   document.body.appendChild(menu);
   placeMenu(menu, rect || anchorEl.getBoundingClientRect());
   _menu = menu;
+  _anchor = anchorEl;
 
   // Choosing an item: let the delegated handler run (it sees the item's data-*),
   // then close on the next tick.
   menu.addEventListener('click', (event) => {
     if (event.target.closest('.row-menu-item')) setTimeout(closeRowMenu, 0);
   });
-  // Dismiss on outside pointerdown, Escape, or scroll/resize.
-  _onDocPointer = (event) => { if (!menu.contains(event.target)) closeRowMenu(); };
+  // Dismiss on outside pointerdown, Escape, or scroll/resize. Clicks ON the anchor
+  // trigger are left for the dispatcher to TOGGLE (close), so we don't close here
+  // only to immediately reopen.
+  _onDocPointer = (event) => {
+    const t = event.target;
+    if (menu.contains(t)) return;
+    if (_anchor && (t === _anchor || _anchor.contains(t))) return;
+    closeRowMenu();
+  };
   _onKey = (event) => { if (event.key === 'Escape') { closeRowMenu(); } };
   _onScroll = () => closeRowMenu();
   document.addEventListener('pointerdown', _onDocPointer, true);

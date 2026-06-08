@@ -41,6 +41,15 @@ async function openAndRead(triggerSel, rowSel) {
   return { items, closed };
 }
 
+// Toggle: clicking the SAME trigger again closes the menu instead of reopening.
+await p.hover('.sidebar-session-line').catch(() => {});
+await p.click('.sidebar-menu-btn[data-action="openSessionMenu"]', { force: true });
+await p.waitForTimeout(120);
+const openedAfterFirstClick = (await p.$$('.row-menu')).length === 1;
+await p.click('.sidebar-menu-btn[data-action="openSessionMenu"]', { force: true });
+await p.waitForTimeout(120);
+const closedAfterSecondClick = (await p.$$('.row-menu')).length === 0;
+
 const sessionMenu = await openAndRead('.sidebar-menu-btn[data-action="openSessionMenu"]', '.sidebar-session-line');
 const projectMenu = await openAndRead('.sidebar-menu-btn[data-action="openProjectMenu"]', '.sidebar-project-line');
 
@@ -59,6 +68,8 @@ const result = {
   projectMenuItems: projectMenu.items,
   sessionClosesOnOutside: sessionMenu.closed,
   projectClosesOnOutside: projectMenu.closed,
+  openedAfterFirstClick,
+  closedAfterSecondClick,
 };
 result.pass = has(sessionMenu, 'renameSession')
   && has(sessionMenu, 'archiveSession')
@@ -66,7 +77,9 @@ result.pass = has(sessionMenu, 'renameSession')
   && has(projectMenu, 'renameProject')
   && has(projectMenu, 'archiveProject')
   && sessionMenu.closed
-  && projectMenu.closed;
+  && projectMenu.closed
+  && openedAfterFirstClick
+  && closedAfterSecondClick;
 
 console.log('[verify] row-menu:', JSON.stringify(result, null, 2));
 
