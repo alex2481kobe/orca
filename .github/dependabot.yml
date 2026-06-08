@@ -27,6 +27,10 @@ updates:
       # migration rather than auto-proposing a build-breaking major.
       - dependency-name: "keyring"
         update-types: ["version-update:semver-major"]
+      # rand 0.10 changed RngCore/fill_bytes (a breaking 0.x "minor"). 0.9 is fine;
+      # don't auto-propose the breaking bump.
+      - dependency-name: "rand"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
 
   # GitHub Actions used by CI.
   - package-ecosystem: "github-actions"
