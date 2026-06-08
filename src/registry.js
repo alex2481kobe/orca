@@ -43,6 +43,7 @@ export class OrcaRegistry {
     heartbeatTimeoutMs = 15000,
     credentialStore = null,
     providerProfileStore = null,
+    autoAudit,
   } = {}) {
     this.projects = [];
     this.sessions = [];
@@ -60,6 +61,12 @@ export class OrcaRegistry {
     this.heartbeatIntervalMs = heartbeatIntervalMs;
     this.autoCompleteMs = autoCompleteMs;
     this.heartbeatTimeoutMs = heartbeatTimeoutMs;
+    // Auto-audit: when a lane finishes under require-audit-pass (or the
+    // audit flow template), the scheduler auto-runs the audit — nudging the
+    // orchestrator, or spawning a dedicated auditor lane (per the Auditor
+    // setting). On by default; ORCA_AUTO_AUDIT=false (or {autoAudit:false})
+    // disables it. Tests run with it off so they drive lanes deterministically.
+    this.autoAuditEnabled = autoAudit ?? (process.env.ORCA_AUTO_AUDIT !== 'false');
     this.credentialStore = credentialStore;
     this.providerProfileStore = providerProfileStore;
     this.policies = { ...defaultPolicy };

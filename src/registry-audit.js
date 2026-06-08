@@ -18,7 +18,7 @@ const FLOW_DEFAULTS = {
   auditTier: 'orchestrator',
   fixRouting: 'same-agent',
   maxAuditLoops: 2,
-  requireAuditPass: false,
+  requireAuditPass: true,
 };
 
 export const auditMethods = {
@@ -40,6 +40,67 @@ export const auditMethods = {
   auditRequiredForLane(lane) {
     const flow = this.getLaneFlowConfig(lane);
     return Boolean(flow.requireAuditPass) || flow.template === 'orchestrator-executor-audit';
+  },
+
+  // True for a normal executor lane (not an orchestrator turn or a spawned
+  // auditor) — only these get auto-audited.
+  isAuditableExecutorLane(lane) {
+    return Boolean(lane) && lane.owner !== 'orchestrator' && lane.owner !== 'auditor';
+  },
+
+  // Auto-run audits for lanes whose work is queued for review. Per the resolved
+  // Auditor setting: 'separate-auditor' spawns a dedicated auditor lane scoped to
+  // the executor lane's worktree; otherwise the orchestrator is nudged to audit.
+  // Idempotent — flips auditState to 'auditing' before dispatch so a lane is only
+  // dispatched once. Bounded by maxAuditLoops via requestLaneFix escalation.
+  async dispatchPendingAudits() {
+    if (!this.autoAuditEnabled) return;
+    const queued = this.lanes.filter((lane) =>
+      lane.auditState === 'queued' && this.isAuditableExecutorLane(lane));
+    for (const lane of queued) {
+      const session = this.getSession(lane.sessionId);
+      if (!session) continue;
+      const flow = this.getLaneFlowConfig(lane);
+      // Mark dispatched up front so a throw can't cause re-dispatch every tick.
+      lane.auditState = 'auditing';
+      lane.updatedAt = nowIso();
+      try {
+        if (flow.auditTier === 'separate-auditor') {
+          const existing = this.lanes.find((other) =>
+            other.owner === 'auditor' &&
+            other.auditTargetLaneId === lane.id &&
+            !['accepted', 'failed', 'stopped'].includes(String(other.state || '').toLowerCase()));
+          if (existing) continue;
+          await this.createLane(session.id, {
+            title: `Audit · ${lane.title}`.slice(0, 200),
+            taskDescription: `Review the work produced by lane "${lane.title}".`,
+            executorType: lane.executorType,
+            owner: 'auditor',
+            auditTargetLaneId: lane.id,
+            workdir: lane.workdir,
+            sharedWorktree: true,
+            taskPrompt: this.buildAuditorPrompt(lane),
+          }, { actor: 'scheduler', approved: true });
+        } else if (typeof this.sendOrchestratorMessage === 'function') {
+          await this.sendOrchestratorMessage(session.id, {
+            message: `Audit completed executor lane "${lane.title}" (lane ${lane.id}): review its work, then accept it or request fixes.`,
+          }, { actor: 'scheduler', approved: true });
+        }
+        this.appendLaneLog(lane, `Audit auto-dispatched (${flow.auditTier === 'separate-auditor' ? 'separate auditor' : 'orchestrator'})`, { persist: false });
+      } catch (error) {
+        this.appendLaneLog(lane, `Audit auto-dispatch failed: ${error?.message || error}`, { persist: false });
+      }
+      this.persistState();
+    }
+  },
+
+  buildAuditorPrompt(lane) {
+    return [
+      `You are the auditor for executor lane "${lane.title}" (lane id ${lane.id}).`,
+      'Review its changes in this worktree against the task it was given.',
+      'When done, call the audit tool to accept the work (audit.accept) or request fixes',
+      '(audit.request_fix) with concrete findings. Do not start unrelated work.',
+    ].join(' ');
   },
 
   queueLaneAudit(laneLocator, context = {}) {

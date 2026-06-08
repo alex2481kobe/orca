@@ -230,7 +230,9 @@ export const toolLeaseMethods = {
     const key = String(lane.id);
     const existing = this.laneRuntimeEnv.get(key) || {};
     if (existing.ORCA_TOOL_LEASE_TOKEN) return existing;
-    const role = lane.owner === 'orchestrator' ? 'orchestrator' : 'executor';
+    const role = lane.owner === 'orchestrator' ? 'orchestrator'
+      : lane.owner === 'auditor' ? 'auditor'
+        : 'executor';
     const allowedTools = availableToolIdsForRole(role);
     if (!allowedTools.length) return existing;
     const lease = this.createToolLease({

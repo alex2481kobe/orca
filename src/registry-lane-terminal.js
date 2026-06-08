@@ -21,6 +21,18 @@ export const laneTerminalMethods = {
     const needsCritique = this.critiqueRequiredForLane(lane) && !this.critiqueSatisfiedForLane(lane);
     lane.state = needsCritique ? NEEDS_CRITIQUE_STATE : DONE_STATE;
     lane.updatedAt = now;
+    // Auto-queue the audit when a finished executor lane requires one — the
+    // scheduler's dispatchPendingAudits() then runs it (orchestrator or a spawned
+    // auditor). Guarded so auditor/orchestrator lanes never audit themselves.
+    if (this.autoAuditEnabled
+      && !needsCritique
+      && typeof this.isAuditableExecutorLane === 'function'
+      && this.isAuditableExecutorLane(lane)
+      && typeof this.auditRequiredForLane === 'function'
+      && this.auditRequiredForLane(lane)
+      && !['queued', 'auditing', 'accepted'].includes(String(lane.auditState || ''))) {
+      lane.auditState = 'queued';
+    }
     lane.completedAt = now;
     const executorLabel = String(lane.executorType || 'mock');
     lane.exitReason = needsCritique

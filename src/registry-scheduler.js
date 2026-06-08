@@ -199,5 +199,10 @@ export const schedulerMethods = {
         this.persistState();
       }
     }
+
+    // Autonomously run audits for lanes whose work is queued for review.
+    if (typeof this.dispatchPendingAudits === 'function') {
+      await this.dispatchPendingAudits().catch(() => {});
+    }
   },
 };

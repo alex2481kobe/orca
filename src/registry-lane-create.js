@@ -49,6 +49,7 @@ export const laneCreateMethods = {
     repoRoot,
     branch,
     sharedWorktree,
+    auditTargetLaneId,
   }, context = {}) {
     const session = this.getSession(sessionLocator);
     if (!session) {
@@ -255,6 +256,9 @@ export const laneCreateMethods = {
       critiqueFindings: [],
       auditState: 'not_queued',
       auditFindings: [],
+      // Set on a dedicated auditor lane (owner='auditor') — points at the
+      // executor lane it was spawned to review.
+      auditTargetLaneId: auditTargetLaneId ? String(auditTargetLaneId).slice(0, 80) : null,
       route: buildLaneRoute(project.slug, session.id, laneId),
       runProfile: {
         autoCompleteMs: Number.parseInt(autoCompleteMs, 10) || this.autoCompleteMs,
