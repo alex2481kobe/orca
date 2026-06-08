@@ -21,6 +21,12 @@ updates:
     groups:
       cargo-dependencies:
         patterns: ["*"]
+    ignore:
+      # keyring v4 restructured its API behind feature flags (breaking — Entry moved
+      # to keyring-core). 3.x has no advisory; stay on it until a deliberate v4
+      # migration rather than auto-proposing a build-breaking major.
+      - dependency-name: "keyring"
+        update-types: ["version-update:semver-major"]
 
   # GitHub Actions used by CI.
   - package-ecosystem: "github-actions"
