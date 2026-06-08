@@ -28,28 +28,34 @@ token. The server — not the client — enforces:
 
 ## The `orca-agent` CLI
 
-A thin authenticated tool-runner (`scripts/orca-agent.mjs`, bin `orca-agent`). It
-reads `ORCA_AGENT_TOOLS_BASE_URL` and `ORCA_TOOL_LEASE_TOKEN` from the env (the same
-vars the MCP server uses).
+A thin authenticated tool-runner (`scripts/orca-agent.mjs`, bin `orca-agent`).
+
+**Zero ceremony locally.** On the workstation (loopback) with no API token set, you
+need **nothing** — the first command auto-provisions and caches a scoped lease
+(`.orca/agent-lease.json`, gitignored, 0600). A token is only required when you've
+hardened Orca (`ORCA_API_TOKEN` set) or are driving it remotely (then set
+`ORCA_TOOL_LEASE_TOKEN`).
 
 ```bash
-# 1) Mint an orchestrator lease (admin: needs ORCA_API_TOKEN, or run on the
-#    loopback workstation with no token configured). Prints the token + a ready
-#    `claude mcp add` command too.
-ORCA_API_TOKEN=… orca-agent bootstrap --project <projectId>
-export ORCA_TOOL_LEASE_TOKEN=<printed token>
+# One shot: provision a lease + create an auto-fan-out session + enroll as orchestrator.
+orca-agent start "My run" --leader claude --cap 2
+# -> { sessionId, owner, spawnPolicy: "auto", next: "orca-agent bulk-add <id>" }
 
-# 2) Become the orchestrator and run a backlog.
-orca-agent create-session <projectId> "My run" --auto --cap 2 --leader claude
-orca-agent enroll <sessionId>
 echo '[{"title":"Add nav"},{"title":"Write tests"}]' | orca-agent bulk-add <sessionId>
 orca-agent status  <sessionId>     # ownership + live lane tree + backlog roll-up
 orca-agent backlog <sessionId>
 orca-agent resign  <sessionId>     # hand off
 
+# See the exact rulebook every surface obeys (shared, single source):
+orca-agent rules orchestrator
+
 # Escape hatch: call ANY Orca tool/endpoint with your lease.
 orca-agent call POST /api/lanes/<laneId>/audit/accept '{"findings":["ok"]}'
 orca-agent next --session <sessionId>   # ask the server what's legal next
+
+# Need the lease/config for an MCP client instead? bootstrap prints it + a
+# ready-to-run `claude mcp add` command.
+orca-agent bootstrap --project <projectId>
 ```
 
 With `--auto` (spawnPolicy `auto`), Orca fans the backlog out across executor lanes

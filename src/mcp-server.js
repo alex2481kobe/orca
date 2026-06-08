@@ -18,7 +18,7 @@
 //   ORCA_LANE_ID / ORCA_SESSION_ID / ORCA_PROJECT_ID - default path params
 
 import readline from 'node:readline';
-import { TOOL_DEFINITIONS, normalizeRole, CONTRACT_VERSION } from './agent-tools.js';
+import { TOOL_DEFINITIONS, normalizeRole, CONTRACT_VERSION, roleInstructions } from './agent-tools.js';
 
 const BASE_URL = String(process.env.ORCA_AGENT_TOOLS_BASE_URL || 'http://127.0.0.1:3000').replace(/\/$/, '');
 const LEASE_TOKEN = String(process.env.ORCA_TOOL_LEASE_TOKEN || '');
@@ -41,43 +41,19 @@ function callableTools() {
   );
 }
 
-// Role operating rules delivered in the MCP initialize response, so a desktop
-// agent told to "act as the orchestrator" receives the rulebook at connect time
-// instead of having to be pointed at docs/agent-orchestrator-skill.md. The
-// server still enforces the workflow with nextAction envelopes regardless.
-const ROLE_INSTRUCTIONS = {
-  orchestrator:
-    'You are acting as the Orca ORCHESTRATOR. You own project/session direction, lane decomposition, '
-    + 'tool selection, progress review, and handoff quality. You must not bypass Orca policy gates.\n'
-    + 'Getting started: (0) call session__next_action FIRST to see the current session, then orchestrator__enroll '
-    + '{ sessionId } to become this session\'s active orchestrator (orchestrator__resign hands off; orchestrator__status '
-    + 'shows the lane tree + backlog — your "what is happening" view, call it whenever you need the picture). '
-    + 'If you have no session yet, project__list then session__create one (set spawnPolicy:"auto" to let the backlog fan out automatically). '
-    + 'Then: (1) load work with task__bulk_add (a durable backlog) or session__plan__update (free-text goal); '
-    + '(2) read executor__capabilities before assigning work; with spawnPolicy:"auto" Orca creates executor lanes from pending tasks up to capacity and refills as they finish — otherwise create them yourself with lane__create; '
-    + '(3) respond to executor approval requests via approval__list / approval__respond; '
-    + '(4) require evidence (evidence__capture_screenshot / evidence__list) for UI/browser/artifact changes before acceptance; '
-    + '(5) verify completed lanes with audit/critique tools — never treat an executor summary as final; '
-    + '(6) watch backlog__status / orchestrator__status until the backlog is complete, then orchestrator__resign. '
-    + 'The server returns a nextAction envelope on any out-of-order or disallowed call; follow it rather than retrying blindly.',
-  executor:
-    'You are acting as an Orca EXECUTOR for a single lane. Call session__next_action FIRST and obey the envelope. '
-    + 'Do the scoped work, request approval (approval__request) before high-risk actions, capture evidence for UI/artifact changes, '
-    + 'then lane__submit with a summary + files for review. Do not spawn or manage other lanes. Follow nextAction envelopes on refusal.',
-  auditor:
-    'You are acting as an Orca AUDITOR. Call session__next_action FIRST. Review completed lanes against evidence; '
-    + 'record findings (audit__findings_record) and accept/request-fix/block — do not accept on summary alone.',
-  critique:
-    'You are acting as an Orca CRITIQUE agent. Call session__next_action FIRST. Produce critique bundles and record findings; '
-    + 'do not modify lanes directly. Follow nextAction envelopes.',
-  dashboard:
-    'You are acting on behalf of the Orca DASHBOARD operator. Call session__next_action FIRST and follow returned envelopes.',
-};
-
+// Role operating rules are delivered in the MCP initialize response, so a desktop
+// agent told to "act as the orchestrator" receives the rulebook at connect time.
+// The text is the SINGLE shared rulebook (agent-tools/role-instructions.js) used by
+// every surface; the server still enforces the workflow with nextAction envelopes.
 function instructionsForRole() {
-  const roleRules = ROLE_INSTRUCTIONS[ROLE] || ROLE_INSTRUCTIONS.executor;
+  // The shared rulebook references canonical dotted tool ids; MCP clients see the
+  // "__" names, so translate each real tool id (precise — only known ids).
+  let rules = roleInstructions(ROLE);
+  for (const tool of TOOL_DEFINITIONS) {
+    if (tool.id.includes('.')) rules = rules.split(tool.id).join(toMcpName(tool.id));
+  }
   return (
-    `${roleRules}\n\n`
+    `${rules}\n\n`
     + 'Tool names use "__" where the contract uses "." (e.g. session.next_action -> session__next_action). '
     + 'Path params (sessionId/laneId/projectId) default from this connection when omitted. '
     + 'Mutating tools take a "body" object. The server is authoritative: it enforces ordering and policy and '

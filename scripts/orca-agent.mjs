@@ -12,13 +12,21 @@
  * orchestrator ownership — so an outside agent is just as hardened/flow-bound as
  * an MCP one.
  *
- * Auth (env):
+ * Zero ceremony locally: on the workstation (loopback) with no API token set, you
+ * need NOTHING — the first command auto-provisions + caches a scoped lease. A
+ * token is only required when you've hardened Orca (ORCA_API_TOKEN set) or are
+ * driving it remotely.
+ *
+ * Auth (env, all optional locally):
  *   ORCA_AGENT_TOOLS_BASE_URL  base URL (default http://127.0.0.1:3000)
- *   ORCA_TOOL_LEASE_TOKEN      scoped lease (preferred)
- *   ORCA_API_TOKEN             admin token — only needed for `bootstrap`
+ *   ORCA_TOOL_LEASE_TOKEN      scoped lease (overrides the cache)
+ *   ORCA_API_TOKEN             admin token (only if the server has one configured)
  *
  * Usage:
- *   orca-agent bootstrap [--project <id>] [--session <id>]   # admin: mint an orchestrator lease
+ *   orca-agent start [name...] [--project <id>] [--cap N] [--leader codex|claude|mock]
+ *                                                            # bootstrap + auto session + enroll, one shot
+ *   orca-agent rules [role]                                   # the shared role rulebook every surface uses
+ *   orca-agent bootstrap [--project <id>] [--session <id>]   # mint + print a lease (and a `claude mcp add` line)
  *   orca-agent next [--session <id>]                          # server-approved next legal tool
  *   orca-agent status <sessionId>                             # ownership + lane tree + backlog
  *   orca-agent enroll <sessionId> [--takeover]                # become the active orchestrator
@@ -30,12 +38,52 @@
  *   orca-agent call <METHOD> <path> [jsonBody]                # generic authenticated escape hatch
  */
 
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { roleInstructions } from '../src/agent-tools.js';
+
 const BASE = String(process.env.ORCA_AGENT_TOOLS_BASE_URL || 'http://127.0.0.1:3000').replace(/\/$/, '');
-const LEASE = String(process.env.ORCA_TOOL_LEASE_TOKEN || '');
 const API_TOKEN = String(process.env.ORCA_API_TOKEN || '');
+const LEASE_CACHE = path.join(process.cwd(), '.orca', 'agent-lease.json');
+let LEASE = String(process.env.ORCA_TOOL_LEASE_TOKEN || '');
 
 function die(msg, code = 1) { console.error(`orca-agent: ${msg}`); process.exit(code); }
 function out(value) { console.log(typeof value === 'string' ? value : JSON.stringify(value, null, 2)); }
+
+// Admin call: send the API token if configured, otherwise rely on loopback-admin
+// (the server treats an unproxied loopback request as admin when no token is set).
+async function adminPost(path, body) {
+  const headers = { 'content-type': 'application/json', accept: 'application/json' };
+  if (API_TOKEN) headers['x-orca-token'] = API_TOKEN;
+  const res = await fetch(`${BASE}${path}`, { method: 'POST', headers, body: JSON.stringify(body || {}) });
+  const text = await res.text();
+  let data = null; try { data = text ? JSON.parse(text) : null; } catch { /* non-json */ }
+  return { status: res.status, ok: res.ok, data, text };
+}
+
+// Resolve a lease without ceremony: env override -> cached lease -> auto-bootstrap
+// (admin/loopback) and cache it. The cache lives in .orca/ (gitignored) at 0600.
+async function ensureLease() {
+  if (LEASE) return LEASE;
+  try {
+    const cached = JSON.parse(await fs.readFile(LEASE_CACHE, 'utf8'));
+    if (cached.baseUrl === BASE && cached.leaseToken
+      && (!cached.expiresAt || Date.parse(cached.expiresAt) > Date.now() + 30000)) {
+      LEASE = cached.leaseToken;
+      return LEASE;
+    }
+  } catch { /* no/invalid cache */ }
+  const r = await adminPost('/api/mcp/orchestrator-bootstrap', {});
+  if (!r.ok || !r.data?.leaseToken) {
+    die(`could not auto-provision a lease (${r.status}). On a hardened or remote Orca, set ORCA_TOOL_LEASE_TOKEN, or ORCA_API_TOKEN to bootstrap. ${r.data?.error || ''}`.trim(), 2);
+  }
+  LEASE = r.data.leaseToken;
+  try {
+    await fs.mkdir(path.dirname(LEASE_CACHE), { recursive: true });
+    await fs.writeFile(LEASE_CACHE, JSON.stringify({ leaseToken: LEASE, expiresAt: r.data.lease?.expiresAt || null, baseUrl: BASE }), { mode: 0o600 });
+  } catch { /* cache is best-effort */ }
+  return LEASE;
+}
 
 // Tiny flag parser: pulls --key [value] out of argv, returns { _, flags }.
 function parseArgs(argv) {
@@ -52,15 +100,8 @@ function parseArgs(argv) {
   return { _, flags };
 }
 
-async function api(method, path, body, { admin = false } = {}) {
-  const headers = { accept: 'application/json' };
-  if (admin) {
-    if (!API_TOKEN) die('this command needs ORCA_API_TOKEN (admin).');
-    headers['x-orca-token'] = API_TOKEN;
-  } else {
-    if (!LEASE) die('set ORCA_TOOL_LEASE_TOKEN (run `orca-agent bootstrap` first).');
-    headers['x-orca-tool-lease'] = LEASE;
-  }
+async function api(method, path, body) {
+  const headers = { accept: 'application/json', 'x-orca-tool-lease': await ensureLease() };
   if (body !== undefined) headers['content-type'] = 'application/json';
   const res = await fetch(`${BASE}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
   const text = await res.text();
@@ -83,11 +124,37 @@ function show(r) {
 }
 
 switch (cmd) {
+  case 'rules': {
+    out(roleInstructions(_[0] || 'orchestrator'));
+    break;
+  }
+  case 'start': {
+    // One shot: ensure a lease, pick/confirm a project, create an auto session, enroll.
+    await ensureLease();
+    let projectId = flags.project;
+    if (!projectId) {
+      const list = await api('GET', '/api/projects');
+      if (!list.ok) die(`${list.status} ${list.data?.error || list.text}`, 2);
+      projectId = list.data?.[0]?.id;
+      if (!projectId) die('no projects yet — create one in the dashboard, or pass --project <id>.');
+    }
+    const name = _.join(' ') || `Run ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`;
+    const body = { approved: true, name, leader: flags.leader || 'codex', spawnPolicy: 'auto' };
+    if (flags.cap) body.approvedCapacity = Number.parseInt(flags.cap, 10);
+    const sess = await api('POST', `/api/projects/${encodeURIComponent(projectId)}/sessions`, body);
+    if (!sess.ok) die(`create-session: ${sess.status} ${sess.data?.error || sess.text}`, 2);
+    const sessionId = sess.data.id;
+    const enrolled = await api('POST', `/api/sessions/${encodeURIComponent(sessionId)}/orchestrator/enroll`, { takeover: true });
+    if (!enrolled.ok) die(`enroll: ${enrolled.status} ${enrolled.data?.error || enrolled.text}`, 2);
+    out({ sessionId, project: projectId, owner: enrolled.data.activeOrchestrator?.actor, spawnPolicy: 'auto',
+      next: `orca-agent bulk-add ${sessionId}  # then: orca-agent status ${sessionId}` });
+    break;
+  }
   case 'bootstrap': {
     const body = {};
     if (flags.project) body.projectId = flags.project;
     if (flags.session) body.sessionId = flags.session;
-    const r = await api('POST', '/api/mcp/orchestrator-bootstrap', body, { admin: true });
+    const r = await adminPost('/api/mcp/orchestrator-bootstrap', body);
     if (!r.ok) die(`${r.status} ${r.data?.error || r.text}`, 2);
     // Print the lease token + the ready-to-use export line + the claude/codex commands.
     out({
@@ -159,6 +226,6 @@ switch (cmd) {
     break;
   }
   default:
-    out('orca-agent — drive Orca from any agent. Commands: bootstrap, next, status, enroll, resign, create-session, add-task, bulk-add, backlog, call. See header for usage.');
+    out('orca-agent — drive Orca from any agent. Commands: start, rules, bootstrap, next, status, enroll, resign, create-session, add-task, bulk-add, backlog, call. See header for usage.');
     if (cmd && cmd !== 'help') process.exit(1);
 }
