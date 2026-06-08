@@ -38,7 +38,13 @@ export class CliExecutorAdapter {
     this.onStop = options.onStop || noopAsync;
 
     this.runtimes = new Map();
-    this.heartbeatTimeoutMs = options.heartbeatTimeoutMs || 15000;
+    // For a real one-shot subprocess (codex exec / claude --print) the child's
+    // exit is the authoritative completion signal — NOT a periodic tool heartbeat.
+    // A real model turn easily runs >15s silently, so the old 15s reaper killed
+    // live agents (the "send failed" bug). Output bumps this clock (see forward()),
+    // so this large cap only reaps a process that is truly wedged (silent for the
+    // whole window). Mock workers keep their own short timeout (they self-heartbeat).
+    this.heartbeatTimeoutMs = options.heartbeatTimeoutMs || 30 * 60 * 1000;
     this.defaultBinary = options.defaultBinary || options.binary || label;
     this.defaultArgs = normalizeArgs(options.defaultArgs);
     this.defaultWorkingDir = options.workingDir || process.cwd();
@@ -196,7 +202,7 @@ export class CliExecutorAdapter {
     }
 
     if (!Object.keys(servers).length) {
-      return null;
+      return { configPath: null, servers: {} };
     }
 
     const config = {
@@ -208,7 +214,9 @@ export class CliExecutorAdapter {
     };
     const configPath = path.join(runtimeDir, 'mcp-tools.json');
     await fs.writeFile(configPath, JSON.stringify(config, null, 2));
-    return configPath;
+    // Return the structured servers too: claude loads the file via --mcp-config,
+    // but codex has no such flag and needs `-c mcp_servers.*` overrides instead.
+    return { configPath, servers };
   }
 
   _normalizeArgList(rawArgs) {
@@ -237,7 +245,9 @@ export class CliExecutorAdapter {
     // --mcp-config flag pointing at it.
     const runtimeDir = path.join(process.cwd(), 'artifacts', String(lane.sessionId || 'orphan'), String(lane.id));
     await fs.mkdir(runtimeDir, { recursive: true });
-    lane.mcpConfigPath = await this._buildMcpConfig(runtimeDir, lane);
+    const mcpResult = await this._buildMcpConfig(runtimeDir, lane);
+    lane.mcpConfigPath = mcpResult.configPath;
+    const mcpServers = mcpResult.servers;
 
     if (commandInput) {
       try {
@@ -266,7 +276,7 @@ export class CliExecutorAdapter {
     } else if (lane.taskPrompt) {
       // Derive a safe, executor-shaped command line from the lane's task prompt
       // so dashboard users do not have to hand-write shell strings.
-      args = buildExecutorCommandArgs(this.label, lane);
+      args = buildExecutorCommandArgs(this.label, lane, { mcpServers });
     }
 
     try {
@@ -290,6 +300,12 @@ export class CliExecutorAdapter {
         cwd: safeWorkdir,
         env: this._buildEnv(lane),
         detached: process.platform !== 'win32',
+        // The prompt is passed as argv; the child must NOT inherit/keep an open
+        // stdin pipe. `codex exec` blocks forever on "Reading additional input
+        // from stdin..." waiting for EOF that never comes, and `claude --print`
+        // wastes 3s warning about missing stdin. Close stdin so one-shot agents
+        // run to completion.
+        stdio: ['ignore', 'pipe', 'pipe'],
       });
       runtime.process = child;
       this.runtimes.set(String(lane.id), runtime);
@@ -327,6 +343,10 @@ export class CliExecutorAdapter {
       runtime.outputBytes = 0;
       runtime.outputCapped = false;
       const forward = (prefix, chunk, streamPath, streamName) => {
+        // Any output is proof of life — reset the heartbeat clock so the reaper
+        // never kills an actively-working agent that streams without calling the
+        // lane heartbeat tool.
+        runtime.heartbeatAt = Date.now();
         if (runtime.outputCapped) return;
         const text = String(chunk);
         const nextBytes = runtime.outputBytes + Buffer.byteLength(text, 'utf8');

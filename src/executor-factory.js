@@ -35,7 +35,15 @@ export function getExecutorProfile(type, callbacks = {}) {
     ...(defaults.allowedBinaries || []),
   ]);
   const defaultArgs = parseEnvList(process.env[`ORCA_${upper}_DEFAULT_ARGS`], []);
-  const workdirRoots = parseEnvList(process.env[`ORCA_${upper}_WORKDIR_ROOTS`], [process.cwd()]);
+  // Allowed EXECUTION roots = the env override (or cwd) PLUS any extra roots the
+  // registry supplies (the approved repo roots + the per-lane worktree base).
+  // Without this, a lane running in a session's vetted repoRoot (an approved
+  // ORCA_REPO_ROOTS path, but not necessarily under cwd) is rejected with
+  // "workdir is outside allowed execution roots" — the remote-chat failure.
+  const workdirRoots = [
+    ...parseEnvList(process.env[`ORCA_${upper}_WORKDIR_ROOTS`], [process.cwd()]),
+    ...(Array.isArray(callbacks.extraWorkdirRoots) ? callbacks.extraWorkdirRoots : []),
+  ].filter(Boolean);
   const defaultWorkingDir = callbacks.defaultWorkingDir || process.cwd();
 
   return {
@@ -72,7 +80,10 @@ export function createExecutorAdapter(type, callbacks = {}) {
     const options = {
       ...callbacks,
       defaultBinary: profile.defaultBinary,
-      heartbeatTimeoutMs: callbacks.heartbeatTimeoutMs || 15000,
+      // Real subprocess agents complete via child exit, not a periodic tool
+      // heartbeat — a model turn easily runs >15s silently. Use a generous cap
+      // (output resets it in the adapter) so live agents aren't reaped mid-run.
+      heartbeatTimeoutMs: callbacks.heartbeatTimeoutMs || 30 * 60 * 1000,
       allowedBinaries: profile.allowedBinaries,
       envWhitelist: profile.envWhitelist || callbacks.envWhitelist,
       enforceAllowedBinary: true,
@@ -100,7 +111,10 @@ export function createExecutorAdapter(type, callbacks = {}) {
       maxCommandArgs: 128,
       defaultArgs: profile.defaultArgs.length ? profile.defaultArgs : (callbacks.defaultArgs || []),
       defaultWorkingDir: callbacks.defaultWorkingDir || process.cwd(),
-      heartbeatTimeoutMs: callbacks.heartbeatTimeoutMs || 15000,
+      // Real subprocess agents complete via child exit, not a periodic tool
+      // heartbeat — a model turn easily runs >15s silently. Use a generous cap
+      // (output resets it in the adapter) so live agents aren't reaped mid-run.
+      heartbeatTimeoutMs: callbacks.heartbeatTimeoutMs || 30 * 60 * 1000,
     };
     return new CliExecutorAdapter(executorType, options);
   }

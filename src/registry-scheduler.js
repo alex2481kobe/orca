@@ -41,6 +41,10 @@ export const schedulerMethods = {
     }
 
     const callbackBundle = {
+      extraWorkdirRoots: [
+        this.workspacesRoot,
+        ...(typeof this.getApprovedRepoRoots === 'function' ? this.getApprovedRepoRoots() : []),
+      ].filter(Boolean),
       onLog: (lane, message) => this.appendLaneLog(lane, message, { persist: false }),
       onAgentEvent: (lane, agentEvent) => this.appendLaneAgentEvent(lane, agentEvent, { persist: false }),
       onComplete: async (lane) => this.markLaneCompleted(lane),

@@ -89,7 +89,15 @@ export class OrcaRegistry {
     this._starting = true;
     this._pendingWrites = new Set();
     this.laneRuntimeEnv = new Map();
+    // CLI executors may run a lane in the session's vetted repoRoot (an approved
+    // ORCA_REPO_ROOTS path) or in a per-lane git worktree under workspacesRoot —
+    // both must be allowed EXECUTION roots, not just process.cwd().
+    const extraWorkdirRoots = [
+      this.workspacesRoot,
+      ...(typeof this.getApprovedRepoRoots === 'function' ? this.getApprovedRepoRoots() : []),
+    ].filter(Boolean);
     const baseExecutorCallbacks = {
+      extraWorkdirRoots,
       onLog: (lane, message) => this.appendLaneLog(lane, message, { persist: false }),
       onAgentEvent: (lane, agentEvent) => this.appendLaneAgentEvent(lane, agentEvent, { persist: false }),
       onComplete: async (lane) => this.markLaneCompleted(lane),

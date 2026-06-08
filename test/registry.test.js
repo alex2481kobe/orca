@@ -1718,9 +1718,10 @@ test('MCP config is generated per-lane with safe path and executor-specific shap
     const adapter = registry.getExecutorForType('codex');
     const runtimeDir = path.join(process.cwd(), 'artifacts', session.id, lane.id);
     await fs.mkdir(runtimeDir, { recursive: true });
-    const configPath = await adapter._buildMcpConfig(runtimeDir, registry.getLane(lane.id));
+    const { configPath, servers } = await adapter._buildMcpConfig(runtimeDir, registry.getLane(lane.id));
     assert.equal(typeof configPath, 'string');
     assert.equal(configPath.startsWith(runtimeDir), true);
+    assert.equal(typeof servers, 'object');
     const raw = await fs.readFile(configPath, 'utf8');
     const parsed = JSON.parse(raw);
     assert.equal(parsed.laneId, lane.id);
@@ -1740,7 +1741,7 @@ test('MCP config is generated per-lane with safe path and executor-specific shap
     const claudeAdapter = registry.getExecutorForType('claude');
     const claudeRuntimeDir = path.join(process.cwd(), 'artifacts', session.id, claudeLane.id);
     await fs.mkdir(claudeRuntimeDir, { recursive: true });
-    const claudeConfigPath = await claudeAdapter._buildMcpConfig(claudeRuntimeDir, registry.getLane(claudeLane.id));
+    const { configPath: claudeConfigPath } = await claudeAdapter._buildMcpConfig(claudeRuntimeDir, registry.getLane(claudeLane.id));
     const claudeParsed = JSON.parse(await fs.readFile(claudeConfigPath, 'utf8'));
     assert.equal(claudeParsed.executorType, 'claude');
     assert.equal(claudeParsed.tools.length, 1);
@@ -1756,7 +1757,7 @@ test('MCP config is generated per-lane with safe path and executor-specific shap
     const runtimeDir2 = path.join(process.cwd(), 'artifacts', session.id, noToolLane.id);
     await fs.mkdir(runtimeDir2, { recursive: true });
     const noConfig = await adapter2._buildMcpConfig(runtimeDir2, registry.getLane(noToolLane.id));
-    assert.equal(noConfig, null);
+    assert.equal(noConfig.configPath, null);
   } finally {
     await cleanup();
   }
@@ -1859,16 +1860,18 @@ test('buildExecutorCommandArgs derives safe argv from lane task prompt', async (
     permissionsProfile: 'auto-edit',
     targetUrl: 'http://localhost:5173',
     mcpConfigPath: MCP_CONFIG_PATH,
-  });
+  }, { mcpServers: { orca: { command: '/usr/bin/node', args: ['/abs/mcp-server.js'], env: { ORCA_ROLE: 'orchestrator' } } } });
   const count = (args, value) => args.filter((item) => item === value).length;
   assert.deepEqual(codexArgs.slice(0, 2), ['exec', '--json']);
   assert.ok(codexArgs.includes('--model'));
   assert.ok(codexArgs.includes('gpt-5'));
   assert.ok(codexArgs.includes('--full-auto'));
-  assert.ok(codexArgs.includes('--mcp-config'));
-  assert.ok(codexArgs.includes(MCP_CONFIG_PATH));
+  // codex has NO --mcp-config flag (Claude-only); MCP is wired via -c overrides.
+  assert.ok(!codexArgs.includes('--mcp-config'), 'codex must not use the invalid --mcp-config flag');
+  assert.ok(codexArgs.includes('-c'));
+  assert.ok(codexArgs.some((a) => a === 'mcp_servers.orca.command="/usr/bin/node"'));
+  assert.ok(codexArgs.some((a) => a === 'mcp_servers.orca.env.ORCA_ROLE="orchestrator"'));
   assert.ok(codexArgs.includes('Target: http://localhost:5173\nShip the dashboard'));
-  assert.equal(count(codexArgs, '--mcp-config'), 1);
   assert.equal(count(codexArgs, '--json'), 1);
 
   const claudeArgs = buildExecutorCommandArgs('claude', {

@@ -1,7 +1,8 @@
 // Executor command-line construction + sandbox/permission flag mapping.
 // Extracted from executor-factory.js.
 
-export function buildExecutorCommandArgs(label, lane) {
+export function buildExecutorCommandArgs(label, lane, options = {}) {
+  const mcpServers = (options && options.mcpServers && typeof options.mcpServers === 'object') ? options.mcpServers : {};
   const taskPrompt = String(lane.taskPrompt || '').trim();
   if (!taskPrompt) return [];
   const safePrompt = taskPrompt.replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 4096);
@@ -60,7 +61,19 @@ export function buildExecutorCommandArgs(label, lane) {
       if (isForceMode(permissions)) out.push('--full-auto');
       else if (isPlanMode(permissions)) out.push('--sandbox', 'read-only');
       else if (permissions) out.push('--sandbox', 'workspace-write');
-      if (lane.mcpConfigPath) out.push('--mcp-config', lane.mcpConfigPath);
+      // Codex has NO `--mcp-config` flag (that's Claude-only); passing it makes
+      // `codex exec` exit 2. Configure MCP servers via `-c mcp_servers.<name>.*`
+      // config overrides instead, which keep the user's default ~/.codex auth.
+      for (const [name, server] of Object.entries(mcpServers)) {
+        if (!server || !server.command || !/^[A-Za-z0-9_-]+$/.test(name)) continue;
+        out.push('-c', `mcp_servers.${name}.command=${JSON.stringify(String(server.command))}`);
+        out.push('-c', `mcp_servers.${name}.args=${JSON.stringify(Array.isArray(server.args) ? server.args.map(String) : [])}`);
+        const env = server.env && typeof server.env === 'object' ? server.env : {};
+        for (const [key, value] of Object.entries(env)) {
+          if (!/^[A-Za-z0-9_]+$/.test(key)) continue;
+          out.push('-c', `mcp_servers.${name}.env.${key}=${JSON.stringify(String(value))}`);
+        }
+      }
       if (targetUrl) out.push('--target', targetUrl);
       out.push(targetUrl ? `Target: ${targetUrl}\n${safePrompt}` : safePrompt);
       break;

@@ -453,11 +453,16 @@ export const orchestratorMethods = {
         ttlMs: 24 * 60 * 60 * 1000,
         actor: 'orchestrator-bootstrap',
       });
+      // The agent runs ON the workstation, so it must reach Orca over LOOPBACK —
+      // never the request's (possibly remote/tailnet) origin, which would force a
+      // local process to round-trip through the tailnet (latency + a hard
+      // dependency that breaks tool calls if the device URL isn't self-reachable).
+      const localBase = typeof this.serverBaseUrl === 'function' ? this.serverBaseUrl() : String(baseUrl || '');
       this.laneRuntimeEnv.set(String(lane.id), {
         ORCA_TOOL_LEASE_TOKEN: lease.leaseToken,
-        ORCA_AGENT_TOOLS_BASE_URL: String(baseUrl || ''),
-        ORCA_AGENT_TOOLS_DISCOVERY_URL: String(discoveryUrl || ''),
-        ORCA_AGENT_TOOLS_NEXT_ACTION_URL: String(nextActionUrl || ''),
+        ORCA_AGENT_TOOLS_BASE_URL: localBase,
+        ORCA_AGENT_TOOLS_DISCOVERY_URL: `${localBase}/api/agent-tools/discovery`,
+        ORCA_AGENT_TOOLS_NEXT_ACTION_URL: `${localBase}/api/agent-tools/next-action?role=orchestrator&projectId=${encodeURIComponent(session.projectId)}&sessionId=${encodeURIComponent(session.id)}`,
       });
     }
 
