@@ -48,28 +48,39 @@ export async function handleOrchestratorMessage(event) {
   shell.composerDrafts[sessionId] = '';
   const messageField = form.querySelector('textarea[name="message"]');
   if (messageField) messageField.value = '';
-  const response = await api(`/api/sessions/${sessionId}/orchestrator/messages`, {
-    method: 'POST',
-    body: {
-      message,
-      executorType,
-      model,
-      permissionsProfile,
-      intelligenceProfile,
-      speed,
-      branch,
-      attachments,
-      actor: 'dashboard',
-      approved: true,
-    },
-  });
+  const restoreDraft = () => {
+    shell.composerDrafts[sessionId] = draft;
+    if (messageField) messageField.value = draft;
+  };
+  let response;
+  try {
+    response = await api(`/api/sessions/${sessionId}/orchestrator/messages`, {
+      method: 'POST',
+      body: {
+        message,
+        executorType,
+        model,
+        permissionsProfile,
+        intelligenceProfile,
+        speed,
+        branch,
+        attachments,
+        actor: 'dashboard',
+        approved: true,
+      },
+    });
+  } catch {
+    // Network error before any response — never lose the user's typed message.
+    restoreDraft();
+    renderAlert('Could not send message — check your connection and try again.', 'bad');
+    return;
+  }
   if (response.ok) {
     composerAttachmentsFor(sessionId).length = 0; // clear attached files after send
     await refresh();
   } else {
     // Put the draft back so nothing is lost on error.
-    shell.composerDrafts[sessionId] = draft;
-    if (messageField) messageField.value = draft;
+    restoreDraft();
     renderAlert(response.data?.error || 'Could not send message.', 'bad');
   }
 }

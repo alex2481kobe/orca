@@ -1436,6 +1436,13 @@ body.sidebar-collapsed .sidebar-project-line {
   gap: var(--space-3);
   padding: var(--space-4);
 }
+/* State + audit badges sit together at the head of a lane card. */
+.lane-badges { align-items: center; display: flex; flex-wrap: wrap; gap: 0.3rem; justify-content: flex-end; }
+/* Auto-audit: dedicated auditor lanes listed inside the Audit section. */
+.auditor-lane-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.auditor-lane-row { align-items: center; display: flex; gap: var(--space-2); justify-content: space-between; }
+.auditor-lane-link { color: var(--text); font-size: 0.84rem; overflow: hidden; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
+@media (hover: hover) { .auditor-lane-link:hover { text-decoration: underline; } }
 
 .lane-controls-form {
   display: grid;

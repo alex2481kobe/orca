@@ -25,6 +25,7 @@ export function stateBadge(state) {
     ready_for_audit: ['Ready for audit', 'warn'],
     auditing: ['Auditing', 'warn'],
     fix_requested: ['Fix requested', 'bad'],
+    escalated: ['Escalated', 'bad'],
     accepted: ['Accepted', 'ok'],
     blocked: ['Blocked', 'bad'],
     archived: ['Archived', 'warn'],

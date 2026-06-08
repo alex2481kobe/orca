@@ -226,7 +226,7 @@ export function renderExecutorLanePanelItem(lane) {
           <strong>${safeText(lane.title || lane.executorType)}</strong>
           <div class="tiny muted">${safeText(lane.executorType)} / ${safeText(lane.owner)} / ${safeText(formatRelative(lane.updatedAt || lane.startedAt))}</div>
         </div>
-        ${stateBadge(lane.state)}
+        <span class="lane-badges">${stateBadge(lane.state)}${lane.auditState && lane.auditState !== 'not_queued' ? stateBadge(lane.auditState) : ''}</span>
       </div>
       <form class="lane-controls-form" data-lane-id="${safeAttr(lane.id)}">
         <input name="model" value="${safeAttr(lane.model || '')}" placeholder="model" aria-label="Model" />
@@ -256,7 +256,15 @@ export function renderExecutorLanePanelItem(lane) {
 // not the goal/plan or new-lane forms the operator may be editing.
 export function executorLanesForSession(session) {
   return shell.lanes
-    .filter((lane) => lane.sessionId === session.id && lane.owner !== 'orchestrator')
+    .filter((lane) => lane.sessionId === session.id && lane.owner !== 'orchestrator' && lane.owner !== 'auditor')
+    .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
+}
+
+// Dedicated auditor lanes (owner='auditor') spawned by auto-audit — shown in the
+// Audit section, NOT mixed into the executor-lane list.
+export function auditorLanesForSession(session) {
+  return shell.lanes
+    .filter((lane) => lane.sessionId === session.id && lane.owner === 'auditor')
     .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
 }
 
@@ -267,11 +275,14 @@ export function renderExecutorListInner(session) {
 
 export function renderExecutorSidePanel(session) {
   const executorLanes = executorLanesForSession(session);
+  const auditorLanes = auditorLanesForSession(session);
   const pendingAudits = pendingAuditsForSession(session.id);
-  // Only offer "Audit completed lanes" when there's actually finished work awaiting
-  // review (or an audit already queued) — no point showing it with nothing to audit.
+  // Only offer the Audit section when there's actually finished work awaiting
+  // review (an audit queued/in-flight, or an auditor lane running) — no point
+  // showing it with nothing to audit.
   const AUDITABLE_STATES = ['done', 'completed', 'ready_for_audit', 'needs_critique'];
   const hasAuditable = pendingAudits.length > 0
+    || auditorLanes.length > 0
     || executorLanes.some((lane) => AUDITABLE_STATES.includes(String(lane.state || '').toLowerCase()));
   const agentOptions = `${cliExecutorOptions()}${shell.executorProfiles?.cli ? '<option value="cli">cli</option>' : ''}${apiProviderOptions()}`;
   return `
@@ -354,6 +365,11 @@ export function renderExecutorSidePanel(session) {
         ${hasAuditable ? `<section class="info-section">
           <h4 class="info-title">Audit</h4>
           <p class="tiny muted">Hand finished executor lanes to the auditor for review.</p>
+          ${auditorLanes.length ? `<div class="auditor-lane-list">${auditorLanes.map((lane) => `
+            <div class="auditor-lane-row">
+              <a class="auditor-lane-link" href="${safeAttr(lane.route || '#')}">${safeText(lane.title)}</a>
+              ${stateBadge(lane.state)}
+            </div>`).join('')}</div>` : ''}
           <div class="info-tools">
             <button class="secondary" data-action="auditDone" data-session-id="${safeAttr(session.id)}" type="button">Audit completed lanes${pendingAudits.length ? ` (${pendingAudits.length})` : ''}</button>
           </div>

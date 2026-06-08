@@ -3,7 +3,7 @@
 import { safeHref } from './dom.js';
 import { formatMeta, safeAttr, safeText, stateBadge } from './format.js';
 import { api } from './api.js';
-import { activeHomePanel, executorCapabilitiesFor, isLiveLaneState, laneDetailRoute, pendingAuditsForLane, renderExecutorCapabilities } from './render-helpers.js';
+import { activeHomePanel, executorCapabilitiesFor, isLiveLaneState, isRestartableLaneState, laneDetailRoute, pendingAuditsForLane, renderExecutorCapabilities } from './render-helpers.js';
 import { renderApprovalRows } from './render-session-parts.js';
 import { refs, shell } from './state.js';
 import { showArtifacts } from './controller.js';
@@ -24,7 +24,7 @@ export function renderLane(project, session, lane) {
 
   const stopButton = isLiveLaneState(lane.state)
     ? `<button data-action="stopLane" data-lane-id="${safeAttr(lane.id)}" type="button">Stop lane</button>` : '';
-  const retryButton = ['failed', 'stopped'].includes(lane.state)
+  const retryButton = isRestartableLaneState(lane.state)
     ? `<button class="secondary" data-action="retryLane" data-lane-id="${safeAttr(lane.id)}" type="button">Retry lane</button>` : '';
   const laneIdEnc = encodeURIComponent(lane.id);
   const artifactUrl = `/api/lanes/${laneIdEnc}/artifacts`;
@@ -57,7 +57,7 @@ export function renderLane(project, session, lane) {
         <p>${safeText(lane.taskDescription || 'No task description')}</p>
         ${lane.taskPrompt ? `<div class="tiny"><strong>Task prompt:</strong> ${safeText(lane.taskPrompt)}</div>` : ''}
         ${lane.targetUrl ? `<div class="tiny"><strong>Target URL:</strong> <a class="secondary" href="${safeHref(lane.targetUrl)}" target="_blank" rel="noopener noreferrer">${safeText(lane.targetUrl)}</a></div>` : ''}
-        <div class="tiny">Owner: ${safeText(lane.owner)} / Executor: ${safeText(lane.executorType)} / State: ${stateBadge(lane.state)}</div>
+        <div class="tiny">Owner: ${safeText(lane.owner)} / Executor: ${safeText(lane.executorType)} / State: ${stateBadge(lane.state)}${lane.auditState && lane.auditState !== 'not_queued' ? ` / Audit: ${stateBadge(lane.auditState)}` : ''}</div>
       </div>
       <div class="card">
         <div class="lane-row">
