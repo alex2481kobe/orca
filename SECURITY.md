@@ -6,9 +6,11 @@ available.
 
 ## Reporting a vulnerability
 
-Use GitHub private vulnerability reporting if it is enabled for this
-repository. If it is not enabled, contact the repository owner through a
-private channel before opening a public issue.
+Please report security issues **privately** — do not open a public issue. Use
+GitHub's **"Report a vulnerability"** button on the
+[Security tab](https://github.com/alex2481kobe/orca/security/advisories/new)
+(private vulnerability reporting is enabled). We'll acknowledge the report, work
+with you on a fix, and coordinate disclosure.
 
 Do not include live API tokens, provider secrets, pairing codes, cookies,
 private hostnames, Apple credentials, updater private keys, screenshots with
