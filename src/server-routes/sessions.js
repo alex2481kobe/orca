@@ -16,6 +16,7 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
     getSearchParams,
     buildNextActionEnvelope,
     requestOrigin,
+    getToolLeaseToken,
   } = ctx;
     const session = registry.getSession(parts[2]);
     if (!session) {
@@ -154,6 +155,44 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
       }
     }
 
+    // Become / leave the active orchestrator for this session. The caller's
+    // identity is its tool lease (resolved from the header); a dashboard operator
+    // (no lease) acts as the 'dashboard' owner.
+    if (parts.length === 5 && parts[3] === 'orchestrator' && ['enroll', 'resign'].includes(parts[4]) && method === 'POST') {
+      const body = await parseJsonBody(req).catch(() => ({}));
+      if (rejectSpoofedActor(body || {}, res)) return;
+      const token = typeof getToolLeaseToken === 'function' ? getToolLeaseToken(req) : null;
+      let leaseId = 'dashboard';
+      let actor = (body && body.actor) || 'dashboard';
+      let source = 'dashboard';
+      if (token) {
+        try {
+          const lease = registry.validateToolLease(token, { toolId: `orchestrator.${parts[4]}`, sessionId: session.id });
+          leaseId = lease.id;
+          actor = lease.actor || 'orchestrator';
+          source = 'mcp';
+        } catch (error) {
+          return sendJson(res, error.status || 403, { error: error.message || 'Tool lease rejected.' });
+        }
+      }
+      try {
+        const result = parts[4] === 'enroll'
+          ? registry.enrollOrchestrator(session.id, { leaseId, actor, source, takeover: Boolean(body && body.takeover) })
+          : registry.resignOrchestrator(session.id, { leaseId, reason: (body && body.reason) || 'resigned' });
+        return sendJson(res, 200, result);
+      } catch (error) {
+        return sendJson(res, error.status || 500, { error: error.message || 'Could not update orchestrator ownership.', current: error.current || null });
+      }
+    }
+
+    if (parts.length === 5 && parts[3] === 'orchestrator' && parts[4] === 'status' && method === 'GET') {
+      try {
+        return sendJson(res, 200, registry.orchestratorStatus(session.id));
+      } catch (error) {
+        return sendJson(res, error.status || 500, { error: error.message || 'Could not read orchestrator status.' });
+      }
+    }
+
     if (parts.length === 5 && parts[3] === 'orchestrator' && parts[4] === 'messages' && method === 'POST') {
       const body = await parseJsonBody(req);
       if (body === null) return sendBodyError(req, res);
@@ -246,6 +285,47 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
         }
       }
       return sendJson(res, 405, { error: 'Method not allowed.' });
+    }
+
+    // Backlog tasks: list / add (and bulk add). The auto-spawn engine fans these
+    // out across executor lanes when the session's spawnPolicy is 'auto'.
+    if (parts.length === 4 && parts[3] === 'tasks') {
+      if (method === 'GET') {
+        const sp = getSearchParams(req.url || '/');
+        return sendJson(res, 200, registry.listTasks(session.id, { state: sp ? sp.get('state') : null }));
+      }
+      if (method === 'POST') {
+        const body = await parseJsonBody(req);
+        if (body === null) return sendBodyError(req, res);
+        if (rejectSpoofedActor(body, res)) return;
+        try {
+          const task = registry.addTask(session.id, body, { actor: body.actor || 'orchestrator', approved: body.approved });
+          return sendJson(res, 201, task);
+        } catch (error) {
+          return sendJson(res, error.status || 500, { error: error.message || 'Could not add task.' });
+        }
+      }
+      return sendJson(res, 405, { error: 'Method not allowed.' });
+    }
+
+    if (parts.length === 5 && parts[3] === 'tasks' && parts[4] === 'bulk' && method === 'POST') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+      if (rejectSpoofedActor(body, res)) return;
+      try {
+        const result = registry.bulkAddTasks(session.id, body, { actor: body.actor || 'orchestrator' });
+        return sendJson(res, 201, result);
+      } catch (error) {
+        return sendJson(res, error.status || 500, { error: error.message || 'Could not add tasks.' });
+      }
+    }
+
+    if (parts.length === 4 && parts[3] === 'backlog' && method === 'GET') {
+      try {
+        return sendJson(res, 200, registry.sessionBacklogStatus(session.id));
+      } catch (error) {
+        return sendJson(res, error.status || 500, { error: error.message || 'Could not read backlog status.' });
+      }
     }
 
     if (parts.length === 4 && parts[3] === 'audit-done-lanes' && method === 'POST') {

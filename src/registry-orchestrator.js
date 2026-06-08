@@ -5,8 +5,17 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { nowIso, clonePayload, normalizeExecutorType } from './registry-utils.js';
 import { FIRST_CLASS_CLI_EXECUTOR_TYPES } from './executor-factory.js';
+import { buildNextActionEnvelope, findTool } from './agent-tools.js';
+import { renderLaneTree } from './render-lane-tree.js';
 
 const MAX_ORCHESTRATOR_THREAD_MESSAGES = 500;
+// An active orchestrator that hasn't called a tool in this long is considered
+// stale, so a fresh chat can take over without forcing an explicit takeover.
+const ORCHESTRATOR_STALE_MS = 15 * 60 * 1000;
+// Mutating orchestrator tools that must stay callable regardless of ownership:
+// you call enroll/resign to change ownership, and create a session before one
+// can have an owner.
+const OWNERSHIP_EXEMPT_TOOLS = new Set(['orchestrator.enroll', 'orchestrator.resign', 'session.create']);
 
 function safeChatText(value, max = 12000) {
   return String(value || '').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, ' ').trim().slice(0, max);
@@ -84,6 +93,197 @@ export const orchestratorMethods = {
     if (thread.messages.length > MAX_ORCHESTRATOR_THREAD_MESSAGES) {
       thread.messages = thread.messages.slice(-MAX_ORCHESTRATOR_THREAD_MESSAGES);
     }
+  },
+
+  // --- Active-orchestrator ownership (enroll / resign / status) -------------
+  // A chat driving Orca over MCP binds its already-issued orchestrator lease to a
+  // session and claims the active-orchestrator marker, so a single owner is
+  // visible and handoff (resign/takeover) is coordinated. enroll does NOT mint or
+  // re-scope a lease — the lease is the identity; this only records ownership.
+
+  _leaseActiveById(leaseId) {
+    if (!leaseId || leaseId === 'dashboard') return null;
+    const lease = (this.toolLeases || []).find((item) => item.id === leaseId);
+    if (!lease) return { found: false, active: false };
+    const active = !lease.revokedAt && Date.parse(lease.expiresAt) > Date.now();
+    return { found: true, active, lease };
+  },
+
+  _activeOrchestratorStale(marker) {
+    if (!marker) return true;
+    const last = Date.parse(marker.lastSeenAt || marker.enrolledAt || 0);
+    if (Number.isFinite(last) && (Date.now() - last) > ORCHESTRATOR_STALE_MS) return true;
+    if (marker.leaseId && marker.leaseId !== 'dashboard') {
+      const status = this._leaseActiveById(marker.leaseId);
+      if (!status || !status.active) return true;
+    }
+    return false;
+  },
+
+  publicActiveOrchestrator(marker) {
+    if (!marker) return { active: false };
+    return {
+      active: true,
+      actor: marker.actor || null,
+      leaseId: marker.leaseId || null,
+      role: marker.role || 'orchestrator',
+      source: marker.source || 'mcp',
+      enrolledAt: marker.enrolledAt || null,
+      lastSeenAt: marker.lastSeenAt || null,
+      stale: this._activeOrchestratorStale(marker),
+    };
+  },
+
+  enrollOrchestrator(sessionLocator, { leaseId = 'dashboard', actor = 'orchestrator', source = 'mcp', takeover = false } = {}) {
+    const session = this.getSession(sessionLocator);
+    if (!session) throw { status: 404, message: 'Session not found.' };
+    const thread = this.ensureOrchestratorThread(session);
+    const current = thread.activeOrchestrator || null;
+    if (current && current.leaseId !== leaseId && !this._activeOrchestratorStale(current)) {
+      if (!takeover) {
+        throw {
+          status: 409,
+          message: 'Session already has an active orchestrator. Pass takeover:true to take over.',
+          current: this.publicActiveOrchestrator(current),
+        };
+      }
+      this.recordAudit({
+        type: 'orchestrator_resigned',
+        actor: String(actor || 'orchestrator').slice(0, 120),
+        projectId: session.projectId,
+        sessionId: session.id,
+        summary: `Orchestrator ${current.actor || current.leaseId} replaced by takeover`,
+        status: 'passed',
+        evidence: { reason: 'takeover', previousLeaseId: current.leaseId },
+      });
+    }
+    const now = nowIso();
+    thread.activeOrchestrator = {
+      leaseId: leaseId || 'dashboard',
+      actor: String(actor || 'orchestrator').slice(0, 120),
+      role: 'orchestrator',
+      source: String(source || 'mcp').slice(0, 24),
+      enrolledAt: now,
+      lastSeenAt: now,
+    };
+    thread.updatedAt = now;
+    this.recordAudit({
+      type: 'orchestrator_enrolled',
+      actor: thread.activeOrchestrator.actor,
+      projectId: session.projectId,
+      sessionId: session.id,
+      summary: `Orchestrator enrolled for session "${session.name}"`,
+      status: 'passed',
+      evidence: { leaseId: thread.activeOrchestrator.leaseId, source: thread.activeOrchestrator.source },
+    });
+    this.persistState();
+    return {
+      enrolled: true,
+      activeOrchestrator: this.publicActiveOrchestrator(thread.activeOrchestrator),
+      sessionId: session.id,
+    };
+  },
+
+  resignOrchestrator(sessionLocator, { leaseId = 'dashboard', reason = 'resigned' } = {}) {
+    const session = this.getSession(sessionLocator);
+    if (!session) throw { status: 404, message: 'Session not found.' };
+    const thread = this.ensureOrchestratorThread(session);
+    const current = thread.activeOrchestrator || null;
+    if (!current) return { released: false, sessionId: session.id };
+    if (current.leaseId !== leaseId && leaseId !== 'dashboard') {
+      throw { status: 403, message: 'Only the active orchestrator (or a dashboard operator) may resign this session.' };
+    }
+    thread.activeOrchestrator = null;
+    thread.updatedAt = nowIso();
+    this.recordAudit({
+      type: 'orchestrator_resigned',
+      actor: String(current.actor || 'orchestrator').slice(0, 120),
+      projectId: session.projectId,
+      sessionId: session.id,
+      summary: `Orchestrator resigned from session "${session.name}"`,
+      status: 'passed',
+      evidence: { reason: String(reason || 'resigned').slice(0, 200), leaseId: current.leaseId },
+    });
+    this.persistState();
+    return { released: true, sessionId: session.id };
+  },
+
+  getActiveOrchestrator(sessionLocator) {
+    const session = this.getSession(sessionLocator);
+    if (!session) throw { status: 404, message: 'Session not found.' };
+    const thread = this.ensureOrchestratorThread(session);
+    return this.publicActiveOrchestrator(thread.activeOrchestrator || null);
+  },
+
+  // Bump lastSeenAt for the lease that owns the session (keeps it from going
+  // stale while it is actively driving). Best-effort, no throw.
+  touchActiveOrchestrator(sessionId, leaseId) {
+    const session = this.getSession(sessionId);
+    if (!session) return;
+    const thread = session.orchestratorThread;
+    if (thread && thread.activeOrchestrator && thread.activeOrchestrator.leaseId === leaseId) {
+      thread.activeOrchestrator.lastSeenAt = nowIso();
+    }
+  },
+
+  // Exclusive ownership enforcement: once a (non-stale) active orchestrator is
+  // set for a session, a DIFFERENT orchestrator-lease's mutating tool calls are
+  // refused with a 409 + nextAction. No active owner (nobody enrolled) or a stale
+  // owner => no exclusivity, so existing un-enrolled flows keep working. Called
+  // from the server's agent-tool gate for every lease-authed mutating call.
+  assertOrchestratorOwnership({ toolId, sessionId, lease } = {}) {
+    if (!toolId || !sessionId || !lease) return;
+    if (String(lease.role) !== 'orchestrator') return; // executor/auditor are lane-scoped
+    if (OWNERSHIP_EXEMPT_TOOLS.has(toolId)) return;
+    const tool = findTool(toolId);
+    if (!tool || !tool.mutating) return; // reads are always allowed
+    const session = this.getSession(sessionId);
+    if (!session || !session.orchestratorThread) return;
+    const marker = session.orchestratorThread.activeOrchestrator;
+    if (!marker) return; // no owner claimed -> no exclusivity
+    if (this._activeOrchestratorStale(marker)) return; // dead owner never blocks a live agent
+    if (marker.leaseId === lease.id) {
+      // Caller is the owner; keep it fresh so it doesn't go stale mid-run.
+      marker.lastSeenAt = nowIso();
+      return;
+    }
+    const nextAction = buildNextActionEnvelope(this, {
+      role: 'orchestrator',
+      projectId: session.projectId,
+      sessionId: session.id,
+    });
+    throw {
+      status: 409,
+      message: `You are not the active orchestrator for session "${session.name}" (held by ${marker.actor || marker.leaseId}). Call orchestrator.enroll with takeover:true to take over before mutating it.`,
+      nextAction,
+    };
+  },
+
+  // The canonical "what is happening" view: ownership + the lane tree + flow and
+  // the next required tool. Composes existing read helpers; read-only.
+  orchestratorStatus(sessionLocator) {
+    const session = this.getSession(sessionLocator);
+    if (!session) throw { status: 404, message: 'Session not found.' };
+    const lanes = this.listLanesCompact(session.id);
+    let backlog = null;
+    try { backlog = this.sessionBacklogStatus(session.id); } catch { backlog = null; }
+    const envelope = buildNextActionEnvelope(this, {
+      role: 'orchestrator',
+      projectId: session.projectId,
+      sessionId: session.id,
+    });
+    const tree = renderLaneTree({ name: session.name }, lanes, { backlog: backlog || undefined });
+    return clonePayload({
+      sessionId: session.id,
+      sessionName: session.name,
+      activeOrchestrator: this.getActiveOrchestrator(session.id),
+      backlog,
+      flow: envelope.flow,
+      capacity: envelope.capacity,
+      nextRequiredTool: envelope.nextRequiredTool,
+      lanes,
+      tree,
+    });
   },
 
   getOrchestratorThread(sessionLocator) {
