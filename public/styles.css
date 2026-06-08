@@ -525,9 +525,26 @@ body.sidebar-collapsed .sidebar-pair-label {
   cursor: pointer;
   display: grid;
   gap: 0.5rem;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   padding: 0.4rem 0.2rem 0.4rem 0.55rem;
   text-decoration: none;
+}
+/* Name + active-lane count sit together; the name truncates, the count stays. */
+.sidebar-project-label {
+  display: flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  min-width: 0;
+}
+/* Active-lane count: a quiet "(N)" right after the name — text-sized, not a chip. */
+.sidebar-project .pill {
+  flex: 0 0 auto;
+  background: transparent;
+  border-radius: 0;
+  padding: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
 }
 
 @media (hover: hover) { .sidebar-project:hover { background: transparent; } }
@@ -536,6 +553,7 @@ body.sidebar-collapsed .sidebar-pair-label {
 .sidebar-project-name {
   font-size: 0.85rem;
   font-weight: 500;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

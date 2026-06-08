@@ -510,8 +510,7 @@ export function renderSidebarProjects(activeProject) {
         <div class="sidebar-project-line">
           <a class="sidebar-project ${isActiveProject ? 'active' : ''}" href="${safeAttr(project.route)}" data-route-project="${safeAttr(project.slug)}" data-project-id="${safeAttr(project.id)}" data-project-toggle="1">
             ${FOLDER_ICON}
-            <span class="sidebar-project-name">${safeText(project.name)}</span>
-            ${active ? `<span class="pill" title="${active} active lanes">${active}</span>` : ''}
+            <span class="sidebar-project-label"><span class="sidebar-project-name">${safeText(project.name)}</span>${active ? `<span class="pill" title="${active} active lanes">(${active})</span>` : ''}</span>
           </a>
           <button class="sidebar-menu-btn" type="button" data-action="openProjectMenu" data-menu="project" data-project-id="${safeAttr(project.id)}" data-project-name="${safeAttr(project.name)}" aria-haspopup="menu" aria-label="Menu for ${safeAttr(project.name)}" title="More">${icon('more', { size: 16 })}</button>
           <button class="sidebar-project-new" data-action="newSession" data-project-id="${safeAttr(project.id)}" aria-label="New session in ${safeAttr(project.name)}" title="New session" type="button">${COMPOSE_ICON}</button>
