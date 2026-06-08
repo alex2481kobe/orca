@@ -19,6 +19,9 @@ export function safeAttr(value) {
 export function stateBadge(state) {
   const map = {
     queued: ['Queued', 'warn'],
+    pending: ['Pending', 'warn'],
+    assigned: ['Assigned', 'warn'],
+    in_lane: ['In lane', 'ok'],
     starting: ['Starting', 'warn'],
     running: ['Running', 'ok'],
     needs_critique: ['Needs critique', 'warn'],

@@ -239,6 +239,16 @@ export async function refresh(options = {}) {
             }
           }
         }
+        // Backlog roll-up for the OPEN session only (one cheap fetch) — powers the
+        // session backlog panel without scanning tasks for every session each poll.
+        if (shell.route.sessionId) {
+          const backlogResp = await api(`/api/sessions/${encodeURIComponent(shell.route.sessionId)}/backlog`);
+          if (requestId !== refreshRequestId) return;
+          if (backlogResp.ok && backlogResp.data) {
+            shell.backlogs = shell.backlogs || {};
+            shell.backlogs[shell.route.sessionId] = backlogResp.data;
+          }
+        }
       }
     }
     if (requestId !== refreshRequestId) return;

@@ -11,6 +11,7 @@ export const shell = {
   projects: [],
   sessions: [],
   lanes: [],
+  backlogs: {},
   policy: {},
   mobileManifest: null,
   apiToken: '',

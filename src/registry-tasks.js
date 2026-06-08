@@ -16,6 +16,7 @@ import { randomUUID } from 'node:crypto';
 import { nowIso, clonePayload, safeArray } from './registry-utils.js';
 import { normalizeApprovedCapacity, normalizeSpawnPolicy } from './registry-lane-config.js';
 import { LANE_STATES } from './worker-contract.js';
+import { describeRepoRoot } from './worktree-manager.js';
 
 const {
   QUEUED: QUEUED_STATE,
@@ -428,6 +429,15 @@ export const taskMethods = {
     if (counts.blocked > 0) {
       stallReasons.push(`${counts.blocked} task(s) blocked — unblock them to proceed.`);
     }
+    // Non-blocking warnings (e.g. parallel fan-out without git worktree isolation).
+    const warnings = [];
+    if (spawnPolicy === 'auto' && approvedCapacity > 1) {
+      const repoRoot = session.repoRoot ? String(session.repoRoot) : '';
+      const isGit = repoRoot ? describeRepoRoot(repoRoot).ok : false;
+      if (!isGit) {
+        warnings.push('Auto fan-out without a git repo: parallel lanes share the session folder with NO worktree isolation and may conflict. Use a git repoRoot, or set approvedCapacity to 1.');
+      }
+    }
     return {
       sessionId: session.id,
       counts,
@@ -439,7 +449,17 @@ export const taskMethods = {
       escalatedAudits,
       stalled: !complete && stallReasons.length > 0,
       stallReasons,
+      warnings,
       completedAt: session.backlogCompletedAt || null,
+      // Compact task list (capped) so the dashboard can render the backlog from
+      // this one call without a second fetch.
+      tasks: this._sortTasks(tasks).slice(0, 100).map((task) => ({
+        id: task.id,
+        title: task.title,
+        state: task.state,
+        priority: task.priority,
+        laneId: task.laneId || null,
+      })),
     };
   },
 

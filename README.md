@@ -118,6 +118,11 @@ Codex app, or Claude Desktop** — at Orca over MCP and let it orchestrate every
 The server enforces the workflow with `nextAction` envelopes, so the chat can't skip
 steps. See [`docs/desktop-app-control.md`](docs/desktop-app-control.md).
 
+Prefer the shell? **Companion mode** (`orca-agent`) lets *any* agent drive Orca from
+the command line over the same hardened tool surface — zero setup on the local
+workstation (`orca-agent start "My run"` provisions a lease, opens an auto-fan-out
+session, and enrolls you). See [`docs/agent-companion-mode.md`](docs/agent-companion-mode.md).
+
 ## How it works
 
 ```text

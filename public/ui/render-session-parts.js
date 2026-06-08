@@ -285,6 +285,10 @@ export function renderExecutorSidePanel(session) {
     || auditorLanes.length > 0
     || executorLanes.some((lane) => AUDITABLE_STATES.includes(String(lane.state || '').toLowerCase()));
   const agentOptions = `${cliExecutorOptions()}${shell.executorProfiles?.cli ? '<option value="cli">cli</option>' : ''}${apiProviderOptions()}`;
+  const backlog = shell.backlogs?.[session.id] || null;
+  const hasBacklog = backlog && backlog.counts && backlog.counts.total > 0;
+  const c = hasBacklog ? backlog.counts : null;
+  const backlogNotes = hasBacklog ? [...(backlog.stallReasons || []), ...(backlog.warnings || [])] : [];
   return `
     <aside class="info-panel" aria-label="Session info">
       <div class="info-panel-head">
@@ -361,6 +365,19 @@ export function renderExecutorSidePanel(session) {
           </form>
           </details>
         </section>
+
+        ${hasBacklog ? `<section class="info-section">
+          <h4 class="info-title">Backlog <span class="info-count">${safeText(c.accepted)}/${safeText(c.total)}</span></h4>
+          <p class="tiny muted">${backlog.complete
+    ? 'All tasks accepted ✓'
+    : `${safeText(c.in_lane)} running · ${safeText(c.pending)} pending${c.failed ? ` · ${safeText(c.failed)} failed` : ''}${c.blocked ? ` · ${safeText(c.blocked)} blocked` : ''}`}</p>
+          ${backlogNotes.map((note) => `<p class="tiny muted">⚠ ${safeText(note)}</p>`).join('')}
+          ${(backlog.tasks || []).length ? `<div class="auditor-lane-list">${backlog.tasks.map((task) => `
+            <div class="auditor-lane-row">
+              <span class="auditor-lane-link">${safeText(task.title)}</span>
+              ${stateBadge(task.state)}
+            </div>`).join('')}</div>` : ''}
+        </section>` : ''}
 
         ${hasAuditable ? `<section class="info-section">
           <h4 class="info-title">Audit</h4>

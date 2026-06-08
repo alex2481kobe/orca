@@ -44,7 +44,14 @@ export const sessionMethods = {
       if (!['active', 'archived'].includes(nextState)) {
         throw { status: 422, message: 'Session state must be active or archived.' };
       }
+      const wasArchived = session.state === 'archived';
       session.state = nextState;
+      // Restoring an archived session: reconcile any backlog tasks left pointing
+      // at lanes that were removed/finished while it was parked (auto-spawn was
+      // skipped for archived sessions).
+      if (wasArchived && nextState === 'active' && typeof this.recoverInterruptedTasks === 'function') {
+        this.recoverInterruptedTasks();
+      }
     }
 
     if (patch.name) {
