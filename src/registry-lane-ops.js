@@ -44,8 +44,30 @@ export const laneOpsMethods = {
       try { await this.removeLaneWorktree(lane.id, { actor, approved: true, removeBranch: false }); } catch { /* best effort */ }
     }
     this.lanes = (this.lanes || []).filter((entry) => entry.id !== lane.id);
+    const affectedSessions = new Set();
     for (const task of this.tasks || []) {
-      if (task.laneId === lane.id) task.laneId = null;
+      if (task.laneId !== lane.id) continue;
+      // A backlog task still linked to this lane would be stranded: a non-terminal
+      // task (in_lane/assigned) whose lane just vanished can never be accepted/failed
+      // by the (now gone) lane, so dispatchPendingTasks won't re-spawn it and the
+      // backlog never completes. Requeue it (within attempt budget) or fail it.
+      if (task.state === 'in_lane' || task.state === 'assigned') {
+        if ((task.attempts || 0) < (task.maxAttempts || 1)) {
+          task.state = 'pending';
+          task.laneId = null;
+        } else {
+          task.state = 'failed';
+          task.laneId = null;
+          task.terminatedAt = nowIso();
+        }
+        task.updatedAt = nowIso();
+        affectedSessions.add(task.sessionId);
+      } else {
+        task.laneId = null;
+      }
+    }
+    for (const sessionId of affectedSessions) {
+      if (typeof this.evaluateBacklogCompletion === 'function') this.evaluateBacklogCompletion(sessionId);
     }
     this.recordAudit({
       type: 'lane_deleted',

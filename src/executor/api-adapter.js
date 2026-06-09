@@ -49,9 +49,9 @@ export class ApiExecutorAdapter {
     return applyApiProviderEnvOverrides(profile, requested);
   }
 
-  async _credential() {
-    const envName = this.profile?.apiKeyEnv;
-    const secretRef = this.profile?.secretRef;
+  async _credential(profile = this.profile) {
+    const envName = profile?.apiKeyEnv;
+    const secretRef = profile?.secretRef;
     const secret = await this.credentialStore.get(secretRef, envName);
     let description = null;
     try {
@@ -67,11 +67,11 @@ export class ApiExecutorAdapter {
     };
   }
 
-  _validatedEndpoint() {
-    if (!this.profile) throw new Error('API provider profile is not configured.');
-    const endpoint = this.profile.apiStyle === 'gemini'
-      ? `${String(this.profile.baseUrl || '').replace(/\/+$/, '')}/models/${safeGeminiModel(this.currentLane || {}, this.profile)}:generateContent`
-      : apiEndpointForProfile(this.profile);
+  _validatedEndpoint(profile = this.profile, lane = this.currentLane) {
+    if (!profile) throw new Error('API provider profile is not configured.');
+    const endpoint = profile.apiStyle === 'gemini'
+      ? `${String(profile.baseUrl || '').replace(/\/+$/, '')}/models/${safeGeminiModel(lane || {}, profile)}:generateContent`
+      : apiEndpointForProfile(profile);
     if (!endpoint) throw new Error('API provider endpoint could not be built.');
     return validateNetworkUrl(endpoint, {
       field: 'providerBaseUrl',
@@ -89,9 +89,13 @@ export class ApiExecutorAdapter {
       };
     }
     try {
-      this.profile = await this._resolveProfile();
-      this.currentLane = lane;
-      const endpoint = this._validatedEndpoint();
+      // Resolve into a per-call local — this adapter instance is shared across
+      // every lane of its executor type, so writing this.profile/this.currentLane
+      // and reading them back at later await points would let a concurrent lane's
+      // start() overwrite this lane's config. Keep all per-lane state on `runtime`.
+      const profile = await this._resolveProfile();
+      this.profile = profile; // best-effort for any single-lane external reader
+      const endpoint = this._validatedEndpoint(profile, lane);
       // DNS-rebinding guard: validateNetworkUrl trusts the hostname string, so a
       // public provider name resolving to an internal IP (169.254.169.254, 10.x,
       // 127.0.0.1) would pass. Re-check resolved addresses (no-op for loopback/
@@ -99,11 +103,11 @@ export class ApiExecutorAdapter {
       if (!(await publicHostResolvesSafely(new URL(endpoint).hostname))) {
         return { accepted: false, reason: `API provider endpoint host ${new URL(endpoint).hostname} resolves to a non-public (internal) address.` };
       }
-      const credential = await this._credential();
+      const credential = await this._credential(profile);
       if (!credential.secret) {
         return {
           accepted: false,
-          reason: `API provider ${this.profile.id} is missing required credential ${credential.secretRef || 'secretRef'} or env secret ${credential.envName}.`,
+          reason: `API provider ${profile.id} is missing required credential ${credential.secretRef || 'secretRef'} or env secret ${credential.envName}.`,
         };
       }
       const runtimeDir = path.join(process.cwd(), 'artifacts', String(lane.sessionId || 'orphan'), String(lane.id));
@@ -114,6 +118,7 @@ export class ApiExecutorAdapter {
       const runtime = {
         runtimeId: randomUUID(),
         lane,
+        profile,
         status: 'active',
         startedAt: now,
         heartbeatAt: now,
@@ -128,9 +133,9 @@ export class ApiExecutorAdapter {
         args: [],
         cwd: lane.workdir || process.cwd(),
         envPolicy: 'secret-env-ref',
-        providerId: this.profile.id,
+        providerId: profile.id,
         providerType: this.label,
-        apiStyle: this.profile.apiStyle,
+        apiStyle: profile.apiStyle,
         secretRef: credential.secretRef,
         apiKeyEnv: credential.envName,
         credentialBackend: credential.backend,
@@ -168,16 +173,19 @@ export class ApiExecutorAdapter {
   }
 
   async _execute(lane, runtime, secret) {
-    const body = buildApiRequestBody(lane, this.profile);
+    // Read the per-lane profile off `runtime`, never this.profile — a concurrent
+    // lane's start() may have overwritten the instance field by now.
+    const profile = runtime.profile || this.profile;
+    const body = buildApiRequestBody(lane, profile);
     const headers = {
       'content-type': 'application/json',
     };
-    if (this.profile.apiStyle === 'gemini') {
+    if (profile.apiStyle === 'gemini') {
       headers['x-goog-api-key'] = secret;
     } else {
       headers.authorization = `Bearer ${secret}`;
     }
-    const timeout = setTimeout(() => runtime.controller.abort(), this.profile.timeoutMs || 30000);
+    const timeout = setTimeout(() => runtime.controller.abort(), profile.timeoutMs || 30000);
     let responseText = '';
     try {
       const response = await fetch(runtime.endpoint, {
@@ -191,7 +199,7 @@ export class ApiExecutorAdapter {
         redirect: 'error',
       });
       responseText = await response.text();
-      if (responseText.length > (this.profile.maxResponseBytes || API_RESPONSE_BYTES)) {
+      if (responseText.length > (profile.maxResponseBytes || API_RESPONSE_BYTES)) {
         throw new Error('API provider response exceeded configured size cap.');
       }
       if (runtime.status !== 'active') return;
@@ -209,9 +217,9 @@ export class ApiExecutorAdapter {
         || parsed?.output_text
         || responseText;
       lane.apiProviderResult = {
-        providerId: this.profile.id,
-        apiStyle: this.profile.apiStyle,
-        model: this.profile.apiStyle === 'gemini' ? safeGeminiModel(lane, this.profile) : body.model,
+        providerId: profile.id,
+        apiStyle: profile.apiStyle,
+        model: profile.apiStyle === 'gemini' ? safeGeminiModel(lane, profile) : body.model,
         status: response.status,
         receivedAt: new Date().toISOString(),
         outputPreview: trimForLog(redactedText(content, [secret]), 2000),

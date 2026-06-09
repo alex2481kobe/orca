@@ -21,10 +21,14 @@ export async function handleSystemActions(event) {
   if (action === 'copyPhoneUrl') {
     const url = event.currentTarget.dataset.url || window.location.origin;
     try {
+      if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable');
       await navigator.clipboard.writeText(url);
       renderAlert('Phone link copied.');
     } catch {
-      renderAlert(url);
+      // Clipboard API is blocked on non-HTTPS tailnet phones — exactly the device
+      // this button targets. Surface the link on the error tier (info is dropped)
+      // so the user can copy it by hand instead of getting silent nothing.
+      renderAlert(`Copy failed — link: ${url}`, 'bad');
     }
     return;
   }
@@ -105,10 +109,14 @@ export async function handleSystemActions(event) {
     const snippet = entry?.command || entry?.snippet || '';
     const labels = { claudeCli: 'claude mcp add command', codexCli: 'codex mcp add command', claudeDesktop: 'Claude Desktop config', codex: 'Codex config' };
     try {
+      if (!snippet) throw new Error('nothing to copy');
+      if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable');
       await navigator.clipboard.writeText(snippet);
       renderAlert(`${labels[client] || 'Config'} copied.`);
     } catch {
-      renderAlert(snippet || 'Nothing to copy.');
+      // info-tier alerts are dropped; show the snippet on the visible error tier
+      // so a clipboard-blocked client can still copy it manually.
+      renderAlert(snippet ? `Copy failed — ${labels[client] || 'config'}: ${snippet}` : 'Nothing to copy.', 'bad');
     }
     return;
   }

@@ -279,9 +279,10 @@ export class CliExecutorAdapter {
       args = buildExecutorCommandArgs(this.label, lane, { mcpServers });
     }
 
+    let runtime = null; // hoisted so the catch can reap a child spawned before a throw
     try {
       const safeBinary = this._resolveBinary(binary);
-      const runtime = {
+      runtime = {
         runtimeId: randomUUID(),
         lane,
         status: 'active',
@@ -424,6 +425,30 @@ export class CliExecutorAdapter {
       }
       return { accepted: true, runtime };
     } catch (error) {
+      // If the child was already spawned before the throw (e.g. a post-spawn log
+      // writeFile failed with ENOSPC/EACCES), the scheduler will see accepted:false
+      // and never call stop() — so the detached process group would survive as an
+      // untracked zombie. Kill it and drop its runtime entry here.
+      try {
+        const proc = runtime?.process;
+        if (proc) {
+          proc.removeAllListeners('exit');
+          proc.stdout?.removeAllListeners('data');
+          proc.stderr?.removeAllListeners('data');
+          proc.removeAllListeners('error');
+          const pid = proc.pid;
+          if (pid) {
+            if (process.platform === 'win32') {
+              try { proc.kill('SIGKILL'); } catch { /* already gone */ }
+            } else {
+              try { process.kill(-pid, 'SIGKILL'); } catch {
+                try { proc.kill('SIGKILL'); } catch { /* already gone */ }
+              }
+            }
+          }
+          this.runtimes.delete(String(lane.id));
+        }
+      } catch { /* best-effort cleanup */ }
       return {
         accepted: false,
         reason: `Failed to launch ${this.label} adapter: ${error.message}`,
@@ -444,6 +469,12 @@ export class CliExecutorAdapter {
     runtime.status = 'stopping';
     runtime.process.removeAllListeners('exit');
     const proc = runtime.process;
+    // Detach the stdout/stderr data and error listeners too: after we kill the
+    // child, a late buffered chunk would otherwise call forward() → onLog on a
+    // lane the registry has already terminalized, and keep the streams referenced.
+    proc.stdout?.removeAllListeners('data');
+    proc.stderr?.removeAllListeners('data');
+    proc.removeAllListeners('error');
     const pid = proc.pid;
     this.runtimes.delete(laneKey);
 

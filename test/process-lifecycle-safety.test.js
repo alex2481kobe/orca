@@ -106,6 +106,34 @@ test('deleteLane removes a terminal lane (and refuses a live one)', async () => 
   });
 });
 
+test('deleteLane requeues an in_lane task instead of stranding it', async () => {
+  await withRegistry(async (registry) => {
+    const { session } = setup(registry);
+    const done = makeLane(registry, session.id);
+    registry.markLaneCompleted(registry.getLane(done.id)); // -> done (deletable, awaiting audit)
+    const task = registry.addTask(session.id, { title: 'x', maxAttempts: 2 });
+    registry.linkTaskToLane(task.id, done.id); // -> in_lane, attempts=1
+    await registry.deleteLane(done.id, { actor: 'test' });
+    // Task must not be stranded in_lane with a dead link — it should requeue.
+    assert.equal(registry.getTask(task.id).state, 'pending');
+    assert.equal(registry.getTask(task.id).laneId, null);
+  });
+});
+
+test('deleteLane fails an out-of-budget in_lane task and completes the backlog', async () => {
+  await withRegistry(async (registry) => {
+    const { session } = setup(registry);
+    const done = makeLane(registry, session.id);
+    registry.markLaneCompleted(registry.getLane(done.id));
+    const task = registry.addTask(session.id, { title: 'x', maxAttempts: 1 });
+    registry.linkTaskToLane(task.id, done.id); // -> in_lane, attempts=1 (== maxAttempts)
+    await registry.deleteLane(done.id, { actor: 'test' });
+    assert.equal(registry.getTask(task.id).state, 'failed');
+    // All tasks terminal -> backlog completion latches even via the delete path.
+    assert.ok(registry.getSession(session.id).backlogCompletedAt);
+  });
+});
+
 test('acceptLaneAudit overrides an escalated audit (clears the dead end)', async () => {
   await withRegistry(async (registry) => {
     const { session } = setup(registry);

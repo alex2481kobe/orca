@@ -211,6 +211,40 @@ function requestIsProxied(req) {
   return FORWARDED_HEADER_KEYS.some((key) => Boolean(req.headers[key]));
 }
 
+// Loopback host names a direct (non-proxied) browser is allowed to send. A
+// DNS-rebinding attack works precisely because the victim's browser connects to
+// 127.0.0.1 over the loopback socket while the page's Host header stays the
+// attacker's domain — so isLocalBootstrapAdmin would otherwise grant implicit
+// admin to a foreign origin. Requiring the Host header to be a real loopback
+// name forces a rebinding page to send Host: attacker.com, which we reject.
+// Proxied requests (Tailscale Serve) carry an arbitrary tailnet Host and never
+// get implicit admin (isLocalBootstrapAdmin returns false when proxied), so the
+// allowlist only applies to direct connections.
+const LOOPBACK_HOST_NAMES = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
+const EXTRA_ALLOWED_HOSTS = String(process.env.ORCA_ALLOWED_HOSTS || '')
+  .split(',')
+  .map((h) => h.trim().toLowerCase())
+  .filter(Boolean);
+
+function directHostAllowed(req) {
+  // Only gate direct connections; proxied (tailnet) requests are handled by the
+  // normal token/paired-session auth and carry a legitimately foreign Host.
+  if (requestIsProxied(req)) return true;
+  const rawHost = String(req.headers.host || '').toLowerCase().trim();
+  // No Host header => not a browser (fetch/XHR always send one), so it cannot be
+  // a DNS-rebinding drive-by — the only threat this gate addresses. The loopback
+  // trust model already trusts non-browser local processes, so allow it.
+  if (!rawHost) return true;
+  const nameOnly = rawHost.startsWith('[')
+    ? rawHost.slice(0, rawHost.indexOf(']') + 1) // bracketed IPv6 literal
+    : rawHost.split(':')[0];
+  if (LOOPBACK_HOST_NAMES.has(nameOnly)) return true;
+  if (EXTRA_ALLOWED_HOSTS.includes(nameOnly) || EXTRA_ALLOWED_HOSTS.includes(rawHost)) return true;
+  // Allow the configured bind host when it is an explicit non-loopback address.
+  if (HOST && HOST !== '0.0.0.0' && HOST !== '::' && nameOnly === String(HOST).toLowerCase()) return true;
+  return false;
+}
+
 function remoteAddressIsLoopback(req) {
   const addr = String(req.socket?.remoteAddress || '');
   return ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(addr);
@@ -823,6 +857,14 @@ async function handleApi(req, res, pathname, method, parts) {
 
 function routeRequest(req, res) {
   applySecurityHeaders(res, req); // req → adds HSTS when the request is HTTPS
+  // Anti-DNS-rebinding: a direct request whose Host header is not a recognized
+  // loopback/allowlisted name is rejected before any auth or handler runs. This
+  // closes the rebinding path that would otherwise hand implicit local admin to
+  // a foreign origin resolving to 127.0.0.1.
+  if (!directHostAllowed(req)) {
+    sendText(res, 403, 'Forbidden: unrecognized Host header.');
+    return Promise.resolve();
+  }
   const method = req.method || 'GET';
   const pathname = normalizePathname(req.url || '/');
   if (!pathname) {

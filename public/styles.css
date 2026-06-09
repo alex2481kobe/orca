@@ -1042,6 +1042,7 @@ body.sidebar-collapsed .sidebar-project-line {
 .home-panels[data-active-panel="providers"] > [data-panel-card]:not([data-panel-card="providers"]),
 .home-panels[data-active-panel="notifications"] > [data-panel-card]:not([data-panel-card="notifications"]),
 .home-panels[data-active-panel="backup"] > [data-panel-card]:not([data-panel-card="backup"]),
+.home-panels[data-active-panel="effective-settings"] > [data-panel-card]:not([data-panel-card="effective-settings"]),
 .home-panels[data-active-panel="pair"] > [data-panel-card]:not([data-panel-card="pair"]) {
   display: none;
 }

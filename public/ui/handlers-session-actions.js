@@ -1,7 +1,7 @@
 // Split from handlers-actions.js.
 
 import { refresh } from './controller.js';
-import { confirmHighRiskAction, isLiveLaneState } from './render-helpers.js';
+import { confirmHighRiskAction, isLaneStoppable } from './render-helpers.js';
 import { renderAlert } from './dom.js';
 import { confirmDialog } from './dialog.js';
 import { shell } from './state.js';
@@ -24,7 +24,7 @@ export async function handleSessionActions(event) {
   // Stop every live lane in the session (the "stop all agents" control).
   if (action === 'stopAllLanes') {
     const sessionId = event.currentTarget.dataset.sessionId;
-    const live = (shell.lanes || []).filter((lane) => lane.sessionId === sessionId && isLiveLaneState(lane.state));
+    const live = (shell.lanes || []).filter((lane) => lane.sessionId === sessionId && isLaneStoppable(lane));
     if (!live.length) { renderAlert('No running lanes to stop.'); return; }
     const approved = await confirmHighRiskAction(`Stop all ${live.length} running lane(s) in this session?`, 'stopLane');
     if (!approved) { renderAlert('Canceled.'); return; }

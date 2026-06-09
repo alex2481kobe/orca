@@ -130,6 +130,23 @@ test('tasks: an assigned task relinks to its live lane on reload (no double-spaw
   });
 });
 
+test('tasks: recovery latches backlog completion when the last task lands terminal on reload', async () => {
+  await withRegistry(async (registry) => {
+    const { session } = makeSession(registry);
+    const task = registry.addTask(session.id, { title: 'last', maxAttempts: 1 });
+    // Crash mid-flight: task in_lane, its lane already failed and out of budget so
+    // recovery moves it to 'failed' — the last task becoming terminal.
+    registry.linkTaskToLane(task.id, 'lane-gone');
+    assert.equal(registry.getTask(task.id).state, 'in_lane');
+    assert.equal(registry.getSession(session.id).backlogCompletedAt, undefined);
+
+    assert.equal(registry.recoverInterruptedTasks(), true);
+    assert.equal(registry.getTask(task.id).state, 'failed');
+    // Without the recovery-side evaluate, this latch would never fire.
+    assert.ok(registry.getSession(session.id).backlogCompletedAt);
+  });
+});
+
 test('tasks: illegal state transition is refused', async () => {
   await withRegistry(async (registry) => {
     const { session } = makeSession(registry);

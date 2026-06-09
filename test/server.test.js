@@ -441,6 +441,35 @@ test('with no API token, the local host bootstraps but proxied tailnet requests 
   }
 });
 
+test('anti-DNS-rebinding: a direct request with a foreign Host header is refused', async () => {
+  const server = await startServer({ token: null });
+  try {
+    // A rebinding drive-by: browser connects to 127.0.0.1 over loopback but the
+    // page's Host header is the attacker domain. Must be rejected before auth.
+    const rebind = await server.requestJson('/api/projects', {
+      method: 'GET',
+      headers: { host: 'attacker.example' },
+    });
+    assert.equal(rebind.status, 403);
+
+    // Legit loopback Host names still pass through to the bootstrap-admin path.
+    for (const host of ['127.0.0.1:3000', 'localhost', '[::1]:3000']) {
+      const ok = await server.requestJson('/api/projects', { method: 'GET', headers: { host } });
+      assert.equal(ok.status, 200, `host ${host} should be allowed`);
+    }
+
+    // A proxied (tailnet) request carries a foreign Host legitimately — the gate
+    // must not block it (auth still applies; unpaired => 401, not 403).
+    const proxied = await server.requestJson('/api/projects', {
+      method: 'GET',
+      headers: { host: 'box.tail1234.ts.net', 'x-forwarded-for': '100.64.0.9' },
+    });
+    assert.equal(proxied.status, 401);
+  } finally {
+    await server.stop();
+  }
+});
+
 test('paired devices get operator access but are denied host administration', async () => {
   const token = 'route-token-least-privilege';
   const server = await startServer({

@@ -1,7 +1,7 @@
 // Render view module (split from render-views.js).
 
 import { formatRelative, safeAttr, safeText, stateBadge } from './format.js';
-import { isLiveLaneState, isRestartableLaneState, pendingAuditsForSession } from './render-helpers.js';
+import { isLaneStoppable, isLiveLaneState, isRestartableLaneState, pendingAuditsForSession } from './render-helpers.js';
 import { activeOrchestratorLaneForSession, intelligenceOptionsFor, renderAgentEventTimeline, runModeOptionsFor } from './render-fragments.js';
 import { shell } from './state.js';
 import { renderAlert, writeHtml } from './dom.js';
@@ -214,7 +214,7 @@ export function renderOrchestratorConsole(session) {
 }
 
 export function renderExecutorLanePanelItem(lane) {
-  const stopButton = isLiveLaneState(lane.state)
+  const stopButton = isLaneStoppable(lane)
     ? `<button data-action="stopLane" data-lane-id="${safeAttr(lane.id)}" type="button">Stop</button>` : '';
   const restartButton = (isLiveLaneState(lane.state) || isRestartableLaneState(lane.state))
     ? `<button class="secondary" data-action="restartLane" data-lane-id="${safeAttr(lane.id)}" type="button">Restart</button>` : '';
@@ -306,7 +306,7 @@ export function renderExecutorSidePanel(session) {
         <section class="info-section">
           <h4 class="info-title">Executor lanes <span class="info-count">${safeText(executorLanes.length)}</span></h4>
           <div class="executor-panel-list" id="executor-list-${safeAttr(session.id)}"></div>
-          ${(executorLanes.some((l) => isLiveLaneState(l.state)) || auditorLanes.some((l) => isLiveLaneState(l.state)))
+          ${(executorLanes.some(isLaneStoppable) || auditorLanes.some(isLaneStoppable))
     ? `<div class="info-tools"><button class="secondary" data-action="stopAllLanes" data-session-id="${safeAttr(session.id)}" type="button">Stop all lanes</button></div>` : ''}
           <details class="info-disclosure">
             <summary><span class="info-disclosure-add">+</span><span>New executor lane</span></summary>

@@ -116,6 +116,20 @@ export function isLiveLaneState(state) {
   return LIVE_LANE_STATES.includes(String(state || '').toLowerCase());
 }
 
+// A lane whose OS process is actually up (pid present, not yet ended). A lane can
+// hold a live child while its state is auditing/needs_critique, so this is broader
+// than isLiveLaneState for "can/should this be stopped" decisions.
+export function hasLiveProcess(lane) {
+  return Boolean(lane && lane.processMeta && lane.processMeta.pid && !lane.processMeta.endedAt);
+}
+
+// Stoppable = live state OR a live child. Single source of truth for the per-lane
+// Stop button, the side-panel Stop, and the "Stop all lanes" selection so none of
+// them silently skip an auditing/needs_critique lane that still has a process up.
+export function isLaneStoppable(lane) {
+  return Boolean(lane && (isLiveLaneState(lane.state) || hasLiveProcess(lane)));
+}
+
 // "Live" minus queued — a lane whose process is actually up (used for the
 // at-a-glance "N running" tile, distinct from the broader live/active count).
 export function isRunningLaneState(state) {

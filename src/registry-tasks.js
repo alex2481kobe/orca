@@ -574,6 +574,15 @@ export const taskMethods = {
         // ran first and already failed truly-running lanes, which synced the task.
       }
     }
+    // Recovery can move the LAST in-flight task to a terminal state (accepted/
+    // failed) above. evaluateBacklogCompletion is otherwise only called from the
+    // live accept/fail paths, so without this an all-terminal backlog restored
+    // after a crash would never latch backlogCompletedAt — the completion audit
+    // event, notification, and orchestrator nudge would silently never fire.
+    const touchedSessions = new Set((this.tasks || []).map((task) => task.sessionId));
+    for (const sessionId of touchedSessions) {
+      this.evaluateBacklogCompletion(sessionId);
+    }
     return changed;
   },
 };
