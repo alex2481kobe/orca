@@ -1,4 +1,9 @@
 name: codeql
+# Reviewed exemption to the "manual-only workflows" policy in SECURITY.md: CodeQL
+# is a static analyzer on the safe `pull_request` trigger (NOT pull_request_target),
+# so fork PRs run with a read-only token and no secrets — `security-events: write`
+# cannot be exercised by a fork. Auto + scheduled scans are the point of code
+# scanning, so these triggers are intentional here (and only here).
 on:
   push:
     branches: [main]

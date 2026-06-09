@@ -181,7 +181,7 @@ See [`SECURITY.md`](SECURITY.md) to report issues.
 
 ## Docs
 
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) · [`SECURITY.md`](SECURITY.md) · [`SUPPORT.md`](SUPPORT.md)
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) · [`SECURITY.md`](SECURITY.md) · [`SUPPORT.md`](SUPPORT.md) · [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)
 - [Tailscale mobile access](docs/tailscale-mobile-access.md)
 - [Agent orchestrator / executor skills](docs/agent-orchestrator-skill.md)
 - [Control Orca from a chat (MCP)](docs/desktop-app-control.md) · [Companion mode (drive Orca from any agent)](docs/agent-companion-mode.md)
