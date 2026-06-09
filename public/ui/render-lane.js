@@ -30,6 +30,15 @@ export function renderLane(project, session, lane) {
     ? `<button data-action="stopLane" data-lane-id="${safeAttr(lane.id)}" type="button">Stop lane</button>` : '';
   const retryButton = isRestartableLaneState(lane.state)
     ? `<button class="secondary" data-action="retryLane" data-lane-id="${safeAttr(lane.id)}" type="button">Retry lane</button>` : '';
+  // Escalated audit (loop budget exhausted / auditor couldn't finish) is otherwise
+  // a dead end — let the operator accept the work to clear it.
+  const overrideAuditButton = lane.auditState === 'escalated'
+    ? `<button class="secondary" data-action="overrideAcceptAudit" data-lane-id="${safeAttr(lane.id)}" type="button">Accept (override)</button>` : '';
+  // Delete is only for terminal lanes with no live process (never orphans a child).
+  const deletableLane = !isLiveLaneState(lane.state) && !hasLiveProcess
+    && ['done', 'failed', 'stopped', 'accepted', 'blocked', 'archived'].includes(String(lane.state || '').toLowerCase());
+  const deleteButton = deletableLane
+    ? `<button class="secondary" data-action="deleteLane" data-lane-id="${safeAttr(lane.id)}" data-lane-title="${safeAttr(lane.title || '')}" type="button">Delete lane</button>` : '';
   const laneIdEnc = encodeURIComponent(lane.id);
   const artifactUrl = `/api/lanes/${laneIdEnc}/artifacts`;
   const evidenceUrl = `/api/lanes/${laneIdEnc}/evidence`;
@@ -67,8 +76,10 @@ export function renderLane(project, session, lane) {
         <div class="lane-row">
           ${stopButton}
           ${retryButton}
+          ${overrideAuditButton}
           <button class="secondary" data-action="captureEvidence" data-lane-id="${safeAttr(lane.id)}" type="button">Capture evidence</button>
           <button class="secondary" data-action="auditLane" data-lane-id="${safeAttr(lane.id)}" type="button">${auditLabel}</button>
+          ${deleteButton}
         </div>
       </div>
       ${lane.state === 'needs_critique' ? `

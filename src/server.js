@@ -338,6 +338,9 @@ function toolLeaseRequirementForRoute(method, parts) {
   if (parts[1] === 'lanes' && parts[2] && parts.length === 3 && method === 'GET') {
     return { toolId: 'lane.get', laneId: parts[2] };
   }
+  if (parts[1] === 'lanes' && parts[2] && parts.length === 3 && method === 'DELETE') {
+    return { toolId: 'lane.delete', laneId: parts[2] };
+  }
   if (parts[1] === 'lanes' && parts[2] && parts[3] === 'heartbeat' && method === 'POST') {
     return { toolId: 'lane.heartbeat', laneId: parts[2] };
   }

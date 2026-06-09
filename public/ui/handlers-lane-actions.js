@@ -15,6 +15,34 @@ export async function handleLaneActions(event) {
     await showArtifacts(laneId);
     return;
   }
+  if (action === 'overrideAcceptAudit') {
+    const approved = await confirmHighRiskAction('Accept this lane and override the escalated audit?', 'auditLane');
+    if (!approved) { renderAlert('Override canceled.'); return; }
+    const response = await api(`/api/lanes/${laneId}/audit/accept`, {
+      method: 'POST',
+      body: { actor: 'dashboard', findings: ['operator override of escalated audit'] },
+    });
+    renderAlert(response.ok ? 'Lane accepted (audit overridden).' : (response.data?.error || 'Could not accept lane.'), response.ok ? 'ok' : 'bad');
+    if (response.ok) await refresh();
+    return;
+  }
+  if (action === 'deleteLane') {
+    const title = event.currentTarget.dataset.laneTitle || 'this lane';
+    const ok = await confirmDialog(`Permanently delete "${title}" and its worktree?`, { danger: true, confirmLabel: 'Delete' });
+    if (!ok) return;
+    const lane = shell.lanes.find((item) => item.id === laneId);
+    const sessionRoute = lane ? shell.sessions.find((s) => s.id === lane.sessionId)?.route : null;
+    const response = await api(`/api/lanes/${laneId}`, { method: 'DELETE', body: { actor: 'dashboard' } });
+    if (response.ok) {
+      renderAlert('Lane deleted.');
+      // If we were viewing the now-deleted lane, navigate back to its session.
+      if (sessionRoute && shell.route.laneId === laneId) { window.location.assign(sessionRoute); return; }
+      await refresh();
+    } else {
+      renderAlert(response.data?.error || 'Could not delete lane.', 'bad');
+    }
+    return;
+  }
   if (action === 'captureEvidencePreset') {
     const presetId = event.currentTarget.dataset.presetId;
     const label = event.currentTarget.dataset.presetLabel || 'saved preview';

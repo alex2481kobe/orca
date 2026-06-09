@@ -173,6 +173,16 @@ export const TOOL_DEFINITIONS = [
     summary: 'Stop or shut down a lane worker.',
   },
   {
+    id: 'lane.delete',
+    group: 'lane',
+    roles: ['orchestrator', 'dashboard'],
+    method: 'DELETE',
+    route: '/api/lanes/{laneId}',
+    implemented: true,
+    mutating: true,
+    summary: 'Permanently delete a terminal lane (done/failed/stopped/accepted/blocked) and its worktree. Refuses a live lane.',
+  },
+  {
     id: 'lane.retry',
     group: 'lane',
     roles: ['orchestrator', 'dashboard'],

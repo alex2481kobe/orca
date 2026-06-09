@@ -55,6 +55,8 @@ const WIRED_ACTIONS = new Set([
   'pauseSessionSpawning',
   'stopAllLanes',
   'deleteTask',
+  'deleteLane',
+  'overrideAcceptAudit',
   'setTheme',
   'ackAuditEvent',
   'applyAppImport',

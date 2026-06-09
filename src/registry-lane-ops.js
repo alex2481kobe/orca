@@ -28,6 +28,38 @@ function isLiveLaneState(state) {
 }
 
 export const laneOpsMethods = {
+  // Permanently remove a TERMINAL lane (done/failed/stopped/accepted/blocked):
+  // best-effort worktree cleanup, clear runtime maps, unlink any backlog task,
+  // drop the record. Refuses a live lane so a running child can't be orphaned.
+  async deleteLane(laneLocator, { actor = 'dashboard' } = {}) {
+    const lane = this.getLane(laneLocator);
+    if (!lane) throw { status: 404, message: 'Lane not found.' };
+    const deletable = new Set([DONE_STATE, FAILED_STATE, STOPPED_STATE, ACCEPTED_STATE, BLOCKED_STATE, 'archived']);
+    if (!deletable.has(lane.state)) {
+      throw { status: 422, message: 'Stop the lane before deleting it.' };
+    }
+    if (typeof this.clearLaneExecutor === 'function') this.clearLaneExecutor(lane.id);
+    this.laneRuntimeEnv?.delete(String(lane.id));
+    if (typeof this.removeLaneWorktree === 'function') {
+      try { await this.removeLaneWorktree(lane.id, { actor, approved: true, removeBranch: false }); } catch { /* best effort */ }
+    }
+    this.lanes = (this.lanes || []).filter((entry) => entry.id !== lane.id);
+    for (const task of this.tasks || []) {
+      if (task.laneId === lane.id) task.laneId = null;
+    }
+    this.recordAudit({
+      type: 'lane_deleted',
+      actor: String(actor || 'dashboard').slice(0, 120),
+      projectId: lane.projectId,
+      sessionId: lane.sessionId,
+      laneId: lane.id,
+      summary: `Lane "${lane.title}" deleted`,
+      status: 'passed',
+    });
+    this.persistState();
+    return { deleted: true, id: lane.id };
+  },
+
   submitLane(laneLocator, { actor = 'executor', summary = '', changedFiles = [], handoff = '' } = {}) {
     const lane = this.getLane(laneLocator);
     if (!lane) throw { status: 404, message: 'Lane not found.' };

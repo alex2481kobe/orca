@@ -588,7 +588,7 @@ document.addEventListener('click', async (event) => {
     return;
   }
 
-  if (['stopLane', 'retryLane', 'restartLane', 'auditLane', 'markCritiqueDone', 'waiveCritique', 'captureEvidence', 'clearEvidence', 'captureEvidencePreset', 'removeWorktree', 'showArtifacts'].includes(action)) {
+  if (['stopLane', 'retryLane', 'restartLane', 'auditLane', 'overrideAcceptAudit', 'deleteLane', 'markCritiqueDone', 'waiveCritique', 'captureEvidence', 'clearEvidence', 'captureEvidencePreset', 'removeWorktree', 'showArtifacts'].includes(action)) {
     await handleLaneActions({ currentTarget: actionTarget });
     return;
   }

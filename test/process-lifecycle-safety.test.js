@@ -70,6 +70,45 @@ test('pruneInMemoryRecords caps terminal lanes per session (bounds growth)', asy
   }
 });
 
+test('deleteLane removes a terminal lane (and refuses a live one)', async () => {
+  await withRegistry(async (registry) => {
+    const { session } = setup(registry);
+    // Live lane cannot be deleted.
+    const live = makeLane(registry, session.id);
+    await registry.getExecutorForType('mock').start(registry.getLane(live.id));
+    registry.getLane(live.id).state = 'running';
+    await assert.rejects(() => registry.deleteLane(live.id, { actor: 'test' }), (e) => e.status === 422);
+    // Terminal lane can be deleted; runtime maps cleared; linked task unlinked.
+    const done = makeLane(registry, session.id);
+    registry.ensureLaneToolLease(registry.getLane(done.id));
+    registry.markLaneCompleted(registry.getLane(done.id)); // -> done
+    const task = registry.addTask(session.id, { title: 'x' });
+    registry.linkTaskToLane(task.id, done.id);
+    const result = await registry.deleteLane(done.id, { actor: 'test' });
+    assert.equal(result.deleted, true);
+    assert.equal(registry.getLane(done.id), undefined);
+    assert.equal(registry.laneRuntimeEnv.has(String(done.id)), false);
+    assert.equal(registry.getTask(task.id).laneId, null);
+  });
+});
+
+test('acceptLaneAudit overrides an escalated audit (clears the dead end)', async () => {
+  await withRegistry(async (registry) => {
+    const { session } = setup(registry);
+    const lane = makeLane(registry, session.id);
+    registry.markLaneCompleted(registry.getLane(lane.id));
+    registry.queueLaneAudit(lane.id, { actor: 'auditor', approved: true });
+    // Exhaust the loop budget -> escalated.
+    registry.requestLaneFix(lane.id, { actor: 'auditor', findings: ['x'] });
+    registry.requestLaneFix(lane.id, { actor: 'auditor', findings: ['still'] });
+    assert.equal(registry.getLane(lane.id).auditState, 'escalated');
+    // Operator override accepts it.
+    registry.acceptLaneAudit(lane.id, { actor: 'dashboard', findings: ['override'] });
+    assert.equal(registry.getLane(lane.id).state, 'accepted');
+    assert.equal(registry.getLane(lane.id).auditState, 'accepted');
+  });
+});
+
 test('deleteSession stops a running lane and clears its runtime maps (no orphan)', async () => {
   await withRegistry(async (registry) => {
     const { session } = setup(registry);

@@ -27,6 +27,17 @@ export async function handleLaneRoutes(ctx, req, res, method, parts) {
       return sendJson(res, 200, lane);
     }
 
+    if (parts.length === 3 && method === 'DELETE') {
+      const body = await parseJsonBody(req).catch(() => ({}));
+      if (rejectSpoofedActor(body || {}, res)) return;
+      try {
+        const result = await registry.deleteLane(lane.id, { actor: (body && body.actor) || 'dashboard' });
+        return sendJson(res, 200, result);
+      } catch (error) {
+        return sendJson(res, error.status || 500, { error: error.message || 'Could not delete lane.' });
+      }
+    }
+
     if (parts.length === 4 && parts[3] === 'controls' && method === 'PATCH') {
       const body = await parseJsonBody(req);
       if (body === null) return sendBodyError(req, res);
