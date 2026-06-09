@@ -23,7 +23,6 @@ export const MCP_TOOL_SCOPE_ALLOWLIST = [
   ...API_PROVIDER_EXECUTOR_TYPES,
 ];
 
-export const API_TOKEN_STORAGE_KEY = 'orcaApiToken';
 export const SIDEBAR_ORDER_STORAGE_KEY = 'orcaSidebarOrder:v1';
 export const NOTIFICATION_SEEN_STORAGE_KEY = 'orcaNotificationsSeen:v1';
 // Icons moved to the design-system icon module — import from ./icons.js.

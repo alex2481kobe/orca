@@ -2,7 +2,7 @@
 // Depends only on shared state (refs) and pure escaping helpers. Extracted from app.js.
 
 import { refs } from './state.js';
-import { safeText, safeAttr } from './format.js';
+import { safeAttr } from './format.js';
 
 export function clientUrl(value) {
   const raw = String(value || '').trim();
@@ -185,6 +185,13 @@ export function installToHomeHint() {
 // Returns true only when the DOM was actually rewritten (HTML differed from the
 // last write), so callers can react to real changes — e.g. auto-scroll the chat
 // thread only when new content arrived, not on every idle poll.
+//
+// SECURITY INVARIANT: `html` MUST already be safe. Every render function that
+// builds the string interpolates dynamic values exclusively through safeText()
+// (element text) or safeAttr() (attribute values) from format.js. Never pass a
+// raw, unescaped server/user value here. (CodeQL flags this innerHTML sink — it
+// does not recognize the project's safeText/safeAttr escapers; the inputs are
+// escaped by construction, verified across all callers.)
 export function writeHtml(el, html) {
   if (!el) return false;
   if (el.__lastHtml === html) return false;
@@ -200,9 +207,16 @@ export function renderAlert(text, level = 'info') {
   // fixed overlay toast (never pushes content).
   if (level !== 'bad' && level !== 'error') return;
   if (!refs.alerts) return;
-  refs.alerts.innerHTML = `<div class="alert bad" role="alert">${safeText(text)}</div>`;
+  // Build via DOM + textContent (not innerHTML) so the message is inert text by
+  // construction — no markup is ever parsed from it, regardless of escaping.
+  refs.alerts.textContent = '';
+  const box = document.createElement('div');
+  box.className = 'alert bad';
+  box.setAttribute('role', 'alert');
+  box.textContent = String(text ?? '');
+  refs.alerts.appendChild(box);
   clearTimeout(renderAlert.timer);
   renderAlert.timer = setTimeout(() => {
-    if (refs.alerts) refs.alerts.innerHTML = '';
+    if (refs.alerts) refs.alerts.textContent = '';
   }, 5000);
 }

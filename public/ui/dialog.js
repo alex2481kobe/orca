@@ -9,6 +9,11 @@ function escapeHtml(value) {
   return div.innerHTML;
 }
 
+// Monotonic counter for unique DOM ids. A counter (not Math.random) is correct
+// here: ids only need to be unique within the document, not unguessable, and a
+// deterministic source avoids the "insecure randomness" lint entirely.
+let _dialogSeq = 0;
+
 function openDialog(cfg) {
   return new Promise((resolve) => {
     const isPrompt = cfg.kind === 'prompt';
@@ -16,7 +21,9 @@ function openDialog(cfg) {
     overlay.className = 'modal-overlay';
     // Unique ids so the dialog can point aria-labelledby/aria-describedby at its
     // own title/message (screen-reader announces what the dialog is about).
-    const uid = `modal-${(overlay.dataset.uid = String(Math.floor(performance.now())) + Math.random().toString(36).slice(2, 7))}`;
+    _dialogSeq += 1;
+    const uid = `modal-${_dialogSeq}`;
+    overlay.dataset.uid = uid;
     const titleId = `${uid}-title`;
     const msgId = `${uid}-msg`;
     overlay.innerHTML = `

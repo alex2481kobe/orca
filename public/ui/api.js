@@ -4,11 +4,14 @@
 
 import { shell } from './state.js';
 import { isLocalHostName } from './dom.js';
-import { API_TOKEN_STORAGE_KEY } from './constants.js';
 
 export function initializeApiToken() {
-  const saved = window.sessionStorage.getItem(API_TOKEN_STORAGE_KEY);
-  shell.apiToken = saved || '';
+  // The admin API token lives in memory only (shell.apiToken), never in web
+  // storage: persisting an admin secret to sessionStorage/localStorage exposes it
+  // to any same-origin XSS. It survives in-app (SPA) navigation; a hard reload
+  // re-shows the access gate. The loopback bootstrap-admin and paired-cookie paths
+  // need no token and are unaffected.
+  shell.apiToken = shell.apiToken || '';
   if (!window.location.search) return;
   const params = new URLSearchParams(window.location.search);
   if (!params.has('apiToken') && !params.has('token')) return;
@@ -38,13 +41,8 @@ export function browserAccessBlocked() {
 }
 
 export function setApiToken(token) {
-  const nextToken = (token || '').trim();
-  shell.apiToken = nextToken;
-  if (nextToken) {
-    window.sessionStorage.setItem(API_TOKEN_STORAGE_KEY, nextToken);
-  } else {
-    window.sessionStorage.removeItem(API_TOKEN_STORAGE_KEY);
-  }
+  // In-memory only — see initializeApiToken. Never written to web storage.
+  shell.apiToken = (token || '').trim();
 }
 
 export function currentActiveProject() {
