@@ -16,7 +16,9 @@ export async function handleLaneActions(event) {
     return;
   }
   if (action === 'overrideAcceptAudit') {
-    const approved = await confirmHighRiskAction('Accept this lane and override the escalated audit?', 'auditLane');
+    // Irreversible: accepts work that FAILED its audit. Always confirm explicitly
+    // rather than deferring to server policy (which may not require approval).
+    const approved = await confirmDialog('Accept this lane and override the escalated audit? This accepts work that failed review.', { danger: true, confirmLabel: 'Accept override' });
     if (!approved) { renderAlert('Override canceled.'); return; }
     const response = await api(`/api/lanes/${laneId}/audit/accept`, {
       method: 'POST',

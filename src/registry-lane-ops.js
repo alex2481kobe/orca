@@ -382,6 +382,19 @@ export const laneOpsMethods = {
     lane.critiqueState = this.critiqueRequiredForLane(lane) ? 'needed' : 'not_required';
     lane.critiqueNonce = null;
     lane.critiqueRevision = (Number.parseInt(lane.critiqueRevision, 10) || 1) + 1;
+    // If this lane came from a backlog task that was requeued to 'pending' when the
+    // lane failed, re-link it so the retry's eventual accept/fail syncs the task
+    // (otherwise markTask*FromLane finds no task) and dispatchPendingTasks won't
+    // also spawn a second lane for it. Only relink a still-pending, unlinked task —
+    // never steal one already running on another live lane.
+    if (lane.metadataTaskId && typeof this.getTask === 'function') {
+      const task = this.getTask(lane.metadataTaskId);
+      if (task && task.state === 'pending' && !task.laneId) {
+        task.state = 'in_lane';
+        task.laneId = String(lane.id);
+        task.updatedAt = nowIso();
+      }
+    }
     this.appendLaneLog(lane, `Retry requested by ${context.actor || 'dashboard'}`);
     this.recordAudit({
       type: 'lane_retried',

@@ -19,7 +19,9 @@ export const part4 = [
     method: 'POST',
     route: '/api/mcp/orchestrator-bootstrap',
     group: 'mcp',
-    auth: 'api_token_or_paired_browser_session',
+    // Mints an off-origin host credential (orchestrator lease) — requires ADMIN
+    // (requireAdminAuth in src/server-routes/mcp.js). Paired phones are rejected.
+    auth: 'api_token_or_local_host_admin',
     mutationRisk: 'medium',
     approval: 'none',
     validation: 'actor spoofing rejected; project/session existence + relationship; ttl clamped',

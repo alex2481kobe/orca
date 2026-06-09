@@ -13,6 +13,16 @@ function mountFor(laneId) {
   return typeof document !== 'undefined' ? document.getElementById(`lane-stream-${laneId}`) : null;
 }
 
+// Replace the "Connecting to live output…" placeholder with an explanation when
+// the stream can't run — otherwise the terminal sits on "Connecting…" forever
+// (EventSource missing, or SSE auth unavailable on token-in-page remote clients).
+// Only writes when no real output has arrived yet, so it never clobbers a live log.
+function writeStreamNotice(laneId, message) {
+  if (_buffers.get(laneId)) return;
+  const el = mountFor(laneId);
+  if (el) el.textContent = message;
+}
+
 function autoscroll(el) {
   // Only stick to the bottom if the user is already near it (don't yank them up
   // while they're scrolled back reading earlier output).
@@ -42,9 +52,17 @@ export function subscribeLaneStream(laneId) {
   if (_laneId === laneId && _es) { fillLaneStream(laneId); return; } // already streaming this lane
   unsubscribeLaneStream();
   _laneId = laneId;
-  if (typeof EventSource === 'undefined') return;
+  if (typeof EventSource === 'undefined') {
+    writeStreamNotice(laneId, 'Live output is not available in this view. Open the lane on the workstation to watch it stream.');
+    return;
+  }
   let es;
-  try { es = new EventSource(`/api/lanes/${encodeURIComponent(laneId)}/stream`); } catch { return; }
+  try {
+    es = new EventSource(`/api/lanes/${encodeURIComponent(laneId)}/stream`);
+  } catch {
+    writeStreamNotice(laneId, 'Live output could not start on this device. Open the lane on the workstation to watch it stream.');
+    return;
+  }
   _es = es;
   es.addEventListener('snapshot', (event) => {
     if (_laneId !== laneId) return;
@@ -70,5 +88,13 @@ export function subscribeLaneStream(laneId) {
       }
     } catch { /* ignore */ }
   });
-  // EventSource auto-reconnects on error; nothing to do (server re-sends a snapshot).
+  es.addEventListener('error', () => {
+    if (_laneId !== laneId) return;
+    // EventSource auto-reconnects while readyState is CONNECTING; only surface a
+    // notice once the browser has given up (CLOSED) and we never got any output —
+    // e.g. SSE auth failed on a token-in-page remote client.
+    if (es.readyState === EventSource.CLOSED) {
+      writeStreamNotice(laneId, 'Live output is unavailable on this device. Open the lane on the workstation to watch it stream.');
+    }
+  });
 }
