@@ -34,6 +34,10 @@ Older prerelease builds may be asked to upgrade before a fix is validated.
 ## Security model summary
 
 - The HTTP server binds to `127.0.0.1` by default.
+- Direct (non-proxied) requests are gated by an anti-DNS-rebinding Host-header
+  allowlist, so a page that rebinds its domain to loopback cannot inherit the
+  local bootstrap-admin trust. The admin API token is held in memory only (never
+  in web storage).
 - Public unauthenticated routes are limited to liveness, auth status, and the
   static shell.
 - Workspace data and host controls require an API token or paired browser

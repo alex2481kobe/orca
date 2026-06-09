@@ -59,7 +59,7 @@ npm run smoke:route-inventory
 ```
 
 The smoke prints the current group counts. As of the latest acceptance run,
-the inventory covers 102 routes across these route groups:
+the inventory covers 129 routes across these route groups:
 
 - `agent-tools`
 - `app-backup`

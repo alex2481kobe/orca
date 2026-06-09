@@ -156,7 +156,11 @@ Orca treats agent‑spawning, file mutation, and remote access as privileged —
 backs it up:
 
 - Session token in an **HttpOnly + SameSite + Secure** cookie (never in
-  localStorage); the one‑time pairing code is never stored client‑side.
+  localStorage); the one‑time pairing code is never stored client‑side, and the
+  admin API token is held **in memory only** — never written to web storage.
+- An **anti‑DNS‑rebinding** Host‑header allowlist gates direct connections, so a
+  malicious page that resolves its domain to `127.0.0.1` can't inherit local
+  admin.
 - Constant‑time token comparison, **SSRF‑hardened** URL policy (metadata/private/
   obfuscated hosts blocked), approval gates that can't be bypassed, and MCP/exec
   env hardening (no `PATH`/`LD_PRELOAD`/`NODE_OPTIONS` injection).
@@ -164,7 +168,7 @@ backs it up:
   `javascript:` / quote‑breakout XSS); secrets are redacted from logs, errors,
   exports, and support bundles.
 - A documented [route security matrix](docs/route-security-matrix.md) covers auth,
-  validation, body/rate limits, and audit metadata across ~116 routes.
+  validation, body/rate limits, and audit metadata across ~129 routes.
 
 See [`SECURITY.md`](SECURITY.md) to report issues.
 
@@ -196,7 +200,7 @@ distributed modified versions must keep their source available under the same te
 Don't rely on prose alone; the authority is the
 [completion ledger](docs/full-buildout-ledger.md) and the smoke gates.
 
-- `npm test` — **244 passing** unit/integration tests.
+- `npm test` — **298 passing** unit/integration tests.
 - `npm run smoke:acceptance` — one‑command end‑to‑end acceptance gate.
 - `npm run smoke:ui-inventory` / `smoke:ui-contract` — desktop + 390px phone
   screenshots of every route with zero horizontal overflow and a shared design

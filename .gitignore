@@ -23,3 +23,11 @@ tmp/
 *.swn
 .verify-out.txt
 tmp-visual/
+
+# Local-only docs (never published). The `.local.md` suffix marks working notes
+# that must stay off the public repo; also the private roadmap/task docs that
+# CLAUDE.md references but are intentionally untracked.
+*.local.md
+docs/roadmap.md
+docs/current-task.md
+docs/full-buildout-goal.md
