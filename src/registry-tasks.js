@@ -378,6 +378,7 @@ export const taskMethods = {
             verificationCommand: task.verificationCommand || '',
             expectedArtifacts: task.expectedArtifacts || [],
             owner: 'executor',
+            metadataTaskId: task.id,
           }, { actor: 'scheduler', approved: true });
           this.linkTaskToLane(task.id, lane.id);
         } catch (error) {
@@ -527,9 +528,21 @@ export const taskMethods = {
     let changed = false;
     for (const task of this.tasks || []) {
       if (task.state === 'assigned') {
-        // Claimed but never linked to a live lane before the crash.
-        task.state = 'pending';
-        task.laneId = null;
+        // 'assigned' is the tiny window in dispatchPendingTasks between reserving
+        // the task and linkTaskToLane(). If the crash hit AFTER createLane stored
+        // the lane (tagged metadataTaskId) but BEFORE the link, blindly requeuing
+        // would double-spawn. Relink to that live lane instead when we find it.
+        const orphanLane = (this.lanes || []).find((lane) =>
+          lane.metadataTaskId === task.id
+          && !['failed', 'stopped'].includes(String(lane.state || '').toLowerCase()));
+        if (orphanLane) {
+          task.state = 'in_lane';
+          task.laneId = String(orphanLane.id);
+        } else {
+          // Claimed but never reached createLane — safe to requeue.
+          task.state = 'pending';
+          task.laneId = null;
+        }
         task.updatedAt = nowIso();
         changed = true;
       } else if (task.state === 'in_lane') {

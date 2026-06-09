@@ -50,6 +50,7 @@ export const laneCreateMethods = {
     branch,
     sharedWorktree,
     auditTargetLaneId,
+    metadataTaskId,
   }, context = {}) {
     const session = this.getSession(sessionLocator);
     if (!session) {
@@ -259,6 +260,10 @@ export const laneCreateMethods = {
       // Set on a dedicated auditor lane (owner='auditor') — points at the
       // executor lane it was spawned to review.
       auditTargetLaneId: auditTargetLaneId ? String(auditTargetLaneId).slice(0, 80) : null,
+      // Set when a backlog task auto-spawns this lane — lets recoverInterruptedTasks
+      // relink an 'assigned' task to its already-live lane after a restart instead
+      // of blindly requeuing it (which would double-spawn).
+      metadataTaskId: metadataTaskId ? String(metadataTaskId).slice(0, 80) : null,
       route: buildLaneRoute(project.slug, session.id, laneId),
       runProfile: {
         autoCompleteMs: Number.parseInt(autoCompleteMs, 10) || this.autoCompleteMs,

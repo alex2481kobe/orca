@@ -110,6 +110,26 @@ test('tasks: an assigned task with a dead lane recovers to pending on reload', a
   });
 });
 
+test('tasks: an assigned task relinks to its live lane on reload (no double-spawn)', async () => {
+  await withRegistry(async (registry) => {
+    const { session } = makeSession(registry);
+    const task = registry.addTask(session.id, { title: 'relink' });
+    // Simulate a crash in the window AFTER createLane (lane tagged + live) but
+    // BEFORE linkTaskToLane: task is 'assigned', a live lane carries metadataTaskId.
+    const lane = await registry.createLane(session.id, {
+      title: 'relink', executorType: 'mock', owner: 'executor', metadataTaskId: task.id,
+    }, { actor: 'scheduler', approved: true });
+    registry.getLane(lane.id).state = 'running';
+    registry.getTask(task.id).state = 'assigned';
+    registry.getTask(task.id).laneId = null;
+
+    assert.equal(registry.recoverInterruptedTasks(), true);
+    // Relinked to the existing lane instead of requeued — no second spawn.
+    assert.equal(registry.getTask(task.id).state, 'in_lane');
+    assert.equal(registry.getTask(task.id).laneId, String(lane.id));
+  });
+});
+
 test('tasks: illegal state transition is refused', async () => {
   await withRegistry(async (registry) => {
     const { session } = makeSession(registry);

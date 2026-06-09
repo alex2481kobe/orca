@@ -4,7 +4,7 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { validateNetworkUrl } from '../url-policy.js';
+import { validateNetworkUrl, publicHostResolvesSafely } from '../url-policy.js';
 import { CredentialStore, defaultProfiles } from '../provider-profiles.js';
 import { noopAsync, API_RESPONSE_BYTES } from './constants.js';
 import { safeFire } from './sanitize.js';
@@ -92,6 +92,13 @@ export class ApiExecutorAdapter {
       this.profile = await this._resolveProfile();
       this.currentLane = lane;
       const endpoint = this._validatedEndpoint();
+      // DNS-rebinding guard: validateNetworkUrl trusts the hostname string, so a
+      // public provider name resolving to an internal IP (169.254.169.254, 10.x,
+      // 127.0.0.1) would pass. Re-check resolved addresses (no-op for loopback/
+      // tailnet hosts). Redirects are already blocked (redirect:'error').
+      if (!(await publicHostResolvesSafely(new URL(endpoint).hostname))) {
+        return { accepted: false, reason: `API provider endpoint host ${new URL(endpoint).hostname} resolves to a non-public (internal) address.` };
+      }
       const credential = await this._credential();
       if (!credential.secret) {
         return {
