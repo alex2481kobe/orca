@@ -306,6 +306,8 @@ export function renderExecutorSidePanel(session) {
         <section class="info-section">
           <h4 class="info-title">Executor lanes <span class="info-count">${safeText(executorLanes.length)}</span></h4>
           <div class="executor-panel-list" id="executor-list-${safeAttr(session.id)}"></div>
+          ${(executorLanes.some((l) => isLiveLaneState(l.state)) || auditorLanes.some((l) => isLiveLaneState(l.state)))
+    ? `<div class="info-tools"><button class="secondary" data-action="stopAllLanes" data-session-id="${safeAttr(session.id)}" type="button">Stop all lanes</button></div>` : ''}
           <details class="info-disclosure">
             <summary><span class="info-disclosure-add">+</span><span>New executor lane</span></summary>
           <form id="create-lane-form" data-session-id="${safeAttr(session.id)}">
@@ -368,9 +370,9 @@ export function renderExecutorSidePanel(session) {
 
         ${hasBacklog ? `<section class="info-section">
           <h4 class="info-title">Backlog <span class="info-count">${safeText(c.accepted)}/${safeText(c.total)}</span></h4>
-          <p class="tiny muted">${backlog.complete
+          <p class="tiny muted">${backlog.allAccepted
     ? 'All tasks accepted ✓'
-    : `${safeText(c.in_lane)} running · ${safeText(c.pending)} pending${c.failed ? ` · ${safeText(c.failed)} failed` : ''}${c.blocked ? ` · ${safeText(c.blocked)} blocked` : ''}`}</p>
+    : `${safeText(c.accepted)} accepted · ${safeText(c.in_lane)} running · ${safeText(c.pending)} pending${c.failed ? ` · ${safeText(c.failed)} failed` : ''}${c.blocked ? ` · ${safeText(c.blocked)} blocked` : ''}`}</p>
           ${backlogNotes.map((note) => `<p class="tiny muted">⚠ ${safeText(note)}</p>`).join('')}
           ${(backlog.tasks || []).length ? `<div class="auditor-lane-list">${backlog.tasks.map((task) => `
             <div class="auditor-lane-row">
@@ -378,10 +380,7 @@ export function renderExecutorSidePanel(session) {
               ${stateBadge(task.state)}
               ${['accepted', 'in_lane'].includes(task.state) ? '' : `<button class="info-close" data-action="deleteTask" data-session-id="${safeAttr(session.id)}" data-task-id="${safeAttr(task.id)}" data-task-title="${safeAttr(task.title)}" type="button" aria-label="Delete task" title="Delete task">${icon('close', { size: 13 })}</button>`}
             </div>`).join('')}</div>` : ''}
-          <div class="info-tools">
-            ${backlog.capacity?.spawnPolicy === 'auto' ? `<button class="secondary" data-action="pauseSessionSpawning" data-session-id="${safeAttr(session.id)}" type="button">Pause spawning</button>` : ''}
-            <button class="secondary" data-action="stopAllLanes" data-session-id="${safeAttr(session.id)}" type="button">Stop all lanes</button>
-          </div>
+          ${backlog.capacity?.spawnPolicy === 'auto' ? `<div class="info-tools"><button class="secondary" data-action="pauseSessionSpawning" data-session-id="${safeAttr(session.id)}" type="button">Pause spawning</button></div>` : ''}
         </section>` : ''}
 
         ${hasAuditable ? `<section class="info-section">

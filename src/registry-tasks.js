@@ -327,6 +327,9 @@ export const taskMethods = {
         status: 'failed',
         evidence: { taskId: task.id, reason: sanitizeStr(reason, 500) || null },
       });
+      // A terminal failure can complete the batch (every task now terminal) — fire
+      // the signal so an unattended run with failures doesn't go silent.
+      if (typeof this.evaluateBacklogCompletion === 'function') this.evaluateBacklogCompletion(task.sessionId);
     }
     return task;
   },
@@ -473,32 +476,44 @@ export const taskMethods = {
     if (!session) return;
     const tasks = (this.tasks || []).filter((task) => task.sessionId === session.id);
     if (!tasks.length) return;
-    const allAccepted = tasks.every((task) => task.state === 'accepted');
-    if (!allAccepted) return;
+    // The batch is DONE when every task is terminal (accepted OR failed) — a single
+    // permanently-failed task must not suppress the terminal signal forever.
+    const terminal = tasks.every((task) => task.state === 'accepted' || task.state === 'failed');
+    if (!terminal) return;
     if (session.backlogCompletedAt) return; // already signalled
+    const accepted = tasks.filter((t) => t.state === 'accepted').length;
+    const failed = tasks.filter((t) => t.state === 'failed').length;
+    const allAccepted = failed === 0;
     session.backlogCompletedAt = nowIso();
+    const summary = allAccepted
+      ? `All ${tasks.length} backlog tasks accepted for session "${session.name}"`
+      : `Backlog finished for "${session.name}": ${accepted} accepted, ${failed} failed`;
     this.recordAudit({
       type: 'session_backlog_completed',
       actor: 'scheduler',
       projectId: session.projectId,
       sessionId: session.id,
-      summary: `All ${tasks.length} backlog tasks accepted for session "${session.name}"`,
-      status: 'passed',
-      evidence: { taskCount: tasks.length },
+      summary,
+      status: allAccepted ? 'passed' : 'failed',
+      evidence: { taskCount: tasks.length, accepted, failed },
     });
     if (typeof this.enqueueNotification === 'function') {
       this.enqueueNotification({
         type: 'backlog',
-        severity: 'success',
-        title: 'Backlog complete',
-        body: `All ${tasks.length} tasks in "${session.name}" were accepted.`,
+        severity: allAccepted ? 'success' : 'warning',
+        title: allAccepted ? 'Backlog complete' : 'Backlog finished with failures',
+        body: allAccepted
+          ? `All ${tasks.length} tasks in "${session.name}" were accepted.`
+          : `"${session.name}": ${accepted} accepted, ${failed} failed.`,
         projectId: session.projectId,
         sessionId: session.id,
       });
     }
     if (typeof this.sendOrchestratorMessage === 'function') {
       this.sendOrchestratorMessage(session.id, {
-        message: `All ${tasks.length} backlog tasks have been accepted. The session backlog is complete — review the results or add more tasks.`,
+        message: allAccepted
+          ? `All ${tasks.length} backlog tasks have been accepted. The session backlog is complete — review the results or add more tasks.`
+          : `The session backlog finished: ${accepted} accepted, ${failed} failed. Review the failed tasks (retry or remove them).`,
       }, { actor: 'scheduler', approved: true }).catch(() => {});
     }
     this.persistState();

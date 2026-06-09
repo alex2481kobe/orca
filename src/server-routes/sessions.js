@@ -17,7 +17,19 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
     buildNextActionEnvelope,
     requestOrigin,
     getToolLeaseToken,
+    hasAdminAuth,
   } = ctx;
+
+  // UNSANDBOXED agent modes (bypass/yolo/force) grant full FS/network access and
+  // must NOT be available to a paired-device operator (workflow-only boundary).
+  // Allow only admin (workstation token/loopback) or a tool-lease (admin-issued).
+  const UNSANDBOXED_MODES = new Set(['bypass', 'bypass-permissions', 'bypasspermissions', 'yolo', 'force', 'danger', 'danger-full-access']);
+  const unsandboxedBlocked = (permissionsProfile) => {
+    if (!UNSANDBOXED_MODES.has(String(permissionsProfile || '').trim().toLowerCase())) return false;
+    const privileged = (typeof hasAdminAuth === 'function' && hasAdminAuth(req))
+      || Boolean(typeof getToolLeaseToken === 'function' && getToolLeaseToken(req));
+    return !privileged;
+  };
     const session = registry.getSession(parts[2]);
     if (!session) {
       return sendJson(res, 404, { error: 'Session not found.' });
@@ -197,6 +209,9 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
       const body = await parseJsonBody(req);
       if (body === null) return sendBodyError(req, res);
       if (rejectSpoofedActor(body, res)) return;
+      if (unsandboxedBlocked(body.permissionsProfile)) {
+        return sendJson(res, 403, { error: 'Unsandboxed agent permissions (bypass/yolo/force) require workstation admin auth, not a paired device. Use a sandboxed mode (plan/auto-edit).' });
+      }
       try {
         const origin = requestOrigin(req);
         const nextAction = buildNextActionEnvelope(registry, {
@@ -270,6 +285,9 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
         const body = await parseJsonBody(req);
         if (body === null) return sendBodyError(req, res);
     if (rejectSpoofedActor(body, res)) return;
+        if (unsandboxedBlocked(body.permissionsProfile)) {
+          return sendJson(res, 403, { error: 'Unsandboxed agent permissions (bypass/yolo/force) require workstation admin auth, not a paired device. Use a sandboxed mode (plan/auto-edit).' });
+        }
         try {
           const lane = await registry.createLane(session.id, body, {
             actor: body.actor || 'dashboard',

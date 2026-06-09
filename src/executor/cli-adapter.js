@@ -347,31 +347,37 @@ export class CliExecutorAdapter {
         // never kills an actively-working agent that streams without calling the
         // lane heartbeat tool.
         runtime.heartbeatAt = Date.now();
-        if (runtime.outputCapped) return;
         const text = String(chunk);
-        const nextBytes = runtime.outputBytes + Buffer.byteLength(text, 'utf8');
-        if (nextBytes > MAX_EXECUTOR_OUTPUT_BYTES) {
-          const remainingBytes = Math.max(0, MAX_EXECUTOR_OUTPUT_BYTES - runtime.outputBytes);
-          const cappedText = Buffer.from(text, 'utf8').subarray(0, remainingBytes).toString('utf8');
-          if (cappedText) {
-            fs.appendFile(streamPath, cappedText).catch(() => {});
-            fs.appendFile(runtime.terminalLogPath, cappedText).catch(() => {});
+        // Cap only the PERSISTED log volume (disk + onLog), NOT event parsing — a
+        // verbose agent (claude --include-partial-messages) can exceed the cap
+        // before its final `result` event; destroying the stream lost the result.
+        // Keep feeding the normalizer (bounded per-line + capped agentEvents) so
+        // the final assistant message / result is always captured.
+        if (!runtime.outputCapped) {
+          const nextBytes = runtime.outputBytes + Buffer.byteLength(text, 'utf8');
+          if (nextBytes > MAX_EXECUTOR_OUTPUT_BYTES) {
+            const remainingBytes = Math.max(0, MAX_EXECUTOR_OUTPUT_BYTES - runtime.outputBytes);
+            const cappedText = Buffer.from(text, 'utf8').subarray(0, remainingBytes).toString('utf8');
+            if (cappedText) {
+              fs.appendFile(streamPath, cappedText).catch(() => {});
+              fs.appendFile(runtime.terminalLogPath, cappedText).catch(() => {});
+            }
+            runtime.outputBytes = MAX_EXECUTOR_OUTPUT_BYTES;
+            runtime.outputCapped = true;
+            fs.appendFile(runtime.terminalLogPath, `\n[orca] output LOG truncated after ${MAX_EXECUTOR_OUTPUT_BYTES} bytes (still parsing for the final result).\n`).catch(() => {});
+            safeFire(this.onLog, lane, `[${this.label}] output log truncated after ${MAX_EXECUTOR_OUTPUT_BYTES} bytes.`);
+          } else {
+            runtime.outputBytes = nextBytes;
+            fs.appendFile(streamPath, text).catch(() => {});
+            fs.appendFile(runtime.terminalLogPath, text).catch(() => {});
+            safeFire(this.onLog, lane, `${prefix} ${text.trim()}`);
           }
-          runtime.outputBytes = MAX_EXECUTOR_OUTPUT_BYTES;
-          runtime.outputCapped = true;
-          child.stdout?.destroy();
-          child.stderr?.destroy();
-          fs.appendFile(runtime.terminalLogPath, `\n[orca] output truncated after ${MAX_EXECUTOR_OUTPUT_BYTES} bytes.\n`).catch(() => {});
-          safeFire(this.onLog, lane, `[${this.label}] output truncated after ${MAX_EXECUTOR_OUTPUT_BYTES} bytes.`);
-          return;
         }
-        runtime.outputBytes = nextBytes;
-        fs.appendFile(streamPath, text).catch(() => {});
-        fs.appendFile(runtime.terminalLogPath, text).catch(() => {});
+        // ALWAYS parse events (bounded) so resultText/agent.done are captured even
+        // after the log cap. Never destroy the stream — child exit is authoritative.
         for (const agentEvent of runtime.eventNormalizer.consume(streamName, text)) {
           safeFire(this.onAgentEvent, lane, agentEvent);
         }
-        safeFire(this.onLog, lane, `${prefix} ${text.trim()}`);
       };
       child.stdout?.on('data', (chunk) => forward(`[${this.label}]`, chunk, runtime.stdoutLogPath, 'stdout'));
       child.stderr?.on('data', (chunk) => forward(`[${this.label} err]`, chunk, runtime.stderrLogPath, 'stderr'));
@@ -512,7 +518,15 @@ export class CliExecutorAdapter {
       const staleMs = now - runtime.heartbeatAt;
       if (staleMs > this.heartbeatTimeoutMs) {
         runtime.status = 'timed_out';
-        runtime.process.kill('SIGKILL');
+        // Kill the whole detached PROCESS GROUP (not just the direct child) — the
+        // agent's fan-outs (node/git/browsers) live in that group and would
+        // otherwise be orphaned. Mirror stop()'s negative-PID kill.
+        const pid = runtime.process.pid;
+        if (pid && process.platform !== 'win32') {
+          try { process.kill(-pid, 'SIGKILL'); } catch { try { runtime.process.kill('SIGKILL'); } catch { /* gone */ } }
+        } else {
+          try { runtime.process.kill('SIGKILL'); } catch { /* gone */ }
+        }
         this.runtimes.delete(laneId);
         await safeFire(this.onFail, runtime.lane, `${this.label} adapter heartbeat timeout`, 'heartbeat');
       }

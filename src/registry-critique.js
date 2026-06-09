@@ -41,8 +41,8 @@ export const critiqueMethods = {
       critiqueMode: normalizeCritiqueMode(lane.critiqueMode),
       critiqueRevision: lane.critiqueRevision || 1,
       critiqueNonce: nonce,
-      evidenceRequired: lane.critiqueMode === 'visual-required',
-      evidenceFresh: lane.critiqueMode === 'visual-required' ? this.hasFreshVisualEvidence(lane) : Boolean(lane.lastEvidence),
+      evidenceRequired: normalizeCritiqueMode(lane.critiqueMode) === 'visual-required',
+      evidenceFresh: normalizeCritiqueMode(lane.critiqueMode) === 'visual-required' ? this.hasFreshVisualEvidence(lane) : Boolean(lane.lastEvidence),
       latestEvidence: clonePayload(lane.lastEvidence || null),
       state: lane.state,
       taskPrompt: lane.taskPrompt || '',
@@ -77,7 +77,7 @@ export const critiqueMethods = {
     if (!lane.critiqueNonce || critiqueNonce !== lane.critiqueNonce) {
       throw { status: 409, message: 'Critique findings are stale or missing the current critique nonce.' };
     }
-    if (lane.critiqueMode === 'visual-required' && !this.hasFreshVisualEvidence(lane)) {
+    if (normalizeCritiqueMode(lane.critiqueMode) === 'visual-required' && !this.hasFreshVisualEvidence(lane)) {
       throw { status: 409, message: 'Visual-required critique needs fresh screenshot evidence before findings can satisfy the gate.' };
     }
     const finding = {

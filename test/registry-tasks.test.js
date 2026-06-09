@@ -277,6 +277,25 @@ test('tasks: backlog.status surfaces a stall reason when pending tasks cannot sp
   });
 });
 
+test('tasks: backlog completion signal fires on all-terminal even with a failure', async () => {
+  await withRegistry(async (registry) => {
+    const { session } = makeSession(registry);
+    const tOk = registry.addTask(session.id, { title: 'ok' });
+    const tBad = registry.addTask(session.id, { title: 'bad', maxAttempts: 1 });
+    const laneOk = makeLane(registry, session.id, { owner: 'executor' });
+    const laneBad = makeLane(registry, session.id, { owner: 'executor' });
+    registry.linkTaskToLane(tOk.id, laneOk.id);
+    registry.linkTaskToLane(tBad.id, laneBad.id);
+    registry.acceptLaneAudit(laneOk.id, { actor: 'auditor' });        // -> accepted
+    assert.equal(registry.getSession(session.id).backlogCompletedAt, undefined); // not all terminal yet
+    registry.markLaneFailed(registry.getLane(laneBad.id), 'boom', 'scheduler'); // -> task failed (terminal)
+    // All terminal now (1 accepted + 1 failed) -> completion fires, not silent.
+    assert.ok(registry.getSession(session.id).backlogCompletedAt);
+    const ev = registry.auditEvents.find((e) => e.type === 'session_backlog_completed' && e.sessionId === session.id);
+    assert.ok(ev && ev.status === 'failed', 'completion event records the failure');
+  });
+});
+
 test('tasks: batch-completion signal latches once when all tasks accepted', async () => {
   await withRegistry(async (registry) => {
     const { session } = makeSession(registry);

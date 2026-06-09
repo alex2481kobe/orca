@@ -163,7 +163,11 @@ export const schedulerMethods = {
       const queued = sessionLanes
         .filter((lane) => lane.state === QUEUED_STATE)
         .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-      const runningCount = this.getRunningCountForSession(session.id);
+      // Measure live capacity by LANE STATE (running/starting), authoritative and
+      // consistent with dispatchPendingTasks — getRunningCountForSession (executor-
+      // reported active runtimes) could undercount a RUNNING lane and let the
+      // start loop exceed approvedCapacity.
+      const runningCount = sessionLanes.filter((lane) => lane.state === RUNNING_STATE || lane.state === STARTING_STATE).length;
       const approvedCapacity = normalizeApprovedCapacity(session.approvedCapacity, normalizeApprovedCapacity(session.laneConcurrencyLimit));
       const capacityLimit = normalizeSpawnPolicy(session.spawnPolicy) === 'never' ? 0 : approvedCapacity;
       let availableSlots = Math.max(0, capacityLimit - runningCount);

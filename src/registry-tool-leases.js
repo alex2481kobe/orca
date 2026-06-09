@@ -76,7 +76,13 @@ export const toolLeaseMethods = {
       revokedAt: null,
     };
     this.toolLeases.unshift(lease);
-    this.toolLeases = this.toolLeases.slice(0, 500);
+    // Drop revoked/expired leases FIRST, so the 500 cap never evicts a still-valid
+    // in-flight lease purely by volume (which would 401 a live agent).
+    if (this.toolLeases.length > 500) {
+      const now = Date.now();
+      const isActive = (l) => !l.revokedAt && Date.parse(l.expiresAt) > now;
+      this.toolLeases = this.toolLeases.filter(isActive).slice(0, 500);
+    }
     this.recordAudit({
       type: 'agent_tool_lease_created',
       actor: lease.actor,

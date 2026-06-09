@@ -7,6 +7,9 @@ import { nowIso, clonePayload, safeArray } from './registry-utils.js';
 import { normalizeSpawnPolicy } from './registry-lane-config.js';
 
 const MAX_AUDIT_DISPATCHES = 2;
+// A lane has at most ONE pending audit follow-up regardless of how it was queued
+// (per-lane queue vs session batch) — dedupe across both event types.
+const AUDIT_QUEUE_TYPES = ['lane_audit_queued', 'session_audit_batch_queued'];
 
 const {
   READY_FOR_AUDIT: READY_FOR_AUDIT_STATE,
@@ -171,7 +174,7 @@ export const auditMethods = {
     }
 
     const existing = this.auditEvents.find((event) =>
-      event.type === 'lane_audit_queued' &&
+      AUDIT_QUEUE_TYPES.includes(event.type) &&
       event.laneId === lane.id &&
       event.status === 'pending' &&
       event.followUpQueued
@@ -239,7 +242,7 @@ export const auditMethods = {
     let enqueuedNew = 0;
     for (const lane of doneLanes) {
       const existing = this.auditEvents.find((event) =>
-        event.type === 'session_audit_batch_queued' &&
+        AUDIT_QUEUE_TYPES.includes(event.type) &&
         event.laneId === lane.id &&
         event.status === 'pending' &&
         event.followUpQueued
@@ -282,6 +285,14 @@ export const auditMethods = {
   } = {}) {
     const lane = this.getLane(laneLocator);
     if (!lane) throw { status: 404, message: 'Lane not found.' };
+    // Don't accept a lane with a live/launching process (the dashboard path isn't
+    // behind the workflow state gate). starting/running have an active child;
+    // escalated/fix_requested/done/ready_for_audit/auditing/needs_critique remain
+    // acceptable (the operator override path). 'queued' (no process yet) is gated
+    // on the MCP path and harmless here.
+    if (['starting', 'running'].includes(lane.state)) {
+      throw { status: 409, message: 'Cannot accept a lane that is still running. Stop it first.' };
+    }
     if (this.critiqueRequiredForLane(lane) && !this.critiqueSatisfiedForLane(lane)) {
       throw { status: 409, message: 'Cannot accept lane before required critique is satisfied.' };
     }

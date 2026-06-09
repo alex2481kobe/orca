@@ -50,6 +50,20 @@ test('stopAllExecutors kills every live executor child (shutdown sweep)', async 
   });
 });
 
+test('acceptLaneAudit refuses a still-running lane (dashboard path)', async () => {
+  await withRegistry(async (registry) => {
+    const { session } = setup(registry);
+    const lane = makeLane(registry, session.id);
+    await registry.getExecutorForType('mock').start(registry.getLane(lane.id));
+    registry.getLane(lane.id).state = 'running';
+    assert.throws(() => registry.acceptLaneAudit(lane.id, { actor: 'dashboard' }), (e) => e.status === 409);
+    // A terminal lane accepts fine.
+    registry.getLane(lane.id).state = 'done';
+    const r = registry.acceptLaneAudit(lane.id, { actor: 'dashboard' });
+    assert.equal(r.lane.state, 'accepted');
+  });
+});
+
 test('pruneInMemoryRecords caps terminal lanes per session (bounds growth)', async () => {
   const prev = process.env.ORCA_MAX_TERMINAL_LANES_PER_SESSION;
   process.env.ORCA_MAX_TERMINAL_LANES_PER_SESSION = '2';

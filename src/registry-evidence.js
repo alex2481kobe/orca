@@ -165,6 +165,19 @@ export const evidenceMethods = {
     if (!stats.isFile()) {
       throw { status: 404, message: 'Artifact file not found.' };
     }
+    // lstat above only inspects the LEAF — an INTERMEDIATE symlink component
+    // (plantable by the lane's own agent) could still redirect outside the lane
+    // dir. Resolve every component and re-verify containment.
+    try {
+      const realPath = await fs.realpath(filePath);
+      const realLaneDir = await fs.realpath(laneDir);
+      if (!isPathWithinBoundary(realPath, realLaneDir)) {
+        throw { status: 400, message: 'Artifact path escapes lane boundary.' };
+      }
+    } catch (error) {
+      if (error && error.status) throw error;
+      throw { status: 400, message: 'Artifact path could not be resolved.' };
+    }
 
     return {
       lane,

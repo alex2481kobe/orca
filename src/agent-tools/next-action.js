@@ -84,6 +84,7 @@ function chooseNextTool({ registry, role, project, session, lane, auditQueued, f
   }
   if (lane.state === 'failed') return 'lane.retry';
   if (lane.state === 'stopped') return 'lane.retry';
+  if (lane.state === 'blocked') return 'lane.retry'; // blocked is retryable — don't dead-end
   return 'session.next_action';
 }
 
@@ -139,7 +140,7 @@ export function buildNextActionEnvelope(registry, {
   const auditQueued = lane ? Boolean(latestPendingAudit(registry, lane.id)) : false;
   const flowConfig = (lane && typeof registry?.getLaneFlowConfig === 'function')
     ? registry.getLaneFlowConfig(lane)
-    : { template: 'orchestrator-executor', auditTier: 'orchestrator', fixRouting: 'same-agent', maxAuditLoops: 2, requireAuditPass: false };
+    : { template: 'orchestrator-executor', auditTier: 'orchestrator', fixRouting: 'same-agent', maxAuditLoops: 2, requireAuditPass: true };
   const nextRequiredTool = chooseNextTool({
     registry,
     role: normalizedRole,

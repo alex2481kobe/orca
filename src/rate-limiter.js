@@ -67,7 +67,13 @@ function requestActorKey(req) {
     const sessionValue = match ? match[1] : '';
     if (sessionValue) return `cookie:${hashToken(sessionValue)}`;
   }
-  return `ip:${hashToken(forwardedFor || remote)}`;
+  // Only trust X-Forwarded-For when the connection itself is from loopback (a
+  // local reverse proxy like Tailscale Serve set it). A DIRECT client can spoof
+  // XFF to rotate its key and evade the brute-force budget, so for non-loopback
+  // remotes key on the real socket address.
+  const isLoopbackRemote = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(remote);
+  const clientIp = (isLoopbackRemote && forwardedFor) ? forwardedFor : remote;
+  return `ip:${hashToken(clientIp || remote)}`;
 }
 
 function classifyRoute(method, parts) {
