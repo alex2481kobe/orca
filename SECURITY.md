@@ -63,9 +63,10 @@ Older prerelease builds may be asked to upgrade before a fix is validated.
   owner review.
 - The default `GITHUB_TOKEN` permission should remain read-only, and workflows
   should not receive secrets from fork pull requests.
-- The `main` branch should require a pull request, conversation resolution,
-  stale-review dismissal, last-push approval, and CODEOWNERS review. If CI is
-  later re-enabled automatically, passing CI should also be required.
+- The `main` branch is protected: merges go through a pull request with
+  CODEOWNERS review and resolved conversations, and force-pushes and branch
+  deletion are blocked. If automatic CI is later enabled, passing CI is also
+  required.
 - Changes to workflows, dependencies, Tauri packaging, scripts, service-worker
   behavior, security policy, license, or contribution policy are owner-review
   paths.

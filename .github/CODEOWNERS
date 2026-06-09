@@ -1,11 +1,7 @@
-# Security-sensitive automation, dependency, desktop, and governance files.
-# "Require review from Code Owners" is enabled in branch protection, so changes to
-# these paths require explicit owner approval before merge.
-#
-# The application source is the security boundary (auth, tool leases, executor
-# spawning, credential handling, SSRF/URL policy, admin routes, the render layer),
-# so own it wholesale — every code change is owner-reviewed for outside PRs. The
-# owner bypasses via admin, so there's no friction for direct pushes.
+# Code owners for security-sensitive paths: app source (auth, tool leases,
+# executor spawning, credential handling, URL policy, admin routes, render layer),
+# build/dependency/packaging config, workflows, and governance docs. Changes here
+# require code-owner review.
 /src/ @alex2481kobe
 /public/ @alex2481kobe
 /.github/ @alex2481kobe

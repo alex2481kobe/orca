@@ -26,8 +26,11 @@ tmp-visual/
 
 # Local-only docs (never published). The `.local.md` suffix marks working notes
 # that must stay off the public repo; also the private roadmap/task docs that
-# CLAUDE.md references but are intentionally untracked.
+# CLAUDE.md references but are intentionally untracked, plus the maintainer
+# release/GitHub-settings runbook (owner ops — kept local per the contribution
+# policy's "keep owner setting checklists local" rule).
 *.local.md
 docs/roadmap.md
 docs/current-task.md
 docs/full-buildout-goal.md
+docs/open-source-release-checklist.md
