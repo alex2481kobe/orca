@@ -14,10 +14,15 @@ function openDialog(cfg) {
     const isPrompt = cfg.kind === 'prompt';
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
+    // Unique ids so the dialog can point aria-labelledby/aria-describedby at its
+    // own title/message (screen-reader announces what the dialog is about).
+    const uid = `modal-${(overlay.dataset.uid = String(Math.floor(performance.now())) + Math.random().toString(36).slice(2, 7))}`;
+    const titleId = `${uid}-title`;
+    const msgId = `${uid}-msg`;
     overlay.innerHTML = `
-      <div class="modal" role="dialog" aria-modal="true">
-        ${cfg.title ? `<h3 class="modal-title">${escapeHtml(cfg.title)}</h3>` : ''}
-        <div class="modal-message">${escapeHtml(cfg.message)}</div>
+      <div class="modal" role="dialog" aria-modal="true"${cfg.title ? ` aria-labelledby="${titleId}"` : ''} aria-describedby="${msgId}">
+        ${cfg.title ? `<h3 class="modal-title" id="${titleId}">${escapeHtml(cfg.title)}</h3>` : ''}
+        <div class="modal-message" id="${msgId}">${escapeHtml(cfg.message)}</div>
         ${isPrompt ? '<input class="modal-input" type="text" />' : ''}
         <div class="modal-actions">
           <button class="modal-cancel secondary" type="button">${escapeHtml(cfg.cancelLabel || 'Cancel')}</button>
@@ -43,6 +48,21 @@ function openDialog(cfg) {
     const onKey = (event) => {
       if (event.key === 'Escape') { event.preventDefault(); onCancel(); }
       else if (event.key === 'Enter' && (!isPrompt || document.activeElement === input)) { event.preventDefault(); onConfirm(); }
+      else if (event.key === 'Tab') {
+        // Trap focus inside the modal so keyboard users can't tab to controls
+        // behind the overlay while it's open.
+        const focusable = [...overlay.querySelectorAll('button, input, [tabindex]:not([tabindex="-1"])')]
+          .filter((el) => !el.disabled && el.offsetParent !== null);
+        if (!focusable.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        const active = document.activeElement;
+        if (event.shiftKey && (active === first || !overlay.contains(active))) {
+          event.preventDefault(); last.focus();
+        } else if (!event.shiftKey && (active === last || !overlay.contains(active))) {
+          event.preventDefault(); first.focus();
+        }
+      }
     };
     document.addEventListener('keydown', onKey, true);
 

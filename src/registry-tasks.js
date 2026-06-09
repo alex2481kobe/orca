@@ -195,7 +195,21 @@ export const taskMethods = {
     const now = nowIso();
     task.state = next;
     task.updatedAt = now;
-    if (next === 'blocked') task.blockedReason = sanitizeStr(reason, 2000) || 'Blocked';
+    if (next === 'blocked') {
+      task.blockedReason = sanitizeStr(reason, 2000) || 'Blocked';
+      // Blocking an in-flight task: stop the lane it was running on and drop the
+      // link. Otherwise the lane keeps running (wasting a capacity slot) while its
+      // eventual result is silently discarded against the now-blocked task, and a
+      // stale laneId would mislead _taskForLane.
+      const linkedLaneId = task.laneId;
+      task.laneId = null;
+      if (linkedLaneId && typeof this.stopLane === 'function') {
+        const lane = this.getLane(linkedLaneId);
+        if (lane && ['queued', 'starting', 'running'].includes(String(lane.state || '').toLowerCase())) {
+          Promise.resolve(this.stopLane(linkedLaneId, { actor, approved: true, reason: 'task blocked' })).catch(() => {});
+        }
+      }
+    }
     if (next === 'pending') {
       task.blockedReason = null;
       task.laneId = null;

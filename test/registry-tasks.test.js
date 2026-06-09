@@ -147,6 +147,23 @@ test('tasks: recovery latches backlog completion when the last task lands termin
   });
 });
 
+test('tasks: blocking an in_lane task stops its lane and clears the link', async () => {
+  await withRegistry(async (registry) => {
+    const { session } = makeSession(registry);
+    const lane = await registry.createLane(session.id, { title: 'L', executorType: 'mock' }, { actor: 'test', approved: true });
+    await registry.getExecutorForType('mock').start(registry.getLane(lane.id));
+    registry.getLane(lane.id).state = 'running';
+    const task = registry.addTask(session.id, { title: 'b' });
+    registry.linkTaskToLane(task.id, lane.id); // -> in_lane
+    registry.updateTaskState(task.id, 'blocked', { reason: 'hold' });
+    assert.equal(registry.getTask(task.id).state, 'blocked');
+    assert.equal(registry.getTask(task.id).laneId, null);
+    // Lane was asked to stop (best-effort async) — runtime no longer counts as running.
+    await new Promise((r) => setTimeout(r, 10));
+    assert.equal(registry.getRunningCountForSession(session.id), 0);
+  });
+});
+
 test('tasks: illegal state transition is refused', async () => {
   await withRegistry(async (registry) => {
     const { session } = makeSession(registry);
