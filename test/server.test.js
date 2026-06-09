@@ -511,14 +511,24 @@ test('paired devices get operator access but are denied host administration', as
       ['POST', '/api/executors/codex/cli/reinstall', { actor: 'dashboard', approved: true, execute: false }],
       ['POST', '/api/providers/openai-compatible/secret', { actor: 'dashboard', approved: true, secret: 'sk-test' }],
       ['PATCH', '/api/private-access/settings', { actor: 'dashboard', preferredMode: 'local' }],
+      ['POST', '/api/private-access/serve', { actor: 'dashboard', action: 'enable' }],
       ['POST', '/api/auth/pairing-codes', { actor: 'dashboard', label: 'rogue' }],
       ['GET', '/api/providers/export', undefined],
       ['GET', '/api/app/export', undefined],
+      // An orchestrator lease is an off-origin host credential — a paired operator
+      // must not be able to mint one (same gate as /api/mcp/orchestrator-bootstrap).
+      ['POST', '/api/agent-tools/leases', { actor: 'dashboard', role: 'orchestrator' }],
     ];
     for (const [method, route, body] of adminAttempts) {
       const res = await server.requestJson(route, { method, headers: { cookie }, body });
       assert.equal(res.status, 403, `${method} ${route} must be admin-only for paired devices (got ${res.status})`);
     }
+
+    // But a NON-orchestrator (executor) lease stays an operator-level action.
+    const execLease = await server.requestJson('/api/agent-tools/leases', {
+      method: 'POST', headers: { cookie }, body: { actor: 'dashboard', role: 'executor' },
+    });
+    assert.notEqual(execLease.status, 403, 'operator may still mint a non-orchestrator lease');
 
     // The same routes are reachable for the workstation (API token = admin):
     // they pass the auth gate and fail later on policy/validation, never 401/403.
@@ -1487,6 +1497,43 @@ test('server MCP tooling routes require token and support CRUD workflow', async 
 
     const afterDelete = await server.requestJson(`/api/mcp/tools/${created.body.id}`, { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(afterDelete.status, 404);
+  } finally {
+    await server.stop();
+  }
+});
+
+test('server MCP tool env (secrets) is shown to admin but redacted for paired operators', async () => {
+  const token = 'route-token-mcp-env';
+  const server = await startServer({ token });
+  try {
+    const created = await server.requestJson('/api/mcp/tools', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        name: 'secretful', command: 'node', args: ['x.js'], scope: ['all'], approved: true,
+        env: { GITHUB_TOKEN: 'ghp_supersecret_value' },
+      },
+    });
+    assert.equal(created.status, 201);
+
+    // Admin (token) sees the real secret value.
+    const adminList = await server.requestJson('/api/mcp/tools', { method: 'GET', headers: { 'x-orca-token': token } });
+    assert.equal(adminList.body[0].env.GITHUB_TOKEN, 'ghp_supersecret_value');
+
+    // Pair an operator device.
+    const pairing = await server.requestJson('/api/auth/pairing-codes', {
+      method: 'POST', headers: { 'x-orca-token': token }, body: { actor: 'dashboard', label: 'phone' },
+    });
+    const paired = await server.requestJson('/api/auth/pair', { method: 'POST', body: { actor: 'dashboard', code: pairing.body.pairing.code } });
+    const cookie = paired.response.headers['set-cookie'];
+
+    // Operator sees the env KEY but never the secret VALUE (list + single-get).
+    const opList = await server.requestJson('/api/mcp/tools', { method: 'GET', headers: { cookie } });
+    assert.equal(opList.status, 200);
+    assert.ok('GITHUB_TOKEN' in opList.body[0].env, 'operator still sees which env keys exist');
+    assert.notEqual(opList.body[0].env.GITHUB_TOKEN, 'ghp_supersecret_value');
+    const opGet = await server.requestJson(`/api/mcp/tools/${created.body.id}`, { method: 'GET', headers: { cookie } });
+    assert.notEqual(opGet.body.env.GITHUB_TOKEN, 'ghp_supersecret_value');
   } finally {
     await server.stop();
   }

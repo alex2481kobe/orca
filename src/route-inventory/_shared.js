@@ -49,6 +49,8 @@ const ADMIN_ROUTE_KEYS = new Set([
   'PATCH /api/private-access/targets/{targetId}',
   'DELETE /api/private-access/targets/{targetId}',
   'POST /api/private-access/targets/{targetId}/check',
+  // Configures Tailscale Serve (network exposure) — requireAdminAuth in code.
+  'POST /api/private-access/serve',
   'POST /api/auth/pairing-codes',
   'POST /api/capture/install',
   // Mints an off-origin orchestrator lease (a host-level credential) — code path

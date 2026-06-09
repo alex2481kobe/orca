@@ -65,7 +65,7 @@ export function isVerificationProject(project) {
 
 export function activeHomePanel() {
   const panel = String(window.location.hash || '').replace(/^#/, '').toLowerCase();
-  const allowed = new Set(['projects', 'setup', 'system', 'mcp', 'audit', 'cleanup', 'token', 'private-access', 'providers', 'effective-settings', 'notifications', 'backup', 'pair']);
+  const allowed = new Set(['projects', 'setup', 'system', 'mcp', 'audit', 'cleanup', 'token', 'private-access', 'providers', 'effective-settings', 'notifications', 'backup', 'pair', 'desktop-control']);
   return allowed.has(panel) ? panel : 'overview';
 }
 

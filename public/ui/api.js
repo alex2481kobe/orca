@@ -90,12 +90,21 @@ export async function api(path, options = {}) {
   if (shell.apiToken) {
     headers['x-orca-token'] = shell.apiToken;
   }
-  const resp = await fetch(path, {
-    headers,
-    credentials: 'same-origin',
-    ...options,
-    body: options.body ? JSON.stringify(options.body) : options.body,
-  });
+  let resp;
+  try {
+    resp = await fetch(path, {
+      headers,
+      credentials: 'same-origin',
+      ...options,
+      body: options.body ? JSON.stringify(options.body) : options.body,
+    });
+  } catch {
+    // Network failure (offline, DNS, connection reset). Every caller checks
+    // `resp.ok` and has a "Could not…" branch, but they assumed api() never throws —
+    // a raw rejection left loading spinners (folder picker, project create) stuck
+    // forever. Normalize to a non-ok response so those error branches fire.
+    return { ok: false, status: 0, data: { error: 'Network error — could not reach the server.' } };
+  }
   const bodyText = await resp.text();
   let bodyJson = null;
   if (bodyText) {

@@ -209,6 +209,7 @@ export function renderPairPanel(ctx) {
         </div>
         ${pairingSteps}
         ${pairedDevicesDisclosure({ uikey: 'pair-paired-devices', summary: pairedDeviceSummary('device'), rows: authSessionRows, emptyText: 'No paired devices yet.' })}
+        <p class="tiny muted">Prefer to drive Orca from a desktop AI app? <a href="/#desktop-control" data-route="desktop-control">Set up Codex app / Claude Desktop control →</a></p>
       </article>`;
 }
 

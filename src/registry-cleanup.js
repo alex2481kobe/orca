@@ -276,7 +276,21 @@ export const cleanupMethods = {
       }
       return drop;
     };
-    const dropLaneIds = dropOldest((this.lanes || []).filter((l) => TERMINAL_LANES.has(l.state)), maxLanes, ['completedAt', 'updatedAt']);
+    // A 'done' executor lane awaiting audit is terminal-by-state but its backlog
+    // task is still 'in_lane' (markLaneCompleted doesn't sync the task). Dropping
+    // that lane would strand the task forever (no lane to accept/fail it, not
+    // pending so never re-spawned, backlog never completes). Never prune a lane
+    // still referenced by a non-terminal task.
+    const linkedLaneIds = new Set(
+      (this.tasks || [])
+        .filter((t) => (t.state === 'in_lane' || t.state === 'assigned') && t.laneId)
+        .map((t) => String(t.laneId)),
+    );
+    const dropLaneIds = dropOldest(
+      (this.lanes || []).filter((l) => TERMINAL_LANES.has(l.state) && !linkedLaneIds.has(String(l.id))),
+      maxLanes,
+      ['completedAt', 'updatedAt'],
+    );
     if (dropLaneIds.size) {
       this.lanes = this.lanes.filter((l) => !dropLaneIds.has(l.id));
       for (const id of dropLaneIds) { this.laneRuntimeEnv?.delete(String(id)); if (typeof this.clearLaneExecutor === 'function') this.clearLaneExecutor(id); }

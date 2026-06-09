@@ -14,7 +14,21 @@ export async function handleMcpRoutes(ctx, req, res, method, parts) {
     rejectSpoofedActor,
     getSearchParams,
     requireAdminAuth,
+    hasAdminAuth,
   } = ctx;
+  // MCP tool `env` holds raw secrets (e.g. GITHUB_TOKEN) the host injects into the
+  // tool's command. Only admins (workstation/token) may read the values; for an
+  // operator/paired device, expose the env KEYS but never the values — mirrors how
+  // provider profiles redact secret material for non-admins.
+  const redactToolEnv = (tool) => {
+    if (!tool || !tool.env || typeof tool.env !== 'object') return tool;
+    const keysOnly = {};
+    for (const key of Object.keys(tool.env)) keysOnly[key] = '••••••';
+    return { ...tool, env: keysOnly };
+  };
+  const redactToolsForCaller = (tools) => (hasAdminAuth(req)
+    ? tools
+    : tools.map(redactToolEnv));
   if (parts[1] === 'mcp' && parts[2] === 'tools' && parts.length === 3 && method === 'GET') {
     const searchParams = getSearchParams(req.url || '/');
     if (!searchParams) {
@@ -24,7 +38,7 @@ export async function handleMcpRoutes(ctx, req, res, method, parts) {
     }
     const scopeRaw = searchParams.get('scope');
     const scope = String(scopeRaw || '').trim().toLowerCase();
-    const tools = registry.getMcpTools(null);
+    const tools = redactToolsForCaller(registry.getMcpTools(null));
     if (!scope) {
       return sendJson(res, 200, tools);
     }
@@ -82,7 +96,7 @@ export async function handleMcpRoutes(ctx, req, res, method, parts) {
   if (parts[1] === 'mcp' && parts[2] === 'tools' && parts.length === 4 && method === 'GET') {
     const tool = registry.getMcpTool(parts[3]);
     if (!tool) return sendJson(res, 404, { error: 'MCP tool not found.' });
-    return sendJson(res, 200, tool);
+    return sendJson(res, 200, hasAdminAuth(req) ? tool : redactToolEnv(tool));
   }
 
   if (parts[1] === 'mcp' && parts[2] === 'tools' && parts.length === 4 && method === 'PATCH') {

@@ -8,6 +8,7 @@ const MAX_CHARS = 200000; // cap retained output so a long-running lane can't gr
 let _es = null;
 let _laneId = null;
 const _buffers = new Map(); // laneId -> accumulated text
+const _notices = new Map(); // laneId -> "stream unavailable" explanation
 
 function mountFor(laneId) {
   return typeof document !== 'undefined' ? document.getElementById(`lane-stream-${laneId}`) : null;
@@ -16,9 +17,12 @@ function mountFor(laneId) {
 // Replace the "Connecting to live output…" placeholder with an explanation when
 // the stream can't run — otherwise the terminal sits on "Connecting…" forever
 // (EventSource missing, or SSE auth unavailable on token-in-page remote clients).
-// Only writes when no real output has arrived yet, so it never clobbers a live log.
+// Persisted in _notices so it survives the poll re-render (which rebuilds the <pre>
+// with the placeholder); fillLaneStream repaints it. Never shown once real output
+// exists, and cleared as soon as a snapshot arrives.
 function writeStreamNotice(laneId, message) {
   if (_buffers.get(laneId)) return;
+  _notices.set(laneId, message);
   const el = mountFor(laneId);
   if (el) el.textContent = message;
 }
@@ -31,15 +35,19 @@ function autoscroll(el) {
 }
 
 // Re-paint the mount from the buffer (after a re-render rebuilt the <pre> empty).
+// Falls back to a persisted "stream unavailable" notice so it survives re-render;
+// if neither exists, leaves the render's "Connecting…" placeholder untouched.
 export function fillLaneStream(laneId) {
   if (!laneId) return;
   const el = mountFor(laneId);
   if (!el) return;
-  const text = _buffers.get(laneId) || '';
-  if (el.textContent !== text) {
-    el.textContent = text;
-    el.scrollTop = el.scrollHeight;
+  const buffered = _buffers.get(laneId);
+  if (buffered) {
+    if (el.textContent !== buffered) { el.textContent = buffered; el.scrollTop = el.scrollHeight; }
+    return;
   }
+  const notice = _notices.get(laneId);
+  if (notice && el.textContent !== notice) el.textContent = notice;
 }
 
 export function unsubscribeLaneStream() {
@@ -59,6 +67,7 @@ export function subscribeLaneStream(laneId) {
   let es;
   try {
     es = new EventSource(`/api/lanes/${encodeURIComponent(laneId)}/stream`);
+    _notices.delete(laneId); // fresh attempt — clear any stale "unavailable" notice
   } catch {
     writeStreamNotice(laneId, 'Live output could not start on this device. Open the lane on the workstation to watch it stream.');
     return;
@@ -69,6 +78,7 @@ export function subscribeLaneStream(laneId) {
     try {
       const data = JSON.parse(event.data);
       const prefix = data.truncated ? '…(earlier output trimmed)\n' : '';
+      _notices.delete(laneId); // real output arrived — drop any "unavailable" notice
       _buffers.set(laneId, (prefix + (data.text || '')).slice(-MAX_CHARS));
       fillLaneStream(laneId);
     } catch { /* ignore malformed frame */ }

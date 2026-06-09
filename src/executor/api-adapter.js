@@ -319,4 +319,13 @@ export class ApiExecutorAdapter {
     }
     return count;
   }
+
+  // Mirror the CLI/mock adapters so stopAllExecutors (shutdown sweep) aborts any
+  // in-flight API request and fires its terminal callback, instead of skipping
+  // this adapter (its runtimes were silently abandoned on shutdown before).
+  getActiveLaneIds() {
+    return [...this.runtimes.entries()]
+      .filter(([, runtime]) => runtime.status === 'active')
+      .map(([laneId]) => laneId);
+  }
 }

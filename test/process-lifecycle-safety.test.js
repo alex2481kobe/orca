@@ -134,6 +134,33 @@ test('deleteLane fails an out-of-budget in_lane task and completes the backlog',
   });
 });
 
+test('pruneInMemoryRecords never drops a done lane still linked to an in_lane task', async () => {
+  const prev = process.env.ORCA_MAX_TERMINAL_LANES_PER_SESSION;
+  process.env.ORCA_MAX_TERMINAL_LANES_PER_SESSION = '2';
+  try {
+    await withRegistry(async (registry) => {
+      const { session } = setup(registry);
+      // One done lane awaiting audit, linked to an in_lane task (the protected one).
+      const awaiting = makeLane(registry, session.id);
+      registry.markLaneCompleted(registry.getLane(awaiting.id)); // -> done
+      const task = registry.addTask(session.id, { title: 'awaiting' });
+      registry.linkTaskToLane(task.id, awaiting.id); // -> in_lane, laneId = awaiting
+      // Pile on more terminal lanes so the cap (2) is exceeded and prune fires.
+      for (let i = 0; i < 5; i += 1) {
+        const l = makeLane(registry, session.id);
+        registry.markLaneCompleted(registry.getLane(l.id));
+      }
+      registry.pruneInMemoryRecords();
+      // The linked done lane must survive even though it's among the oldest terminal lanes.
+      assert.ok(registry.getLane(awaiting.id), 'linked-to-in_lane-task lane must not be pruned');
+      assert.equal(registry.getTask(task.id).laneId, String(awaiting.id));
+    });
+  } finally {
+    if (prev === undefined) delete process.env.ORCA_MAX_TERMINAL_LANES_PER_SESSION;
+    else process.env.ORCA_MAX_TERMINAL_LANES_PER_SESSION = prev;
+  }
+});
+
 test('acceptLaneAudit overrides an escalated audit (clears the dead end)', async () => {
   await withRegistry(async (registry) => {
     const { session } = setup(registry);

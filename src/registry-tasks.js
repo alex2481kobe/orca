@@ -193,23 +193,26 @@ export const taskMethods = {
       throw { status: 422, message: `Illegal task transition ${task.state} -> ${next}.` };
     }
     const now = nowIso();
+    const cameFromInFlight = task.state === 'in_lane' || task.state === 'assigned';
     task.state = next;
     task.updatedAt = now;
-    if (next === 'blocked') {
-      task.blockedReason = sanitizeStr(reason, 2000) || 'Blocked';
-      // Blocking an in-flight task: stop the lane it was running on and drop the
-      // link. Otherwise the lane keeps running (wasting a capacity slot) while its
-      // eventual result is silently discarded against the now-blocked task, and a
-      // stale laneId would mislead _taskForLane.
+    // Moving an in-flight task to blocked OR pending must stop the lane it was
+    // running on and drop the link. Otherwise the lane keeps running (wasting a
+    // capacity slot), its eventual accept/fail is silently discarded against the
+    // moved task (_taskForLane no longer matches), a stale laneId misleads readers,
+    // and for the pending case dispatchPendingTasks would spawn a SECOND lane for
+    // the same task — duplicate work.
+    if ((next === 'blocked' || next === 'pending') && cameFromInFlight) {
       const linkedLaneId = task.laneId;
       task.laneId = null;
       if (linkedLaneId && typeof this.stopLane === 'function') {
         const lane = this.getLane(linkedLaneId);
         if (lane && ['queued', 'starting', 'running'].includes(String(lane.state || '').toLowerCase())) {
-          Promise.resolve(this.stopLane(linkedLaneId, { actor, approved: true, reason: 'task blocked' })).catch(() => {});
+          Promise.resolve(this.stopLane(linkedLaneId, { actor, approved: true, reason: `task ${next}` })).catch(() => {});
         }
       }
     }
+    if (next === 'blocked') task.blockedReason = sanitizeStr(reason, 2000) || 'Blocked';
     if (next === 'pending') {
       task.blockedReason = null;
       task.laneId = null;

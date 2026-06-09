@@ -164,6 +164,23 @@ test('tasks: blocking an in_lane task stops its lane and clears the link', async
   });
 });
 
+test('tasks: requeuing an in_lane task to pending stops its lane and clears the link', async () => {
+  await withRegistry(async (registry) => {
+    const { session } = makeSession(registry);
+    const lane = await registry.createLane(session.id, { title: 'L', executorType: 'mock' }, { actor: 'test', approved: true });
+    await registry.getExecutorForType('mock').start(registry.getLane(lane.id));
+    registry.getLane(lane.id).state = 'running';
+    const task = registry.addTask(session.id, { title: 'p' });
+    registry.linkTaskToLane(task.id, lane.id); // -> in_lane
+    registry.updateTaskState(task.id, 'pending');
+    assert.equal(registry.getTask(task.id).state, 'pending');
+    assert.equal(registry.getTask(task.id).laneId, null);
+    await new Promise((r) => setTimeout(r, 10));
+    // The old lane was stopped — it won't keep running AND get double-dispatched.
+    assert.equal(registry.getRunningCountForSession(session.id), 0);
+  });
+});
+
 test('tasks: illegal state transition is refused', async () => {
   await withRegistry(async (registry) => {
     const { session } = makeSession(registry);
