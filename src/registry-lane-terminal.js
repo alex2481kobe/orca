@@ -13,10 +13,17 @@ const {
   STOPPED: STOPPED_STATE,
   DONE: DONE_STATE,
   FAILED: FAILED_STATE,
+  ACCEPTED: ACCEPTED_STATE,
 } = LANE_STATES;
+
+// A lane that already reached a terminal state must not be re-terminalized — a
+// stop POST racing the executor's exit callback would otherwise double-fire
+// notifications/audit events and clobber the recorded outcome.
+const TERMINAL_LANE_STATES = new Set([DONE_STATE, FAILED_STATE, STOPPED_STATE, ACCEPTED_STATE]);
 
 export const laneTerminalMethods = {
   markLaneCompleted(lane) {
+    if (!lane || TERMINAL_LANE_STATES.has(lane.state)) return;
     const now = nowIso();
     const needsCritique = this.critiqueRequiredForLane(lane) && !this.critiqueSatisfiedForLane(lane);
     lane.state = needsCritique ? NEEDS_CRITIQUE_STATE : DONE_STATE;
@@ -72,6 +79,7 @@ export const laneTerminalMethods = {
   },
 
   markLaneFailed(lane, reason, actor = 'scheduler', persist = true) {
+    if (!lane || TERMINAL_LANE_STATES.has(lane.state)) return;
     const now = nowIso();
     lane.state = FAILED_STATE;
     lane.updatedAt = now;
@@ -110,6 +118,7 @@ export const laneTerminalMethods = {
   },
 
   markLaneStopped(lane, context = {}) {
+    if (!lane || TERMINAL_LANE_STATES.has(lane.state)) return;
     const now = nowIso();
     const actor = context.actor || 'scheduler';
     const reason = context.reason || `Stopped by ${actor}`;

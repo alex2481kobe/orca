@@ -529,6 +529,12 @@ export class CliExecutorAdapter {
     }
     return count;
   }
+
+  getActiveLaneIds() {
+    return [...this.runtimes.entries()]
+      .filter(([, runtime]) => runtime.status === 'active')
+      .map(([laneId]) => laneId);
+  }
 }
 
 export class PendingExecutorAdapter {

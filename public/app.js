@@ -604,7 +604,7 @@ document.addEventListener('click', async (event) => {
     return;
   }
 
-  if (action === 'auditDone') {
+  if (['auditDone', 'pauseSessionSpawning', 'stopAllLanes', 'deleteTask'].includes(action)) {
     await handleSessionActions({ currentTarget: actionTarget });
     return;
   }

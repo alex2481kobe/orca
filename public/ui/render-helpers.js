@@ -110,7 +110,7 @@ export function renderTopbarTitle(project, session, lane) {
 // public/ bundle can't import from src/worker-contract.js across that boundary.)
 const LIVE_LANE_STATES = ['queued', 'starting', 'running'];
 const RUNNING_LANE_STATES = ['running', 'starting'];
-const RESTARTABLE_LANE_STATES = ['failed', 'stopped', 'fix_requested'];
+const RESTARTABLE_LANE_STATES = ['failed', 'stopped', 'fix_requested', 'blocked'];
 
 export function isLiveLaneState(state) {
   return LIVE_LANE_STATES.includes(String(state || '').toLowerCase());

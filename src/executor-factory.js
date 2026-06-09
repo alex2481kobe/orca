@@ -83,7 +83,9 @@ export function createExecutorAdapter(type, callbacks = {}) {
       // Real subprocess agents complete via child exit, not a periodic tool
       // heartbeat — a model turn easily runs >15s silently. Use a generous cap
       // (output resets it in the adapter) so live agents aren't reaped mid-run.
-      heartbeatTimeoutMs: callbacks.heartbeatTimeoutMs || 30 * 60 * 1000,
+      // Configurable via ORCA_CLI_HEARTBEAT_TIMEOUT_MS; default 30 min.
+      heartbeatTimeoutMs: callbacks.heartbeatTimeoutMs
+        || Number.parseInt(process.env.ORCA_CLI_HEARTBEAT_TIMEOUT_MS, 10) || 30 * 60 * 1000,
       allowedBinaries: profile.allowedBinaries,
       envWhitelist: profile.envWhitelist || callbacks.envWhitelist,
       enforceAllowedBinary: true,
@@ -114,7 +116,9 @@ export function createExecutorAdapter(type, callbacks = {}) {
       // Real subprocess agents complete via child exit, not a periodic tool
       // heartbeat — a model turn easily runs >15s silently. Use a generous cap
       // (output resets it in the adapter) so live agents aren't reaped mid-run.
-      heartbeatTimeoutMs: callbacks.heartbeatTimeoutMs || 30 * 60 * 1000,
+      // Configurable via ORCA_CLI_HEARTBEAT_TIMEOUT_MS; default 30 min.
+      heartbeatTimeoutMs: callbacks.heartbeatTimeoutMs
+        || Number.parseInt(process.env.ORCA_CLI_HEARTBEAT_TIMEOUT_MS, 10) || 30 * 60 * 1000,
     };
     return new CliExecutorAdapter(executorType, options);
   }

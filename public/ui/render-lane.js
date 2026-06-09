@@ -22,7 +22,11 @@ export function renderLane(project, session, lane) {
     `;
   }
 
-  const stopButton = isLiveLaneState(lane.state)
+  // Offer Stop whenever the lane is live OR a child process is still up (e.g. an
+  // auditing/needs_critique lane whose agent hasn't exited) — base it on the real
+  // runtime, not only the curated live-state list.
+  const hasLiveProcess = Boolean(lane.processMeta && lane.processMeta.pid && !lane.processMeta.endedAt);
+  const stopButton = (isLiveLaneState(lane.state) || hasLiveProcess)
     ? `<button data-action="stopLane" data-lane-id="${safeAttr(lane.id)}" type="button">Stop lane</button>` : '';
   const retryButton = isRestartableLaneState(lane.state)
     ? `<button class="secondary" data-action="retryLane" data-lane-id="${safeAttr(lane.id)}" type="button">Retry lane</button>` : '';

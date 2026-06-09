@@ -376,7 +376,12 @@ export function renderExecutorSidePanel(session) {
             <div class="auditor-lane-row">
               <span class="auditor-lane-link">${safeText(task.title)}</span>
               ${stateBadge(task.state)}
+              ${['accepted', 'in_lane'].includes(task.state) ? '' : `<button class="info-close" data-action="deleteTask" data-session-id="${safeAttr(session.id)}" data-task-id="${safeAttr(task.id)}" data-task-title="${safeAttr(task.title)}" type="button" aria-label="Delete task" title="Delete task">${icon('close', { size: 13 })}</button>`}
             </div>`).join('')}</div>` : ''}
+          <div class="info-tools">
+            ${backlog.capacity?.spawnPolicy === 'auto' ? `<button class="secondary" data-action="pauseSessionSpawning" data-session-id="${safeAttr(session.id)}" type="button">Pause spawning</button>` : ''}
+            <button class="secondary" data-action="stopAllLanes" data-session-id="${safeAttr(session.id)}" type="button">Stop all lanes</button>
+          </div>
         </section>` : ''}
 
         ${hasAuditable ? `<section class="info-section">

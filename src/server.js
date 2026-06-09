@@ -876,6 +876,17 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(thisModule
     console.error(error);
     process.exitCode = 1;
   });
+  // Graceful shutdown: on Ctrl-C / kill, stop the scheduler AND kill live executor
+  // children before exiting, so detached agent process groups aren't orphaned.
+  let shuttingDown = false;
+  const gracefulShutdown = (signal) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.error(`Received ${signal}; stopping Orca and its executor agents…`);
+    stopServer().finally(() => process.exit(0));
+  };
+  process.once('SIGINT', () => gracefulShutdown('SIGINT'));
+  process.once('SIGTERM', () => gracefulShutdown('SIGTERM'));
   // Orphan guard: when the Tauri desktop host spawns us (ORCA_DESKTOP_HOSTED), it
   // reaps us via its window-close handler — but a crash or hard kill of the host
   // bypasses that, leaving this process holding the port. The host is our parent;
@@ -896,6 +907,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(thisModule
 
 async function stopServer() {
   registry.stopScheduler();
+  // Kill live executor children BEFORE we exit, or detached CLI process groups get
+  // orphaned to launchd/init (the "codex/claude left running" leak).
+  if (typeof registry.stopAllExecutors === 'function') {
+    await registry.stopAllExecutors('server shutdown').catch(() => {});
+  }
   if (typeof registry.drainPendingWrites === 'function') {
     await registry.drainPendingWrites();
   }

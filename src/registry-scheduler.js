@@ -86,6 +86,20 @@ export const schedulerMethods = {
     return count;
   },
 
+  // Kill every live executor child across all adapters. Called on server shutdown
+  // (and signal) so detached CLI process groups aren't orphaned to launchd/init.
+  async stopAllExecutors(reason = 'server shutdown') {
+    const adapters = [...Object.values(this.executors), ...this.unknownExecutorAdapters.values()];
+    const pending = [];
+    for (const adapter of adapters) {
+      const laneIds = typeof adapter.getActiveLaneIds === 'function' ? adapter.getActiveLaneIds() : [];
+      for (const laneId of laneIds) {
+        pending.push(Promise.resolve(adapter.stop(laneId, { actor: 'shutdown', reason })).catch(() => {}));
+      }
+    }
+    await Promise.allSettled(pending);
+  },
+
   async tickExecutors() {
     for (const executor of Object.values(this.executors)) {
       await executor.tick();

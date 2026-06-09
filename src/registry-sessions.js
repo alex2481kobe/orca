@@ -359,6 +359,13 @@ export const sessionMethods = {
     }
     const laneIds = (this.lanes || []).filter((lane) => lane.sessionId === session.id).map((lane) => lane.id);
     for (const laneId of laneIds) {
+      // Kill any live executor child FIRST — otherwise removing the lane record and
+      // rm-ing its worktree orphans a still-running (and now untracked) process.
+      if (typeof this.stopLane === 'function') {
+        try { await this.stopLane(laneId, { actor, approved: true }); } catch { /* best effort */ }
+      }
+      if (typeof this.clearLaneExecutor === 'function') this.clearLaneExecutor(laneId);
+      this.laneRuntimeEnv?.delete(String(laneId));
       if (typeof this.removeLaneWorktree === 'function') {
         try { await this.removeLaneWorktree(laneId, { actor, approved: true, removeBranch: false }); } catch { /* best effort */ }
       }
