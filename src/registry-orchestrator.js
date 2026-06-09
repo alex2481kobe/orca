@@ -109,6 +109,21 @@ export const orchestratorMethods = {
     return { found: true, active, lease };
   },
 
+  // Can an orchestrator actually act on an audit nudge for this session? Used to
+  // reconcile orchestrator-tier audits stuck in 'auditing'. This deliberately does
+  // NOT use _activeOrchestratorStale's idle-time check: a lane stuck in 'auditing'
+  // itself counts as session activity there, which would circularly keep a dead
+  // orchestrator looking "live". A dashboard orchestrator is treated as able to act
+  // (the local operator can accept via the UI); an MCP orchestrator can act only
+  // while its lease is alive.
+  _orchestratorCanAudit(session) {
+    const active = session?.orchestratorThread?.activeOrchestrator;
+    if (!active) return false;
+    if (active.leaseId === 'dashboard' || !active.leaseId) return true;
+    const status = this._leaseActiveById(active.leaseId);
+    return Boolean(status && status.active);
+  },
+
   _activeOrchestratorStale(marker, session = null) {
     if (!marker) return true;
     // A dead/revoked/expired lease is always stale.

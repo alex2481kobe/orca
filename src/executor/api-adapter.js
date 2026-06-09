@@ -28,6 +28,13 @@ export class ApiExecutorAdapter {
     this.onComplete = options.onComplete || noopAsync;
     this.onFail = options.onFail || noopAsync;
     this.onStop = options.onStop || noopAsync;
+    // Backstop the per-request fetch timeout: if a runtime is somehow left active
+    // without completing (e.g. an unexpected throw outside the guarded fetch block),
+    // the scheduler counts it as a running lane forever, permanently consuming a
+    // capacity slot. tick() reaps anything silent past this window.
+    this.heartbeatTimeoutMs = options.heartbeatTimeoutMs
+      || Number.parseInt(process.env.ORCA_API_HEARTBEAT_TIMEOUT_MS, 10)
+      || 10 * 60 * 1000;
     this.runtimes = new Map();
   }
 
@@ -289,7 +296,20 @@ export class ApiExecutorAdapter {
     return true;
   }
 
-  async tick() {}
+  async tick(now = Date.now()) {
+    for (const [laneId, runtime] of this.runtimes.entries()) {
+      if (runtime.status !== 'active') continue;
+      if (now - runtime.heartbeatAt <= this.heartbeatTimeoutMs) continue;
+      runtime.status = 'timed_out';
+      try { runtime.controller.abort(); } catch { /* already settled */ }
+      this.runtimes.delete(laneId);
+      if (runtime.lane?.processMeta) {
+        runtime.lane.processMeta.endedAt = runtime.lane.processMeta.endedAt || new Date(now).toISOString();
+        runtime.lane.processMeta.exitCode = runtime.lane.processMeta.exitCode ?? 1;
+      }
+      await safeFire(this.onFail, runtime.lane, `${this.label} API provider heartbeat timeout`, 'heartbeat');
+    }
+  }
 
   getRunningCountForSession(sessionId) {
     const want = String(sessionId);

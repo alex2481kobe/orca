@@ -120,6 +120,46 @@ test('auto-audit: an auditor that finishes without a verdict re-dispatches, then
   });
 });
 
+test('auto-audit: orchestrator-tier audit escalates when no orchestrator can act (no eternal hang)', async () => {
+  await withAutoAuditRegistry(async (registry) => {
+    // Non-auto session, orchestrator tier, but nobody is enrolled and the spawned
+    // turn lanes finish without recording a verdict — the lane must not hang in
+    // 'auditing' forever; it re-dispatches then escalates.
+    const { lane } = seed(registry, {
+      settingsOverrides: { flow: { auditTier: 'orchestrator', requireAuditPass: true } },
+    });
+    registry.markLaneCompleted(registry.getLane(lane.id));
+    await registry.dispatchPendingAudits(); // nudge #1 -> 'auditing', a turn lane is spawned
+    assert.equal(registry.getLane(lane.id).auditState, 'auditing');
+    // Finish every orchestrator turn lane without a verdict and re-tick a few times.
+    for (let i = 0; i < 4; i += 1) {
+      registry.lanes
+        .filter((l) => l.owner === 'orchestrator' && l.sessionId === lane.sessionId)
+        .forEach((o) => { o.state = 'done'; });
+      await registry.dispatchPendingAudits();
+    }
+    assert.equal(registry.getLane(lane.id).auditState, 'escalated');
+    assert.ok(registry.auditEvents.some((e) => e.type === 'lane_audit_escalated' && e.laneId === lane.id));
+  });
+});
+
+test('auto-audit: orchestrator-tier audit is NOT reconciled while a turn lane is live', async () => {
+  await withAutoAuditRegistry(async (registry) => {
+    const { lane } = seed(registry, {
+      settingsOverrides: { flow: { auditTier: 'orchestrator', requireAuditPass: true } },
+    });
+    registry.markLaneCompleted(registry.getLane(lane.id));
+    await registry.dispatchPendingAudits();
+    // Keep the spawned turn lane live (running) — the audit is being worked, so a
+    // re-tick must leave it 'auditing', never escalate it out from under the agent.
+    registry.lanes
+      .filter((l) => l.owner === 'orchestrator' && l.sessionId === lane.sessionId)
+      .forEach((o) => { o.state = 'running'; });
+    await registry.dispatchPendingAudits();
+    assert.equal(registry.getLane(lane.id).auditState, 'auditing');
+  });
+});
+
 test('auto-audit: auditor lanes do not recursively audit themselves', async () => {
   await withAutoAuditRegistry(async (registry) => {
     const { session } = seed(registry, {

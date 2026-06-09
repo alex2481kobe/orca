@@ -70,8 +70,27 @@ export const auditMethods = {
     for (const lane of this.lanes) {
       if (lane.auditState !== 'auditing' || !this.isAuditableExecutorLane(lane)) continue;
       const auditor = this.lanes.find((o) => o.owner === 'auditor' && o.auditTargetLaneId === lane.id);
-      if (!auditor) continue; // orchestrator-tier (no auditor lane); a live orchestrator acts on the nudge
-      if (!['done', 'failed', 'stopped', 'accepted'].includes(String(auditor.state || '').toLowerCase())) continue;
+      let stuckReason = null;
+      if (!auditor) {
+        // Orchestrator-tier (no auditor lane). The nudge spawns an orchestrator
+        // "turn" lane (or is acted on by an enrolled external orchestrator). It is
+        // only stuck — hanging in 'auditing' forever, and stranding any linked
+        // backlog task in_lane — when NOTHING can still act on it: no live
+        // orchestrator turn lane is running AND no enrolled orchestrator has a live
+        // lease. Otherwise leave it; whoever is working will record the verdict.
+        const liveOrchestratorTurn = this.lanes.some((o) => o.owner === 'orchestrator'
+          && o.sessionId === lane.sessionId
+          && ['queued', 'starting', 'running'].includes(String(o.state || '').toLowerCase()));
+        if (liveOrchestratorTurn) continue;
+        const session = typeof this._orchestratorCanAudit === 'function' ? this.getSession(lane.sessionId) : null;
+        if (typeof this._orchestratorCanAudit === 'function' && this._orchestratorCanAudit(session)) continue;
+        stuckReason = 'no orchestrator available to audit';
+      } else {
+        // Separate-auditor: only stuck once the auditor lane has finished without
+        // recording a verdict.
+        if (!['done', 'failed', 'stopped', 'accepted'].includes(String(auditor.state || '').toLowerCase())) continue;
+        stuckReason = 'auditor finished without a verdict';
+      }
       reconciled = true;
       if ((lane.auditDispatchCount || 0) < MAX_AUDIT_DISPATCHES) {
         lane.auditState = 'queued'; // re-dispatch next tick
@@ -80,7 +99,7 @@ export const auditMethods = {
         this.recordAudit({
           type: 'lane_audit_escalated', actor: 'scheduler', projectId: lane.projectId,
           sessionId: lane.sessionId, laneId: lane.id, status: 'failed',
-          summary: `Audit could not complete automatically for lane "${lane.title}" — auditor finished without a verdict.`,
+          summary: `Audit could not complete automatically for lane "${lane.title}" — ${stuckReason}.`,
         });
       }
       lane.updatedAt = nowIso();
@@ -133,6 +152,9 @@ export const auditMethods = {
             taskPrompt: this.buildAuditorPrompt(lane),
           }, { actor: 'scheduler', approved: true });
         } else if (typeof this.sendOrchestratorMessage === 'function') {
+          // Count the nudge so a dead-orchestrator session escalates after the
+          // bound instead of re-nudging into the void forever.
+          lane.auditDispatchCount = (lane.auditDispatchCount || 0) + 1;
           await this.sendOrchestratorMessage(session.id, {
             message: `Audit completed executor lane "${lane.title}" (lane ${lane.id}): review its work, then accept it or request fixes.`,
           }, { actor: 'scheduler', approved: true });
