@@ -50,12 +50,6 @@ export const COMPOSE_ICON = `
     <path d="m11.1 14.7 4.9-4.9 2.1 2.1-4.9 4.9-2.7.6.6-2.7Z"></path>
   </svg>
 `;
-export const PENCIL_ICON = `
-  <svg viewBox="0 0 20 20" focusable="false" aria-hidden="true">
-    <path d="M4 16h3l8.3-8.3a1.5 1.5 0 0 0-2.1-2.1L4.9 13Z"></path>
-    <path d="m12.2 6.6 2.1 2.1"></path>
-  </svg>
-`;
 export const ARCHIVE_ICON = `
   <svg viewBox="0 0 20 20" focusable="false" aria-hidden="true">
     <path d="M3.2 6.5h13.6"></path>

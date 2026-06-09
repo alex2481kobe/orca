@@ -15,7 +15,7 @@
 import { randomUUID } from 'node:crypto';
 import { nowIso, clonePayload, safeArray } from './registry-utils.js';
 import { normalizeApprovedCapacity, normalizeSpawnPolicy } from './registry-lane-config.js';
-import { LANE_STATES } from './worker-contract.js';
+import { LANE_STATES, isLiveLaneState } from './worker-contract.js';
 import { describeRepoRoot } from './worktree-manager.js';
 
 const {
@@ -207,7 +207,7 @@ export const taskMethods = {
       task.laneId = null;
       if (linkedLaneId && typeof this.stopLane === 'function') {
         const lane = this.getLane(linkedLaneId);
-        if (lane && ['queued', 'starting', 'running'].includes(String(lane.state || '').toLowerCase())) {
+        if (lane && isLiveLaneState(lane.state)) {
           Promise.resolve(this.stopLane(linkedLaneId, { actor, approved: true, reason: `task ${next}` })).catch(() => {});
         }
       }

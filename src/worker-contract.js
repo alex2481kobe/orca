@@ -25,6 +25,22 @@ export const LANE_STATES = {
   FAILED: 'failed',
 };
 
+// Single owner for the lane-state SUBSET predicates the server reasons about, so
+// the same `[queued,starting,running]` / `[starting,running]` lists aren't
+// re-spelled in every module (mirrors the client's render-helpers predicates).
+// LIVE = spawned-or-spawning-or-running (counts against capacity). RUNNING = a
+// child is actually up (excludes queued, which has no process yet).
+const LIVE_LANE_STATES = [LANE_STATES.QUEUED, LANE_STATES.STARTING, LANE_STATES.RUNNING];
+const RUNNING_LANE_STATES = [LANE_STATES.STARTING, LANE_STATES.RUNNING];
+
+export function isLiveLaneState(state) {
+  return LIVE_LANE_STATES.includes(String(state || '').toLowerCase());
+}
+
+export function isRunningLaneState(state) {
+  return RUNNING_LANE_STATES.includes(String(state || '').toLowerCase());
+}
+
 export class MockWorkerAdapter {
   constructor({
     heartbeatTimeoutMs = 15000,

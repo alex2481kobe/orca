@@ -4,7 +4,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { LANE_STATES } from './worker-contract.js';
+import { LANE_STATES, isLiveLaneState } from './worker-contract.js';
 import { nowIso, clonePayload, safeArray } from './registry-utils.js';
 import { removeLaneWorktree } from './worktree-manager.js';
 import { validateNetworkUrl } from './url-policy.js';
@@ -22,10 +22,6 @@ const {
   DONE: DONE_STATE,
   FAILED: FAILED_STATE,
 } = LANE_STATES;
-
-function isLiveLaneState(state) {
-  return [QUEUED_STATE, STARTING_STATE, RUNNING_STATE].includes(String(state || '').toLowerCase());
-}
 
 export const laneOpsMethods = {
   // Permanently remove a TERMINAL lane (done/failed/stopped/accepted/blocked):

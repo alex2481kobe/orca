@@ -239,17 +239,6 @@ export const orchestratorMethods = {
     return this.publicActiveOrchestrator(thread.activeOrchestrator || null, session);
   },
 
-  // Bump lastSeenAt for the lease that owns the session (keeps it from going
-  // stale while it is actively driving). Best-effort, no throw.
-  touchActiveOrchestrator(sessionId, leaseId) {
-    const session = this.getSession(sessionId);
-    if (!session) return;
-    const thread = session.orchestratorThread;
-    if (thread && thread.activeOrchestrator && thread.activeOrchestrator.leaseId === leaseId) {
-      thread.activeOrchestrator.lastSeenAt = nowIso();
-    }
-  },
-
   // Exclusive ownership enforcement: once a (non-stale) active orchestrator is
   // set for a session, a DIFFERENT orchestrator-lease's mutating tool calls are
   // refused with a 409 + nextAction. No active owner (nobody enrolled) or a stale

@@ -2,15 +2,13 @@
 // OrcaRegistry. Extracted from registry.js.
 
 import { randomUUID } from 'node:crypto';
-import { LANE_STATES } from './worker-contract.js';
+import { isLiveLaneState } from './worker-contract.js';
 import { nowIso, safeArray, clonePayload } from './registry-utils.js';
 import {
   normalizeApprovedCapacity,
   normalizeSpawnPolicy,
   normalizeIdleShutdownMode,
 } from './registry-lane-config.js';
-
-const { QUEUED: QUEUED_STATE, STARTING: STARTING_STATE, RUNNING: RUNNING_STATE } = LANE_STATES;
 
 export const capacityMethods = {
   getSessionCapacity(sessionLocator) {
@@ -20,8 +18,7 @@ export const capacityMethods = {
     }
     const approvedCapacity = normalizeApprovedCapacity(session.approvedCapacity, normalizeApprovedCapacity(session.laneConcurrencyLimit));
     const activeAgents = this.lanes.filter((lane) =>
-      lane.sessionId === session.id &&
-      [QUEUED_STATE, STARTING_STATE, RUNNING_STATE].includes(lane.state)
+      lane.sessionId === session.id && isLiveLaneState(lane.state)
     ).length;
     return {
       sessionId: session.id,

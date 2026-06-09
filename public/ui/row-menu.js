@@ -24,10 +24,6 @@ export function closeRowMenu() {
   if (_onScroll) { window.removeEventListener('scroll', _onScroll, true); window.removeEventListener('resize', _onScroll); _onScroll = null; }
 }
 
-export function isRowMenuOpen() {
-  return Boolean(_menu);
-}
-
 // True when the menu is currently open AND was opened by this exact trigger — lets
 // the dispatcher toggle it closed on a second click of the same 3-dot button.
 export function isRowMenuOpenFor(el) {

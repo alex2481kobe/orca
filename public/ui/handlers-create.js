@@ -173,16 +173,13 @@ export async function handleCreateLane(event) {
     return;
   }
   const commandParts = parseCommandParts(payload.command);
-  // Accept multi-select values (FormData lists), the hidden text fallback, and legacy comma-separated.
-  let mcpRaw = payload.mcpToolIds;
-  if (!mcpRaw && payload.mcpToolIdsRaw) mcpRaw = payload.mcpToolIdsRaw;
-  let requestedToolIds = [];
-  if (Array.isArray(mcpRaw)) {
-    requestedToolIds = mcpRaw.map((value) => String(value || '').trim()).filter(Boolean);
-  } else if (mcpRaw) {
-    requestedToolIds = String(mcpRaw).split(',').map((value) => value.trim()).filter(Boolean);
-  }
-  // Also collect from FormData directly in case toObj squashed array values.
+  // Multi-select <select name="mcpToolIds"> yields a FormData list; toObj may
+  // surface it as an array (many selected) or a scalar (one selected).
+  const mcpRaw = payload.mcpToolIds;
+  let requestedToolIds = Array.isArray(mcpRaw)
+    ? mcpRaw.map((value) => String(value || '').trim()).filter(Boolean)
+    : (mcpRaw ? [String(mcpRaw).trim()].filter(Boolean) : []);
+  // Authoritative re-collect from FormData in case toObj squashed array values.
   try {
     const fd = new FormData(event.currentTarget);
     const all = fd.getAll('mcpToolIds').map((value) => String(value || '').trim()).filter(Boolean);

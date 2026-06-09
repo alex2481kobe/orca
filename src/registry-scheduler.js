@@ -2,7 +2,7 @@
 // as a prototype mixin for OrcaRegistry. Extracted from registry.js.
 
 import fs from 'node:fs/promises';
-import { LANE_STATES } from './worker-contract.js';
+import { LANE_STATES, isRunningLaneState } from './worker-contract.js';
 import { nowIso } from './registry-utils.js';
 import { createExecutorAdapter } from './executor-factory.js';
 import { normalizeApprovedCapacity, normalizeSpawnPolicy } from './registry-lane-config.js';
@@ -167,7 +167,7 @@ export const schedulerMethods = {
       // consistent with dispatchPendingTasks — getRunningCountForSession (executor-
       // reported active runtimes) could undercount a RUNNING lane and let the
       // start loop exceed approvedCapacity.
-      const runningCount = sessionLanes.filter((lane) => lane.state === RUNNING_STATE || lane.state === STARTING_STATE).length;
+      const runningCount = sessionLanes.filter((lane) => isRunningLaneState(lane.state)).length;
       const approvedCapacity = normalizeApprovedCapacity(session.approvedCapacity, normalizeApprovedCapacity(session.laneConcurrencyLimit));
       const capacityLimit = normalizeSpawnPolicy(session.spawnPolicy) === 'never' ? 0 : approvedCapacity;
       let availableSlots = Math.max(0, capacityLimit - runningCount);

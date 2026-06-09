@@ -4,10 +4,8 @@
 
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { LANE_STATES } from './worker-contract.js';
+import { isRunningLaneState } from './worker-contract.js';
 import { nowIso, buildLaneRoute } from './registry-utils.js';
-
-const { RUNNING: RUNNING_STATE, STARTING: STARTING_STATE } = LANE_STATES;
 
 export const lifecycleMethods = {
   recoverInterruptedLanes() {
@@ -24,7 +22,7 @@ export const lifecycleMethods = {
           lane.workdir = this.resolveLaneWorkdir(session, null);
         }
       }
-      if ([RUNNING_STATE, STARTING_STATE].includes(lane.state)) {
+      if (isRunningLaneState(lane.state)) {
         this.markLaneFailed(lane, 'Controller restarted while lane was active', 'system', false);
       }
       if (!lane.id) {

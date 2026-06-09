@@ -2,7 +2,7 @@
 // mixin for OrcaRegistry. Extracted from registry.js.
 
 import { randomUUID } from 'node:crypto';
-import { LANE_STATES } from './worker-contract.js';
+import { LANE_STATES, isLiveLaneState, isRunningLaneState } from './worker-contract.js';
 import { nowIso, clonePayload, safeArray } from './registry-utils.js';
 import { normalizeSpawnPolicy } from './registry-lane-config.js';
 
@@ -80,7 +80,7 @@ export const auditMethods = {
         // lease. Otherwise leave it; whoever is working will record the verdict.
         const liveOrchestratorTurn = this.lanes.some((o) => o.owner === 'orchestrator'
           && o.sessionId === lane.sessionId
-          && ['queued', 'starting', 'running'].includes(String(o.state || '').toLowerCase()));
+          && isLiveLaneState(o.state));
         if (liveOrchestratorTurn) continue;
         const session = typeof this._orchestratorCanAudit === 'function' ? this.getSession(lane.sessionId) : null;
         if (typeof this._orchestratorCanAudit === 'function' && this._orchestratorCanAudit(session)) continue;
@@ -312,7 +312,7 @@ export const auditMethods = {
     // escalated/fix_requested/done/ready_for_audit/auditing/needs_critique remain
     // acceptable (the operator override path). 'queued' (no process yet) is gated
     // on the MCP path and harmless here.
-    if (['starting', 'running'].includes(lane.state)) {
+    if (isRunningLaneState(lane.state)) {
       throw { status: 409, message: 'Cannot accept a lane that is still running. Stop it first.' };
     }
     if (this.critiqueRequiredForLane(lane) && !this.critiqueSatisfiedForLane(lane)) {
