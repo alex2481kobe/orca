@@ -229,5 +229,12 @@ export const schedulerMethods = {
     if (typeof this.dispatchPendingAudits === 'function') {
       await this.dispatchPendingAudits().catch(() => {});
     }
+
+    // Bound in-memory growth (terminal lanes/tasks) periodically — ~every 30 ticks
+    // (≈1 min at the default heartbeat). Cheap no-op until records grow large.
+    this._tickCount = (this._tickCount || 0) + 1;
+    if (this._tickCount % 30 === 0 && typeof this.pruneInMemoryRecords === 'function') {
+      try { this.pruneInMemoryRecords(); } catch { /* best effort */ }
+    }
   },
 };

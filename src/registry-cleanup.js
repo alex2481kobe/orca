@@ -247,6 +247,50 @@ export const cleanupMethods = {
     return summary;
   },
 
+  // Bound in-memory growth on a long-lived server: keep only the most recent
+  // terminal lanes/tasks per session (everything else — auditEvents, notifications,
+  // toolLeases, logs — is already capped). Caps are generous + env-configurable.
+  // Cheap early-out when nothing is large; called throttled from the scheduler.
+  pruneInMemoryRecords() {
+    const TERMINAL_LANES = new Set(['done', 'failed', 'stopped', 'accepted', 'archived']);
+    const maxLanes = parsePositiveInteger(process.env.ORCA_MAX_TERMINAL_LANES_PER_SESSION, null) || 200;
+    const maxTasks = parsePositiveInteger(process.env.ORCA_MAX_TERMINAL_TASKS_PER_SESSION, null) || 500;
+    const laneCount = Array.isArray(this.lanes) ? this.lanes.length : 0;
+    const taskCount = Array.isArray(this.tasks) ? this.tasks.length : 0;
+    if (laneCount <= maxLanes && taskCount <= maxTasks) return false; // no session can exceed its cap
+    let changed = false;
+    const ts = (record, ...keys) => {
+      for (const k of keys) { const v = Date.parse(record?.[k] || 0); if (Number.isFinite(v) && v) return v; }
+      return 0;
+    };
+    const dropOldest = (records, max, tsKeys) => {
+      const bySession = new Map();
+      for (const r of records) {
+        const arr = bySession.get(r.sessionId) || []; arr.push(r); bySession.set(r.sessionId, arr);
+      }
+      const drop = new Set();
+      for (const arr of bySession.values()) {
+        if (arr.length <= max) continue;
+        arr.sort((a, b) => ts(a, ...tsKeys) - ts(b, ...tsKeys));
+        for (const r of arr.slice(0, arr.length - max)) drop.add(r.id);
+      }
+      return drop;
+    };
+    const dropLaneIds = dropOldest((this.lanes || []).filter((l) => TERMINAL_LANES.has(l.state)), maxLanes, ['completedAt', 'updatedAt']);
+    if (dropLaneIds.size) {
+      this.lanes = this.lanes.filter((l) => !dropLaneIds.has(l.id));
+      for (const id of dropLaneIds) { this.laneRuntimeEnv?.delete(String(id)); if (typeof this.clearLaneExecutor === 'function') this.clearLaneExecutor(id); }
+      changed = true;
+    }
+    const dropTaskIds = dropOldest((this.tasks || []).filter((t) => t.state === 'accepted' || t.state === 'failed'), maxTasks, ['terminatedAt', 'updatedAt']);
+    if (dropTaskIds.size) {
+      this.tasks = this.tasks.filter((t) => !dropTaskIds.has(t.id));
+      changed = true;
+    }
+    if (changed) this.persistState();
+    return changed;
+  },
+
   async runCleanupSchedulerTick() {
     if (!this.cleanupSchedule.enabled) return;
     if (!this.cleanupSchedule.nextRunAt) return;

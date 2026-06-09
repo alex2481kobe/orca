@@ -50,6 +50,26 @@ test('stopAllExecutors kills every live executor child (shutdown sweep)', async 
   });
 });
 
+test('pruneInMemoryRecords caps terminal lanes per session (bounds growth)', async () => {
+  const prev = process.env.ORCA_MAX_TERMINAL_LANES_PER_SESSION;
+  process.env.ORCA_MAX_TERMINAL_LANES_PER_SESSION = '2';
+  try {
+    await withRegistry(async (registry) => {
+      const { session } = setup(registry);
+      for (let i = 0; i < 5; i += 1) {
+        const lane = makeLane(registry, session.id);
+        registry.markLaneCompleted(registry.getLane(lane.id)); // -> done (terminal)
+      }
+      assert.equal(registry.lanes.filter((l) => l.sessionId === session.id).length, 5);
+      assert.equal(registry.pruneInMemoryRecords(), true);
+      assert.equal(registry.lanes.filter((l) => l.sessionId === session.id).length, 2);
+    });
+  } finally {
+    if (prev === undefined) delete process.env.ORCA_MAX_TERMINAL_LANES_PER_SESSION;
+    else process.env.ORCA_MAX_TERMINAL_LANES_PER_SESSION = prev;
+  }
+});
+
 test('deleteSession stops a running lane and clears its runtime maps (no orphan)', async () => {
   await withRegistry(async (registry) => {
     const { session } = setup(registry);
