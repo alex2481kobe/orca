@@ -1,8 +1,9 @@
 # Web/PWA distribution
 
-Orca can run without the Tauri desktop wrapper on macOS, Windows, and
-Linux. In this mode the user runs the Node server locally and opens the
-dashboard in a browser.
+Orca can run without the Tauri desktop wrapper. The validated host path today is
+macOS: the user runs the Node server locally and opens the dashboard in a
+browser. Windows and Linux are intended portable host targets, but they have not
+been release-validated yet.
 
 ## What users get today
 
@@ -22,7 +23,7 @@ dashboard in a browser.
   a user-managed service wrapper.
 - No Tauri updater.
 
-## Cross-platform quick start
+## Local web quick start
 
 Prerequisites:
 
@@ -43,7 +44,7 @@ ORCA_API_TOKEN="$(openssl rand -hex 32)" npm run dev
 
 Open <http://127.0.0.1:3000/>.
 
-Windows PowerShell token setup:
+Windows PowerShell token setup, for future Windows host validation:
 
 ```powershell
 $bytes = [byte[]]::new(32)
@@ -67,8 +68,8 @@ macOS has a maintained LaunchAgent runbook:
 
 - `docs/macos-launchd-runbook.md`
 
-Windows and Linux can use their native service managers, but those service
-wrappers are not yet packaged:
+Windows and Linux should use their native service managers once those hosts are
+validated. Those service wrappers are not yet packaged:
 
 - Windows: Task Scheduler, NSSM, or a user-managed service wrapper.
 - Linux: systemd user service.

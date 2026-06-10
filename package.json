@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Local-first, phone-first control plane for coordinating Codex, Claude, and API-backed coding agents.",
+  "description": "Local-first MCP control plane for orchestrating fleets of Codex, Claude, CLI, and API-backed coding agents.",
   "license": "AGPL-3.0-or-later",
   "repository": {
     "type": "git",

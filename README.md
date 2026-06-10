@@ -4,17 +4,24 @@
 
 # Orca
 
-### Run your Codex & Claude coding agents across every project — from one calm dashboard, and from your phone.
+### Orchestrate fleets of Codex, Claude, and API-backed coding agents from MCP, CLI, desktop, web, or phone.
 
-Orca is a **local‑first, phone‑first control plane** for AI coding agents. Spin up
-Codex, Claude, and API‑backed agent lanes across all your projects, watch them
-work, capture evidence, and steer everything from a clean Codex‑style dashboard —
-on your Mac, or from your phone over a private Tailscale link.
+Orca is a **local-first MCP control plane** for multi-agent coding workflows. One
+agent can coordinate a fleet of executor lanes across your projects: Codex can
+manage Claude lanes, Claude can manage Codex lanes, and either can fan work out
+to API-backed or custom CLI lanes while Orca enforces the workflow, captures
+evidence, and keeps secrets on your workstation.
+
+Use the surface that fits the moment: the web/PWA dashboard, the Tauri desktop
+app, your phone over private Tailscale, an MCP client inside Codex or Claude, or
+the `orca-agent` CLI from any shell-capable agent. The current validated setup is
+a macOS workstation plus phone access; Windows and Linux are intended future
+validation targets.
 
 [![license: AGPL‑3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 ![local‑first](https://img.shields.io/badge/local--first-✓-success)
 ![PWA](https://img.shields.io/badge/PWA-installable-success)
-![platforms](https://img.shields.io/badge/runs%20on-macOS%20·%20Windows%20·%20Linux-lightgrey)
+![tested](https://img.shields.io/badge/tested-macOS%20%2B%20phone-lightgrey)
 
 <img src="docs/assets/hero.png" alt="Orca dashboard" width="900" />
 
@@ -25,23 +32,29 @@ on your Mac, or from your phone over a private Tailscale link.
 ## Why Orca
 
 You're already running coding agents. The problem is *coordination*: which agent is
-on which task, in which project, is it done, is it any good — and how do you check
-on it when you're away from your desk? Orca is the operations console for exactly
-that.
+on which task, in which project, is it done, is it any good, and who is allowed to
+spawn the next lane? Orca is the local control plane for that.
 
-- 🧭 **One command center for every project.** A project rail, sessions per
-  project, and agent lanes per session — all in a quiet, focused, Codex‑app‑style UI.
-- 📱 **Truly phone‑first.** Scan a QR, enter a one‑time code, and drive your agents
-  from your phone over a private Tailscale link. Installable as a PWA; a native iOS
-  shell exists too.
-- 🤖 **Bring your own agents.** First‑class profiles for **Codex, Claude, Gemini CLI,
-  Composer**, custom CLIs, and OpenAI‑compatible / **Gemini / Kimi / DeepSeek /
-  OpenRouter** APIs.
+- 🧭 **One command center, many entry points.** Use the dashboard, desktop app,
+  phone, MCP, or `orca-agent` CLI. Every surface talks to the same server-side
+  workflow and audit state.
+- 🔁 **Cross-agent orchestration.** Let Codex manage a backlog and spawn Claude
+  executor lanes, let Claude coordinate Codex lanes, or mix in API-backed agents
+  when a task fits a model provider better than a terminal agent.
+- 🤖 **Bring your own agents, with clear support boundaries.** Codex and Claude are
+  the primary tested CLI/in-app orchestration paths. Orca also has wired profiles
+  for Gemini CLI, Composer, custom CLIs, and OpenAI-compatible / Gemini / Kimi /
+  DeepSeek / OpenRouter APIs; see the run-mode docs for what is tested versus
+  experimental.
 - 🧩 **Real orchestration, not a wrapper.** Orchestrator → executor → auditor roles,
   capacity limits, self‑critique gates, and "audit this lane" / "audit all done
   lanes" — with every state transition enforced server‑side.
 - 📸 **Evidence built in.** Playwright‑backed screenshots, traces, videos, and logs
   captured per lane, viewable from anywhere.
+- 📱 **Phone-ready without public exposure.** Scan a QR, enter a one-time code, and
+  drive your agents from your phone over a private Tailscale link. The validated
+  phone path is private web/PWA access; a native iOS shell is present for local
+  builds.
 - 🔒 **Private by design.** Nothing is exposed publicly. The session token lives in
   an HttpOnly cookie, secrets are referenced never echoed, and the tailnet URL alone
   leaks nothing until a device pairs.
@@ -95,8 +108,15 @@ Tailscale Funnel (public exposure) is intentionally not supported.
 
 ## Drive it from your AI chat (MCP)
 
-Don't want a terminal open per project? Point one chat — **Claude Code CLI, the
-Codex app, or Claude Desktop** — at Orca over MCP and let it orchestrate everything.
+Don't want a terminal open per project? Point one chat — **Codex CLI / Codex app /
+Claude Code CLI / Claude Desktop** — at Orca over MCP and let that agent
+orchestrate everything. This is the core Orca loop: one trusted orchestrator agent
+owns the plan, then Orca fans work out to executor lanes and routes results back
+through critique and audit.
+
+The primary tested MCP client paths are Codex and Claude. Other MCP-capable
+desktop apps or CLI clients can use the same stdio server if they can launch a
+local command with environment variables.
 
 1. On the workstation, generate a scoped orchestrator config (dashboard →
    **Pair → Generate config**, or `POST /api/mcp/orchestrator-bootstrap`). It mints a
@@ -118,9 +138,11 @@ Codex app, or Claude Desktop** — at Orca over MCP and let it orchestrate every
 2. In the chat, tell it to act as the orchestrator. It will `session__next_action`,
    `orchestrator__enroll` to claim the session, load a backlog with `task__bulk_add`,
    and — with `spawnPolicy:"auto"` — Orca fans those tasks out across executor lanes
-   up to capacity, refilling as they finish and running each through
-   executor → critique → audit → accepted. Ask it to *"show me the lanes"* and
-   `orchestrator__status` returns a live tree. `orchestrator__resign` hands off.
+   up to capacity. Codex can supervise Claude lanes, Claude can supervise Codex
+   lanes, and either can mix in API-backed or approved custom-CLI lanes. Each lane
+   runs through executor → critique → audit → accepted. Ask it to *"show me the
+   lanes"* and `orchestrator__status` returns a live tree. `orchestrator__resign`
+   hands off.
 
 The server enforces the workflow with `nextAction` envelopes, so the chat can't skip
 steps. See [`docs/desktop-app-control.md`](docs/desktop-app-control.md).
@@ -136,8 +158,10 @@ session, and enrolls you). See [`docs/agent-companion-mode.md`](docs/agent-compa
   Your workstation  —  local-first, never exposed publicly
   ──────────────────────────────────────────────────────────
     Orca server
-       └─►  Orchestrator
-              ├─►  Executor lane   (Codex / Claude / API)
+       └─►  Orchestrator agent   (Codex / Claude / orca-agent)
+              ├─►  Executor lane   (Codex CLI)
+              ├─►  Executor lane   (Claude CLI)
+              ├─►  Executor lane   (API provider)
               └─►  Auditor lane
   ──────────────────────────────────────────────────────────
                           ▲
@@ -181,10 +205,17 @@ See [`SECURITY.md`](SECURITY.md) to report issues.
 
 ## Platforms
 
-- **Web / PWA — runs everywhere.** Start it with Node.js on macOS, Windows, or Linux,
-  and install it to your home screen.
-- **macOS desktop app.** A native Tauri v2 build — `npm run tauri:build`.
-- **iOS.** A native shell gives the dashboard a full‑screen, app‑like phone experience.
+- **macOS workstation.** The validated host path today: run the local Node server,
+  use the web/PWA dashboard, or build the native Tauri shell.
+- **Phone over Tailscale.** The validated remote-operator path: pair once, then
+  use the private web/PWA dashboard from a phone on the same tailnet.
+- **iOS shell.** A native Tauri mobile shell exists for local builds, but the
+  production-ready phone path is still the private web/PWA flow.
+- **Windows / Linux.** The web server path is intended to be portable, but it has
+  not been release-validated on Windows or Linux yet.
+- **MCP / CLI control.** `orca-mcp` connects Codex and Claude desktop/CLI clients;
+  `orca-agent` lets any shell-capable agent start sessions, add backlog items, and
+  supervise lanes without being an MCP client.
 
 ## Docs
 
@@ -192,6 +223,7 @@ See [`SECURITY.md`](SECURITY.md) to report issues.
 - [Tailscale mobile access](docs/tailscale-mobile-access.md)
 - [Agent orchestrator / executor skills](docs/agent-orchestrator-skill.md)
 - [Control Orca from a chat (MCP)](docs/desktop-app-control.md) · [Companion mode (drive Orca from any agent)](docs/agent-companion-mode.md)
+- [Agent run modes and support matrix](docs/agent-run-modes.md)
 - [Live project links](docs/live-project-links.md)
 
 ## License

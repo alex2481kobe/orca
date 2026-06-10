@@ -1,8 +1,17 @@
-# Controlling Orca from Claude Code CLI / Codex app / Claude Desktop
+# Controlling Orca from Codex, Claude, and MCP clients
 
-Orca can be driven from a desktop AI app (the Codex app or Claude Desktop) in two
-complementary ways. Both run entirely on the local machine (loopback); neither
-exposes the Orca API token.
+Orca can be driven from a desktop AI app or CLI MCP client in two complementary
+ways. Both run entirely on the local machine (loopback); neither exposes the Orca
+API token.
+
+The primary tested controller paths are Codex CLI, the Codex app, Claude Code
+CLI, and Claude Desktop. Other MCP-capable clients can use the same stdio server
+if they can launch a local command with environment variables.
+
+This is the "one agent manages the fleet" flow: Codex can act as the orchestrator
+for Claude executor lanes, Claude can orchestrate Codex lanes, and either can mix
+in API-backed or approved custom-CLI lanes. Orca owns the workflow state, leases,
+capacity, evidence, critique, and audit gates.
 
 ## Way A — in-app browser (visual)
 
@@ -16,10 +25,10 @@ extra configuration is required beyond opening the URL.
 
 ## Way B — MCP tooling (programmatic)
 
-Give the desktop agent Orca's orchestrator tools as native MCP tools. The agent
-then acts as the Orca **orchestrator**: spawn/stop lanes, manage tasks, respond to
-approvals, change mode/permissions/goal/plan, capture evidence, and run audits —
-without screen-driving the UI.
+Give the desktop or CLI agent Orca's orchestrator tools as native MCP tools. The
+agent then acts as the Orca **orchestrator**: spawn/stop lanes, manage tasks,
+respond to approvals, change mode/permissions/goal/plan, capture evidence, and
+run audits — without screen-driving the UI.
 
 ### Generate the config
 
@@ -31,7 +40,7 @@ returns paste-ready config for each client.
 The lease can be scoped to a single project/session by passing `projectId` /
 `sessionId`; unscoped leases work session/project-wide.
 
-### Claude Code CLI (recommended)
+### Claude Code CLI
 
 Register the server in one command (the dashboard generates this exact line with
 your live lease and paths), then start a new session:
@@ -139,6 +148,11 @@ enforces the workflow: call `session__next_action` first to learn the required
 next tool; out-of-order calls are refused with a `nextAction` envelope. The
 `initialize` response also delivers the role-specific orchestrator rulebook, so an
 agent told "act as the orchestrator" knows the rules at connect time.
+
+The orchestrator is only the coordinator. Executor lanes still run through Orca's
+validated provider profiles and worktree isolation. Codex and Claude are the
+primary tested CLI executors for desktop-app orchestration flows; API-backed
+profiles and custom CLI adapters are available where configured and approved.
 
 ### Security
 

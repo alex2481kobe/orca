@@ -9,6 +9,21 @@ executor lane. Orca records a capability snapshot on each lane so the
 dashboard, read-only executor monitor, and orchestrator chat all show what the
 selected agent could support at launch time.
 
+## Control surfaces vs executor lanes
+
+Orca separates the agent that **controls** a run from the agents that **execute**
+tasks:
+
+- **Controller surfaces:** dashboard, web/PWA, Tauri desktop, phone over
+  Tailscale, `orca-agent`, and MCP clients such as Codex CLI/app, Claude Code
+  CLI, and Claude Desktop.
+- **Executor lanes:** the actual workers Orca launches in isolated worktrees:
+  Codex CLI, Claude CLI, API-backed providers, and approved host CLI adapters.
+
+The primary tested desktop-app/MCP controller paths are Codex and Claude. API
+providers and custom CLI adapters can be attached as executor lanes, but they do
+not automatically become tested desktop-app controller clients.
+
 ## Lane fields that control agent execution
 
 | Field | Applies to | Purpose |
@@ -79,8 +94,10 @@ advanced Custom CLI adapter.
 | OpenRouter | no | yes, `executorType: "openrouter"` | Custom CLI only, disabled until configured and proven |
 | Composer | yes, `executorType: "composer-cli"` using Cursor Agent CLI | yes, `executorType: "composer"` | Custom CLI optional for nonstandard hosts |
 
-The release posture is: tested adapters are listed as supported; untested CLIs
-are documented as experimental host configuration, not selectable defaults.
+The release posture is: tested executor adapters are listed as supported; untested
+CLIs are documented as experimental host configuration, not selectable defaults.
+Separately, the polished desktop-app/MCP controller flow is documented and tested
+for Codex and Claude first.
 
 The exact meaning of `permissionsProfile` and `intelligenceProfile` is owned by
 the selected CLI. Orca stores and passes supported values where the

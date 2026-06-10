@@ -27,9 +27,10 @@ Orca depends on directly.
 
 **Why this is not a user risk:**
 
-- Orca ships on **macOS (WKWebView)**, **iOS (WKWebView)**, and the **web/PWA** — none
-  of which compile or load the GTK3/glib stack. Those crates are only in `Cargo.lock`
-  because the dependency graph also covers a Linux build.
+- Orca's validated release path today is **macOS** plus **phone web/PWA access**.
+  The macOS shell uses WKWebView, and the web/PWA path does not compile or load
+  the GTK3/glib stack. Those crates are only in `Cargo.lock` because the Tauri
+  dependency graph also covers a Linux build.
 - They are **unmaintained / unsound notices**, not exploitable CVEs, and they are
   **pinned by Tauri** — there is no in-semver-range fix to apply. They clear when
   Tauri bumps its webview dependency stack upstream; we'll pick that up on the next

@@ -1,11 +1,16 @@
 # Companion mode — drive Orca from any agent
 
 Most of Orca is about running agents *inside* Orca. Companion mode is the inverse:
-an **outside** agent (Claude Code, Codex, Cursor, a cron script — anything that can
+an **outside** agent (Codex, Claude, Cursor, a cron script, or anything that can
 run a command or make an HTTP call) uses Orca's tools to spawn and supervise
 sub-agents and run the governed flow, **without** being an Orca MCP client and
-without living in the dashboard. You "supercharge" your own work by delegating
-fan-out to Orca, while Orca keeps the hardening and the flow.
+without living in the dashboard. You supercharge the agent you are already using
+by delegating fan-out to Orca, while Orca keeps the hardening and the flow.
+
+That means a single current chat can become the operator for a whole run: Codex
+can launch and audit Claude executor lanes, Claude can launch and audit Codex
+lanes, and either can include approved API-backed or custom-CLI lanes when the
+host is configured for them.
 
 This is also the answer to *"can my current chat be the orchestrator?"* — yes. An
 MCP client can't hot-attach a new server mid-session, but the MCP server is only a
@@ -37,7 +42,7 @@ hardened Orca (`ORCA_API_TOKEN` set) or are driving it remotely (then set
 `ORCA_TOOL_LEASE_TOKEN`).
 
 ```bash
-# One shot: provision a lease + create an auto-fan-out session + enroll as orchestrator.
+# One shot: provision a lease, create an auto-fan-out session, and enroll as orchestrator.
 orca-agent start "My run" --leader claude --cap 2
 # -> { sessionId, owner, spawnPolicy: "auto", next: "orca-agent bulk-add <id>" }
 
@@ -81,4 +86,4 @@ That makes *this* chat the active orchestrator. From then on it holds the sessio
 contract an MCP-connected orchestrator obeys.
 
 See also [`desktop-app-control.md`](desktop-app-control.md) for the MCP-client setup
-(Claude Code CLI / Codex / Claude Desktop).
+(Codex CLI/app, Claude Code CLI, Claude Desktop, and compatible MCP clients).
