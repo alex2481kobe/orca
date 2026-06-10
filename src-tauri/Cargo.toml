@@ -10,6 +10,16 @@ rust-version = "1.77.2"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+# Size-optimized release profile (the default release profile ships symbols and no
+# LTO, which is why the iOS Rust static lib/binary were huge). Applies to macOS and
+# iOS release builds. These are the standard Tauri size-reduction settings.
+[profile.release]
+opt-level = "z"      # optimize for size
+lto = true           # link-time optimization: dead-code elimination across crates
+codegen-units = 1    # maximize cross-unit optimization (slower compile, smaller binary)
+panic = "abort"      # drop unwinding tables
+strip = true         # strip symbols from the final binary
+
 [lib]
 name = "orca_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
