@@ -299,6 +299,32 @@ function renderPickerModal() {
     </div>`);
 }
 
+// Calm full-content screen when the Orca server can't be reached (e.g. it isn't
+// running, or a remote device can't reach the workstation). Replaces the degraded
+// "empty/scrunched shell" with an intentional message; the poll auto-reconnects.
+function renderServerUnreachable() {
+  const remote = !isWorkstation();
+  const sub = remote
+    ? 'Can’t reach your workstation. Make sure Orca is running on your Mac and this device is on the same Tailscale network — this page reconnects on its own.'
+    : 'The local server isn’t responding. Start it and this page reconnects on its own.';
+  const startBlock = remote
+    ? ''
+    : `<div class="connect-start">
+         <div class="tiny muted">In the Orca project folder, run:</div>
+         <code class="copy-url">npm start</code>
+       </div>`;
+  return `
+    <section class="home-welcome">
+      <div class="home-hero">
+        <img class="home-hero-logo" src="/orca-mark.png" alt="" width="56" height="56" />
+        <h1 class="home-hero-title">Orca isn’t running</h1>
+        <p class="home-hero-sub">${sub}</p>
+        ${startBlock}
+        <div class="tiny muted server-reconnect"><span class="chat-spinner" aria-hidden="true"></span> Waiting for the server…</div>
+      </div>
+    </section>`;
+}
+
 export function render(uiState = null) {
   const project = shell.projects.find((value) => value.slug === shell.route.projectSlug || value.id === shell.route.projectSlug);
   const sessions = project ? shell.sessions : [];
@@ -320,6 +346,18 @@ export function render(uiState = null) {
   renderBlockers();
   renderPickerModal();
   if (refs.content) refs.content.setAttribute('aria-busy', 'false');
+  // Server can't be reached (not running / workstation offline) → calm takeover
+  // instead of a degraded shell. Takes precedence over the auth/connect gates,
+  // which derive from now-stale auth state. The poll keeps retrying and this
+  // clears automatically once the server responds.
+  if (shell.serverUnreachable) {
+    unsubscribeLaneStream();
+    renderSidebarProjects(project);
+    if (refs.topbarTitle) refs.topbarTitle.textContent = 'Orca';
+    writeHtml(refs.content, renderServerUnreachable());
+    restoreContentUiState(uiState);
+    return;
+  }
   // Installed app not yet pointed at a workstation → dedicated connect screen.
   // Settings (#system) still works while disconnected so the theme is adjustable
   // before pairing; every other route shows the connect screen.

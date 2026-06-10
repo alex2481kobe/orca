@@ -2851,6 +2851,9 @@ button.home-cta { cursor: pointer; font: inherit; }
 .home-hero-title { font-size: 2rem; font-weight: 600; letter-spacing: -0.02em; margin: 0; }
 .home-hero-sub { color: var(--muted); font-size: 0.95rem; margin: 0; max-width: 30rem; }
 .home-hero-actions { margin-top: 0.6rem; }
+/* Server-unreachable screen (renderServerUnreachable): command box + reconnect note. */
+.connect-start { display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.4rem; width: 100%; max-width: 22rem; }
+.server-reconnect { align-items: center; display: inline-flex; gap: 0.5rem; margin-top: 0.6rem; }
 .home-cta {
   align-items: center; background: var(--text); border-radius: var(--radius); color: var(--ink-on-light); display: inline-flex;
   font-size: 0.9rem; font-weight: 600; gap: 0.4rem; padding: 0.6rem 1.1rem; text-decoration: none;

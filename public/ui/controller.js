@@ -145,6 +145,17 @@ export async function refresh(options = {}) {
     shell.route = parseRoute();
     const abortFromAuth = (response) => abortRefreshFromUnauthorized(response, requestId, uiState);
     const authResp = await api('/api/auth/status');
+    // status 0 = the fetch itself failed (connection refused / DNS) — the Orca
+    // server isn't reachable (not running, or the workstation is offline for a
+    // remote device). Show a calm "not running" screen instead of a degraded shell,
+    // and keep existing shell data so recovery is instant when it comes back. The
+    // poll keeps ticking, so this clears automatically once the server responds.
+    if (authResp.status === 0) {
+      shell.serverUnreachable = true;
+      render(captureContentUiState());
+      return;
+    }
+    shell.serverUnreachable = false;
     if (abortFromAuth(authResp)) return;
     if (authResp.ok && authResp.data) {
       shell.authStatus = authResp.data;
