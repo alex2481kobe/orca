@@ -73,6 +73,33 @@ APPLE_DEVELOPMENT_TEAM=<YOUR_APPLE_TEAM_ID> ORCA_HOST=0.0.0.0 npm run tauri ios 
   trust the developer**.
 - For an installable IPA / TestFlight instead: `npm run tauri ios build`.
 
+## Debug vs release, and a small installed app
+
+There are convenience scripts:
+
+```bash
+npm run ios:dev                         # DEBUG build, live-reload on device/sim (tauri ios dev)
+APPLE_DEVELOPMENT_TEAM=<TEAM> npm run ios:build      # RELEASE build, device-signed
+npm run ios:install -- release          # install the freshest .app onto the paired device
+```
+
+**Always install a RELEASE build for real use.** A **debug** build is ~460MB+ —
+debug compiles the Rust with full symbols and no optimization, and bundles the
+static lib. A **release** build (with the size-optimized `[profile.release]` in
+`src-tauri/Cargo.toml`: `opt-level="z"`, `lto`, `codegen-units=1`, `panic="abort"`,
+`strip`) links one stripped ~5MB binary; the whole app is **~8MB** (verified on a
+real iPhone 14).
+
+`npm run ios:install` installs the `.app` **directly** via `devicectl` (not the
+exported `.ipa`, which Tauri doesn't reliably refresh — installing a stale IPA looks
+like "my changes didn't take"). It prefers the release build; `-- debug` forces debug.
+
+> The Rust static lib (`Externals/**/libapp.a`) must **not** be added to the iOS
+> target's `sources` in `gen/apple/project.yml` — it's linked via the framework
+> dependency + `LIBRARY_SEARCH_PATHS`, and listing it as a source makes xcodegen
+> copy the 368MB `.a` into the bundle as a resource (that was the old ~484MB app).
+> It's set `buildPhase: none`; if you ever re-init the iOS project, re-apply that.
+
 ## GOTCHA #1 (the big one): build from the TERMINAL, not Xcode's ▶ button
 
 Tauri **dev** builds cannot be launched from Xcode's Run button. The Xcode
