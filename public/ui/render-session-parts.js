@@ -171,7 +171,7 @@ export function renderOrchestratorConsole(session) {
   const selectedRunMode = (laneMatches && activeLane.permissionsProfile) || 'auto-edit';
   const selectedIntelligence = (laneMatches && activeLane.intelligenceProfile) || 'high';
   return `
-    <article class="chat">
+    <article class="chat${locked ? '' : ' chat--empty'}">
       <div class="chat-thread" id="chat-thread-${safeAttr(session.id)}"></div>
       <form id="orchestrator-message-form" data-session-id="${safeAttr(session.id)}" class="composer composer-shell">
         <div id="composer-attachments-${safeAttr(session.id)}" class="composer-attachments">${renderComposerAttachmentChips(session.id)}</div>

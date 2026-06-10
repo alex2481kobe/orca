@@ -2378,7 +2378,13 @@ body.no-voice .composer-mic { display: none; }
 .session-tools { align-items: center; display: flex; gap: 0.25rem; }
 /* Empty chat: center the welcome + composer as a group (ChatGPT "What are you
    working on?" feel) instead of pinning the composer to the bottom. */
+/* Center on `.chat--empty` (set at skeleton render from message count) so the
+   centering is applied on FIRST paint — before the thread is filled in phase 2.
+   The :has() form is a fallback. Without the class form, phase-1 rendered the
+   composer at the bottom and phase-2 re-centered it, causing a visible shift. */
+.chat--empty,
 .chat:has(.chat-thread .chat-empty) { justify-content: center; }
+.chat--empty .chat-thread,
 .chat:has(.chat-thread .chat-empty) .chat-thread { flex: 0 0 auto; padding-bottom: 0.4rem; }
 .chat-empty { padding: 1rem; }
 .chat-empty h2 { font-size: 1.85rem; font-weight: 600; letter-spacing: -0.02em; }
