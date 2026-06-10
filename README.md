@@ -155,20 +155,22 @@ session, and enrolls you). See [`docs/agent-companion-mode.md`](docs/agent-compa
 ## How it works
 
 ```text
-  Your workstation  —  local-first, never exposed publicly
+  Control surfaces  —  choose one or combine them
+  ──────────────────────────────────────────────────────────
+    Codex app/CLI · Claude app/CLI  ── scoped MCP lease ┐
+    orca-agent from any shell       ── scoped tool lease ├─►
+    Dashboard / PWA / phone         ── browser session ──┘
+
+  Your macOS workstation  —  local-first, never exposed publicly
   ──────────────────────────────────────────────────────────
     Orca server
-       └─►  Orchestrator agent   (Codex / Claude / orca-agent)
-              ├─►  Executor lane   (Codex CLI)
-              ├─►  Executor lane   (Claude CLI)
-              ├─►  Executor lane   (API provider)
-              └─►  Auditor lane
-  ──────────────────────────────────────────────────────────
-                          ▲
-                          │   pair once with a one-time code,
-                          │   then drive it over Tailscale
-                          │
-              Phone   ·   laptop   ·   tablet
+       ├─ enforces leases, auth tiers, capacity, and nextAction workflow
+       ├─ captures evidence, logs, screenshots, traces, and audit state
+       └─► Orchestrator agent   (Codex / Claude / orca-agent)
+              ├─► Executor lane   (Codex CLI)
+              ├─► Executor lane   (Claude CLI)
+              ├─► Executor lane   (API provider)
+              └─► Auditor lane
 ```
 
 - **Three trust tiers.** *Public* (liveness only) → *operator* (paired devices:
