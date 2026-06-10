@@ -17,6 +17,11 @@ process.env.PORT = '0';
 process.env.ORCA_HOST = '127.0.0.1';
 process.env.ORCA_CREDENTIAL_BACKEND = 'memory';
 process.env.ORCA_RATE_LIMIT_DISABLED = 'true';
+// Allow the localtest.me "remote" host through the anti-DNS-rebinding Host gate.
+// It resolves to 127.0.0.1 but is a non-loopback name (used to render the remote
+// UI); real tailnet access is proxied and allowed automatically — this opt-in is
+// only for local remote simulation.
+process.env.ORCA_ALLOWED_HOSTS = 'workstation.localtest.me';
 
 const sm = await import('../src/server.js');
 const s = await sm.startServer(0, '127.0.0.1');
