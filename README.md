@@ -60,8 +60,15 @@ npm install
 npm start
 ```
 
-Open **http://127.0.0.1:3000/** and create your first project. That's it — it starts
-empty and clean; you bring the projects.
+Open **http://127.0.0.1:3000/**. Because you're on **localhost, this machine is your
+workstation** — Orca trusts it with full control, no pairing or token needed. Keep
+that terminal running; Orca lives as long as the `npm start` process does.
+
+**Point it at your code.** Create a project and give it a **folder on this Mac** (an
+existing directory — a git repo or any folder). That's how Orca "sees your files":
+agents you launch run inside that folder (each lane in its own git worktree), so they
+can read and edit that project's code. You pick the folder once per project; Orca only
+touches folders you add. It starts empty — you bring the projects.
 
 > Orca binds to **`127.0.0.1` (localhost)** by default — it's not on any network.
 > To use it from your phone, see [Drive it from your phone](#drive-it-from-your-phone)
