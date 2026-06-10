@@ -9,7 +9,6 @@
 /* Begin PBXBuildFile section */
 		1F121448EE79AAF77F5FBEFA /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = 8657834B9819035C809CC09B /* main.mm */; };
 		396062DDBE09CB393387EDB8 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F9CA098F958499257ECB0D56 /* WebKit.framework */; };
-		659CE7F7CFC56AE202BD2421 /* libapp.a in Resources */ = {isa = PBXBuildFile; fileRef = 4EB0068D6ECC40998234DA41 /* libapp.a */; };
 		6719E670A9FA9DFF64FF5087 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 96A50F0F68CF431BDACE3402 /* UIKit.framework */; };
 		6CFA181A6D701D39DCDE25F1 /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4E12FE01D53E6662BA301DB4 /* CoreGraphics.framework */; };
 		8DC0913220856FA06BEEC3EA /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 31D9946662BE0AE93B9AD485 /* Security.framework */; };
@@ -42,6 +41,7 @@
 		96A50F0F68CF431BDACE3402 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		A3B78B4C7E25D5FAFEDDBA4E /* lib.rs */ = {isa = PBXFileReference; path = lib.rs; sourceTree = "<group>"; };
 		A3C128E0E6D5141DB4961E9F /* orca-desktop_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "orca-desktop_iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		E01CB869E482A026A66F29B9 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
 		E2418D04847564AAA768C4FA /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
 		F9CA098F958499257ECB0D56 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
@@ -77,6 +77,7 @@
 			isa = PBXGroup;
 			children = (
 				DFBE78B62E64087E1EBD0F6C /* debug */,
+				DB7E17C6A1D25FA4A3ACFC51 /* release */,
 			);
 			path = arm64;
 			sourceTree = "<group>";
@@ -153,6 +154,14 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		DB7E17C6A1D25FA4A3ACFC51 /* release */ = {
+			isa = PBXGroup;
+			children = (
+				E01CB869E482A026A66F29B9 /* libapp.a */,
+			);
+			path = release;
+			sourceTree = "<group>";
+		};
 		DFBE78B62E64087E1EBD0F6C /* debug */ = {
 			isa = PBXGroup;
 			children = (
@@ -181,7 +190,7 @@
 			path = bindings;
 			sourceTree = "<group>";
 		};
-		"TEMP_080CD558-7355-4B4A-BDF5-8A4EB6359100" /* x86_64 */ = {
+		"TEMP_DD826A64-A326-4840-8A94-723CA356E407" /* x86_64 */ = {
 			isa = PBXGroup;
 			children = (
 			);
@@ -249,7 +258,6 @@
 				CE9C462E8981738EE73FF6EE /* Assets.xcassets in Resources */,
 				C53D1AE8D98079BC7C6396EF /* LaunchScreen.storyboard in Resources */,
 				A3D727E4A2CB4813DD51A38B /* assets in Resources */,
-				659CE7F7CFC56AE202BD2421 /* libapp.a in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -320,7 +328,7 @@
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALID_ARCHS = arm64;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = "NQMGF6QLD7";
 			};
 			name = release;
 		};
@@ -353,7 +361,7 @@
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALID_ARCHS = arm64;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = "NQMGF6QLD7";
 			};
 			name = debug;
 		};

@@ -30,7 +30,14 @@ targets:
     sources:
       - path: Sources
       - path: Assets.xcassets
+      # Externals holds the prebuilt Rust static lib (libapp.a). It's LINKED via the
+      # `dependencies: framework: libapp.a` entry + LIBRARY_SEARCH_PATHS below, so it
+      # must NOT also be added to a build phase here — otherwise xcodegen copies the
+      # 368MB .a into the app bundle as a resource (it's already linked into the
+      # binary), which is what made the installed app ~460MB. buildPhase: none keeps
+      # the files referenced but out of every build phase.
       - path: Externals
+        buildPhase: none
       - path: orca-desktop_iOS
       - path: assets
         buildPhase: resources
