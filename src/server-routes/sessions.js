@@ -115,6 +115,25 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
       }
     }
 
+    if (parts.length === 4 && parts[3] === 'worktree-policy' && method === 'POST') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+      if (rejectSpoofedActor(body, res)) return;
+      try {
+        const result = registry.setSessionWorktreePolicy(session.id, {
+          ...body,
+          actor: body.actor || 'dashboard',
+        });
+        return sendJson(res, 200, result);
+      } catch (error) {
+        return sendJson(res, error.status || 500, {
+          error: error.message || 'Could not update worktree policy.',
+          requiresApproval: error.requiresApproval || false,
+          risk: error.risk || null,
+        });
+      }
+    }
+
     if (parts.length === 4 && parts[3] === 'plan' && method === 'POST') {
       const body = await parseJsonBody(req);
       if (body === null) return sendBodyError(req, res);
@@ -248,6 +267,21 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
           requiresApproval: error.requiresApproval || false,
           risk: error.risk || null,
         });
+      }
+    }
+
+    if (parts.length === 5 && parts[3] === 'supervisor' && parts[4] === 'audit' && method === 'POST') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+      if (rejectSpoofedActor(body, res)) return;
+      try {
+        const result = registry.recordSupervisorSessionAudit(session.id, {
+          ...body,
+          actor: body.actor || 'supervisor',
+        });
+        return sendJson(res, 200, result);
+      } catch (error) {
+        return sendJson(res, error.status || 500, { error: error.message || 'Could not record supervisor audit.' });
       }
     }
 

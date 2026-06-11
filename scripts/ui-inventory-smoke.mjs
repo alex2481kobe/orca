@@ -85,7 +85,10 @@ const WIRED_ACTIONS = new Set([
   'archiveSession',
   'createPairingCode',
   'connectDesktopApp',
+  'connectSupervisorApp',
   'copyDesktopConfig',
+  'copySupervisorConfig',
+  'supervisorAudit',
   'deleteMcpTool',
   'deletePrivateAccessTarget',
   'deleteProjectQuickLink',
@@ -117,6 +120,8 @@ const WIRED_ACTIONS = new Set([
   'stopLane',
   'toggleExecutorPanel',
   'toggleNav',
+  'openSettings',
+  'settingsBack',
   'toggleProviderEnabled',
   'browseWorkstation',
   'workstationOpenDir',
@@ -126,18 +131,16 @@ const WIRED_ACTIONS = new Set([
 
 const REQUIRED_INVENTORY_SCREENS = [
   { name: 'home', path: '/', purpose: 'Default operator overview and project navigation entry.', primaryAction: 'Open a project/session.' },
-  { name: 'pair', path: '/#pair', purpose: 'Pair a remote laptop/phone via QR code and one-time pairing code.', primaryAction: 'Create pairing code.' },
   { name: 'projects', path: '/#projects', purpose: 'Project list management view.', primaryAction: 'Open project.' },
   { name: 'new-project', path: '/#create', purpose: 'Create a new project.', primaryAction: 'Create project.' },
   { name: 'settings', path: '/#system', purpose: 'Global settings and system health entry.', primaryAction: 'Review effective system state.' },
+  { name: 'agents', path: '/#agents', purpose: 'Agent CLI, executor profile, and evidence capture setup.', primaryAction: 'Review agent readiness.' },
   { name: 'providers', path: '/#providers', purpose: 'Provider catalog and health.', primaryAction: 'Check or configure provider.' },
   { name: 'secrets', path: '/#providers', purpose: 'Provider secret setup surface.', primaryAction: 'Set/delete provider secret reference.' },
-  { name: 'mcp-tools', path: '/#mcp', purpose: 'MCP tool management.', primaryAction: 'Create or edit tool.' },
-  { name: 'audit-queue', path: '/#audit', purpose: 'Audit queue and review actions.', primaryAction: 'Open or acknowledge audit.' },
-  { name: 'private-access', path: '/#private-access', purpose: 'Tailscale/private mobile access setup.', primaryAction: 'Copy/check dry-run setup command.' },
-  { name: 'cleanup', path: '/#cleanup', purpose: 'Artifact cleanup and schedule controls.', primaryAction: 'Run cleanup dry-run.' },
-  { name: 'notifications', path: '/#notifications', purpose: 'Notification settings and unread status.', primaryAction: 'Mark notification read.' },
-  { name: 'backup-support', path: '/#backup', purpose: 'Local app backup, import dry-run, and redacted support bundle.', primaryAction: 'Export app backup.' },
+  { name: 'supervisor', path: '/#supervisor', purpose: 'Cross-project supervisor control and MCP bootstrap.', primaryAction: 'Generate supervisor MCP config.' },
+  { name: 'mcp-tools', path: '/#mcp', purpose: 'Desktop MCP bridge and custom tool management.', primaryAction: 'Generate config or create tool.' },
+  { name: 'access', path: '/#access', purpose: 'Tailscale, pairing, and token access setup.', primaryAction: 'Create pairing code or configure private access.' },
+  { name: 'operations', path: '/#operations', purpose: 'Notifications, cleanup, backup, archive, and effective policy.', primaryAction: 'Review operational settings.' },
 ];
 
 const SEEDED_INVENTORY_SCREENS = [
@@ -344,6 +347,49 @@ async function checkRoute(page, viewport, screen) {
     timeout: 20000,
   });
   await waitForApp(page);
+
+  if (screen.name === 'supervisor') {
+    let bootstrapCalls = 0;
+    await page.route('**/api/mcp/supervisor-bootstrap', async (route) => {
+      bootstrapCalls += 1;
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          lease: { expiresAt: new Date(Date.now() + 60_000).toISOString() },
+          bootstrap: {
+            clients: {
+              claudeCli: { command: 'claude mcp add orca-supervisor --env ORCA_ROLE=supervisor' },
+              codexCli: { command: 'codex mcp add orca-supervisor --env ORCA_ROLE=supervisor' },
+              claudeDesktop: { snippet: '{"mcpServers":{"orca-supervisor":{}}}' },
+              codex: { snippet: '[mcp_servers.orca-supervisor]' },
+            },
+          },
+        }),
+      });
+    });
+    const before = await page.evaluate(() => ({
+      text: document.body.textContent || '',
+      actions: Array.from(document.querySelectorAll('[data-action]')).map((element) => element.getAttribute('data-action') || ''),
+    }));
+    if (!before.text.includes('Supervisor agent')) fail(`${viewport.name}/supervisor missing heading`);
+    if (!before.text.includes('worktree:')) fail(`${viewport.name}/supervisor missing worktree mode summary`);
+    if (!before.actions.includes('connectSupervisorApp')) fail(`${viewport.name}/supervisor missing bootstrap action`);
+    await page.click('[data-action="connectSupervisorApp"]');
+    try {
+      await page.waitForFunction(() => document.body.textContent.includes('Generated supervisor config'), { timeout: 10000 });
+    } catch (error) {
+      const text = await page.evaluate(() => document.body.textContent || '');
+      fail(`${viewport.name}/supervisor bootstrap did not render generated config`, text.slice(0, 1000));
+    }
+    const after = await page.evaluate(() => ({
+      text: document.body.textContent || '',
+      copyActions: Array.from(document.querySelectorAll('[data-action="copySupervisorConfig"]')).length,
+    }));
+    if (bootstrapCalls !== 1) fail(`${viewport.name}/supervisor bootstrap action call count`, `${bootstrapCalls}`);
+    if (!after.text.includes('Generated supervisor config')) fail(`${viewport.name}/supervisor bootstrap did not render generated config`);
+    if (after.copyActions < 4) fail(`${viewport.name}/supervisor missing generated copy controls`, `${after.copyActions}`);
+  }
 
   const result = await page.evaluate((vw) => {
     const overflowPx = document.documentElement.scrollWidth - vw;

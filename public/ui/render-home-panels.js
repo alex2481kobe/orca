@@ -101,6 +101,46 @@ function copyUrlButton(url, label, cls = 'secondary') {
   return `<button class="${cls}" data-action="copyPhoneUrl" data-url="${safeAttr(url)}" type="button">${safeText(label)}</button>`;
 }
 
+function settingsSummaryGrid(items = []) {
+  const rows = items
+    .filter((item) => item && item.label)
+    .map((item) => `
+      <div class="settings-summary-item">
+        <strong>${safeText(item.value ?? '')}</strong>
+        <span>${safeText(item.label)}</span>
+      </div>
+    `).join('');
+  return rows ? `<div class="settings-summary-grid">${rows}</div>` : '';
+}
+
+function settingsActionRows(rows = []) {
+  const html = rows
+    .filter((row) => row && row.title)
+    .map((row) => `
+      <div class="settings-action-row">
+        <div class="settings-action-main">
+          ${row.kicker ? `<span class="settings-row-kicker">${safeText(row.kicker)}</span>` : ''}
+          <strong>${safeText(row.title)}</strong>
+          ${row.detail ? `<span class="tiny muted">${safeText(row.detail)}</span>` : ''}
+          ${row.content || ''}
+        </div>
+        ${row.actions ? `<div class="settings-action-controls">${row.actions}</div>` : ''}
+      </div>
+    `).join('');
+  return html ? `<div class="settings-action-list">${html}</div>` : '';
+}
+
+function settingsCallout(title, detail, actions = '') {
+  return `
+    <div class="settings-callout">
+      <div>
+        <strong>${safeText(title)}</strong>
+        ${detail ? `<span class="tiny muted">${safeText(detail)}</span>` : ''}
+      </div>
+      ${actions ? `<div class="lane-row">${actions}</div>` : ''}
+    </div>`;
+}
+
 function pairedDevicesDisclosure({ uikey, summary, rows, emptyText, bodyPrefix = '' }) {
   return `
         <details class="disclosure compact-disclosure" data-uikey="${uikey}">
@@ -182,71 +222,96 @@ export function renderPairPanel(ctx) {
           </div>`;
   // The pairing-code steps only make sense once Tailscale is up (a remote device
   // can't reach this Mac otherwise). Until then, show only the Tailscale setup.
-  const pairingSteps = tsReady ? `
-        <div class="pair-step">
-          <strong>2. Create a one-time pairing code</strong>
-          <div class="lane-row">
-            ${pairingCodeButton(shell.lastPairing ? 'New code' : 'Create pairing code', 'btn')}
-          </div>
-          ${pairingCodeBox('Create a code here, then type it into the access screen on the other device. Codes are single-use and expire quickly.')}
-        </div>
-        <div class="pair-step">
-          <strong>3. Enter the code on the other device</strong>
-          <div class="tiny muted">On the other device's access screen, paste the code. That pairs it — the device can now use Orca.</div>
-        </div>
-        <div class="pair-step">
-          <strong>4. Install Orca as an app (optional)</strong>
-          <div class="tiny muted">After pairing, that device can add Orca to its Home Screen or Dock so it opens in its own window — its pairing screen shows the exact step for whatever browser it's on.</div>
-        </div>` : '';
+  const tailnetStatus = tailnet.loggedIn ? 'Signed in' : tailnet.binaryAvailable ? 'Sign in' : 'Install';
+  const pairingSteps = tsReady ? settingsActionRows([
+    {
+      kicker: 'Step 2',
+      title: 'Create a one-time code',
+      detail: 'Single-use and short-lived. The code pairs a browser without exposing the API token.',
+      actions: pairingCodeButton(shell.lastPairing ? 'New code' : 'Create code', 'btn'),
+      content: pairingCodeBox('Create a code here, then type it into the access screen on the other device.'),
+    },
+    {
+      kicker: 'Step 3',
+      title: 'Finish on the other device',
+      detail: 'Open Orca there, enter the code, and the device becomes paired.',
+    },
+    {
+      kicker: 'Optional',
+      title: 'Install as an app',
+      detail: 'After pairing, the device can add Orca to its Home Screen or Dock.',
+    },
+  ]) : '';
   return `
-      <article class="card control-card pair-panel" id="section-pair" data-panel-card="pair">
-        <div class="card-kicker">Pair a device</div>
-        <h3>Pair with remote device</h3>
-        <p class="muted">${tsReady
-          ? 'Open Orca on a laptop or phone over Tailscale, then enter a one-time pairing code. The code grants workflow access without ever exposing the API token.'
-          : 'Pairing remote devices needs Tailscale so they can privately reach this Mac. Set it up first, then this panel will show your device URL, QR, and pairing codes.'}</p>
-        <div class="onboarding-card">${step1}
-        </div>
-        ${pairingSteps}
-        ${pairedDevicesDisclosure({ uikey: 'pair-paired-devices', summary: pairedDeviceSummary('device'), rows: authSessionRows, emptyText: 'No paired devices yet.' })}
-        <p class="tiny muted">Prefer to drive Orca from a desktop AI app? <a href="/#desktop-control" data-route="desktop-control">Set up Codex app / Claude Desktop control →</a></p>
+      <article class="card control-card pair-panel" id="section-pair" data-panel-card="access">
+        <details class="disclosure">
+          <summary>
+            <span>Pair devices</span>
+            <small>${safeText(tsReady ? 'Tailscale ready' : 'Tailscale setup')}</small>
+          </summary>
+          <div class="disclosure-body">
+            ${settingsSummaryGrid([
+              { label: 'Tailnet', value: tailnetStatus },
+              { label: 'Access mode', value: accessModeSummary },
+              { label: 'Paired devices', value: pairedDeviceSummary('device') },
+            ])}
+            <div class="onboarding-card">${step1}
+            </div>
+            ${pairingSteps}
+            ${pairedDevicesDisclosure({ uikey: 'pair-paired-devices', summary: pairedDeviceSummary('device'), rows: authSessionRows, emptyText: 'No paired devices yet.' })}
+            <p class="tiny muted">Prefer to drive Orca from a desktop AI app? <a class="settings-inline-link" href="/#mcp" data-route="mcp">Desktop app control</a></p>
+          </div>
+        </details>
       </article>`;
 }
 
 export function renderDesktopControlPanel(ctx) {
   const { phoneUrl, desktopBootstrapMarkup } = ctx;
   return `
-      <article class="card control-card desktop-control-card" id="section-desktop-control" data-panel-card="desktop-control">
-        <div class="card-kicker">Desktop app control</div>
-        <h3>Drive Orca from Codex app or Claude Desktop</h3>
-        <p class="muted">Two complementary ways to control this dashboard from a desktop AI app:</p>
-        <div class="pair-step">
-          <strong>A. In-app browser (visual)</strong>
-          <div class="tiny muted">Open this dashboard URL in the desktop app's built-in browser to use Orca's UI and chats directly.</div>
-          <code class="copy-url">${safeText(phoneUrl)}</code>
-          <div class="lane-row">
-            ${copyUrlButton(phoneUrl, 'Copy dashboard URL')}
+      <article class="card control-card desktop-control-card" id="section-desktop-control" data-panel-card="mcp">
+        <details class="disclosure">
+          <summary>
+            <span>Desktop app control</span>
+            <small>Codex app / Claude Desktop</small>
+          </summary>
+          <div class="disclosure-body">
+            ${settingsActionRows([
+              {
+                kicker: 'Visual',
+                title: 'Open the dashboard in a desktop app',
+                detail: 'Use the same Orca UI and chats inside Codex app or Claude Desktop.',
+                content: `<code class="copy-url">${safeText(phoneUrl)}</code>`,
+                actions: copyUrlButton(phoneUrl, 'Copy URL'),
+              },
+              {
+                kicker: 'MCP',
+                title: 'Register an external orchestrator',
+                detail: 'Generates a scoped lease for Orca tools. The desktop agent must enroll before mutating sessions.',
+                actions: '<button data-action="connectDesktopApp" type="button">Generate config</button>',
+                content: desktopBootstrapMarkup,
+              },
+            ])}
           </div>
-        </div>
-        <div class="pair-step">
-          <strong>B. MCP tooling (programmatic)</strong>
-          <div class="tiny muted">Generate a scoped orchestrator MCP config. The desktop agent then acts as the Orca orchestrator with full tooling (spawn/stop lanes, tasks, approvals, mode/permission/goal/plan, evidence, audit).</div>
-          <div class="lane-row">
-            <button data-action="connectDesktopApp" type="button">Generate desktop-app config</button>
-          </div>
-          ${desktopBootstrapMarkup}
-        </div>
+        </details>
       </article>`;
 }
 
 export function renderSetupPanel(ctx) {
   const { tailnet, phoneUrl, browserPaired, tokenConfigured, phoneQr, accessModeSummary, accessModeOptions, privateSettings, authSessionRows } = ctx;
   return `
-      <article class="card control-card setup-wizard" id="section-setup" data-panel-card="setup">
-        <div class="card-kicker">First-run wizard</div>
-        <h3>Connect a phone or laptop</h3>
-        <p class="muted">The secure flow is tailnet access first, then Orca pairing. Tailnet membership alone is not enough to control the dashboard.</p>
-        <div class="setup-steps">
+      <article class="card control-card setup-wizard" id="section-setup" data-panel-card="access">
+        <details class="disclosure">
+          <summary>
+            <span>First-run access setup</span>
+            <small>${safeText(accessModeSummary)}</small>
+          </summary>
+          <div class="disclosure-body">
+            ${settingsSummaryGrid([
+              { label: 'Tailnet', value: tailnet.loggedIn ? 'Signed in' : tailnet.binaryAvailable ? 'Sign in' : 'Install' },
+              { label: 'Private URL', value: phoneUrl.startsWith('http') ? 'Ready' : 'Pending' },
+              { label: 'Browser access', value: browserPaired ? 'Paired' : tokenConfigured ? 'Token set' : 'Needs code' },
+            ])}
+            <div class="setup-steps">
           <div class="setup-step ${tailnet.binaryAvailable ? 'ok' : 'warn'}">
             <span>1</span>
             <div><strong>Tailscale installed</strong><small>${tailnet.binaryAvailable ? 'Detected on this workstation.' : 'Install and sign in to Tailscale on this workstation.'}</small></div>
@@ -263,8 +328,8 @@ export function renderSetupPanel(ctx) {
             <span>4</span>
             <div><strong>Browser access</strong><small>${browserPaired ? 'This browser is paired.' : tokenConfigured ? 'API token is set in this tab.' : 'Pair remote devices with one-time codes; keep API token fallback on trusted browsers.'}</small></div>
           </div>
-        </div>
-        <div class="onboarding-card mini">
+            </div>
+            <div class="onboarding-card mini">
           <div>
             <strong>Scan or open this from your phone or laptop</strong>
             <code class="copy-url">${safeText(phoneUrl)}</code>
@@ -275,11 +340,15 @@ export function renderSetupPanel(ctx) {
             ${pairingCodeBox('Create a pairing code from the trusted workstation browser, then enter it on the phone access screen.')}
           </div>
           <div class="qr-wrap">${phoneQr}<span>Scan from trusted device</span></div>
-        </div>
-        <details class="disclosure compact-disclosure">
+            </div>
+            <details class="disclosure compact-disclosure">
           <summary><span>HTTP vs HTTPS Serve</span><small>${safeText(accessModeSummary)}</small></summary>
           <div class="disclosure-body">
-            <p>HTTP over Tailscale is private inside the encrypted tailnet and avoids certificate transparency metadata. HTTPS Serve improves Safari behavior and secure-cookie semantics, but can publish the machine/tailnet DNS name in public certificate logs.</p>
+            ${settingsSummaryGrid([
+              { label: 'Recommended', value: 'HTTP' },
+              { label: 'Privacy', value: 'Tailnet-only' },
+              { label: 'HTTPS', value: 'Optional' },
+            ])}
             <form id="setup-private-access-settings-form">
               <label>Access mode
                 <select name="preferredMode">
@@ -307,6 +376,8 @@ export function renderSetupPanel(ctx) {
               <button class="secondary" data-action="copyPrivateAccessCommand" data-command="tailscale serve reset" type="button">Copy disable Serve</button>
             </div>
           </div>
+            </details>
+          </div>
         </details>
       </article>`;
 }
@@ -314,26 +385,48 @@ export function renderSetupPanel(ctx) {
 export function renderTokenPanel(ctx) {
   const { tokenConfigured, browserPaired, authSessionRows } = ctx;
   return `
-      <article class="card control-card" id="section-token" data-panel-card="token">
-        <h3>API token</h3>
-        <div class="tiny muted">${tokenConfigured ? 'Token configured for this tab.' : 'No raw token stored in this tab.'}</div>
-        <div class="tiny">Browser session: <span class="tag ${browserPaired ? 'ok' : 'warn'}">${browserPaired ? 'paired' : 'not paired'}</span></div>
-        <p class="muted">Use browser pairing for phone and laptop access when possible. It stores an HttpOnly session cookie instead of exposing the API token to page scripts.</p>
-        <label>Token
+      <article class="card control-card" id="section-token" data-panel-card="access">
+        <details class="disclosure">
+          <summary>
+            <span>API token and browser session</span>
+            <small>${safeText(browserPaired ? 'paired browser' : tokenConfigured ? 'token in tab' : 'not paired')}</small>
+          </summary>
+          <div class="disclosure-body">
+            ${settingsSummaryGrid([
+              { label: 'API token', value: tokenConfigured ? 'In memory' : 'Not set' },
+              { label: 'Browser session', value: browserPaired ? 'Paired' : 'Not paired' },
+              { label: 'Preferred access', value: 'Pairing code' },
+            ])}
+            <label>Token
           <input id="api-token-input" type="password" placeholder="Enter token" autocomplete="off" />
-        </label>
-        <div class="lane-row">
+            </label>
+            <div class="lane-row">
           <button class="secondary" data-action="setApiToken" type="button">Save token</button>
           <button class="secondary" data-action="clearApiToken" type="button">Clear token</button>
           ${pairingCodeButton('Create pairing code')}
           ${browserPaired ? '<button class="secondary" data-action="logoutBrowserSession" type="button">Log out paired browser</button>' : ''}
-        </div>
-        ${pairedDevicesDisclosure({ uikey: 'token-paired-devices', summary: pairedDeviceSummary('session'), rows: authSessionRows, emptyText: 'No paired browser sessions yet.' })}
-        <details class="disclosure compact-disclosure">
+            </div>
+            ${pairedDevicesDisclosure({ uikey: 'token-paired-devices', summary: pairedDeviceSummary('session'), rows: authSessionRows, emptyText: 'No paired browser sessions yet.' })}
+            <details class="disclosure compact-disclosure">
           <summary><span>Packaged app credential storage</span><small>Tauri scope</small></summary>
-          <div class="disclosure-body tiny muted">In the future desktop app, the server API token should be generated on first run and stored in the OS credential store by the app shell. Phone and laptop browsers should use pairing; API tokens are for automation and emergency manual setup.</div>
-        </details>
-        <details class="disclosure">
+          <div class="disclosure-body">
+            ${settingsActionRows([
+              {
+                title: 'Desktop app',
+                detail: 'Generate the server token on first run and store it in the OS credential store.',
+              },
+              {
+                title: 'Phone and laptop browsers',
+                detail: 'Use one-time pairing codes so raw API tokens never live in page storage.',
+              },
+              {
+                title: 'Automation',
+                detail: 'Use API tokens only for trusted automation and emergency manual setup.',
+              },
+            ])}
+          </div>
+            </details>
+            <details class="disclosure compact-disclosure">
           <summary><span>Pair this browser</span><small>one-time code</small></summary>
           <div class="disclosure-body">
             <label>Pairing code
@@ -344,6 +437,8 @@ export function renderTokenPanel(ctx) {
             </label>
             <button class="secondary" data-action="pairBrowserSession" type="button">Pair browser</button>
           </div>
+            </details>
+          </div>
         </details>
       </article>`;
 }
@@ -351,14 +446,18 @@ export function renderTokenPanel(ctx) {
 export function renderAccessPanel(ctx) {
   const { accessModeSummary, accessModeOptions, privateSettings, phoneUrl, phoneQr, authSessionRows } = ctx;
   return `
-      <article class="card control-card" id="section-settings-access" data-panel-card="system">
+      <article class="card control-card" id="section-settings-access" data-panel-card="access">
         <details class="disclosure">
           <summary>
             <span>Access and paired devices</span>
             <small>${safeText(accessModeSummary)}</small>
           </summary>
           <div class="disclosure-body">
-            <p class="muted">Settings is the trusted workstation surface for HTTP/HTTPS preference, one-time pairing, browser session revocation, and token rotation. Unpaired phone and laptop browsers only see the pairing screen.</p>
+            ${settingsSummaryGrid([
+              { label: 'Private access', value: accessModeSummary },
+              { label: 'Pairing', value: 'One-time code' },
+              { label: 'Remote browsers', value: 'Pairing gate' },
+            ])}
             <form id="settings-private-access-settings-form">
               <label>Access mode
                 <select name="preferredMode">
@@ -392,7 +491,7 @@ export function renderAccessPanel(ctx) {
               </div>
               <div class="qr-wrap">${phoneQr}<span>Trusted setup QR</span></div>
             </div>
-            ${pairedDevicesDisclosure({ uikey: 'access-paired-devices', summary: `${pairedDeviceCount() ?? 0} active`, rows: authSessionRows, emptyText: 'No paired browser sessions yet.', bodyPrefix: '<p class="tiny muted">Rotate session state by revoking old devices, clearing this browser token if needed, then creating a new one-time pairing code.</p>' })}
+            ${pairedDevicesDisclosure({ uikey: 'access-paired-devices', summary: `${pairedDeviceCount() ?? 0} active`, rows: authSessionRows, emptyText: 'No paired browser sessions yet.', bodyPrefix: '<div class="tiny muted">Rotate access by revoking old devices, clearing this browser token if needed, then creating a fresh pairing code.</div>' })}
           </div>
         </details>
       </article>`;
@@ -401,13 +500,15 @@ export function renderAccessPanel(ctx) {
 export function renderExecutorProfilesPanel(ctx) {
   const { profileRows } = ctx;
   return `
-      <article class="card control-card" id="section-system" data-panel-card="system">
+      <article class="card control-card" id="section-system" data-panel-card="agents">
         <details class="disclosure">
           <summary>
             <span>Executor profiles</span>
             <small>Defaults, binaries, workdirs</small>
           </summary>
-          <div class="disclosure-body">${profileRows || '<div class="muted">No executor profiles loaded yet.</div>'}</div>
+          <div class="disclosure-body">
+            <div class="provider-list">${profileRows || '<div class="muted">No executor profiles loaded yet.</div>'}</div>
+          </div>
         </details>
       </article>`;
 }
@@ -415,18 +516,21 @@ export function renderExecutorProfilesPanel(ctx) {
 export function renderCapturePanel(ctx) {
   const { captureSummary, captureDetail, captureReady } = ctx;
   return `
-      <article class="card control-card" data-panel-card="system">
+      <article class="card control-card" data-panel-card="agents">
         <details class="disclosure">
           <summary>
             <span>Evidence capture backend</span>
             <small>${safeText(captureSummary)}</small>
           </summary>
           <div class="disclosure-body">
-            <div class="tiny muted">${safeText(captureDetail)}</div>
+            ${settingsSummaryGrid([
+              { label: 'Status', value: captureSummary },
+              { label: 'Video capture', value: captureReady ? 'Ready' : 'Needs setup' },
+            ])}
             <div class="lane-row">
               <button class="secondary" data-action="setupCapture" type="button">${captureReady ? 'Reconfigure capture' : 'Enable screenshots &amp; video'}</button>
             </div>
-            <div class="tiny muted">Setup is governed: it runs a dry-run first, then installs only after you confirm. The desktop app can also capture screenshots natively (no download) on macOS.</div>
+            ${settingsCallout('Governed setup', `${captureDetail} Dry-run first; install only after confirmation.`)}
           </div>
         </details>
       </article>`;
@@ -435,15 +539,28 @@ export function renderCapturePanel(ctx) {
 export function renderCliHealthPanel(ctx) {
   const { cliRows } = ctx;
   return `
-      <article class="card control-card" id="section-cli-setup" data-panel-card="system">
-        <details class="disclosure" open>
+      <article class="card control-card" id="section-cli-setup" data-panel-card="agents">
+        <details class="disclosure">
           <summary>
             <span>Agent CLIs &amp; setup</span>
             <small>Codex, Claude, Gemini · how discovery works</small>
           </summary>
           <div class="disclosure-body">
-            <p class="tiny muted" style="margin:0 0 0.6rem">Orca auto-discovers agent CLIs by running <code>which &lt;cli&gt;</code> on the PATH it was launched from. To add one: install the agent's official CLI (e.g. Codex, Claude, Gemini), confirm <code>which codex</code> succeeds in that shell, then relaunch Orca or hit Refresh below. Installed-but-not-found almost always means Orca was started from a shell that didn't have the CLI on its PATH.</p>
-            ${cliRows || '<div class="muted">No CLI data yet.</div>'}
+            ${settingsActionRows([
+              {
+                title: 'Discovery source',
+                detail: 'Orca runs which <cli> against the PATH it was launched from.',
+              },
+              {
+                title: 'Add a CLI',
+                detail: 'Install the official CLI, confirm it resolves in that shell, then relaunch Orca or refresh.',
+              },
+              {
+                title: 'Installed but missing',
+                detail: 'Usually means Orca started from a shell that did not have the CLI on PATH.',
+              },
+            ])}
+            <div class="provider-list">${cliRows || '<div class="muted">No CLI data yet.</div>'}</div>
           </div>
         </details>
       </article>`;
@@ -452,14 +569,18 @@ export function renderCliHealthPanel(ctx) {
 export function renderCleanupPanel(ctx) {
   const { schedule, cleanupNext, scheduleApiUrl, scheduleRunApiUrl } = ctx;
   return `
-      <article class="card control-card" id="section-cleanup" data-panel-card="cleanup">
+      <article class="card control-card" id="section-cleanup" data-panel-card="operations">
         <details class="disclosure">
           <summary>
             <span>Artifact cleanup schedule</span>
             <small>${schedule.enabled ? `Enabled · next ${safeText(cleanupNext)}` : 'Disabled'}</small>
           </summary>
           <div class="disclosure-body">
-        <div class="tiny muted">Status: ${schedule.enabled ? `Enabled · next run ${cleanupNext}` : 'Disabled'}</div>
+        ${settingsSummaryGrid([
+          { label: 'Status', value: schedule.enabled ? 'Enabled' : 'Disabled' },
+          { label: 'Next run', value: schedule.enabled ? cleanupNext : 'Not scheduled' },
+          { label: 'Retention', value: schedule.olderThanDays ? `${schedule.olderThanDays} days` : 'Default' },
+        ])}
         <form id="cleanup-schedule-form" data-url="${safeAttr(scheduleApiUrl)}" data-action-source="cleanup-schedule">
           <label><input type="checkbox" name="enabled" ${schedule.enabled ? 'checked' : ''}> Enable periodic cleanup</label>
           <label>Interval hours
@@ -474,7 +595,7 @@ export function renderCleanupPanel(ctx) {
           <label><input type="checkbox" name="dryRun" ${schedule.dryRun ? 'checked' : ''}> Dry run mode</label>
           <button type="submit">Save cleanup schedule</button>
         </form>
-        <div class="lane-row" style="margin-top:0.65rem">
+        <div class="lane-row">
           <button class="secondary" data-action="cleanupArtifactsRunNow" data-url="${safeAttr(scheduleRunApiUrl)}" type="button">Run cleanup now</button>
         </div>
           </div>
@@ -483,47 +604,113 @@ export function renderCleanupPanel(ctx) {
 }
 
 export function renderMcpPanel(ctx) {
-  const { mcpTools, mcpOptions } = ctx;
+  const { visibleMcpTools, mcpOptions } = ctx;
+  const customCount = Array.isArray(visibleMcpTools) ? visibleMcpTools.length : 0;
   return `
       <article class="card control-card" id="section-mcp" data-panel-card="mcp">
         <details class="disclosure">
           <summary>
-            <span>Custom MCP tools</span>
-            <small>${safeText(mcpTools.length)} configured</small>
+            <span>Advanced MCP tools</span>
+            <small>${safeText(customCount)} custom</small>
           </summary>
           <div class="disclosure-body">
-        <div class="tiny muted">Configured tools: ${safeText(mcpTools.length)}</div>
-        <div>${mcpOptions || '<div class="muted">No MCP tools yet.</div>'}</div>
-        <form id="create-mcp-tool-form">
-          <label>Name
-            <input name="name" placeholder="eg: files" required />
-          </label>
-          <label>Command
-            <input name="command" placeholder="single executable token, eg: node" required />
-            <div class="tiny muted">Examples: node, npx, python</div>
-          </label>
-          <label>Args
-            <input name="args" placeholder="comma separated args" />
-          </label>
-          <label>Scope
-            <input name="scope" placeholder="${safeAttr(MCP_TOOL_SCOPE_ALLOWLIST.slice(0, 3).join(','))}" />
-            <div class="tiny muted">Allowed scopes: ${safeText(MCP_TOOL_SCOPE_ALLOWLIST.join(', '))}</div>
-          </label>
-          <label>Notes
-            <input name="notes" />
-          </label>
-          <label><input type="checkbox" name="enabled" checked> enabled</label>
-          <button type="submit">Add MCP tool</button>
-        </form>
+        ${settingsSummaryGrid([
+          { label: 'Custom tools', value: customCount },
+          { label: 'Scope model', value: 'Allowlist' },
+        ])}
+        ${settingsCallout('Operator-only surface', 'Most users should use Desktop app control. Custom tools are for explicitly approved local commands and stay scoped by allowlist.')}
+        <div class="provider-list">${mcpOptions || '<div class="muted">No custom MCP tools configured.</div>'}</div>
+        <details class="disclosure compact-disclosure">
+          <summary>
+            <span>Add custom tool</span>
+            <small>Advanced</small>
+          </summary>
+          <div class="disclosure-body">
+            <form id="create-mcp-tool-form">
+              <label>Name
+                <input name="name" placeholder="eg: files" required />
+              </label>
+              <label>Command
+                <input name="command" placeholder="single executable token, eg: node" required />
+                <div class="tiny muted">Examples: node, npx, python</div>
+              </label>
+              <label>Args
+                <input name="args" placeholder="comma separated args" />
+              </label>
+              <label>Scope
+                <input name="scope" placeholder="${safeAttr(MCP_TOOL_SCOPE_ALLOWLIST.slice(0, 3).join(','))}" />
+                <div class="tiny muted">Allowed scopes: ${safeText(MCP_TOOL_SCOPE_ALLOWLIST.join(', '))}</div>
+              </label>
+              <label>Notes
+                <input name="notes" />
+              </label>
+              <label class="settings-checkbox"><input type="checkbox" name="enabled" checked> <span>Available to agents</span></label>
+              <div class="tiny muted">When unavailable, the tool is saved but cannot be attached to agent sessions.</div>
+              <button type="submit">Add MCP tool</button>
+            </form>
           </div>
         </details>
+          </div>
+        </details>
+      </article>`;
+}
+
+export function renderSupervisorPanel(ctx) {
+  const { supervisorOverview, supervisorBootstrapMarkup } = ctx;
+  const projects = Array.isArray(supervisorOverview?.projects) ? supervisorOverview.projects : [];
+  const sessionRows = projects.flatMap((project) =>
+    (Array.isArray(project.sessions) ? project.sessions : []).map((session) => {
+      const active = Boolean(session.activeOrchestrator?.active);
+      const backlog = session.backlog || {};
+      const counts = backlog.counts || {};
+      const review = session.supervisorReview || null;
+      const route = session.route || project.route || '/';
+      return `
+        <div class="provider-row">
+          <div>
+            <strong>${safeText(project.name)} / ${safeText(session.name)}</strong>
+            <div class="tiny muted">
+              ${active ? `orchestrator: ${safeText(session.activeOrchestrator?.actor || session.activeOrchestrator?.source || 'active')}` : 'orchestrator: idle'}
+              · next: ${safeText(session.nextRequiredTool || 'none')}
+              · worktree: ${safeText(session.worktreeMode || 'isolated')}
+            </div>
+            <div class="tiny muted">
+              backlog: ${safeText(counts.accepted || 0)} accepted / ${safeText(counts.total || 0)} total
+              ${backlog.stalled ? ` · stalled: ${safeText((backlog.stallReasons || []).join(', ') || 'yes')}` : ''}
+              ${review ? ` · supervisor: ${safeText(review.status || review.verdict)}` : ''}
+            </div>
+            ${(backlog.warnings || []).length ? `<div class="tiny muted">${safeText(backlog.warnings.join(' '))}</div>` : ''}
+          </div>
+          <div class="lane-row">
+            <a class="secondary" href="${safeAttr(route)}">Open</a>
+            <button class="secondary" data-action="supervisorAudit" data-session-id="${safeAttr(session.id)}" data-verdict="accept" type="button">Accept</button>
+            <button class="secondary" data-action="supervisorAudit" data-session-id="${safeAttr(session.id)}" data-verdict="request_fix" type="button">Request fix</button>
+            <button class="danger" data-action="supervisorAudit" data-session-id="${safeAttr(session.id)}" data-verdict="block" type="button">Block</button>
+          </div>
+        </div>`;
+    })
+  ).join('');
+  const totalSessions = projects.reduce((sum, project) => sum + (Array.isArray(project.sessions) ? project.sessions.length : 0), 0);
+  const activeCount = projects.reduce((sum, project) =>
+    sum + (Array.isArray(project.sessions) ? project.sessions.filter((session) => session.activeOrchestrator?.active).length : 0), 0);
+  return `
+      <article class="card control-card" id="section-supervisor" data-panel-card="supervisor">
+        <div class="settings-panel-head">
+          <div>
+            <h3>Supervisor agent</h3>
+            <p class="muted">${safeText(projects.length)} projects · ${safeText(totalSessions)} sessions · ${safeText(activeCount)} active orchestrator${activeCount === 1 ? '' : 's'}</p>
+          </div>
+          <button data-action="connectSupervisorApp" type="button">Connect supervisor</button>
+        </div>
+        ${supervisorBootstrapMarkup}
+        <div class="provider-list">${sessionRows || '<div class="muted">No active sessions yet.</div>'}</div>
       </article>`;
 }
 
 export function renderPrivateAccessPanel(ctx) {
   const { accessModeSummary, tailnet, accessModeOptions, privateSettings, phoneUrl, commandRows, privateTargets, targetRows } = ctx;
   return `
-      <article class="card control-card" id="section-private-access" data-panel-card="private-access">
+      <article class="card control-card" id="section-private-access" data-panel-card="access">
         <details class="disclosure">
           <summary>
             <span>Private access</span>
@@ -567,14 +754,16 @@ export function renderPrivateAccessPanel(ctx) {
               <div class="tiny muted">One tap runs Tailscale Serve (HTTP, tailnet-only) so a phone/laptop can open Orca — no commands to copy. You can still do it manually in Terminal if you prefer.</div>
               <div class="lane-row"><button class="btn" data-action="setupTailscaleServe" type="button">Set up Tailscale Serve</button></div>
             </div>`)}
-            <p><strong>HTTP is recommended.</strong> Over Tailscale it is fully private and encrypted, just as secure as HTTPS, and it keeps your machine/tailnet name out of public certificate-transparency logs. Only switch to HTTPS Serve if you specifically need browser secure-context features.</p>
+            ${settingsCallout(
+              'HTTP over Tailscale is the default',
+              'Private, encrypted by the tailnet, and avoids public certificate-transparency metadata.',
+            )}
             <form id="private-access-settings-form">
               <label>Access mode
                 <select name="preferredMode">
                   ${accessModeOptions}
                 </select>
               </label>
-              <div class="tiny muted">HTTP is the safe default. HTTPS requires HTTPS certificates enabled in your Tailscale admin console (DNS → HTTPS Certificates) plus a Tailscale Serve HTTPS command — Orca can't toggle those for you.</div>
               <label>Open links
                 <select name="openTarget">
                   <option value="external" ${selected(privateSettings.openTarget, 'external')}>External browser/tab</option>
@@ -604,19 +793,37 @@ export function renderPrivateAccessPanel(ctx) {
                   </div>
                   ${phoneUrl && phoneUrl.startsWith('http') ? copyUrlButton(phoneUrl, 'Copy', 'btn-ghost') : ''}
                 </div>
-                <div class="card">
+                <div class="settings-subsection">
                   <h3>Optional: enable HTTPS Serve</h3>
-                  <p>Most people don't need this — HTTP over Tailscale is already private and secure. To use HTTPS: (1) enable <strong>HTTPS Certificates</strong> in your Tailscale admin console (DNS → HTTPS Certificates), then (2) run the serve command below in Terminal. HTTPS is only useful for Safari secure-context features, and it can publish this Mac's tailnet DNS name in certificate-transparency logs — rename the host in Tailscale admin first if that matters.</p>
-                  <div class="tiny muted">These are commands you run yourself in Terminal — Orca never runs them for you.</div>
-                  <div class="lane-row">
-                    <button class="btn-ghost" data-action="copyPrivateAccessCommand" data-command="tailscale serve --bg --https=443 http://127.0.0.1:3000" type="button">Copy enable-HTTPS Terminal command</button>
-                    <button class="btn-ghost" data-action="copyPrivateAccessCommand" data-command="tailscale serve reset" type="button">Copy disable-HTTPS command</button>
-                  </div>
+                  ${settingsActionRows([
+                    {
+                      title: 'Enable certificates in Tailscale admin',
+                      detail: 'DNS -> HTTPS Certificates must be enabled before the HTTPS Serve command works.',
+                    },
+                    {
+                      title: 'Run the HTTPS Serve command yourself',
+                      detail: 'Orca only copies commands here; it does not run HTTPS setup for you.',
+                      actions: '<button class="btn-ghost" data-action="copyPrivateAccessCommand" data-command="tailscale serve --bg --https=443 http://127.0.0.1:3000" type="button">Copy HTTPS command</button>',
+                    },
+                    {
+                      title: 'Disable HTTPS Serve',
+                      detail: 'Use reset if you no longer need browser secure-context behavior.',
+                      actions: '<button class="btn-ghost" data-action="copyPrivateAccessCommand" data-command="tailscale serve reset" type="button">Copy reset command</button>',
+                    },
+                  ])}
                 </div>
-                <div class="card">
+                <div class="settings-subsection">
                   <h3>Rotate or rename hostname</h3>
-                  <p>Rename the device in Tailscale admin before enabling HTTPS certs if you do not want the current Mac name in certificate metadata. Tailnet DNS suffix rotation is an admin-level Tailscale setting and may break existing links.</p>
-                  <div class="tiny muted">Orca does not run these changes automatically. Make the change in Tailscale, then update the private access target URL here.</div>
+                  ${settingsActionRows([
+                    {
+                      title: 'Rename before issuing certs',
+                      detail: 'Use Tailscale admin if the current Mac name should not appear in certificate metadata.',
+                    },
+                    {
+                      title: 'Update saved links afterward',
+                      detail: 'Tailnet DNS suffix changes can break existing private URLs.',
+                    },
+                  ])}
                 </div>
               </div>
             </details>
@@ -630,28 +837,30 @@ export function renderProvidersPanel(ctx) {
   const { providerProfiles, providerCatalog, providerRows } = ctx;
   return `
       <article class="card control-card" id="section-providers" data-panel-card="providers">
-        <details class="disclosure">
+        <div class="settings-panel-head">
+          <div>
+            <h3>Provider profiles</h3>
+            <p class="muted">${safeText(providerProfiles.length)} configured · credentials ${safeText(providerCatalog.credentialBackend || 'unknown')}</p>
+          </div>
+        </div>
+        ${settingsSummaryGrid([
+          { label: 'Profile config', value: 'Non-secret' },
+          { label: 'Credential values', value: 'Never echoed' },
+          { label: 'Installs', value: 'Plan-only' },
+        ])}
+        <div class="provider-list">${providerRows || '<div class="muted">No provider profiles loaded.</div>'}</div>
+        <details class="disclosure compact-disclosure">
           <summary>
-            <span>Provider profiles</span>
-            <small>${safeText(providerProfiles.length)} configured · credentials ${safeText(providerCatalog.credentialBackend || 'unknown')}</small>
+            <span>Import/export</span>
+            <small>No secrets included</small>
           </summary>
           <div class="disclosure-body">
-            <p>Profiles store non-secret config only. Dashboard secret entry stores into the server credential backend and never echoes values back. Installs and updates are plan-only by default.</p>
-            <div class="provider-list">${providerRows || '<div class="muted">No provider profiles loaded.</div>'}</div>
-            <details class="disclosure compact-disclosure">
-              <summary>
-                <span>Import/export</span>
-                <small>No secrets included</small>
-              </summary>
-              <div class="disclosure-body">
-                <div class="lane-row">
-                  <button class="secondary" data-action="exportProviderProfiles" type="button">Export profiles</button>
-                  <button class="secondary" data-action="dryRunProviderImport" type="button">Dry-run import</button>
-                </div>
-                <textarea id="provider-import-json" rows="8" placeholder='{"schemaVersion":1,"profiles":[]}'></textarea>
-                <pre id="provider-export-output" aria-live="polite"></pre>
-              </div>
-            </details>
+            <div class="lane-row">
+              <button class="secondary" data-action="exportProviderProfiles" type="button">Export profiles</button>
+              <button class="secondary" data-action="dryRunProviderImport" type="button">Dry-run import</button>
+            </div>
+            <textarea id="provider-import-json" rows="8" placeholder='{"schemaVersion":1,"profiles":[]}'></textarea>
+            <pre id="provider-export-output" aria-live="polite"></pre>
           </div>
         </details>
       </article>`;
@@ -660,18 +869,22 @@ export function renderProvidersPanel(ctx) {
 export function renderEffectiveSettingsPanel(ctx) {
   const { effectiveSummary, effectiveSources, effectiveSourcesText, effectiveSettingsText } = ctx;
   return `
-      <article class="card control-card" id="section-effective-settings" data-panel-card="effective-settings">
+      <article class="card control-card" id="section-effective-settings" data-panel-card="operations">
         <details class="disclosure">
           <summary>
             <span>Effective settings</span>
             <small>global -> project -> session -> lane -> action</small>
           </summary>
           <div class="disclosure-body">
-            <p class="muted">Resolved provider, spawn, critique, evidence, cleanup, notification, private-access, URL-opening, and mobile policy. Secret values are never part of this response.</p>
+            ${settingsCallout('Resolved server truth', 'Secret values are excluded; this view shows the effective policy after overrides.')}
             <div class="access-summary">
               <div class="stat">
                 <b>${safeText(effectiveSummary.spawn?.approvedCapacity ?? 2)}</b>
                 <span>Approved capacity</span>
+              </div>
+              <div class="stat">
+                <b>${safeText(effectiveSummary.spawn?.worktreeMode || 'isolated')}</b>
+                <span>Worktree mode</span>
               </div>
               <div class="stat">
                 <b>${safeText(effectiveSummary.critique?.mode || 'suggested')}</b>
@@ -704,14 +917,18 @@ export function renderEffectiveSettingsPanel(ctx) {
 export function renderNotificationsPanel(ctx) {
   const { unreadNotifications, browserPermission, notificationSettings, notificationRows } = ctx;
   return `
-      <article class="card control-card" id="section-notifications" data-panel-card="notifications">
+      <article class="card control-card" id="section-notifications" data-panel-card="operations">
         <details class="disclosure">
           <summary>
             <span>Notifications</span>
             <small>${safeText(unreadNotifications)} unread · browser ${safeText(browserPermission)}</small>
           </summary>
           <div class="disclosure-body">
-            <p class="muted">Notifications are short, secret-free status updates with safe deep links. Browser notifications require permission and are optional.</p>
+            ${settingsSummaryGrid([
+              { label: 'Unread', value: unreadNotifications },
+              { label: 'Browser permission', value: browserPermission },
+              { label: 'Payloads', value: 'Secret-free' },
+            ])}
             <form id="notification-settings-form">
               <label><input type="checkbox" name="inAppEnabled" ${checked(notificationSettings.inAppEnabled !== false)}> Enable in-app notifications</label>
               <label><input type="checkbox" name="browserEnabled" ${checked(Boolean(notificationSettings.browserEnabled))}> Enable browser notifications where supported</label>
@@ -739,14 +956,18 @@ export function renderNotificationsPanel(ctx) {
 
 export function renderBackupPanel() {
   return `
-      <article class="card control-card" id="section-backup" data-panel-card="backup">
+      <article class="card control-card" id="section-backup" data-panel-card="operations">
         <details class="disclosure">
           <summary>
             <span>Backup and support</span>
             <small>Local-only export · redacted support bundle</small>
           </summary>
           <div class="disclosure-body">
-            <p class="muted">App exports include projects, sessions, lane metadata, provider config, private-access targets, MCP tools, cleanup schedule, and notification settings. They exclude secret values, auth sessions, pairing codes, artifacts, logs, screenshots, videos, and traces.</p>
+            ${settingsSummaryGrid([
+              { label: 'Includes', value: 'Metadata' },
+              { label: 'Secrets', value: 'Excluded' },
+              { label: 'Artifacts/logs', value: 'Excluded' },
+            ])}
             <div class="lane-row">
               <button class="secondary" data-action="exportAppBackup" type="button">Export app backup</button>
               <button class="secondary" data-action="exportSupportBundle" type="button">Export support bundle</button>
@@ -805,14 +1026,14 @@ export function renderArchivePanel() {
   `).join('');
   const empty = !archivedProjects.length && !archivedSessions.length;
   return `
-      <article class="card control-card" data-panel-card="system">
+      <article class="card control-card" data-panel-card="operations">
         <details class="disclosure" data-uikey="archive">
           <summary>
             <span>Archive</span>
             <small>${safeText(archivedProjects.length + archivedSessions.length)} archived</small>
           </summary>
           <div class="disclosure-body">
-            <p class="muted">Archived projects and sessions are hidden from the sidebar but kept. Restore brings them back; delete removes them for good.</p>
+            ${settingsCallout('Archive keeps work out of the sidebar', 'Restore brings items back. Permanent delete requires an explicit action.')}
             ${empty ? '<div class="muted tiny">Nothing archived.</div>' : `<div class="archive-list">${projectRows}${sessionRows}</div>`}
           </div>
         </details>
@@ -840,7 +1061,7 @@ export function renderProjectListPanel(ctx) {
 export function renderSystemActionsPanel(ctx) {
   const { artifactCleanupUrl } = ctx;
   return `
-      <article class="card" data-panel-card="cleanup">
+      <article class="card" data-panel-card="operations">
         <h3>System actions</h3>
         <button
           class="secondary"

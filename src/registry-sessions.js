@@ -11,6 +11,8 @@ import {
   normalizeApprovedCapacity,
   normalizeIdleShutdownMode,
   normalizeCritiqueMode,
+  normalizeWorktreeMode,
+  isWorktreeMode,
 } from './registry-lane-config.js';
 import { sanitizeSettingsOverrides } from './effective-settings.js';
 import { directoryExists, readRepoGitInfo } from './worktree-manager.js';
@@ -91,6 +93,13 @@ export const sessionMethods = {
 
     if (patch.critiqueMode !== undefined) {
       session.critiqueMode = normalizeCritiqueMode(patch.critiqueMode);
+    }
+
+    if (patch.worktreeMode !== undefined) {
+      if (!isWorktreeMode(patch.worktreeMode)) {
+        throw { status: 422, message: 'worktreeMode must be isolated or shared.' };
+      }
+      session.worktreeMode = normalizeWorktreeMode(patch.worktreeMode, session.worktreeMode || 'isolated');
     }
 
     if (patch.artifactRetentionDays !== undefined) {
@@ -211,6 +220,7 @@ export const sessionMethods = {
     soloMode = true,
     idleShutdownMode = 'immediate',
     critiqueMode = 'suggested',
+    worktreeMode = 'isolated',
     artifactRetentionDays = 14,
     settingsOverrides = {},
     defaultModel = '',
@@ -280,6 +290,7 @@ export const sessionMethods = {
       soloMode: soloMode !== false,
       idleShutdownMode: normalizeIdleShutdownMode(idleShutdownMode),
       critiqueMode: normalizeCritiqueMode(critiqueMode),
+      worktreeMode: normalizeWorktreeMode(worktreeMode),
       capacityRequests: [],
       artifactRetentionDays: retention,
       settingsOverrides: sanitizeSettingsOverrides(settingsOverrides),
@@ -318,6 +329,61 @@ export const sessionMethods = {
     });
     this.persistState();
     return clonePayload(session);
+  },
+
+  setSessionWorktreePolicy(sessionLocator, {
+    worktreeMode,
+    actor = 'dashboard',
+    approved,
+    reason = '',
+  } = {}) {
+    const session = this.getSession(sessionLocator);
+    if (!session) {
+      throw { status: 404, message: 'Session not found.' };
+    }
+    const policyCheck = this.evaluateActionPolicy('manageCapacity', { actor, approved });
+    if (!policyCheck.allowed) {
+      throw {
+        status: 409,
+        message: policyCheck.message,
+        requiresApproval: true,
+        risk: policyCheck.policy.risk,
+      };
+    }
+    const previousMode = normalizeWorktreeMode(session.worktreeMode);
+    if (!isWorktreeMode(worktreeMode)) {
+      throw { status: 422, message: 'worktreeMode must be isolated or shared.' };
+    }
+    const nextMode = normalizeWorktreeMode(worktreeMode, previousMode);
+    session.worktreeMode = nextMode;
+    session.updatedAt = nowIso();
+    const approvedCapacity = normalizeApprovedCapacity(session.approvedCapacity, normalizeApprovedCapacity(session.laneConcurrencyLimit));
+    const warnings = [];
+    if (nextMode === 'shared' && approvedCapacity > 1) {
+      warnings.push('Shared worktree mode with capacity above 1 can cause concurrent edits in the same checkout; keep task ownership disjoint or reduce capacity to 1.');
+    }
+    this.recordAudit({
+      type: 'session_worktree_policy_updated',
+      actor: String(actor || 'dashboard').slice(0, 120),
+      projectId: session.projectId,
+      sessionId: session.id,
+      summary: `Session "${session.name}" worktree mode set to ${nextMode}`,
+      status: 'passed',
+      evidence: {
+        previousMode,
+        worktreeMode: nextMode,
+        approvedCapacity,
+        reason: String(reason || '').slice(0, 1000),
+        warnings,
+      },
+    });
+    this.persistState();
+    return clonePayload({
+      sessionId: session.id,
+      worktreeMode: session.worktreeMode,
+      approvedCapacity,
+      warnings,
+    });
   },
 
   listSessions(projectLocator) {

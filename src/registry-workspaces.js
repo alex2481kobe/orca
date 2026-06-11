@@ -12,6 +12,7 @@ import {
   normalizeSpawnPolicy,
   normalizeIdleShutdownMode,
   normalizeCritiqueMode,
+  normalizeWorktreeMode,
 } from './registry-lane-config.js';
 
 const MAX_WORKDIR_BYTES = 2048;
@@ -68,6 +69,11 @@ export const workspaceMethods = {
       const normalizedCritique = normalizeCritiqueMode(session.critiqueMode);
       if (normalizedCritique !== session.critiqueMode) {
         session.critiqueMode = normalizedCritique;
+        migrated = true;
+      }
+      const normalizedWorktreeMode = normalizeWorktreeMode(session.worktreeMode);
+      if (normalizedWorktreeMode !== session.worktreeMode) {
+        session.worktreeMode = normalizedWorktreeMode;
         migrated = true;
       }
       ensureDirectorySync(session.artifactsRoot);

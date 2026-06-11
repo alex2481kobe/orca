@@ -56,6 +56,7 @@ export function clearProtectedWorkspaceState() {
   shell.policy = {};
   shell.pendingAuditEvents = [];
   shell.mcpTools = [];
+  shell.supervisorOverview = null;
   shell.providerCatalog = null;
   shell.notifications = null;
   shell.authSessions = null;

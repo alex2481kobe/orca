@@ -34,6 +34,7 @@ test('effective settings expose locked product defaults without secrets', () => 
   assert.equal(effective.settings.spawn.approvedCapacity, 2);
   assert.equal(effective.settings.spawn.soloMode, true);
   assert.equal(effective.settings.spawn.idleShutdownMode, 'immediate');
+  assert.equal(effective.settings.spawn.worktreeMode, 'isolated');
   assert.equal(effective.settings.critique.mode, 'suggested');
   assert.equal(effective.settings.critique.visualBrowserMode, 'visual-required');
   assert.equal(effective.settings.provider.secretPriority[0], 'os-credential');
@@ -90,6 +91,7 @@ test('effective settings precedence applies project, session, lane, and action o
       approvedCapacity: 4,
       soloMode: false,
       idleShutdownMode: 'policy',
+      worktreeMode: 'shared',
       critiqueMode: 'required',
       artifactRetentionDays: 30,
       settingsOverrides: {
@@ -118,6 +120,7 @@ test('effective settings precedence applies project, session, lane, and action o
   assert.equal(effective.settings.spawn.approvedCapacity, 1);
   assert.equal(effective.settings.spawn.soloMode, false);
   assert.equal(effective.settings.spawn.idleShutdownMode, 'policy');
+  assert.equal(effective.settings.spawn.worktreeMode, 'shared');
   assert.equal(effective.settings.critique.mode, 'visual-required');
   assert.equal(effective.settings.critique.visualBrowserMode, 'visual-required');
   assert.equal(effective.settings.evidence.retentionDays, 30);

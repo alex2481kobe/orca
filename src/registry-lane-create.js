@@ -16,7 +16,7 @@ import { commandTargetsExecutorFirstToken } from './registry-reinstall.js';
 import { createLaneWorktree, describeRepoRoot } from './worktree-manager.js';
 import { sanitizeSettingsOverrides } from './effective-settings.js';
 import { validateNetworkUrl } from './url-policy.js';
-import { normalizeCritiqueMode } from './registry-lane-config.js';
+import { normalizeCritiqueMode, normalizeWorktreeMode } from './registry-lane-config.js';
 
 const { QUEUED: QUEUED_STATE } = LANE_STATES;
 const MAX_WORKDIR_BYTES = 2048;
@@ -80,12 +80,20 @@ export const laneCreateMethods = {
     let derivedBranch = String(branch || '').trim();
     let derivedRepoRoot = String(repoRoot || '').trim();
     const sessionRepoRoot = session.repoRoot ? String(session.repoRoot).trim() : '';
-    const wantsShared = Boolean(sharedWorktree);
+    const sessionWorktreeMode = normalizeWorktreeMode(session.worktreeMode);
+    const sharedExplicit = sharedWorktree !== undefined;
+    const wantsShared = sharedExplicit ? Boolean(sharedWorktree) : sessionWorktreeMode === 'shared';
     // Per-lane worktree isolation is only possible inside a git working tree.
     // For non-git folders the agent still spawns — it just runs directly in the
     // directory (no isolation), which is how Codex behaves in any folder.
     const repoIsGit = sessionRepoRoot ? describeRepoRoot(sessionRepoRoot).ok : false;
-    if (!wantsShared && sessionRepoRoot && !workdir && repoIsGit) {
+    if (wantsShared && sessionRepoRoot && !workdir) {
+      // Shared-worktree means the executor works in the configured session repo,
+      // not the synthetic session workspace. The explicit lane warning below is
+      // the guardrail that this mode has conflict risk.
+      workdirOverride = sessionRepoRoot;
+      derivedRepoRoot = sessionRepoRoot;
+    } else if (!wantsShared && sessionRepoRoot && !workdir && repoIsGit) {
       const laneId = randomUUID();
       // Reserve the laneId via the create call below by reusing it for the worktree.
       const result = createLaneWorktree({
@@ -236,7 +244,8 @@ export const laneCreateMethods = {
       targetUrl: sanitizedTargetUrl,
       repoRoot: sanitizedRepoRoot,
       branch: sanitizedBranch,
-      sharedWorktree: Boolean(sharedWorktree),
+      sharedWorktree: wantsShared,
+      worktreeMode: wantsShared ? 'shared' : (derivedWorktree ? 'isolated' : 'direct'),
       worktreePath: derivedWorktree || resolvedWorkdir,
       state: QUEUED_STATE,
       owner,

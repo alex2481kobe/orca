@@ -138,7 +138,7 @@ try {
     `/api/agent-tools/next-action?role=orchestrator&projectId=${encodeURIComponent(project.body.id)}&sessionId=${encodeURIComponent(session.body.id)}`,
   );
   if (nextAction.status !== 200) fail('next action', JSON.stringify(nextAction));
-  if (nextAction.body?.nextRequiredTool !== 'lane.create') {
+  if (nextAction.body?.nextRequiredTool !== 'orchestrator.enroll') {
     fail('orchestrator next required tool', JSON.stringify(nextAction.body));
   }
 
@@ -154,6 +154,15 @@ try {
     fail('tool lease grants', JSON.stringify(lease.body));
   }
   log('lease', `${lease.body.lease.id} grants lane.create`);
+
+  const enrolled = await req('POST', `/api/sessions/${session.body.id}/orchestrator/enroll`, {
+    actor: 'orchestrator-smoke',
+    approved: true,
+  });
+  if (enrolled.status !== 200 || !enrolled.body?.activeOrchestrator?.active) {
+    fail('orchestrator enroll', JSON.stringify(enrolled.body));
+  }
+  log('orchestrator', 'registered with session');
 
   const mockLane = await req('POST', `/api/sessions/${session.body.id}/lanes`, {
     actor: 'orchestrator',

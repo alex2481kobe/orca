@@ -1,0 +1,126 @@
+// Cross-project supervisor role helpers. The supervisor coordinates
+// orchestrators; it does not replace executor/orchestrator lane state machines.
+
+import { nowIso, clonePayload, safeArray } from './registry-utils.js';
+import { normalizeWorktreeMode } from './registry-lane-config.js';
+import { randomUUID } from 'node:crypto';
+
+function boundedText(value, max = 4000) {
+  return String(value || '').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, ' ').trim().slice(0, max);
+}
+
+function normalizeSupervisorVerdict(value) {
+  const normalized = String(value || 'accept').trim().toLowerCase().replace(/-/g, '_');
+  return ['accept', 'request_fix', 'block'].includes(normalized) ? normalized : null;
+}
+
+export const supervisorMethods = {
+  supervisorOverview({ projectId = null } = {}) {
+    const projects = (this.projects || [])
+      .filter((project) => project.state !== 'archived')
+      .filter((project) => !projectId || project.id === projectId || project.slug === projectId);
+    return clonePayload({
+      generatedAt: nowIso(),
+      projects: projects.map((project) => {
+        const sessions = (this.sessions || [])
+          .filter((session) => session.projectId === project.id && session.state !== 'archived')
+          .map((session) => {
+            let status = null;
+            let backlog = null;
+            try { status = this.orchestratorStatus(session.id); } catch { status = null; }
+            try { backlog = this.sessionBacklogStatus(session.id); } catch { backlog = null; }
+            const lanes = (this.lanes || []).filter((lane) => lane.sessionId === session.id);
+            const activeLanes = lanes.filter((lane) => ['queued', 'starting', 'running', 'auditing', 'needs_critique', 'ready_for_audit', 'fix_requested'].includes(lane.state)).length;
+            return {
+              id: session.id,
+              name: session.name,
+              route: session.route,
+              repoConfigured: Boolean(session.repoRoot),
+              worktreeMode: normalizeWorktreeMode(session.worktreeMode),
+              activeOrchestrator: status?.activeOrchestrator || { active: false },
+              nextRequiredTool: status?.nextRequiredTool || null,
+              capacity: status?.capacity || null,
+              backlog: backlog ? {
+                counts: backlog.counts,
+                complete: backlog.complete,
+                allAccepted: backlog.allAccepted,
+                stalled: backlog.stalled,
+                stallReasons: backlog.stallReasons,
+                warnings: backlog.warnings,
+              } : null,
+              activeLanes,
+              supervisorReview: session.supervisorReview || null,
+            };
+          });
+        return {
+          id: project.id,
+          name: project.name,
+          slug: project.slug,
+          route: project.route,
+          sessionCount: sessions.length,
+          sessions,
+        };
+      }),
+    });
+  },
+
+  recordSupervisorSessionAudit(sessionLocator, {
+    verdict = 'accept',
+    summary = '',
+    findings = [],
+    nextTask = '',
+    plan = '',
+    actor = 'supervisor',
+  } = {}) {
+    const session = this.getSession(sessionLocator);
+    if (!session) throw { status: 404, message: 'Session not found.' };
+    const normalizedVerdict = normalizeSupervisorVerdict(verdict);
+    if (!normalizedVerdict) {
+      throw { status: 422, message: 'verdict must be accept, request_fix, or block.' };
+    }
+    const now = nowIso();
+    const review = {
+      verdict: normalizedVerdict,
+      status: normalizedVerdict === 'accept' ? 'accepted' : normalizedVerdict === 'request_fix' ? 'fix_requested' : 'blocked',
+      summary: boundedText(summary, 2000),
+      findings: safeArray(findings).map((item) => boundedText(item, 1000)).filter(Boolean).slice(0, 20),
+      nextTask: boundedText(nextTask, 2000),
+      plan: boundedText(plan, 4000),
+      actor: boundedText(actor, 120) || 'supervisor',
+      reviewedAt: now,
+    };
+    session.supervisorReview = review;
+    session.updatedAt = now;
+    const thread = typeof this.ensureOrchestratorThread === 'function'
+      ? this.ensureOrchestratorThread(session)
+      : null;
+    if (thread && typeof this.appendOrchestratorThreadMessage === 'function') {
+      const instruction = [
+        `Supervisor verdict: ${review.verdict}.`,
+        review.summary ? `Summary: ${review.summary}` : '',
+        review.findings.length ? `Findings:\n- ${review.findings.join('\n- ')}` : '',
+        review.nextTask ? `Next task: ${review.nextTask}` : '',
+        review.plan ? `Plan note: ${review.plan}` : '',
+      ].filter(Boolean).join('\n');
+      this.appendOrchestratorThreadMessage(thread, {
+        id: randomUUID(),
+        role: 'system',
+        content: instruction,
+        createdAt: now,
+      });
+      thread.updatedAt = now;
+    }
+    this.recordAudit({
+      type: 'session_supervisor_audited',
+      actor: review.actor,
+      projectId: session.projectId,
+      sessionId: session.id,
+      summary: `Supervisor ${review.verdict} for session "${session.name}"`,
+      status: review.status === 'accepted' ? 'passed' : review.status === 'blocked' ? 'failed' : 'pending',
+      followUpQueued: review.status === 'fix_requested',
+      evidence: { review },
+    });
+    this.persistState();
+    return clonePayload({ sessionId: session.id, supervisorReview: review });
+  },
+};

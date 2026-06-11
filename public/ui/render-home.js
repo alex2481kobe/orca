@@ -5,6 +5,7 @@ import { effectiveAccessMode, effectiveProjectQuickLinkUrl, fallbackUrlForAccess
 import { api } from './api.js';
 import { clientUrl, isWorkstation, safeHref, writeHtml } from './dom.js';
 import { formatRelative, latestTimestamp, safeAttr, safeText } from './format.js';
+import { icon } from './icons.js';
 import { browserNotificationPermission } from './notifications.js';
 import { qrSvgForText } from './qr.js';
 import { activeHomePanel, executorCapabilitiesFor, isVerificationProject, renderExecutorCapabilities } from './render-helpers.js';
@@ -15,7 +16,6 @@ import {
   renderDesktopControlPanel,
   renderSetupPanel,
   renderTokenPanel,
-  renderAccessPanel,
   renderExecutorProfilesPanel,
   renderCapturePanel,
   renderCliHealthPanel,
@@ -26,12 +26,107 @@ import {
   renderEffectiveSettingsPanel,
   renderNotificationsPanel,
   renderBackupPanel,
+  renderSupervisorPanel,
   renderArchivePanel,
   renderAppearancePanel,
   renderProjectListPanel,
-  renderSystemActionsPanel,
   renderRemoteConnectionPanel,
 } from './render-home-panels.js';
+
+const INFO_ICON = icon('info', { size: 15 });
+const EXECUTOR_DISPLAY_NAMES = {
+  codex: 'Codex',
+  claude: 'Claude',
+  'gemini-cli': 'Gemini CLI',
+  'composer-cli': 'Composer CLI',
+};
+
+function toTitleLabel(value) {
+  const text = String(value || '').trim();
+  if (!text) return 'Unknown';
+  return text
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => {
+      const upper = part.toUpperCase();
+      if (upper === 'CLI' || upper === 'API' || upper === 'MCP') return upper;
+      return part.charAt(0).toUpperCase() + part.slice(1);
+    })
+    .join(' ');
+}
+
+function executorDisplayName(type) {
+  const key = String(type || '').trim();
+  return EXECUTOR_DISPLAY_NAMES[key] || toTitleLabel(key);
+}
+
+function envPrefixForExecutor(type) {
+  return String(type || '')
+    .replace(/[^a-z0-9]+/gi, '_')
+    .replace(/^_+|_+$/g, '')
+    .toUpperCase();
+}
+
+function listText(value, fallback = 'none') {
+  const list = Array.isArray(value) ? value.filter(Boolean) : [];
+  return list.length ? list.join(', ') : fallback;
+}
+
+function commandText(parts, fallback = 'not configured') {
+  return Array.isArray(parts) && parts.length ? parts.join(' ') : fallback;
+}
+
+function settingsMeta(parts = []) {
+  const rows = parts
+    .filter((part) => part !== undefined && part !== null && String(part).trim())
+    .map((part) => `<span>${safeText(part)}</span>`)
+    .join('');
+  return rows ? `<div class="settings-row-meta">${rows}</div>` : '';
+}
+
+function settingsInfoDetails(title, items = [], extraHtml = '') {
+  const rows = items
+    .filter((item) => item && item.label && item.value !== undefined && item.value !== null && String(item.value).trim())
+    .map((item) => `
+      <div>
+        <strong>${safeText(item.label)}</strong>
+        <span>${safeText(item.value)}</span>
+      </div>
+    `)
+    .join('');
+  if (!rows && !extraHtml) return '';
+  return `
+    <details class="settings-info">
+      <summary aria-label="Show ${safeAttr(title)} details" title="Details">${INFO_ICON}</summary>
+      <div class="settings-info-body">
+        ${rows ? `<div class="settings-info-grid">${rows}</div>` : ''}
+        ${extraHtml ? `<div class="settings-info-extra">${extraHtml}</div>` : ''}
+      </div>
+    </details>`;
+}
+
+function renderSettingsRow({ title, meta = [], detailItems = [], detailHtml = '', actions = '', className = '' }) {
+  const details = settingsInfoDetails(title, detailItems, detailHtml);
+  const side = `${details}${actions ? `<div class="settings-row-controls">${actions}</div>` : ''}`;
+  return `
+    <div class="provider-row settings-row ${className}">
+      <div class="settings-row-main">
+        <strong>${safeText(title)}</strong>
+        ${settingsMeta(meta)}
+      </div>
+      ${side ? `<div class="settings-row-side">${side}</div>` : ''}
+    </div>`;
+}
+
+function isSmokeMcpTool(tool) {
+  const name = String(tool?.name || tool?.id || '').toLowerCase();
+  return name.startsWith('smoke-tool-');
+}
+
+function mcpToolDisplayName(tool, index, test = false) {
+  if (test) return `Test tool ${index + 1}`;
+  return toTitleLabel(tool?.displayName || tool?.name || tool?.id || 'Custom tool');
+}
 
 export function renderHome() {
   const panel = activeHomePanel();
@@ -126,92 +221,126 @@ export function renderHome() {
     const credential = profile.credential || {};
     const health = shell.providerHealth?.[profile.id] || {};
     const status = health.status || (profile.enabled ? 'unchecked' : 'disabled');
-    return `
-      <div class="provider-row">
-        <div>
-          <strong>${safeText(profile.displayName || profile.id)}</strong>
-          <div class="tiny muted">${safeText(profile.kind)} · ${safeText(status)} · install ${safeText(profile.installPolicy)} · update ${safeText(profile.updatePolicy)}</div>
-          <div class="tiny muted">secret: ${credential.present ? `present via ${safeText(credential.backend)}` : 'not present'} · ref ${safeText(profile.secretRef || profile.apiKeyEnv || 'none')}</div>
-          ${profile.baseUrl ? `<div class="tiny muted">base URL: ${safeText(profile.baseUrl)}</div>` : ''}
-        </div>
-        <div class="lane-row">
-          <button class="secondary" data-action="refreshProviderHealth" data-provider-id="${safeAttr(profile.id)}" type="button">Health</button>
-          <button class="secondary" data-action="toggleProviderEnabled" data-provider-id="${safeAttr(profile.id)}" data-enabled="${profile.enabled ? 'false' : 'true'}" type="button">${profile.enabled ? 'Disable' : 'Enable'}</button>
-          ${profile.secretRef ? `<button class="secondary" data-action="setProviderSecret" data-provider-id="${safeAttr(profile.id)}" type="button">Set secret</button>` : ''}
-          ${profile.secretRef ? `<button class="secondary" data-action="deleteProviderSecret" data-provider-id="${safeAttr(profile.id)}" type="button">Delete secret</button>` : ''}
-        </div>
-      </div>
+    const secretState = credential.present
+      ? `Secret set${credential.backend ? ` in ${credential.backend}` : ''}`
+      : 'Secret missing';
+    const actions = `
+      <button class="secondary" data-action="refreshProviderHealth" data-provider-id="${safeAttr(profile.id)}" type="button">Check</button>
+      <button class="secondary" data-action="toggleProviderEnabled" data-provider-id="${safeAttr(profile.id)}" data-enabled="${profile.enabled ? 'false' : 'true'}" type="button">${profile.enabled ? 'Disable' : 'Enable'}</button>
+      ${profile.secretRef ? `<button class="secondary" data-action="setProviderSecret" data-provider-id="${safeAttr(profile.id)}" type="button">Set secret</button>` : ''}
+      ${profile.secretRef ? `<button class="secondary" data-action="deleteProviderSecret" data-provider-id="${safeAttr(profile.id)}" type="button">Delete secret</button>` : ''}
     `;
+    return renderSettingsRow({
+      title: profile.displayName || profile.id,
+      meta: [
+        profile.kind || 'provider',
+        profile.enabled ? 'Available' : 'Disabled',
+        `Health ${status}`,
+        secretState,
+      ],
+      detailItems: [
+        { label: 'Provider id', value: profile.id },
+        { label: 'Install policy', value: profile.installPolicy },
+        { label: 'Update policy', value: profile.updatePolicy },
+        { label: 'Secret reference', value: profile.secretRef || profile.apiKeyEnv || 'none' },
+        { label: 'Credential backend', value: credential.backend || providerCatalog.credentialBackend || 'unknown' },
+        { label: 'Base URL', value: profile.baseUrl || '' },
+      ],
+      actions,
+    });
   }).join('');
-  const mcpTools = shell.mcpTools || [];
-  const mcpOptions = mcpTools.map((tool) => `
-    <div class="lane-row spread">
-      <div>
-        <span>${safeText(tool.name)} (${safeText(tool.command)})</span>
-        <div class="tiny muted">scope: ${safeText((tool.scope || []).join(', ') || 'all')} · args: ${safeText((tool.args || []).join(' ')) || 'none'} · enabled: ${tool.enabled ? 'yes' : 'no'}</div>
-      </div>
-      <div class="lane-row">
-        <button data-action="editMcpTool" data-tool-id="${safeAttr(tool.id || tool.name)}" type="button">Edit</button>
-        <button class="secondary" data-action="deleteMcpTool" data-tool-id="${safeAttr(tool.id || tool.name)}" type="button">Delete</button>
-      </div>
-    </div>
-  `).join('');
+  const mcpTools = Array.isArray(shell.mcpTools) ? shell.mcpTools : [];
+  const visibleMcpTools = mcpTools.filter((tool) => !isSmokeMcpTool(tool));
+  const renderMcpToolRows = (tools, { test = false } = {}) => tools.map((tool, index) => {
+    const toolId = tool.id || tool.name;
+    const args = commandText(tool.args, 'none');
+    const scopes = listText(tool.scope, 'all scopes');
+    const actions = `
+      <button class="secondary" data-action="editMcpTool" data-tool-id="${safeAttr(toolId)}" type="button">Edit</button>
+      <button class="secondary" data-action="deleteMcpTool" data-tool-id="${safeAttr(toolId)}" type="button">Delete</button>
+    `;
+    return renderSettingsRow({
+      title: mcpToolDisplayName(tool, index, test),
+      meta: [
+        tool.command || 'command missing',
+        scopes,
+        tool.enabled ? 'Available to agents' : 'Saved only',
+      ],
+      detailItems: [
+        { label: 'Raw name', value: tool.name || tool.id || '' },
+        { label: 'Command', value: tool.command || '' },
+        { label: 'Arguments', value: args },
+        { label: 'Scopes', value: scopes },
+        { label: 'Notes', value: tool.notes || '' },
+      ],
+      actions,
+      className: test ? 'settings-row-muted' : '',
+    });
+  }).join('');
+  const mcpOptions = renderMcpToolRows(visibleMcpTools);
   const profiles = shell.executorProfiles || {};
   const profileRows = Object.values(profiles).map((profile) => {
-    const typeUpper = String(profile.type || '').toUpperCase();
+    const typeUpper = envPrefixForExecutor(profile.type);
     const envKey = typeUpper ? `ORCA_${typeUpper}` : null;
     const modelEnv = envKey ? `${envKey}_MODEL` : '';
     const permissionsEnv = envKey ? `${envKey}_PERMISSIONS` : '';
-    return `
-    <div class="lane-row">
-      <div>
-        <strong>${safeText(profile.type || profile.name || '')}</strong>
-        <div class="tiny muted">binary: ${safeText(profile.defaultBinary || '')}</div>
-        <div class="tiny muted">defaults: ${safeText((profile.defaultArgs || []).join(' ') || 'none')}</div>
-        <div class="tiny muted">allowlist: ${(profile.allowedBinaries || []).slice(0, 6).join(', ') || 'default'}</div>
-        <div class="tiny muted">model: per-lane (lane.model overrides). Set env ${safeText(modelEnv)} for default.</div>
-        <div class="tiny muted">permissions: per-lane (lane.permissionsProfile). Suggested values: plan / restricted / full.</div>
-        ${renderExecutorCapabilities(executorCapabilitiesFor(profile.type), { compact: true })}
-        <div class="tiny muted">env allowlist: ${(profile.envWhitelist || []).slice(0, 6).join(', ') || 'default'}</div>
-        <div class="tiny muted">workdir roots: ${(profile.workdirRoots || []).slice(0, 3).join(', ') || 'default'}</div>
-      </div>
-    </div>
-  `;
+    return renderSettingsRow({
+      title: executorDisplayName(profile.type || profile.name),
+      meta: [
+        `Binary ${profile.defaultBinary || 'not configured'}`,
+        'Model per lane',
+        'Permissions per lane',
+      ],
+      detailItems: [
+        { label: 'Type', value: profile.type || profile.name || '' },
+        { label: 'Default args', value: listText(profile.defaultArgs) },
+        { label: 'Allowed binaries', value: listText(profile.allowedBinaries, 'default') },
+        { label: 'Model default env', value: modelEnv || 'none' },
+        { label: 'Permissions env', value: permissionsEnv || 'none' },
+        { label: 'Suggested permissions', value: 'plan, restricted, full' },
+        { label: 'Env allowlist', value: listText(profile.envWhitelist, 'default') },
+        { label: 'Workdir roots', value: listText(profile.workdirRoots, 'default') },
+      ],
+      detailHtml: renderExecutorCapabilities(executorCapabilitiesFor(profile.type), { compact: true }),
+    });
   }).join('');
   const cliRows = Object.entries(shell.executorCliInfo || {}).map(([type, info]) => {
     const command = Array.isArray(info?.reinstall?.command)
-      ? safeText(info.reinstall.command.join(' '))
+      ? info.reinstall.command.join(' ')
       : 'not configured';
-    const preferSource = info?.reinstall?.preferSource ? 'enabled' : 'disabled';
+    const preferSource = info?.reinstall?.preferSource ? 'Source first' : 'Package plan';
     const sourceRepos = Array.isArray(info?.reinstall?.sourceRepos)
       ? info.reinstall.sourceRepos.join(', ')
       : 'not configured';
     const sourceCommand = Array.isArray(info?.reinstall?.sourceCommand)
-      ? safeText(info.reinstall.sourceCommand.join(' '))
+      ? info.reinstall.sourceCommand.join(' ')
       : 'not available';
     const hasSourceCommand = Array.isArray(info?.reinstall?.sourceCommand) && info?.reinstall?.sourceCommand.length > 0;
     const sourceButton = hasSourceCommand
-      ? `<button class="secondary" data-action="reinstallExecutorCli" data-executor="${safeAttr(type)}" data-use-source="true" type="button">Dry-run source reinstall</button>`
-      : `<button class="secondary" type="button" disabled title="No trusted source command configured">Source reinstall unavailable</button>`;
-    return `
-      <div class="lane-row spread">
-        <div>
-          <strong>${safeText(type.toUpperCase())}</strong>
-          <div class="tiny muted">binary: ${safeText(info?.binary || '')}</div>
-          <div class="tiny muted">version: ${safeText(info?.version || 'unknown')}</div>
-          ${renderExecutorCapabilities(info?.capabilities, { compact: true })}
-          <div class="tiny muted">reinstall: ${command}</div>
-        <div class="tiny muted">source-first mode: ${safeText(preferSource)}</div>
-        <div class="tiny muted">source repos: ${safeText(sourceRepos)}</div>
-        <div class="tiny muted">source command: ${safeText(sourceCommand)}</div>
-        </div>
-        <div class="lane-row">
-          <button data-action="refreshExecutorCli" data-executor="${safeAttr(type)}" type="button">Refresh</button>
-          <button class="secondary" data-action="reinstallExecutorCli" data-executor="${safeAttr(type)}" data-use-source="false" type="button">Dry-run reinstall</button>
-          ${sourceButton}
-        </div>
-      </div>
+      ? `<button class="secondary" data-action="reinstallExecutorCli" data-executor="${safeAttr(type)}" data-use-source="true" type="button">Source plan</button>`
+      : `<button class="secondary" type="button" disabled title="No trusted source command configured">No source plan</button>`;
+    const actions = `
+      <button class="secondary" data-action="refreshExecutorCli" data-executor="${safeAttr(type)}" type="button">Refresh</button>
+      <button class="secondary" data-action="reinstallExecutorCli" data-executor="${safeAttr(type)}" data-use-source="false" type="button">Reinstall plan</button>
+      ${sourceButton}
     `;
+    return renderSettingsRow({
+      title: executorDisplayName(type),
+      meta: [
+        `Binary ${info?.binary || type}`,
+        info?.version ? `Version ${info.version}` : 'Version unknown',
+        info?.binaryExists === false ? 'Missing from PATH' : 'Detected',
+        preferSource,
+      ],
+      detailItems: [
+        { label: 'Executor type', value: type },
+        { label: 'Reinstall command', value: command },
+        { label: 'Source repos', value: sourceRepos },
+        { label: 'Source command', value: sourceCommand },
+      ],
+      detailHtml: renderExecutorCapabilities(info?.capabilities, { compact: true }),
+      actions,
+    });
   }).join('');
   const renderProjectCard = (project) => {
     const projectSessions = shell.sessions.filter((session) => session.projectId === project.id);
@@ -269,18 +398,52 @@ export function renderHome() {
   `).join('');
   const desktopBootstrap = shell.lastDesktopBootstrap || null;
   const desktopBootstrapMarkup = desktopBootstrap ? `
-    <div class="pair-step">
-      <strong>Generated orchestrator config</strong>
-      <div class="tiny muted">Scoped orchestrator lease (expires ${safeText(formatRelative(desktopBootstrap.lease?.expiresAt))}). Paste into your desktop app and restart it. This grants Orca's orchestrator tools — never the API token.</div>
-      <div class="lane-row">
+    <div class="settings-callout">
+      <div>
+        <strong>Generated orchestrator config</strong>
+        <span class="tiny muted">Lease expires ${safeText(formatRelative(desktopBootstrap.lease?.expiresAt))}; paste into your desktop app and restart it.</span>
+      </div>
+    </div>
+    <div class="settings-action-list">
+      <div class="settings-action-row">
+        <div class="settings-action-main">
+          <span class="settings-row-kicker">Copy</span>
+          <strong>CLI commands and app config</strong>
+          <span class="tiny muted">Scoped orchestrator tools only. The raw API token is never included.</span>
+        </div>
+        <div class="settings-action-controls">
         <button class="secondary" data-action="copyDesktopConfig" data-client="claudeCli" type="button">Copy claude mcp add</button>
         <button class="secondary" data-action="copyDesktopConfig" data-client="codexCli" type="button">Copy codex mcp add</button>
         <button class="secondary" data-action="copyDesktopConfig" data-client="claudeDesktop" type="button">Copy Claude Desktop JSON</button>
         <button class="secondary" data-action="copyDesktopConfig" data-client="codex" type="button">Copy Codex TOML</button>
+        </div>
       </div>
-      <div class="tiny muted">Claude Code / Codex CLI: run the copied <code>mcp add</code> command, then restart the session. Claude Desktop / Codex app: paste the JSON/TOML into ${safeText(desktopBootstrap.bootstrap?.clients?.claudeDesktop?.configPath || 'its config')}.</div>
     </div>
-  ` : '<div class="tiny muted">Generates a scoped orchestrator MCP config you paste into Codex app or Claude Desktop. Those apps then drive Orca as the orchestrator with full tooling. You can still use Orca\'s own chats for full control.</div>';
+  ` : '<div class="settings-callout"><div><strong>Connect a desktop orchestrator</strong><span class="tiny muted">Generates scoped MCP config for Codex app or Claude Desktop.</span></div></div>';
+  const supervisorBootstrap = shell.lastSupervisorBootstrap || null;
+  const supervisorBootstrapMarkup = supervisorBootstrap ? `
+    <div class="settings-callout">
+      <div>
+        <strong>Generated supervisor config</strong>
+        <span class="tiny muted">Lease expires ${safeText(formatRelative(supervisorBootstrap.lease?.expiresAt))}; grants cross-project supervisor tools only.</span>
+      </div>
+    </div>
+    <div class="settings-action-list">
+      <div class="settings-action-row">
+        <div class="settings-action-main">
+          <span class="settings-row-kicker">Copy</span>
+          <strong>Supervisor MCP config</strong>
+          <span class="tiny muted">Use this in Codex app, Claude Desktop, or the CLI MCP registry.</span>
+        </div>
+        <div class="settings-action-controls">
+        <button class="secondary" data-action="copySupervisorConfig" data-client="claudeCli" type="button">Copy claude mcp add</button>
+        <button class="secondary" data-action="copySupervisorConfig" data-client="codexCli" type="button">Copy codex mcp add</button>
+        <button class="secondary" data-action="copySupervisorConfig" data-client="claudeDesktop" type="button">Copy Claude Desktop JSON</button>
+        <button class="secondary" data-action="copySupervisorConfig" data-client="codex" type="button">Copy Codex TOML</button>
+        </div>
+      </div>
+    </div>
+  ` : '<div class="settings-callout"><div><strong>Connect a supervisor agent</strong><span class="tiny muted">Generates scoped MCP config for cross-project review and audit.</span></div></div>';
   const primaryProjects = shell.projects.filter((project) => !isVerificationProject(project));
   const projectRows = primaryProjects.map((project) => `
     <a class="simple-row" href="${safeAttr(project.route)}">
@@ -316,6 +479,8 @@ export function renderHome() {
     privateTargets,
     authSessionRows,
     desktopBootstrapMarkup,
+    supervisorOverview: shell.supervisorOverview || null,
+    supervisorBootstrapMarkup,
     tokenConfigured,
     browserPaired,
     profileRows,
@@ -328,6 +493,7 @@ export function renderHome() {
     scheduleApiUrl,
     scheduleRunApiUrl,
     mcpTools,
+    visibleMcpTools,
     mcpOptions,
     commandRows,
     targetRows,
@@ -367,12 +533,12 @@ export function renderHome() {
       ${workstationOnly(renderTokenPanel(ctx))}
       ${onWorkstation ? '' : renderRemoteConnectionPanel()}
       ${renderAppearancePanel()}
-      ${workstationOnly(renderAccessPanel(ctx))}
       ${workstationOnly(renderExecutorProfilesPanel(ctx))}
       ${workstationOnly(renderCapturePanel(ctx))}
       ${workstationOnly(renderCliHealthPanel(ctx))}
       ${workstationOnly(renderCleanupPanel(ctx))}
       ${workstationOnly(renderMcpPanel(ctx))}
+      ${workstationOnly(renderSupervisorPanel(ctx))}
       ${workstationOnly(renderPrivateAccessPanel(ctx))}
       ${workstationOnly(renderProvidersPanel(ctx))}
       ${workstationOnly(renderEffectiveSettingsPanel(ctx))}
@@ -380,7 +546,6 @@ export function renderHome() {
       ${renderArchivePanel()}
       ${workstationOnly(renderBackupPanel())}
       ${renderProjectListPanel(ctx)}
-      ${workstationOnly(renderSystemActionsPanel(ctx))}
     </section>
   `);
 }

@@ -267,19 +267,24 @@ export const toolLeaseMethods = {
   // optionally scoped to one project/session. Privileged: callers must hold full
   // API auth (this hands out a powerful credential).
   createOrchestratorMcpBootstrap({
+    role = 'orchestrator',
     projectId = null,
     sessionId = null,
     ttlMs = 12 * 60 * 60 * 1000,
     actor = 'desktop-app',
     nodePath = null,
   } = {}) {
-    const allowedTools = availableToolIdsForRole('orchestrator');
+    const normalizedRole = String(role || 'orchestrator').trim().toLowerCase();
+    if (!['orchestrator', 'supervisor'].includes(normalizedRole)) {
+      throw { status: 422, message: 'MCP bootstrap role must be orchestrator or supervisor.' };
+    }
+    const allowedTools = availableToolIdsForRole(normalizedRole);
     if (!allowedTools.length) {
-      throw { status: 500, message: 'No orchestrator tools are available to lease.' };
+      throw { status: 500, message: `No ${normalizedRole} tools are available to lease.` };
     }
     // createToolLease validates project/session existence + relationship.
     const { lease, leaseToken } = this.createToolLease({
-      role: 'orchestrator',
+      role: normalizedRole,
       projectId,
       sessionId,
       allowedTools,
@@ -290,18 +295,18 @@ export const toolLeaseMethods = {
     const bootstrap = buildOrchestratorMcpConfigs({
       baseUrl,
       leaseToken,
-      role: 'orchestrator',
+      role: normalizedRole,
       projectId: lease.projectId,
       sessionId: lease.sessionId,
       dashboardUrl: baseUrl,
       nodePath: nodePath || process.execPath,
     });
     this.recordAudit({
-      type: 'orchestrator_mcp_bootstrap_created',
+      type: `${normalizedRole}_mcp_bootstrap_created`,
       actor: String(actor || 'desktop-app').slice(0, 120),
       projectId: lease.projectId,
       sessionId: lease.sessionId,
-      summary: 'Issued external orchestrator MCP bootstrap',
+      summary: `Issued external ${normalizedRole} MCP bootstrap`,
       status: 'passed',
       evidence: {
         leaseId: lease.id,

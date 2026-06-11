@@ -9,7 +9,7 @@ export const part7 = [
     auth: 'api_token_or_paired_browser_session',
     mutationRisk: 'critical',
     approval: 'cleanupArtifacts',
-    validation: 'actor spoofing rejected; terminal lane; managed worktree containment',
+    validation: 'actor spoofing rejected; terminal lane; managed worktree containment; shared/non-managed worktrees refused',
     auditEvent: 'lane_worktree_removed',
     uiSurface: 'lane detail/cleanup',
     smokeCoverage: ['test/registry.test.js', 'smoke:api'],

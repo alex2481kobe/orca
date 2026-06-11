@@ -14,7 +14,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { nowIso, clonePayload, safeArray } from './registry-utils.js';
-import { normalizeApprovedCapacity, normalizeSpawnPolicy } from './registry-lane-config.js';
+import { normalizeApprovedCapacity, normalizeSpawnPolicy, normalizeWorktreeMode } from './registry-lane-config.js';
 import { LANE_STATES, isLiveLaneState } from './worker-contract.js';
 import { describeRepoRoot } from './worktree-manager.js';
 
@@ -455,14 +455,16 @@ export const taskMethods = {
     if (spawnPolicy === 'auto' && approvedCapacity > 1) {
       const repoRoot = session.repoRoot ? String(session.repoRoot) : '';
       const isGit = repoRoot ? describeRepoRoot(repoRoot).ok : false;
-      if (!isGit) {
+      if (normalizeWorktreeMode(session.worktreeMode) === 'shared') {
+        warnings.push('Auto fan-out is using shared worktree mode: parallel lanes may edit the same checkout. Keep file ownership disjoint or reduce approvedCapacity to 1.');
+      } else if (!isGit) {
         warnings.push('Auto fan-out without a git repo: parallel lanes share the session folder with NO worktree isolation and may conflict. Use a git repoRoot, or set approvedCapacity to 1.');
       }
     }
     return {
       sessionId: session.id,
       counts,
-      capacity: { approvedCapacity, spawnPolicy },
+      capacity: { approvedCapacity, spawnPolicy, worktreeMode: normalizeWorktreeMode(session.worktreeMode) },
       active,
       complete,
       allAccepted,

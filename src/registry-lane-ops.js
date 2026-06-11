@@ -458,6 +458,9 @@ export const laneOpsMethods = {
     if (!lane.repoRoot || !lane.worktreePath) {
       throw { status: 422, message: 'Lane has no managed worktree to remove.' };
     }
+    if (lane.sharedWorktree || lane.worktreeMode === 'shared' || path.resolve(lane.worktreePath) === path.resolve(lane.repoRoot)) {
+      throw { status: 422, message: 'Lane uses a shared/non-managed worktree; Orca will not remove the session repository.' };
+    }
     const policyCheck = this.evaluateActionPolicy('cleanupArtifacts', { actor, approved });
     if (!policyCheck.allowed) {
       throw {

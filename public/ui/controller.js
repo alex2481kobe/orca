@@ -176,7 +176,7 @@ export async function refresh(options = {}) {
     // startup call) so we don't fetch it twice per cycle.
     const [policyResp, settingsResp, notificationsResp, blockersResp, privateAccessResp,
       profilesResp, captureResp, providersResp, cleanupResp, mcpResp,
-      pendingAuditResp, archiveResp, projectsResp] = await Promise.all([
+      pendingAuditResp, archiveResp, supervisorResp, projectsResp] = await Promise.all([
       api('/api/policy'),
       api('/api/settings/effective'),
       api('/api/notifications'),
@@ -189,12 +189,13 @@ export async function refresh(options = {}) {
       api('/api/mcp/tools'),
       api('/api/audit/events?status=pending'),
       api('/api/archive'),
+      api('/api/supervisor/overview'),
       api('/api/projects'),
     ]);
     if (requestId !== refreshRequestId) return;
     if (abortFromAuth(firstUnauthorized([policyResp, settingsResp, notificationsResp, blockersResp,
       privateAccessResp, profilesResp, captureResp, providersResp, cleanupResp,
-      mcpResp, pendingAuditResp, archiveResp, projectsResp]))) return;
+      mcpResp, pendingAuditResp, archiveResp, supervisorResp, projectsResp]))) return;
     if (policyResp.ok && policyResp.data) shell.policy = policyResp.data.policies;
     if (settingsResp.ok && settingsResp.data) shell.effectiveSettings = settingsResp.data;
     if (notificationsResp.ok && notificationsResp.data) { shell.notifications = notificationsResp.data; maybeShowBrowserNotifications(); }
@@ -207,6 +208,7 @@ export async function refresh(options = {}) {
     if (mcpResp.ok && Array.isArray(mcpResp.data)) shell.mcpTools = mcpResp.data;
     if (pendingAuditResp.ok && Array.isArray(pendingAuditResp.data)) shell.pendingAuditEvents = pendingAuditResp.data;
     if (archiveResp.ok && archiveResp.data) shell.archive = archiveResp.data;
+    if (supervisorResp.ok && supervisorResp.data) shell.supervisorOverview = supervisorResp.data;
     // Projects -> sessions -> lanes (sessions per project + all lanes in parallel).
     if (projectsResp.ok && Array.isArray(projectsResp.data)) {
       const nextProjects = projectsResp.data;

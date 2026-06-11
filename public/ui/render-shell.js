@@ -94,7 +94,7 @@ function renderIosAppPromo() {
 import { refs, shell, makeDraftSession } from './state.js';
 import { safeAttr, safeText } from './format.js';
 import { api, browserAccessBlocked, setApiToken } from './api.js';
-import { activeHomePanel, computeUnreadSessions, isLiveLaneState, isRunningLaneState, isVerificationProject, renderBreadcrumbs, renderTopbarTitle } from './render-helpers.js';
+import { activeHomePanel, computeUnreadSessions, isLiveLaneState, isRunningLaneState, isSettingsHomePanel, isVerificationProject, renderBreadcrumbs, renderTopbarTitle } from './render-helpers.js';
 import { renderHome } from './render-home.js';
 import { renderAppearancePanel, renderWorkstationList } from './render-home-panels.js';
 import { renderWorkstationPickerPanel } from './render-project.js';
@@ -106,6 +106,22 @@ import { enhanceSelects } from './dropdown.js';
 import { FIRST_CLASS_CLI_EXECUTOR_TYPES } from './constants.js';
 import { orderItems, readSidebarOrder, isProjectExpanded } from './sidebar.js';
 import { icon, COMPOSE_ICON, FOLDER_ICON, ARCHIVE_ICON } from './icons.js';
+
+const SETTINGS_NAV_GROUPS = [
+  ['Control', [
+    ['system', 'General'],
+    ['agents', 'Agents'],
+    ['supervisor', 'Supervisor'],
+  ]],
+  ['Integrations', [
+    ['mcp', 'MCP'],
+    ['providers', 'Providers'],
+  ]],
+  ['System', [
+    ['access', 'Access'],
+    ['operations', 'Operations'],
+  ]],
+];
 
 // Mobile pairing gate — the same clean connect-shell look as the unconnected app
 // (renderMobileConnect), but for a device that's ALREADY reached the workstation
@@ -339,6 +355,12 @@ export function render(uiState = null) {
     shell.draftSessions[session.id] = session;
   }
   const lane = shell.lanes.find((value) => value.id === shell.route.laneId);
+  const homePanel = activeHomePanel();
+  const settingsMode = isSettingsHomePanel(homePanel);
+  document.body.classList.toggle('settings-sidebar-mode', settingsMode);
+  if (!settingsMode) {
+    shell.lastWorkspaceHref = `${window.location.pathname || '/'}${window.location.search || ''}${window.location.hash || ''}` || '/';
+  }
 
   renderBreadcrumbs(project, session);
   renderTopbarTitle(project, session, lane);
@@ -491,6 +513,11 @@ export function renderBlockers() {
 
 export function renderSidebarProjects(activeProject) {
   if (!refs.sidebarProjects) return;
+  const panel = activeHomePanel();
+  const settingsMode = isSettingsHomePanel(panel);
+  document.body.classList.toggle('settings-sidebar-mode', settingsMode);
+  const title = document.querySelector('.sidebar-title');
+  if (title) title.textContent = settingsMode ? 'Settings' : 'Projects';
   if (isUnconnectedMobileApp()) {
     writeHtml(refs.sidebarProjects, `
       <div class="tiny muted">Not connected to a workstation yet.</div>
@@ -501,6 +528,25 @@ export function renderSidebarProjects(activeProject) {
     writeHtml(refs.sidebarProjects, `
       <div class="tiny muted">Not connected to a workstation yet.</div>
     `);
+    return;
+  }
+  if (settingsMode) {
+    const rows = SETTINGS_NAV_GROUPS.map(([group, items]) => `
+      <div class="settings-nav-group">
+        <div class="settings-nav-section-title">${safeText(group)}</div>
+        ${items.map(([key, label]) => `
+          <div class="sidebar-project-line settings-nav-line">
+            <a class="sidebar-project settings-nav-project ${panel === key ? 'active' : ''}" href="/#${safeAttr(key)}" data-route="${safeAttr(key)}">
+              <span class="sidebar-folder" aria-hidden="true"></span>
+              <span class="sidebar-project-label">
+                <span class="sidebar-project-name">${safeText(label)}</span>
+              </span>
+            </a>
+          </div>
+        `).join('')}
+      </div>
+    `).join('');
+    writeHtml(refs.sidebarProjects, rows);
     return;
   }
   const projects = shell.projects || [];

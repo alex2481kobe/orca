@@ -555,6 +555,19 @@ document.addEventListener('click', async (event) => {
     return;
   }
 
+  if (action === 'openSettings') {
+    shell.lastWorkspaceHref = `${window.location.pathname || '/'}${window.location.search || ''}${window.location.hash || ''}` || '/';
+    safeNavigate('/#system');
+    closeMobileNavPanel();
+    return;
+  }
+
+  if (action === 'settingsBack') {
+    safeNavigate(shell.lastWorkspaceHref || '/');
+    closeMobileNavPanel();
+    return;
+  }
+
   if (navLink) {
     closeMobileNavPanel();
   }
@@ -633,7 +646,10 @@ document.addEventListener('click', async (event) => {
     'deleteSessionPermanent',
     'deleteProjectPermanent',
     'connectDesktopApp',
+    'connectSupervisorApp',
     'copyDesktopConfig',
+    'copySupervisorConfig',
+    'supervisorAudit',
     'pairBrowserSession',
     'logoutBrowserSession',
     'revokeBrowserSession',

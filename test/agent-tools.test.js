@@ -37,6 +37,7 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
     'session.plan.update',
     'session.next_action',
     'executor.capabilities',
+    'supervisor.overview',
     'lane.create',
     'lane.claim',
     'lane.heartbeat',
@@ -49,6 +50,7 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
     'capacity.approve',
     'capacity.reject',
     'capacity.set_policy',
+    'session.worktree_policy.update',
     'critique.bundle.create',
     'critique.findings.record',
     'critique.waive',
@@ -86,6 +88,7 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
     'settings.export',
     'settings.import_dry_run',
     'settings.import_apply',
+    'session.supervisor_audit',
   ]) {
     assert.equal(ids.has(id), true, `missing ${id}`);
   }
@@ -94,6 +97,7 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
   assert.equal(findTool('project.quick_link.delete')?.route, '/api/projects/{projectId}/quick-links/{linkId}');
   assert.equal(findTool('project.quick_link.health')?.route, '/api/projects/{projectId}/quick-links/{linkId}/check');
   assert.equal(findTool('project.quick_link.health')?.implemented, true);
+  assert.equal(buildAgentToolDiscovery().roles.some((role) => role.role === 'supervisor'), true);
 });
 
 test('nextAction envelope only advertises an implemented nextRequiredTool', async () => {
@@ -105,9 +109,16 @@ test('nextAction envelope only advertises an implemented nextRequiredTool', asyn
       projectId: project.id,
       sessionId: session.id,
     });
-    assert.equal(planning.nextRequiredTool, 'lane.create');
+    assert.equal(planning.nextRequiredTool, 'orchestrator.enroll');
     assert.equal(planning.allowedTools.includes(planning.nextRequiredTool), true);
     assert.equal(findTool(planning.nextRequiredTool)?.implemented, true);
+    registry.enrollOrchestrator(session.id, { leaseId: 'dashboard', actor: 'test-orchestrator' });
+    const enrolledPlanning = buildNextActionEnvelope(registry, {
+      role: 'orchestrator',
+      projectId: project.id,
+      sessionId: session.id,
+    });
+    assert.equal(enrolledPlanning.nextRequiredTool, 'lane.create');
 
     const lane = registry.createLane(session.id, {
       title: 'Visual lane',

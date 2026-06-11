@@ -56,6 +56,7 @@ const ADMIN_ROUTE_KEYS = new Set([
   // Mints an off-origin orchestrator lease (a host-level credential) — code path
   // is requireAdminAuth in src/server-routes/mcp.js, so paired phones are denied.
   'POST /api/mcp/orchestrator-bootstrap',
+  'POST /api/mcp/supervisor-bootstrap',
 ]);
 
 function resolveAuthContract(method, routePath, declared) {

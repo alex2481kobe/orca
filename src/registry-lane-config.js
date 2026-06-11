@@ -4,6 +4,7 @@
 const SPAWN_POLICIES = new Set(['never', 'ask', 'within_capacity', 'auto']);
 const IDLE_SHUTDOWN_MODES = new Set(['immediate', 'short_keepalive', 'policy']);
 const CRITIQUE_MODES = new Set(['off', 'suggested', 'required', 'visual-required']);
+export const WORKTREE_MODES = new Set(['isolated', 'shared']);
 export const DEFAULT_APPROVED_CAPACITY = 2;
 
 export function normalizeSpawnPolicy(value, fallback = 'within_capacity') {
@@ -19,6 +20,15 @@ export function normalizeIdleShutdownMode(value, fallback = 'immediate') {
 export function normalizeCritiqueMode(value, fallback = 'suggested') {
   const normalized = String(value || fallback).trim().toLowerCase();
   return CRITIQUE_MODES.has(normalized) ? normalized : fallback;
+}
+
+export function normalizeWorktreeMode(value, fallback = 'isolated') {
+  const normalized = String(value || fallback).trim().toLowerCase();
+  return WORKTREE_MODES.has(normalized) ? normalized : fallback;
+}
+
+export function isWorktreeMode(value) {
+  return WORKTREE_MODES.has(String(value || '').trim().toLowerCase());
 }
 
 export function normalizeApprovedCapacity(value, fallback = DEFAULT_APPROVED_CAPACITY) {

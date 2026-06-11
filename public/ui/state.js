@@ -34,6 +34,8 @@ export const shell = {
   pairingAccepted: null,
   executorPanelOpen: false,
   workstationPicker: null,
+  supervisorOverview: null,
+  lastWorkspaceHref: '/',
   // Per-session chat composer drafts, keyed by sessionId. The single source of
   // truth for the message box — the DOM textarea is rehydrated from here on every
   // render, so NO re-render (poll, SSE, structural rebuild, modal, route change)

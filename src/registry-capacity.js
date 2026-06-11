@@ -8,6 +8,8 @@ import {
   normalizeApprovedCapacity,
   normalizeSpawnPolicy,
   normalizeIdleShutdownMode,
+  normalizeWorktreeMode,
+  isWorktreeMode,
 } from './registry-lane-config.js';
 
 export const capacityMethods = {
@@ -28,6 +30,10 @@ export const capacityMethods = {
       idleSlots: Math.max(0, approvedCapacity - activeAgents),
       soloMode: session.soloMode !== false,
       idleShutdownMode: normalizeIdleShutdownMode(session.idleShutdownMode),
+      worktreeMode: normalizeWorktreeMode(session.worktreeMode),
+      warnings: normalizeWorktreeMode(session.worktreeMode) === 'shared' && approvedCapacity > 1
+        ? ['Shared worktree mode is enabled while approvedCapacity is above 1; keep executor ownership disjoint or reduce capacity.']
+        : [],
       capacityRequests: safeArray(session.capacityRequests).map((request) => clonePayload(request)),
     };
   },
@@ -193,6 +199,7 @@ export const capacityMethods = {
     approvedCapacity,
     soloMode,
     idleShutdownMode,
+    worktreeMode,
     actor = 'dashboard',
     approved,
   } = {}) {
@@ -216,6 +223,12 @@ export const capacityMethods = {
     }
     if (soloMode !== undefined) session.soloMode = soloMode !== false;
     if (idleShutdownMode !== undefined) session.idleShutdownMode = normalizeIdleShutdownMode(idleShutdownMode, session.idleShutdownMode || 'immediate');
+    if (worktreeMode !== undefined) {
+      if (!isWorktreeMode(worktreeMode)) {
+        throw { status: 422, message: 'worktreeMode must be isolated or shared.' };
+      }
+      session.worktreeMode = normalizeWorktreeMode(worktreeMode, session.worktreeMode || 'isolated');
+    }
     session.updatedAt = nowIso();
     const capacity = this.getSessionCapacity(session.id);
     this.recordAudit({

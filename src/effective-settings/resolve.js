@@ -31,6 +31,7 @@ function sessionFieldSettings(session) {
   if (session.approvedCapacity !== undefined) spawn.approvedCapacity = session.approvedCapacity;
   if (session.soloMode !== undefined) spawn.soloMode = session.soloMode !== false;
   if (session.idleShutdownMode !== undefined) spawn.idleShutdownMode = session.idleShutdownMode;
+  if (session.worktreeMode !== undefined) spawn.worktreeMode = session.worktreeMode;
   if (Object.keys(spawn).length) settings.spawn = spawn;
 
   if (session.critiqueMode !== undefined) settings.critique = { mode: session.critiqueMode };

@@ -96,8 +96,11 @@ test('orchestrator: exclusive ownership refuses a non-owner mutating call', asyn
     registry.toolLeases.find((l) => l.id === owner.id).allowedTools.push('lane.create', 'task.list');
     registry.toolLeases.find((l) => l.id === other.id).allowedTools.push('lane.create', 'task.list');
 
-    // No owner yet -> anyone may mutate.
-    registry.assertOrchestratorOwnership({ toolId: 'lane.create', sessionId: session.id, lease: other });
+    // No owner yet -> the external orchestrator must register before mutating.
+    assert.throws(
+      () => registry.assertOrchestratorOwnership({ toolId: 'lane.create', sessionId: session.id, lease: other }),
+      (e) => e.status === 409 && /No active orchestrator/.test(e.message),
+    );
 
     registry.enrollOrchestrator(session.id, { leaseId: owner.id, actor: 'owner-chat' });
     // Owner may mutate; non-owner is refused; reads + exempt tools always allowed.
@@ -109,8 +112,13 @@ test('orchestrator: exclusive ownership refuses a non-owner mutating call', asyn
     registry.assertOrchestratorOwnership({ toolId: 'task.list', sessionId: session.id, lease: other }); // read ok
     registry.assertOrchestratorOwnership({ toolId: 'orchestrator.enroll', sessionId: session.id, lease: other }); // exempt
 
-    // After the owner resigns, the other lease may mutate again.
+    // After the owner resigns, the other lease still has to enroll before mutating.
     registry.resignOrchestrator(session.id, { leaseId: owner.id });
+    assert.throws(
+      () => registry.assertOrchestratorOwnership({ toolId: 'lane.create', sessionId: session.id, lease: other }),
+      (e) => e.status === 409 && /No active orchestrator/.test(e.message),
+    );
+    registry.enrollOrchestrator(session.id, { leaseId: other.id, actor: 'other-chat' });
     registry.assertOrchestratorOwnership({ toolId: 'lane.create', sessionId: session.id, lease: other });
   });
 });

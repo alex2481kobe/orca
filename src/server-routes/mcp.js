@@ -46,8 +46,8 @@ export async function handleMcpRoutes(ctx, req, res, method, parts) {
     return sendJson(res, 200, filtered);
   }
 
-  if (parts[1] === 'mcp' && parts[2] === 'orchestrator-bootstrap' && parts.length === 3 && method === 'POST') {
-    // Mints a powerful, long-lived (12h) orchestrator tool-lease token usable
+  if (parts[1] === 'mcp' && ['orchestrator-bootstrap', 'supervisor-bootstrap'].includes(parts[2]) && parts.length === 3 && method === 'POST') {
+    // Mints a powerful, long-lived (12h) orchestrator/supervisor tool-lease token usable
     // OFF-origin (bypasses the cookie+SameSite CSRF protection). That is a
     // host-level credential, so it requires ADMIN — a paired operator (phone)
     // must not be able to escalate by calling this.
@@ -57,6 +57,7 @@ export async function handleMcpRoutes(ctx, req, res, method, parts) {
     if (rejectSpoofedActor(body, res)) return;
     try {
       const result = registry.createOrchestratorMcpBootstrap({
+        role: parts[2] === 'supervisor-bootstrap' ? 'supervisor' : 'orchestrator',
         projectId: body.projectId || null,
         sessionId: body.sessionId || null,
         ttlMs: body.ttlMs,
@@ -66,7 +67,7 @@ export async function handleMcpRoutes(ctx, req, res, method, parts) {
       return sendJson(res, 201, result);
     } catch (error) {
       return sendJson(res, error.status || 500, {
-        error: error.message || 'Could not create orchestrator MCP bootstrap.',
+        error: error.message || 'Could not create MCP bootstrap.',
       });
     }
   }

@@ -130,6 +130,7 @@ test('effective settings API exposes defaults, scoped overrides, and mobile link
     const defaults = await server.requestJson('/api/settings/effective', { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(defaults.status, 200);
     assert.equal(defaults.body?.settings?.spawn?.spawnPolicy, 'within_capacity');
+    assert.equal(defaults.body?.settings?.spawn?.worktreeMode, 'isolated');
     assert.equal(defaults.body?.settings?.privateAccess?.funnelAllowed, false);
     assert.equal(JSON.stringify(defaults.body).includes('apiKey'), false);
 

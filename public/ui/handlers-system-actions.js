@@ -102,6 +102,20 @@ export async function handleSystemActions(event) {
     }
     return;
   }
+  if (action === 'connectSupervisorApp') {
+    const response = await api('/api/mcp/supervisor-bootstrap', {
+      method: 'POST',
+      body: { actor: 'desktop-app' },
+    });
+    if (response.ok) {
+      shell.lastSupervisorBootstrap = response.data || null;
+      renderAlert('Supervisor MCP config generated. Copy it into Codex or Claude Desktop.');
+      await refresh();
+    } else {
+      renderAlert(response.data?.error || 'Could not generate supervisor MCP config.', 'bad');
+    }
+    return;
+  }
   if (action === 'copyDesktopConfig') {
     const client = event.currentTarget.dataset.client || 'claudeDesktop';
     const entry = shell.lastDesktopBootstrap?.bootstrap?.clients?.[client] || null;
@@ -117,6 +131,54 @@ export async function handleSystemActions(event) {
       // info-tier alerts are dropped; show the snippet on the visible error tier
       // so a clipboard-blocked client can still copy it manually.
       renderAlert(snippet ? `Copy failed — ${labels[client] || 'config'}: ${snippet}` : 'Nothing to copy.', 'bad');
+    }
+    return;
+  }
+  if (action === 'copySupervisorConfig') {
+    const client = event.currentTarget.dataset.client || 'claudeDesktop';
+    const entry = shell.lastSupervisorBootstrap?.bootstrap?.clients?.[client] || null;
+    const snippet = entry?.command || entry?.snippet || '';
+    const labels = { claudeCli: 'supervisor claude mcp add command', codexCli: 'supervisor codex mcp add command', claudeDesktop: 'Supervisor Claude Desktop config', codex: 'Supervisor Codex config' };
+    try {
+      if (!snippet) throw new Error('nothing to copy');
+      if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable');
+      await navigator.clipboard.writeText(snippet);
+      renderAlert(`${labels[client] || 'Supervisor config'} copied.`);
+    } catch {
+      renderAlert(snippet ? `Copy failed — ${labels[client] || 'supervisor config'}: ${snippet}` : 'Nothing to copy.', 'bad');
+    }
+    return;
+  }
+  if (action === 'supervisorAudit') {
+    const sessionId = event.currentTarget.dataset.sessionId;
+    const verdict = event.currentTarget.dataset.verdict || 'accept';
+    const labels = { accept: 'Accept', request_fix: 'Request fix', block: 'Block' };
+    let summary = '';
+    if (verdict === 'request_fix' || verdict === 'block') {
+      const prompt = verdict === 'request_fix'
+        ? 'What should the orchestrator fix before this session is accepted?'
+        : 'Why should this session be blocked?';
+      const note = await promptDialog(prompt, '');
+      if (note === null) { renderAlert('Supervisor review canceled.'); return; }
+      summary = String(note || '').trim();
+      if (!summary) { renderAlert('A supervisor note is required.', 'bad'); return; }
+    } else if (!await confirmDialog('Accept this session from the supervisor view?', { confirmLabel: 'Accept' })) {
+      renderAlert('Supervisor review canceled.');
+      return;
+    }
+    const response = await api(`/api/sessions/${encodeURIComponent(sessionId)}/supervisor/audit`, {
+      method: 'POST',
+      body: {
+        actor: 'dashboard',
+        verdict,
+        summary,
+      },
+    });
+    if (response.ok) {
+      renderAlert(`${labels[verdict] || 'Supervisor review'} recorded.`);
+      await refresh();
+    } else {
+      renderAlert(response.data?.error || 'Could not record supervisor review.', 'bad');
     }
     return;
   }

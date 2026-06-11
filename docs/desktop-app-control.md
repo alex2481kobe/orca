@@ -13,6 +13,11 @@ for Claude executor lanes, Claude can orchestrate Codex lanes, and either can mi
 in API-backed or approved custom-CLI lanes. Orca owns the workflow state, leases,
 capacity, evidence, critique, and audit gates.
 
+For an even higher-level controller, generate a supervisor lease with
+`POST /api/mcp/supervisor-bootstrap`. A supervisor uses the same MCP server with
+`ORCA_ROLE=supervisor`, starts from `supervisor__overview`, and coordinates many
+project orchestrators from one conversation.
+
 ## Way A — in-app browser (visual)
 
 Open the Orca dashboard URL in the desktop app's built-in browser. You get the
@@ -39,6 +44,11 @@ returns paste-ready config for each client.
 
 The lease can be scoped to a single project/session by passing `projectId` /
 `sessionId`; unscoped leases work session/project-wide.
+
+The MCP bridge must be able to reach the running Orca HTTP server over loopback
+(`127.0.0.1` by default). If a sandboxed test environment refuses local listener
+binds with `EPERM`, that is an environment permission issue; rerun the smoke with
+permission to bind loopback before treating it as an Orca flow failure.
 
 ### Claude Code CLI
 

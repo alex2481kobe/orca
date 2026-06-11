@@ -239,11 +239,11 @@ export const orchestratorMethods = {
     return this.publicActiveOrchestrator(thread.activeOrchestrator || null, session);
   },
 
-  // Exclusive ownership enforcement: once a (non-stale) active orchestrator is
-  // set for a session, a DIFFERENT orchestrator-lease's mutating tool calls are
-  // refused with a 409 + nextAction. No active owner (nobody enrolled) or a stale
-  // owner => no exclusivity, so existing un-enrolled flows keep working. Called
-  // from the server's agent-tool gate for every lease-authed mutating call.
+  // Exclusive ownership enforcement: an external orchestrator lease must enroll
+  // with the session before it can mutate session state. A different live owner
+  // is refused, and a stale/missing owner must be refreshed through
+  // orchestrator.enroll before work continues. Called from the server's
+  // agent-tool gate for every lease-authed mutating call.
   assertOrchestratorOwnership({ toolId, sessionId, lease } = {}) {
     if (!toolId || !sessionId || !lease) return;
     if (String(lease.role) !== 'orchestrator') return; // executor/auditor are lane-scoped
@@ -251,20 +251,33 @@ export const orchestratorMethods = {
     const tool = findTool(toolId);
     if (!tool || !tool.mutating) return; // reads are always allowed
     const session = this.getSession(sessionId);
-    if (!session || !session.orchestratorThread) return;
-    const marker = session.orchestratorThread.activeOrchestrator;
-    if (!marker) return; // no owner claimed -> no exclusivity
-    if (this._activeOrchestratorStale(marker, session)) return; // dead owner never blocks a live agent
-    if (marker.leaseId === lease.id) {
-      // Caller is the owner; keep it fresh so it doesn't go stale mid-run.
-      marker.lastSeenAt = nowIso();
-      return;
-    }
+    if (!session) return;
+    const thread = this.ensureOrchestratorThread(session);
+    const marker = thread.activeOrchestrator;
     const nextAction = buildNextActionEnvelope(this, {
       role: 'orchestrator',
       projectId: session.projectId,
       sessionId: session.id,
     });
+    if (!marker) {
+      throw {
+        status: 409,
+        message: `No active orchestrator is registered for session "${session.name}". Call orchestrator.enroll before mutating it.`,
+        nextAction,
+      };
+    }
+    if (marker.leaseId === lease.id) {
+      // Caller is the owner; keep it fresh so it doesn't go stale mid-run.
+      marker.lastSeenAt = nowIso();
+      return;
+    }
+    if (this._activeOrchestratorStale(marker, session)) {
+      throw {
+        status: 409,
+        message: `The active orchestrator for session "${session.name}" is stale. Call orchestrator.enroll with takeover:true before mutating it.`,
+        nextAction,
+      };
+    }
     throw {
       status: 409,
       message: `You are not the active orchestrator for session "${session.name}" (held by ${marker.actor || marker.leaseId}). Call orchestrator.enroll with takeover:true to take over before mutating it.`,

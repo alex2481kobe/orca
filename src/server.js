@@ -32,6 +32,7 @@ import { handlePrivateAccessApi } from './server-routes/private-access.js';
 import { handleProvidersApi } from './server-routes/providers.js';
 import { handleSettingsRoutes } from './server-routes/settings.js';
 import { handleAgentToolRoutes } from './server-routes/agent-tools.js';
+import { handleSupervisorRoutes } from './server-routes/supervisor.js';
 import { handleCaptureRoutes } from './server-routes/capture.js';
 import { handleArtifactRoutes } from './server-routes/artifacts.js';
 import { handleMiscRoutes } from './server-routes/misc.js';
@@ -336,6 +337,15 @@ function toolLeaseRequirementForRoute(method, parts) {
   }
   if (parts[1] === 'sessions' && parts[2] && parts[3] === 'capacity' && parts[4] === 'policy' && method === 'POST') {
     return { toolId: 'capacity.set_policy', sessionId: parts[2] };
+  }
+  if (parts[1] === 'sessions' && parts[2] && parts[3] === 'worktree-policy' && method === 'POST') {
+    return { toolId: 'session.worktree_policy.update', sessionId: parts[2] };
+  }
+  if (parts[1] === 'supervisor' && parts[2] === 'overview' && method === 'GET') {
+    return { toolId: 'supervisor.overview' };
+  }
+  if (parts[1] === 'sessions' && parts[2] && parts[3] === 'supervisor' && parts[4] === 'audit' && method === 'POST') {
+    return { toolId: 'session.supervisor_audit', sessionId: parts[2] };
   }
   if (parts[1] === 'sessions' && parts[2] && parts[3] === 'audit-done-lanes' && method === 'POST') {
     return { toolId: 'audit.queue_all_ready', sessionId: parts[2] };
@@ -797,6 +807,11 @@ async function handleApi(req, res, pathname, method, parts) {
 
   if (parts[1] === 'agent-tools') {
     const result = await handleAgentToolRoutes(ROUTE_CTX, req, res, method, parts);
+    if (result !== LANE_FALL_THROUGH) return;
+  }
+
+  if (parts[1] === 'supervisor') {
+    const result = await handleSupervisorRoutes(ROUTE_CTX, req, res, method, parts);
     if (result !== LANE_FALL_THROUGH) return;
   }
 

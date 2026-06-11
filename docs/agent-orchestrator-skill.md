@@ -22,6 +22,9 @@ Orca policy gates.
 
 - Read the current project, session, and lane state before assigning work.
 - Use the agent-tool discovery contract instead of guessing route names.
+- External MCP orchestrators must call `orchestrator.enroll` for the session
+  before mutating it. Orca rejects unregistered mutating tool calls so every
+  active orchestrator is visible in the dashboard/session state.
 - Read `executor.capabilities` from discovery or the next-action envelope before
   spawning lanes. Pick models, permissions, intelligence/effort, MCP tools, and
   background-agent expectations from the selected executor's advertised
@@ -63,6 +66,12 @@ You drive executor agents entirely through lane tools — there is no separate
   mid-turn (those are live OS processes); stop + retry is the model for that.
 - **Cap concurrency**: `approvedCapacity` is a ceiling, not a target. The
   scheduler never runs more executor lanes than the approved capacity.
+- **Worktree mode**: default `worktreeMode` is `isolated`, so git sessions create
+  per-lane worktrees when possible. Use `session.worktree_policy.update` or
+  `capacity.set_policy` with `worktreeMode: 'shared'` only when the user wants
+  one checkout. In shared mode, keep lane ownership/file paths disjoint, avoid
+  broad refactors, and prefer capacity `1` unless a supervisor explicitly accepts
+  the conflict risk.
 
 Executor activity is **read-only** to the operator: each lane streams structured
 `agentEvents` (the "what is this executor doing" feed) plus raw terminal logs;

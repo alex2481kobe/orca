@@ -63,6 +63,7 @@ test('agent-flow: audit mandatory + fix loop budget + routing per config', async
     assert.equal(fix1.audit.loopsRemaining, 0);
 
     // nextAction reflects the flow: fix routed to a new agent => lane.create.
+    registry.enrollOrchestrator(session.id, { leaseId: 'dashboard', actor: 'test-orchestrator' });
     const env = buildNextActionEnvelope(registry, { role: 'orchestrator', projectId: project.id, sessionId: session.id, laneId: lane.id });
     assert.equal(env.nextRequiredTool, 'lane.create');
     assert.equal(env.flow.template, 'orchestrator-executor-audit');

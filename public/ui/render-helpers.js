@@ -65,8 +65,24 @@ export function isVerificationProject(project) {
 
 export function activeHomePanel() {
   const panel = String(window.location.hash || '').replace(/^#/, '').toLowerCase();
-  const allowed = new Set(['projects', 'setup', 'system', 'mcp', 'audit', 'cleanup', 'token', 'private-access', 'providers', 'effective-settings', 'notifications', 'backup', 'pair', 'desktop-control']);
-  return allowed.has(panel) ? panel : 'overview';
+  const aliases = {
+    setup: 'access',
+    token: 'access',
+    pair: 'access',
+    'private-access': 'access',
+    'desktop-control': 'mcp',
+    cleanup: 'operations',
+    'effective-settings': 'operations',
+    notifications: 'operations',
+    backup: 'operations',
+  };
+  const normalized = aliases[panel] || panel;
+  const allowed = new Set(['projects', 'system', 'agents', 'supervisor', 'mcp', 'providers', 'access', 'operations']);
+  return allowed.has(normalized) ? normalized : 'overview';
+}
+
+export function isSettingsHomePanel(panel = activeHomePanel()) {
+  return !['overview', 'projects'].includes(String(panel || 'overview'));
 }
 
 export function getActionPolicy(actionKey) {

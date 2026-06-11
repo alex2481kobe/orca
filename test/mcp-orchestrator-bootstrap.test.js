@@ -176,3 +176,27 @@ test('registry scopes the lease to a project/session when provided', async () =>
     await cleanup();
   }
 });
+
+test('registry mints a supervisor MCP bootstrap with supervisor tool scope', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const result = registry.createOrchestratorMcpBootstrap({ role: 'supervisor', actor: 'desktop-app' });
+    assert.ok(result.leaseToken, 'returns the plaintext supervisor lease token once');
+    assert.equal(result.lease.role, 'supervisor');
+    assert.ok(result.lease.allowedTools.includes('supervisor.overview'));
+    assert.ok(result.lease.allowedTools.includes('session.supervisor_audit'));
+    assert.equal(result.bootstrap.clients.claudeDesktop.config.mcpServers.orca.env.ORCA_ROLE, 'supervisor');
+    const validated = registry.validateToolLease(result.leaseToken, {
+      role: 'supervisor',
+      toolId: 'supervisor.overview',
+    });
+    assert.equal(validated.active, true);
+    assert.throws(
+      () => registry.validateToolLease(result.leaseToken, { role: 'orchestrator' }),
+      (err) => err.status === 403,
+    );
+    assert.ok(registry.auditEvents.some((event) => event.type === 'supervisor_mcp_bootstrap_created'));
+  } finally {
+    await cleanup();
+  }
+});

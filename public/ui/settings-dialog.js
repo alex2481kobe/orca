@@ -46,6 +46,11 @@ const SECTIONS = [
           ['auto', 'Automatic', 'Start lanes whenever there is work, up to the limit.'],
           ['never', 'Never', 'Don’t auto-start lanes — you create them yourself.'],
         ] },
+      { path: 'spawn.worktreeMode', label: 'Worktree mode', type: 'enum', scope: 'session',
+        hint: 'Isolated creates per-lane worktrees. Shared runs all lanes in the session repo; keep file ownership disjoint.', options: [
+          ['isolated', 'Isolated worktrees', 'Each executor gets its own managed checkout.'],
+          ['shared', 'Shared session checkout', 'Executors use the session repo directly; safer at capacity 1 or with disjoint tasks.'],
+        ] },
     ],
   },
   {
@@ -188,7 +193,7 @@ export async function openScopedSettingsDialog({ scope, id, name }) {
   const sectionsHtml = defaultsHtml + SECTIONS.map((section) => `
     <div class="settings-section">
       <h4 class="settings-section-title">${safeText(section.title)}</h4>
-      ${section.fields.map((field) => fieldControl(field, readEffective(thisEff, field.path))).join('')}
+      ${section.fields.filter((field) => !field.scope || field.scope === scope).map((field) => fieldControl(field, readEffective(thisEff, field.path))).join('')}
     </div>`).join('');
 
   const overlay = document.createElement('div');
@@ -262,6 +267,12 @@ export async function openScopedSettingsDialog({ scope, id, name }) {
 
   overlay.querySelector('.modal-confirm').addEventListener('click', async () => {
     const next = JSON.parse(JSON.stringify(target?.settingsOverrides || {}));
+    if (!isProject && next.spawn?.worktreeMode !== undefined) {
+      delete next.spawn.worktreeMode;
+      if (!Object.keys(next.spawn).length) delete next.spawn;
+    }
+    const currentWorktreeMode = isProject ? null : String(target?.worktreeMode || readEffective(thisEff, 'spawn.worktreeMode') || 'isolated');
+    let directWorktreeMode = null;
     const applyOverride = (path, value) => {
       const { group, key } = splitPath(path);
       const inherited = readEffective(parentEff || {}, path);
@@ -287,6 +298,10 @@ export async function openScopedSettingsDialog({ scope, id, name }) {
       const kind = select.dataset.kind;
       const value = select.dataset.value;
       if (kind === 'executor') continue;
+      if (!isProject && select.dataset.path === 'spawn.worktreeMode') {
+        directWorktreeMode = value;
+        continue;
+      }
       if (kind === 'auditor') {
         applyOverride('flow.auditTier', value);
         applyOverride('critique.auditAssignment', value === 'separate-auditor' ? 'separate-auditor-required' : 'orchestrator-audits-first');
@@ -316,6 +331,18 @@ export async function openScopedSettingsDialog({ scope, id, name }) {
         if (recordPatch.leader !== undefined) target.leader = recordPatch.leader;
         if (recordPatch.defaultModel !== undefined) target.defaultModel = recordPatch.defaultModel;
       }
+    }
+
+    if (!isProject && directWorktreeMode && directWorktreeMode !== currentWorktreeMode) {
+      const worktreeResp = await api(`/api/sessions/${encodeURIComponent(id)}/worktree-policy`, {
+        method: 'POST',
+        body: { actor: 'dashboard', approved: true, worktreeMode: directWorktreeMode },
+      });
+      if (!worktreeResp.ok) {
+        renderAlert(worktreeResp.data?.error || 'Could not save worktree mode.', 'bad');
+        return;
+      }
+      if (target) target.worktreeMode = worktreeResp.data?.worktreeMode || directWorktreeMode;
     }
 
     const response = await api(`/api/settings/${scope}/${encodeURIComponent(id)}`, {

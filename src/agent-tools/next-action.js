@@ -58,8 +58,14 @@ function evidenceFreshForLane(registry, lane) {
 
 function chooseNextTool({ registry, role, project, session, lane, auditQueued, flow }) {
   const normalizedRole = normalizeRole(role);
+  if (normalizedRole === 'supervisor') return 'supervisor.overview';
   if (!project) return 'project.list';
   if (!session) return 'project.describe';
+  if (normalizedRole === 'orchestrator') {
+    let activeOrchestrator = null;
+    try { activeOrchestrator = registry.getActiveOrchestrator(session.id); } catch { activeOrchestrator = null; }
+    if (!activeOrchestrator?.active || activeOrchestrator?.stale) return 'orchestrator.enroll';
+  }
   if (!lane) {
     // orchestrator-only flow: the orchestrator does the work itself — don't push
     // toward spawning executor lanes.

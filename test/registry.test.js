@@ -2201,6 +2201,47 @@ test('Worktree manager creates per-lane worktree under approved base and cleanup
   }
 });
 
+test('Session shared worktree mode runs lanes in the session repoRoot without per-lane worktrees', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const repoDir = path.join(process.cwd(), 'shared-mode-repo');
+    await fs.mkdir(repoDir, { recursive: true });
+    const { spawnSync } = await import('node:child_process');
+    const g = (...args) => spawnSync('git', args, { cwd: repoDir, encoding: 'utf8' });
+    g('init', '-q');
+    g('config', 'user.email', 'test@local');
+    g('config', 'user.name', 'Test');
+    await fs.writeFile(path.join(repoDir, 'README.md'), 'hello');
+    g('add', 'README.md');
+    g('commit', '-qm', 'init');
+
+    const project = registry.createProject({ name: 'Shared Mode Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, {
+      name: 'Shared Mode Session',
+      repoRoot: repoDir,
+      worktreeMode: 'shared',
+    }, { actor: 'test', approved: true });
+    const lane = registry.createLane(session.id, {
+      title: 'shared mode lane',
+      executorType: 'mock',
+    }, { actor: 'test', approved: true });
+
+    assert.equal(lane.sharedWorktree, true);
+    assert.equal(lane.worktreeMode, 'shared');
+    assert.equal(lane.workdir, repoDir);
+    assert.equal(lane.worktreePath, repoDir);
+    assert.ok(!lane.worktreePath.includes('worktrees'), 'shared mode should not create a managed worktree');
+    assert.ok(lane.warnings.some((w) => w.kind === 'shared_worktree'), 'shared mode should surface conflict warning');
+    registry.getLane(lane.id).state = 'done';
+    await assert.rejects(
+      registry.removeLaneWorktree(lane.id, { actor: 'test', approved: true }),
+      (error) => error.status === 422 && /shared\/non-managed/.test(error.message),
+    );
+  } finally {
+    await cleanup();
+  }
+});
+
 test('getSessionGitInfo reports branches/worktrees for git repos and isGit:false otherwise', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {

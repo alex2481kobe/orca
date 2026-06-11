@@ -9,8 +9,8 @@ The UI target is a clean Codex-app-style operator surface:
 - Quiet top bar that aligns with the main work surface.
 - Main chat/workflow surface for the active project, session, or lane.
 - Optional right-panel/bottom-sheet pattern for advanced tools and evidence.
-- Settings as the home for advanced system, provider, private-access, cleanup,
-  and diagnostic controls.
+- Settings as the home for consolidated system, agent, supervisor, MCP, provider,
+  access, and operations controls.
 - No visible placeholder actions, no orphan buttons, no horizontal overflow,
   and no raw debug sections in default views.
 
@@ -55,18 +55,16 @@ The smoke summary for each screen must include:
 | Screen | Route | Purpose | Primary action | Hidden/collapsed advanced actions | Required primitives |
 | --- | --- | --- | --- | --- | --- |
 | `home` | `/` | Default operator overview and project navigation entry. | Open a project/session. | System details and advanced health state. | shell, rail, rows, disclosures |
-| `pair` | `/#pair` | Pair a remote laptop/phone via QR code and one-time pairing code. | Create pairing code. | Paired-device list and full setup wizard behind disclosures/links. | shell, card, qr, disclosures |
 | `projects` | `/#projects` | Project list management view. | Open project. | Reorder/archive actions through row controls or sheets. | shell, rail, rows, panels |
 | `new-project` | `/#create` | Create a new project. | Create project. | Policy/approval details. | form, panel, validation |
 | `settings` | `/#system` | Global settings and system health entry. | Review effective system state. | Raw diagnostics, token/session details, CLI internals. | settings panel, disclosures, forms |
+| `agents` | `/#agents` | Agent CLI, executor profile, and evidence capture setup. | Review agent readiness. | Managed install/reinstall plans and capture backend details. | rows, disclosures, forms |
 | `providers` | `/#providers` | Provider catalog and health. | Check or configure provider. | CLI install/update dry-run details and raw profile data. | cards, disclosures, forms |
 | `secrets` | `/#providers` | Provider secret setup surface. | Set/delete provider secret reference. | Backend-specific details and env fallback notes. | form, danger action, redaction state |
-| `mcp-tools` | `/#mcp` | MCP tool management. | Create or edit tool. | Raw tool config and scope internals. | form, rows, disclosures |
-| `audit-queue` | `/#audit` | Audit queue and review actions. | Open or acknowledge audit. | Raw audit metadata/export. | rows, badges, disclosures |
-| `private-access` | `/#private-access` | Tailscale/private mobile access setup. | Copy/check dry-run setup command. | Fake provider state, Serve internals, setup diagnostics. | panels, command blocks, disclosures |
-| `cleanup` | `/#cleanup` | Artifact cleanup and schedule controls. | Run cleanup dry-run. | Destructive cleanup confirmation and schedule internals. | danger action, forms, disclosures |
-| `notifications` | `/#notifications` | In-app and browser notification settings plus unread status. | Mark notification read. | Browser permission state and delivery threshold controls. | rows, forms, badges, disclosures |
-| `backup-support` | `/#backup` | Local app backup, import dry-run/apply, and redacted support bundle. | Export app backup. | Import apply confirmation and support diagnostics. | forms, disclosures, danger action, code block |
+| `supervisor` | `/#supervisor` | Cross-project supervisor control and MCP bootstrap. | Generate supervisor MCP config. | Per-session backlog/review details and bootstrap snippets. | rows, badges, disclosures |
+| `mcp-tools` | `/#mcp` | Desktop MCP bridge and custom tool management. | Generate config or create tool. | Raw tool config and scope internals. | form, rows, disclosures |
+| `access` | `/#access` | Tailscale, pairing, and token access setup. | Create pairing code or configure private access. | Serve commands, token fallback, and paired-device details. | panels, command blocks, disclosures |
+| `operations` | `/#operations` | Notifications, cleanup, backup, archive, and effective policy. | Review operational settings. | Destructive cleanup/import confirmations and raw resolved policy. | forms, disclosures, danger action, code block |
 | `project-detail` | `/projects/:slug` | Project details, quick links, and sessions. | Open/create session. | Quick-link maintenance and operations panel. | project shell, rows, right panel |
 | `session-workflow` | `/projects/:slug/sessions/:id` | Active session workflow, orchestrator chat, and lanes. | Send orchestrator message or create/open lane. | Capacity policy, critique/audit internals, raw lane metadata. | orchestrator console, work surface, lane rows, forms |
 | `lane-detail` | `/projects/:slug/sessions/:id/lanes/:id` | Lane status, logs, evidence, and audit handoff. | Run next safe lane action. | Process metadata, MCP config path, logs, artifacts. | lane panel, evidence panel, disclosures |

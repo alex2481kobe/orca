@@ -35,6 +35,8 @@ test('sessions default to within-capacity policy with two approved slots', async
     assert.equal(capacity.idleSlots, 2);
     assert.equal(capacity.soloMode, true);
     assert.equal(capacity.idleShutdownMode, 'immediate');
+    assert.equal(capacity.worktreeMode, 'isolated');
+    assert.deepEqual(capacity.warnings, []);
   });
 });
 
@@ -104,5 +106,38 @@ test('spawn policy never prevents queued lanes from starting', async () => {
     assert.equal(envelope.capacity.spawnPolicy, 'never');
     assert.equal(envelope.capacity.approvedCapacity, 2);
     assert.equal(envelope.allowedTools.includes('capacity.request'), true);
+  });
+});
+
+test('session worktree policy can be switched to shared and warns under parallel capacity', async () => {
+  await withRegistry(async (registry) => {
+    const project = registry.createProject({ name: 'Worktree Policy Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Worktree Policy Session' }, { actor: 'test', approved: true });
+    const updated = registry.setSessionWorktreePolicy(session.id, {
+      actor: 'orchestrator',
+      approved: true,
+      worktreeMode: 'shared',
+      reason: 'single human-reviewed checkout',
+    });
+    assert.equal(updated.worktreeMode, 'shared');
+    assert.equal(updated.warnings.length, 1);
+    const capacity = registry.getSessionCapacity(session.id);
+    assert.equal(capacity.worktreeMode, 'shared');
+    assert.equal(capacity.warnings.length, 1);
+    const envelope = buildNextActionEnvelope(registry, {
+      role: 'orchestrator',
+      projectId: project.id,
+      sessionId: session.id,
+    });
+    assert.equal(envelope.capacity.worktreeMode, 'shared');
+    assert.equal(envelope.allowedTools.includes('session.worktree_policy.update'), true);
+    assert.throws(
+      () => registry.setSessionWorktreePolicy(session.id, {
+        actor: 'orchestrator',
+        approved: true,
+        worktreeMode: 'chaos',
+      }),
+      (error) => error.status === 422 && /worktreeMode must be isolated or shared/.test(error.message)
+    );
   });
 });

@@ -195,7 +195,7 @@ try {
   });
   await orch.initialize();
   const orchTools = await orch.listToolNames();
-  for (const need of ['lane__create', 'lane__shutdown', 'audit__queue_one', 'project__list']) {
+  for (const need of ['orchestrator__enroll', 'lane__create', 'lane__shutdown', 'audit__queue_one', 'project__list']) {
     if (!orchTools.includes(need)) fail('orchestrator tools/list missing', need);
   }
   log('orchestrator tools', `${orchTools.length} tools incl. lane__create/shutdown/audit`);
@@ -204,6 +204,10 @@ try {
   const projList = await orch.call('project__list', {});
   if (projList.isError) fail('orchestrator project__list', projList.text);
   log('orchestrator project__list', 'ok');
+
+  const enroll = await orch.call('orchestrator__enroll', { sessionId, body: {} });
+  if (enroll.isError || !enroll.data?.activeOrchestrator?.active) fail('orchestrator orchestrator__enroll', enroll.text);
+  log('orchestrator enroll', `${enroll.data.activeOrchestrator.actor || enroll.data.activeOrchestrator.leaseId}`);
 
   // Spawn an executor agent (mock) via the MCP tool, run to completion.
   const spawn1 = await orch.call('lane__create', {

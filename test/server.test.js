@@ -1351,6 +1351,14 @@ test('dashboard orchestrator messages create server-owned turns and scoped tool 
     assert.equal(lease.status, 201);
     assert.equal(Boolean(lease.body?.leaseToken), true);
 
+    const enrolled = await server.requestJson(`/api/sessions/${session.body.id}/orchestrator/enroll`, {
+      method: 'POST',
+      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
+      body: { actor: 'orchestrator' },
+    });
+    assert.equal(enrolled.status, 200);
+    assert.equal(enrolled.body?.activeOrchestrator?.active, true);
+
     const leaseLane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
       method: 'POST',
       headers: { 'x-orca-tool-lease': lease.body.leaseToken },
@@ -1900,7 +1908,7 @@ test('agent tool routes expose discovery, nextAction, and token-gated leases', a
 
     const next = await server.requestJson(`/api/agent-tools/next-action?role=orchestrator&projectId=${project.body.id}&sessionId=${session.body.id}`, { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(next.status, 200);
-    assert.equal(next.body?.nextRequiredTool, 'lane.create');
+    assert.equal(next.body?.nextRequiredTool, 'orchestrator.enroll');
     assert.equal(next.body?.allowedTools.includes('lane.create'), true);
     assert.equal(next.body?.executorCapabilities?.claude?.invocation?.canRunAsExecutor, true);
 
@@ -1930,7 +1938,29 @@ test('agent tool routes expose discovery, nextAction, and token-gated leases', a
     assert.equal(Boolean(lease.body?.leaseToken), true);
     assert.equal(lease.body?.lease?.allowedTools.includes('lane.create'), true);
     assert.equal(JSON.stringify(lease.body?.lease || {}).includes(lease.body.leaseToken), false);
-    assert.equal(lease.body?.nextAction?.nextRequiredTool, 'lane.create');
+    assert.equal(lease.body?.nextAction?.nextRequiredTool, 'orchestrator.enroll');
+
+    const refusedBeforeEnroll = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
+      body: {
+        actor: 'orchestrator',
+        approved: true,
+        title: 'Unregistered lease lane',
+        executorType: 'mock',
+        owner: 'orchestrator',
+      },
+    });
+    assert.equal(refusedBeforeEnroll.status, 409);
+    assert.match(refusedBeforeEnroll.body?.error || '', /No active orchestrator/);
+
+    const enrolled = await server.requestJson(`/api/sessions/${session.body.id}/orchestrator/enroll`, {
+      method: 'POST',
+      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
+      body: { actor: 'orchestrator' },
+    });
+    assert.equal(enrolled.status, 200);
+    assert.equal(enrolled.body?.activeOrchestrator?.active, true);
 
     const createdByLease = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
       method: 'POST',
