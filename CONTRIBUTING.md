@@ -77,5 +77,5 @@ private keys.
 
 ## License
 
-Contributions are accepted under `AGPL-3.0-or-later`. By contributing, you agree
-that your contribution can be distributed under that license.
+Contributions are accepted under `Apache-2.0`. By contributing, you agree that
+your contribution can be distributed under that license.

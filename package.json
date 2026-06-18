@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Local-first MCP control plane for orchestrating fleets of Codex, Claude, CLI, and API-backed coding agents.",
-  "license": "AGPL-3.0-or-later",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/alex2481kobe/orca.git"

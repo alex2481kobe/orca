@@ -18,7 +18,7 @@ the `orca-agent` CLI from any shell-capable agent. The current validated setup i
 a macOS workstation plus phone access; Windows and Linux are intended future
 validation targets.
 
-[![license: AGPL‑3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
+[![license: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 ![local‑first](https://img.shields.io/badge/local--first-✓-success)
 ![PWA](https://img.shields.io/badge/PWA-installable-success)
 ![tested](https://img.shields.io/badge/tested-macOS%20%2B%20phone-lightgrey)
@@ -230,8 +230,7 @@ See [`SECURITY.md`](SECURITY.md) to report issues.
 
 ## License
 
-[AGPL‑3.0‑or‑later](LICENSE) — use, study, modify, and share it. Networked or
-distributed modified versions must keep their source available under the same terms.
+[Apache-2.0](LICENSE) - use, study, modify, and share it under Apache 2.0 terms.
 
 ---
 

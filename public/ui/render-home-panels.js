@@ -989,7 +989,7 @@ export function renderBackupPanel() {
             <div class="about-links">
               <a href="https://github.com/alex2481kobe/orca" target="_blank" rel="noreferrer noopener">Source</a>
               <span aria-hidden="true">·</span>
-              <a href="https://github.com/alex2481kobe/orca/blob/main/LICENSE" target="_blank" rel="noreferrer noopener">AGPL License</a>
+              <a href="https://github.com/alex2481kobe/orca/blob/main/LICENSE" target="_blank" rel="noreferrer noopener">Apache 2.0 License</a>
             </div>
           </div>
         </details>
