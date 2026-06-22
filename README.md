@@ -69,7 +69,7 @@ spawn the next lane? Orca is the local control plane for that.
 ```bash
 git clone https://github.com/alex2481kobe/orca.git
 cd orca
-npm install
+npm ci --ignore-scripts
 npm start
 ```
 

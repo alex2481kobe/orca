@@ -8,7 +8,7 @@ security-sensitive behavior with tests or smoke gates.
 ## Local setup
 
 ```sh
-npm install
+npm ci --ignore-scripts
 ORCA_API_TOKEN="$(openssl rand -hex 32)" npm run dev
 ```
 
@@ -46,8 +46,8 @@ cargo test --manifest-path src-tauri/Cargo.toml
 - Fork PRs should be reviewed before any maintainer runs workflows against
   them. Never expose repository secrets to untrusted pull request code.
 - Dependency installs use repo npm guardrails. Do not bypass `ignore-scripts`,
-  `allow-git=none`, exact-version saves, or production audit checks without
-  calling it out for owner review.
+  `allow-git=none`, `min-release-age=30`, exact-version saves, or production
+  audit checks without calling it out for owner review.
 - Do not add public tunnels or default public exposure. Tailscale Funnel is not
   part of the v1 security model.
 - Keep the server authoritative for credentials, pairing, live links, MCP

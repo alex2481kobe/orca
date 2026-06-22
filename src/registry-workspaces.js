@@ -5,7 +5,12 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { ensureDirectorySync, isPathWithinBoundary } from './registry-utils.js';
+import {
+  ensureDirectorySync,
+  isPathWithinBoundary,
+  isRealPathWithinBoundarySync,
+  realpathSyncSafe,
+} from './registry-utils.js';
 import {
   DEFAULT_APPROVED_CAPACITY,
   normalizeApprovedCapacity,
@@ -234,6 +239,16 @@ export const workspaceMethods = {
         message: 'Lane workdir could not be created.',
       };
     }
-    return workdir;
+    const approvedRoots = path.isAbsolute(requested)
+      ? [sessionWorkdir, ...this.getApprovedRepoRoots()]
+      : [sessionWorkdir];
+    const withinRealBoundary = approvedRoots.some((root) => isRealPathWithinBoundarySync(workdir, root));
+    if (!withinRealBoundary) {
+      throw {
+        status: 422,
+        message: 'Lane workdir resolves outside approved execution roots.',
+      };
+    }
+    return realpathSyncSafe(workdir) || workdir;
   },
 };

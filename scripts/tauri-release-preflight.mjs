@@ -11,6 +11,19 @@ function readJson(relativePath) {
   return JSON.parse(fs.readFileSync(path.join(root, relativePath), 'utf8'));
 }
 
+function mergeConfig(base, overlay) {
+  if (!overlay || typeof overlay !== 'object' || Array.isArray(overlay)) return base;
+  const out = { ...(base || {}) };
+  for (const [key, value] of Object.entries(overlay)) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      out[key] = mergeConfig(out[key] || {}, value);
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
 function exists(relativePathOrAbsolute) {
   const filePath = path.isAbsolute(relativePathOrAbsolute)
     ? relativePathOrAbsolute
@@ -34,6 +47,7 @@ const checks = [];
 const packageJson = readJson('package.json');
 const tauriConfig = readJson('src-tauri/tauri.conf.json');
 const releaseConfig = readJson('src-tauri/tauri.release.conf.json');
+const effectiveTauriConfig = mergeConfig(tauriConfig, releaseConfig);
 
 record(
   checks,
@@ -44,15 +58,15 @@ record(
 
 record(
   checks,
-  Boolean(releaseConfig?.plugins?.updater?.pubkey),
+  Boolean(effectiveTauriConfig?.plugins?.updater?.pubkey),
   'Tauri updater public key is configured',
-  'Generate an updater keypair and commit only the public key in src-tauri/tauri.release.conf.json.',
+  'Generate an updater keypair and commit only the public key in the effective Tauri updater config.',
 );
 
 record(
   checks,
-  Array.isArray(releaseConfig?.plugins?.updater?.endpoints)
-    && releaseConfig.plugins.updater.endpoints.every((endpoint) => /^https:\/\//i.test(endpoint)),
+  Array.isArray(effectiveTauriConfig?.plugins?.updater?.endpoints)
+    && effectiveTauriConfig.plugins.updater.endpoints.every((endpoint) => /^https:\/\//i.test(endpoint)),
   'Tauri updater endpoints are HTTPS',
   'Set plugins.updater.endpoints to the HTTPS latest.json location.',
 );

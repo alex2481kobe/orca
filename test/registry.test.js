@@ -1027,6 +1027,35 @@ test('Lane workdirs default to the session workspace and reject traversal outsid
       }, { approved: true, actor: 'test' }),
       (error) => error.status === 422,
     );
+
+    const outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-outside-workdir-'));
+    const symlinkWorkdir = path.join(sessionRecord.worktreeRoot, 'link-outside');
+    await fs.symlink(outsideDir, symlinkWorkdir, 'dir');
+    try {
+      assert.throws(
+        () => registry.createLane(session.id, {
+          title: 'Symlink escaping workspace lane',
+          executorType: 'codex',
+          workdir: 'link-outside',
+          mcpToolIds: [],
+        }, { approved: true, actor: 'test' }),
+        (error) => error.status === 422 && /resolves outside/.test(error.message),
+      );
+
+      const { CliExecutorAdapter } = await import('../src/executor/cli-adapter.js');
+      const adapter = new CliExecutorAdapter('node', {
+        defaultBinary: process.execPath,
+        allowedBinaries: [process.execPath],
+        defaultWorkingDir: process.cwd(),
+        workdirRoots: [process.cwd()],
+      });
+      await assert.rejects(
+        () => adapter._resolveWorkdir(symlinkWorkdir),
+        /resolves outside allowed execution roots/,
+      );
+    } finally {
+      await fs.rm(outsideDir, { recursive: true, force: true });
+    }
   } finally {
     await cleanup();
   }
@@ -2318,6 +2347,16 @@ test('Session creation refuses nonexistent or out-of-bounds repoRoot but accepts
     spawnSync('git', ['add', 'R'], { cwd: outsideRepo });
     spawnSync('git', ['commit', '-qm', 'init'], { cwd: outsideRepo });
     try {
+      const linkToOutside = path.join(process.cwd(), 'link-to-outside-repo');
+      await fs.symlink(outsideRepo, linkToOutside, 'dir');
+      assert.throws(() => registry.createProject({
+        name: 'symlink outside project',
+        repoRoot: linkToOutside,
+      }, { actor: 'test', approved: true }), (error) => error.status === 422);
+      assert.throws(() => registry.createSession(project.id, {
+        name: 'symlink outside session',
+        repoRoot: linkToOutside,
+      }, { actor: 'test', approved: true }), (error) => error.status === 422);
       assert.throws(() => registry.createSession(project.id, {
         name: 'outside repo',
         repoRoot: outsideRepo,

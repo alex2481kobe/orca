@@ -38,7 +38,7 @@ Run:
 ```sh
 git clone https://github.com/alex2481kobe/orca.git
 cd orca
-npm install
+npm ci --ignore-scripts
 ORCA_API_TOKEN="$(openssl rand -hex 32)" npm run dev
 ```
 

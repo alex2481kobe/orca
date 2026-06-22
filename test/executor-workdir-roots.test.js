@@ -26,7 +26,7 @@ test('executor allowed roots include the approved repo roots (no WORKDIR_ROOTS e
     const adapter = registry.getExecutorForType('codex');
     // A lane in the approved repoRoot resolves (was throwing before the fix).
     const resolved = await adapter._resolveWorkdir(projectDir);
-    assert.equal(path.resolve(resolved), path.resolve(projectDir));
+    assert.equal(path.resolve(resolved), path.resolve(await fs.realpath(projectDir)));
     // A path outside every approved root is still rejected (defense intact).
     await assert.rejects(
       () => adapter._resolveWorkdir(outsideDir),

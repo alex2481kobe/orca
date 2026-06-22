@@ -36,6 +36,7 @@ jobs:
         run: |
           grep -qx "allow-git=none" .npmrc
           grep -qx "ignore-scripts=true" .npmrc
+          grep -qx "min-release-age=30" .npmrc
           grep -qx "save-exact=true" .npmrc
           grep -qx "audit=true" .npmrc
           grep -qx "fund=false" .npmrc
@@ -44,7 +45,7 @@ jobs:
         run: npm run smoke:workflow-policy
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Type-check (undefined-name / broken-import gate)
         run: npm run typecheck:imports

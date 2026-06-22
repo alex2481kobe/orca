@@ -37,6 +37,21 @@ export function isPathWithinBoundary(candidatePath, boundaryPath) {
   return candidate === boundary || candidate.startsWith(boundaryWithSep);
 }
 
+export function realpathSyncSafe(candidatePath) {
+  try {
+    return fsSync.realpathSync.native(path.resolve(String(candidatePath || '').trim()));
+  } catch {
+    return null;
+  }
+}
+
+export function isRealPathWithinBoundarySync(candidatePath, boundaryPath) {
+  const candidate = realpathSyncSafe(candidatePath);
+  const boundary = realpathSyncSafe(boundaryPath);
+  if (!candidate || !boundary) return false;
+  return isPathWithinBoundary(candidate, boundary);
+}
+
 export function ensureDirectorySync(directoryPath) {
   const target = String(directoryPath || '').trim();
   if (!target) return;

@@ -116,7 +116,30 @@ export class CliExecutorAdapter {
       throw new Error('Workdir is not an existing directory.');
     }
 
-    return resolved;
+    let realResolved = null;
+    try {
+      realResolved = await fs.realpath(resolved);
+    } catch {
+      throw new Error('Workdir could not be resolved.');
+    }
+    let withinRealRoot = false;
+    for (const root of this.workdirRoots) {
+      try {
+        const realRoot = await fs.realpath(root);
+        const withSep = realRoot.endsWith(path.sep) ? realRoot : `${realRoot}${path.sep}`;
+        if (realResolved === realRoot || realResolved.startsWith(withSep)) {
+          withinRealRoot = true;
+          break;
+        }
+      } catch {
+        // Ignore missing/unresolvable roots; they cannot authorize a cwd.
+      }
+    }
+    if (!withinRealRoot) {
+      throw new Error('Workdir resolves outside allowed execution roots.');
+    }
+
+    return realResolved;
   }
 
   _buildEnv(lane) {

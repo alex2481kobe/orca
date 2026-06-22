@@ -268,7 +268,7 @@ test('auth pairing codes create revocable browser sessions for mutating routes',
         name: 'Cross Origin Project',
       },
     });
-    assert.equal(deniedCrossOrigin.status, 401);
+    assert.equal(deniedCrossOrigin.status, 403);
 
     const createdWithCookie = await server.requestJson('/api/projects', {
       method: 'POST',
@@ -408,6 +408,20 @@ test('with no API token, the local host bootstraps but proxied tailnet requests 
       body: { name: 'Bootstrap Project', approved: true },
     });
     assert.equal(created.status, 201);
+
+    const crossOriginMutation = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { origin: 'https://evil.example' },
+      body: { name: 'Cross Origin Bootstrap', approved: true },
+    });
+    assert.equal(crossOriginMutation.status, 403);
+
+    const simpleFormMutation = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'content-type': 'text/plain' },
+      body: { name: 'Text Plain Bootstrap', approved: true },
+    });
+    assert.equal(simpleFormMutation.status, 415);
 
     // A Tailscale Serve / reverse-proxied request carries forwarding headers and
     // must NOT be treated as the local bootstrap — no data without pairing.
@@ -2894,7 +2908,33 @@ test('provider profile API exposes first-class providers and memory-backed secre
     const health = await server.requestJson('/api/providers/openai-compatible/health', { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(health.status, 200);
     assert.equal(health.body?.status, 'configured');
+    assert.equal(typeof health.body?.baseUrl, 'string');
+    assert.equal(health.body?.credential?.backend, 'memory');
     assert.equal(JSON.stringify(health.body).includes('sk-test-secret'), false);
+
+    const pairing = await server.requestJson('/api/auth/pairing-codes', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'dashboard', label: 'provider-health-phone' },
+    });
+    assert.equal(pairing.status, 201);
+    const paired = await server.requestJson('/api/auth/pair', {
+      method: 'POST',
+      body: { code: pairing.body.pairing.code, label: 'provider-health-phone' },
+    });
+    assert.equal(paired.status, 200);
+    const operatorHealth = await server.requestJson('/api/providers/openai-compatible/health', {
+      method: 'GET',
+      headers: { cookie: paired.response.headers['set-cookie'] },
+    });
+    assert.equal(operatorHealth.status, 200);
+    assert.equal(operatorHealth.body?.status, 'configured');
+    assert.equal(operatorHealth.body?.baseUrl, undefined);
+    assert.equal(operatorHealth.body?.apiStyle, undefined);
+    assert.deepEqual(operatorHealth.body?.credential, { present: true });
+    const operatorHealthText = JSON.stringify(operatorHealth.body);
+    assert.equal(operatorHealthText.includes('OPENAI'), false);
+    assert.equal(operatorHealthText.includes('memory'), false);
 
     const exported = await server.requestJson('/api/providers/export', { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(exported.status, 200);

@@ -43,7 +43,7 @@ secrets local.
 
    ```sh
    git pull --ff-only
-   npm install
+   npm ci --ignore-scripts
    ```
 
 2. Bump the app version in all required files.

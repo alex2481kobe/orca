@@ -134,7 +134,7 @@ step above fails, walk the steps before mutating anything from the phone.
 ## 7. Playwright (proven)
 
 Playwright 1.60.0 is now in `devDependencies` and locked in
-`package-lock.json`. `npm install` pulls the package; the first
+`package-lock.json`. `npm ci --ignore-scripts` installs the package; the first
 `npx playwright install chromium` downloads the browser into
 `~/Library/Caches/ms-playwright/`. After that,
 evidence captures produce real PNG/zip/webm files served back via
@@ -142,7 +142,7 @@ evidence captures produce real PNG/zip/webm files served back via
 
 If Playwright ever becomes unavailable (deleted node_modules, etc.) the
 evidence runner falls back to `captured: false` with a `degraded`
-marker. `/api/system/blockers` surfaces the exact `npm install` command
+marker. `/api/system/blockers` surfaces the exact `npm ci --ignore-scripts` command
 and the dashboard banner shows it at the top — captures never silently
 succeed.
 

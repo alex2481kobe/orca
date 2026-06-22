@@ -24,7 +24,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http://127.0.0.1:* http://localhost:* http://*.ts.net https://*.ts.net; font-src 'self' data:; connect-src 'self' http://127.0.0.1:* http://localhost:* http://[::1]:* http://*.ts.net https://*.ts.net; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'"
     }
   },
   "plugins": {

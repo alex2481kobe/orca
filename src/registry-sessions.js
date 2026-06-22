@@ -4,7 +4,15 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { nowIso, clonePayload, isPathWithinBoundary, ensureDirectorySync, parsePositiveInteger } from './registry-utils.js';
+import {
+  nowIso,
+  clonePayload,
+  isPathWithinBoundary,
+  ensureDirectorySync,
+  parsePositiveInteger,
+  realpathSyncSafe,
+  isRealPathWithinBoundarySync,
+} from './registry-utils.js';
 import {
   DEFAULT_APPROVED_CAPACITY,
   normalizeSpawnPolicy,
@@ -270,14 +278,14 @@ export const sessionMethods = {
       // Repo root must live under an approved boundary so we can never auto-worktree
       // into a directory the operator did not bless.
       const approved = this.getApprovedRepoRoots();
-      const within = approved.some((root) => candidate === root || candidate.startsWith(root + path.sep));
+      const within = approved.some((root) => isRealPathWithinBoundarySync(candidate, root));
       if (!within) {
         throw {
           status: 422,
           message: `Session repoRoot ${candidate} is outside the approved repo roots. Add it to ORCA_REPO_ROOTS or run the server from its parent.`,
         };
       }
-      validatedRepoRoot = candidate;
+      validatedRepoRoot = realpathSyncSafe(candidate) || candidate;
     }
     const session = {
       id: sessionId,

@@ -207,7 +207,7 @@ async function main() {
         name: 'Cross Origin Should Fail',
       },
     });
-    if (crossOrigin.status !== 401) fail('cross-origin cookie mutation must be unauthorized', String(crossOrigin.status));
+    if (crossOrigin.status !== 403) fail('cross-origin cookie mutation must be forbidden by origin gate', String(crossOrigin.status));
     assertSecurityHeaders('cross-origin refusal', crossOrigin.headers);
     assertSensitiveCache('cross-origin refusal', crossOrigin.headers);
 

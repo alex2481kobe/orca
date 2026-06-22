@@ -199,6 +199,27 @@ function sanitizeMcpCommand(raw) {
   return command;
 }
 
+export function normalizeMcpToolDefinition(payload = {}, { actor = 'dashboard', existing = null } = {}) {
+  const name = sanitizeMcpName(payload.name || payload.id || existing?.name || existing?.id);
+  const command = sanitizeMcpCommand(payload.command ?? existing?.command);
+  const now = nowIso();
+  return {
+    id: name,
+    name,
+    command,
+    args: Array.isArray(payload.args) ? normalizeCommandArray(payload.args) : normalizeCommandArray(existing?.args),
+    env: payload.env !== undefined ? sanitizeMcpEnv(payload.env) : sanitizeMcpEnv(existing?.env),
+    workdir: payload.workdir !== undefined ? sanitizeMcpWorkdir(payload.workdir) : sanitizeMcpWorkdir(existing?.workdir),
+    enabled: payload.enabled !== undefined ? payload.enabled !== false : existing?.enabled !== false,
+    scope: Array.isArray(payload.scope) ? normalizeMcpScope(payload.scope) : normalizeMcpScope(existing?.scope || []),
+    description: sanitizeMcpText(payload.description ?? existing?.description, 'description', 500),
+    notes: sanitizeMcpText(payload.notes ?? existing?.notes, 'notes', 1000),
+    owner: sanitizeMcpText(payload.owner || existing?.owner || actor, 'owner', 120) || actor,
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+  };
+}
+
 export const mcpToolMethods = {
   getMcpTools(scope = null) {
     const normalizedScope = String(scope || '').trim().toLowerCase();
@@ -236,31 +257,7 @@ export const mcpToolMethods = {
       throw { status: 409, message: `MCP tool "${name}" already exists.` };
     }
 
-    const command = sanitizeMcpCommand(payload.command);
-    const args = normalizeCommandArray(payload.args);
-    const enabled = payload.enabled !== false;
-    const scope = normalizeMcpScope(payload.scope);
-    const env = sanitizeMcpEnv(payload.env);
-    const workdir = sanitizeMcpWorkdir(payload.workdir);
-    const description = sanitizeMcpText(payload.description, 'description', 500);
-    const notes = sanitizeMcpText(payload.notes, 'notes', 1000);
-    const owner = sanitizeMcpText(payload.owner || actor, 'owner', 120) || actor;
-    const now = nowIso();
-    const tool = {
-      id: name,
-      name,
-      command,
-      args,
-      env,
-      workdir,
-      enabled,
-      scope,
-      description,
-      notes,
-      createdAt: now,
-      updatedAt: now,
-      owner,
-    };
+    const tool = normalizeMcpToolDefinition(payload, { actor });
 
     this.mcpTools.push(tool);
     this.recordAudit({

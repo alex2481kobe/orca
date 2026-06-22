@@ -71,6 +71,7 @@ const MAX_JSON_BODY_BYTES = (() => {
   return 256 * 1024;
 })();
 const SPOOFABLE_ACTORS = new Set(['scheduler', 'system', 'cron', 'worker']);
+const MUTATING_API_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 const contentTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -185,6 +186,42 @@ function sameOriginAllowed(req) {
   const origin = req.headers.origin || '';
   if (!origin) return true;
   return origin === requestOrigin(req);
+}
+
+function requestContentType(req) {
+  const raw = req.headers['content-type'];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return String(value || '').split(';')[0].trim().toLowerCase();
+}
+
+function isJsonContentType(req) {
+  const type = requestContentType(req);
+  return type === 'application/json' || type.endsWith('+json');
+}
+
+function mutatingApiRequestIsSafe(req, res, method, parts) {
+  if (parts[0] !== 'api' || !MUTATING_API_METHODS.has(method)) return true;
+  const origin = req.headers.origin || '';
+  if (origin && !sameOriginAllowed(req)) {
+    sendJson(res, 403, {
+      error: 'Cross-origin API mutations are not allowed.',
+    });
+    return false;
+  }
+  const contentType = requestContentType(req);
+  const contentLength = String(req.headers['content-length'] || '').trim();
+  const hasBodyHeader = Boolean(
+    contentType
+    || (contentLength && contentLength !== '0')
+    || req.headers['transfer-encoding']
+  );
+  if (hasBodyHeader && !isJsonContentType(req)) {
+    sendJson(res, 415, {
+      error: 'API mutations must use Content-Type: application/json.',
+    });
+    return false;
+  }
+  return true;
 }
 
 function currentBrowserSession(req) {
@@ -781,6 +818,7 @@ async function handleApi(req, res, pathname, method, parts) {
     return serveStaticOrIndex(pathname, res, req);
   }
   if (!applyRateLimit(req, res, method, parts)) return;
+  if (!mutatingApiRequestIsSafe(req, res, method, parts)) return;
   if (parts[1] === 'auth') {
     return handleAuthApi(req, res, method, parts);
   }

@@ -3,7 +3,7 @@
 
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { nowIso, clonePayload, normalizeSlug } from './registry-utils.js';
+import { nowIso, clonePayload, normalizeSlug, realpathSyncSafe, isRealPathWithinBoundarySync } from './registry-utils.js';
 import { sanitizeSettingsOverrides } from './effective-settings.js';
 import { directoryExists } from './worktree-manager.js';
 import {
@@ -61,11 +61,11 @@ export const projectMethods = {
         throw { status: 422, message: `Project folder does not exist: ${candidate}` };
       }
       const approved = this.getApprovedRepoRoots();
-      const within = approved.some((root) => candidate === root || candidate.startsWith(root + path.sep));
+      const within = approved.some((root) => isRealPathWithinBoundarySync(candidate, root));
       if (!within) {
         throw { status: 422, message: `Project folder ${candidate} is outside the approved repo roots. Add it to ORCA_REPO_ROOTS or run the server from its parent.` };
       }
-      validatedRepoRoot = candidate;
+      validatedRepoRoot = realpathSyncSafe(candidate) || candidate;
     }
 
     const now = nowIso();

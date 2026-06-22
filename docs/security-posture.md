@@ -7,7 +7,7 @@ the audits report today and why the remaining items are not user-facing risks.
 
 ```
 npm audit            → 0 vulnerabilities
-npm audit --omit=dev → 0 vulnerabilities   (also enforced in CI)
+npm audit --omit=dev → 0 vulnerabilities   (also enforced by manual CI)
 ```
 
 The server, dashboard, and PWA — the code every user runs — have **zero** known
@@ -44,7 +44,8 @@ the GitHub UI as "vulnerable code is not actually used" with a link to this file
 ## Keeping it clean
 
 - `npm run audit` runs both audits locally.
-- CI runs `npm audit --omit=dev` on every push.
+- Manual CI runs `npm audit --omit=dev`; keep CI manual unless untrusted PR
+  execution is deliberately re-designed.
 - `npm test` + the `smoke:*` gates include the app's own security checks (auth tiers,
   SSRF policy, secret redaction, path containment, rate limits, prototype‑pollution
   rejection, XSS‑safe rendering).

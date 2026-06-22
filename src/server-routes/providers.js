@@ -18,6 +18,19 @@ function redactProviderForOperator(profile) {
   return out;
 }
 
+function redactProviderHealthForOperator(health) {
+  if (!health || typeof health !== 'object') return health;
+  const out = { ...health };
+  for (const f of ADMIN_ONLY_PROVIDER_FIELDS) delete out[f];
+  delete out.apiStyle;
+  if (out.credential && typeof out.credential === 'object') {
+    out.credential = {
+      present: Boolean(out.credential.present),
+    };
+  }
+  return out;
+}
+
 export async function handleProvidersApi(ctx, req, res, method, parts) {
   const { providerProfiles, sendJson, sendBodyError, parseJsonBody, rejectSpoofedActor, requireAdminAuth, hasAdminAuth } = ctx;
   const isAdmin = typeof hasAdminAuth === 'function' && hasAdminAuth(req);
@@ -107,7 +120,8 @@ export async function handleProvidersApi(ctx, req, res, method, parts) {
     }
     if (parts.length === 4 && parts[3] === 'health' && method === 'GET') {
       try {
-        return sendJson(res, 200, await providerProfiles.health(providerId));
+        const result = await providerProfiles.health(providerId);
+        return sendJson(res, 200, isAdmin ? result : redactProviderHealthForOperator(result));
       } catch (error) {
         return sendJson(res, error.status || 500, { error: error.message || 'Could not check provider health.' });
       }

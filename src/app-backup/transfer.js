@@ -19,6 +19,7 @@ import {
   publicPrivateAccess,
   buildRegistryExport,
 } from './redaction.js';
+import { normalizeMcpToolDefinition } from '../registry-mcp-tools.js';
 
 export async function buildAppExport({
   registry,
@@ -97,6 +98,7 @@ export function validateAppImport(payload) {
   const providers = payload.providers && typeof payload.providers === 'object' ? payload.providers : {};
   const privateAccess = payload.privateAccess && typeof payload.privateAccess === 'object' ? payload.privateAccess : {};
   const activeLanes = asArray(registry.lanes).filter((lane) => ACTIVE_LANE_STATES.has(lane?.state));
+  const mcpTools = normalizeImportMcpTools(registry.mcpTools);
 
   return {
     schemaVersion: APP_BACKUP_SCHEMA_VERSION,
@@ -112,10 +114,30 @@ export function validateAppImport(payload) {
       lanes: asArray(registry.lanes).length,
       providers: asArray(providers.profiles).length,
       privateAccessTargets: asArray(privateAccess.targets).length,
-      mcpTools: asArray(registry.mcpTools).length,
+      mcpTools: mcpTools.length,
       notifications: asArray(registry.notifications).length,
     },
   };
+}
+
+function normalizeImportMcpTools(rawTools) {
+  const tools = [];
+  const errors = [];
+  asArray(rawTools).forEach((raw, index) => {
+    try {
+      tools.push(normalizeMcpToolDefinition(publicMcpTool(raw), { actor: 'app-import' }));
+    } catch (error) {
+      errors.push(`registry.mcpTools[${index}]: ${error.message || 'Invalid MCP tool definition.'}`);
+    }
+  });
+  if (errors.length) {
+    throw {
+      status: 422,
+      message: 'App import contains invalid MCP tool definitions.',
+      errors: errors.slice(0, 20),
+    };
+  }
+  return tools;
 }
 
 function mergeById(existing, incoming) {
@@ -155,7 +177,7 @@ export async function applyAppImport(payload, {
   const projects = mergeById(registry.projects, asArray(sourceRegistry.projects).map(publicProject));
   const sessions = mergeById(registry.sessions, asArray(sourceRegistry.sessions).map(publicSession));
   const lanes = mergeById(registry.lanes, asArray(sourceRegistry.lanes).map(publicLane));
-  const mcpTools = mergeById(registry.mcpTools, asArray(sourceRegistry.mcpTools).map(publicMcpTool));
+  const mcpTools = mergeById(registry.mcpTools, normalizeImportMcpTools(sourceRegistry.mcpTools));
   const notifications = mergeById(registry.notifications, asArray(sourceRegistry.notifications).map(publicNotification));
 
   registry.projects = projects.next;

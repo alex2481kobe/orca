@@ -34,7 +34,7 @@ test('app import dry-run summarizes accepted backup payloads', () => {
       projects: [{ id: 'project-a', name: 'Project A' }],
       sessions: [{ id: 'session-a', projectId: 'project-a' }],
       lanes: [{ id: 'lane-a', sessionId: 'session-a', state: 'running' }],
-      mcpTools: [{ id: 'tool-a' }],
+      mcpTools: [{ id: 'tool-a', command: 'node', args: ['--version'], scope: ['all'] }],
       notifications: [{ id: 'notification-a' }],
     },
     providers: { schemaVersion: 1, profiles: [{ id: 'openai-compatible' }] },
@@ -44,6 +44,28 @@ test('app import dry-run summarizes accepted backup payloads', () => {
   assert.equal(result.counts.projects, 1);
   assert.equal(result.counts.lanes, 1);
   assert.match(result.warnings.join(' '), /active lane/);
+});
+
+test('app import dry-run rejects MCP tools that bypass command sanitizers', () => {
+  assert.throws(
+    () => validateAppImport({
+      schemaVersion: 1,
+      kind: APP_EXPORT_KIND,
+      registry: {
+        mcpTools: [{
+          id: 'unsafe-tool',
+          command: 'node;rm',
+          args: ['--version'],
+        }],
+      },
+    }),
+    (error) => {
+      assert.equal(error.status, 422);
+      assert.match(error.message, /invalid MCP tool/i);
+      assert.match(error.errors?.[0] || '', /blocked characters|required|invalid/i);
+      return true;
+    },
+  );
 });
 
 test('redaction removes secrets and local absolute paths from support-shaped data', () => {

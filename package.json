@@ -1,6 +1,6 @@
 {
   "name": "orca",
-  "version": "0.1.0",
+  "version": "0.1.17",
   "private": true,
   "type": "module",
   "description": "Local-first MCP control plane for orchestrating fleets of Codex, Claude, CLI, and API-backed coding agents.",

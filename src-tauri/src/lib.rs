@@ -15,6 +15,8 @@ use std::{
     time::Duration,
 };
 use tauri::{AppHandle, Manager, State};
+#[cfg(mobile)]
+use tauri::Emitter;
 // menu / tray / updater are desktop-only — these modules and the updater plugin
 // don't exist on iOS, so gate every use of them.
 #[cfg(desktop)]
@@ -758,13 +760,14 @@ fn run_mobile() {
 // this fires.
 #[cfg(mobile)]
 fn deliver_deep_link(app: &AppHandle, url: &str) {
-    if let Some(win) = app.get_webview_window("main") {
-        let safe = url.replace('\\', "\\\\").replace('\'', "\\'");
-        let script = format!(
-            "(function(u){{var n=0;var i=setInterval(function(){{if(window.__orcaConnect){{clearInterval(i);window.__orcaConnect(u);}}else if(++n>50){{clearInterval(i);}}}},100);}})('{safe}')"
-        );
-        let _ = win.eval(&script);
-    }
+    let app = app.clone();
+    let url = url.to_string();
+    tauri::async_runtime::spawn(async move {
+        for _ in 0..50 {
+            let _ = app.emit("orca-deep-link", &url);
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    });
 }
 
 #[cfg(desktop)]

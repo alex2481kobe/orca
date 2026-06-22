@@ -46,6 +46,7 @@ export async function handleAppRoutes(ctx, req, res, method, parts) {
         return sendJson(res, error.status || 500, {
           error: error.message || 'Could not validate app import.',
           blockedKeys: error.blockedKeys || undefined,
+          errors: error.errors || undefined,
         });
       }
     }
@@ -79,6 +80,7 @@ export async function handleAppRoutes(ctx, req, res, method, parts) {
           requiresApproval: error.requiresApproval || false,
           risk: error.risk || null,
           blockedKeys: error.blockedKeys || undefined,
+          errors: error.errors || undefined,
         });
       }
     }

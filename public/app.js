@@ -49,6 +49,19 @@ window.__orcaConnect = (raw) => {
   } catch { /* ignore malformed deep link */ }
 };
 
+function installNativeDeepLinkListener(attempt = 0) {
+  const listen = window.__TAURI__?.event?.listen;
+  if (typeof listen !== 'function') {
+    if (attempt < 50) window.setTimeout(() => installNativeDeepLinkListener(attempt + 1), 100);
+    return;
+  }
+  listen('orca-deep-link', (event) => {
+    window.__orcaConnect(event?.payload || '');
+  }).catch(() => {});
+}
+
+installNativeDeepLinkListener();
+
 // Any remote client that reaches a real workstation origin (via our connect flow,
 // a QR scan, OR by typing the URL straight into a browser) records it as a known
 // workstation, so it shows — checkmarked as the active one — in the switcher.
