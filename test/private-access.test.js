@@ -139,6 +139,22 @@ test('configureServe runs Serve commands and reflects detected state; refuses wh
   assert.ok(calls.includes('serve reset'), 'disable runs serve reset');
   assert.equal(disabled.ok, true);
 
+  const customCalls = [];
+  const customRunner = (bin, args) => {
+    customCalls.push(args.join(' '));
+    if (args[0] === 'version') return { status: 0, stdout: '1.0' };
+    if (args[0] === 'status') return { status: 0, stdout: JSON.stringify({ Self: { DNSName: 'mac.tailnet.ts.net.' } }) };
+    if (args[0] === 'serve' && args[1] === 'status') return { status: 0, stdout: 'https://mac.tailnet.ts.net (tailnet only)\n|-- / proxy http://localhost:4173' };
+    if (args[0] === 'serve') return { status: 0, stdout: '' };
+    return { status: 1, stdout: '' };
+  };
+  const customStore = new PrivateAccessStore({ stateFile: null, runner: customRunner });
+  const customEnabled = customStore.configureServe({ action: 'enable', port: 4173 });
+  assert.equal(customEnabled.ok, true);
+  assert.ok(customCalls.includes('serve --bg http://127.0.0.1:4173'), 'enable uses the requested Orca port');
+  assert.equal(customEnabled.tailnet.servedUrl, 'https://mac.tailnet.ts.net');
+  assert.equal(customEnabled.tailnet.serveMode, 'tailnet-https-serve');
+
   // Not signed in -> refuses without running serve.
   const offline = new PrivateAccessStore({ stateFile: null, runner: (bin, args) => (args[0] === 'version' ? { status: 0, stdout: '1.0' } : { status: 1, stdout: '' }) });
   const refused = offline.configureServe({ action: 'enable' });
@@ -161,4 +177,11 @@ test('detectTailnetState surfaces the real Serve URL (no :3000) and ignores non-
   const other = detectTailnetState({ runner: base('http://mac.tailnet.ts.net\n|-- / proxy http://localhost:9999') });
   assert.equal(other.serveConfigured, false);
   assert.equal(other.servedUrl, null);
+
+  const customPort = detectTailnetState({
+    runner: base('https://mac.tailnet.ts.net\n|-- / proxy http://localhost:4173'),
+    localPort: 4173,
+  });
+  assert.equal(customPort.serveConfigured, true);
+  assert.equal(customPort.servedUrl, 'https://mac.tailnet.ts.net');
 });

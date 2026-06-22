@@ -593,6 +593,16 @@ export const TOOL_DEFINITIONS = [
     summary: 'Show who owns this session as orchestrator plus the lane tree, backlog roll-up, and next required tool — the canonical "what is happening" call.',
   },
   {
+    id: 'orchestrator.message.send',
+    group: 'orchestrator',
+    roles: ['orchestrator', 'dashboard'],
+    method: 'POST',
+    route: '/api/sessions/{sessionId}/orchestrator/messages',
+    implemented: true,
+    mutating: true,
+    summary: 'Queue a server-owned orchestrator turn/message for this session. Lease callers must be the active orchestrator.',
+  },
+  {
     id: 'session.supervisor_audit',
     group: 'supervisor',
     roles: ['supervisor', 'dashboard'],

@@ -116,6 +116,25 @@ test('TOML escapes backslashes and quotes in paths (Windows-safe)', () => {
   assert.match(out.clients.codex.snippet, /command = "C:\\\\Program Files\\\\nodejs\\\\node\.exe"/);
 });
 
+test('builder rejects malformed launcher paths before emitting MCP snippets', () => {
+  assert.throws(
+    () => buildOrchestratorMcpConfigs({
+      baseUrl: 'http://127.0.0.1:3000',
+      leaseToken: 't',
+      nodePath: '/usr/bin/node\n--eval=bad',
+    }),
+    (error) => error.status === 422 && /control characters/.test(error.message),
+  );
+  assert.throws(
+    () => buildOrchestratorMcpConfigs({
+      baseUrl: 'http://127.0.0.1:3000',
+      leaseToken: 't',
+      nodePath: 'node',
+    }),
+    (error) => error.status === 422 && /absolute executable path/.test(error.message),
+  );
+});
+
 test('registry mints an orchestrator lease whose token validates for orchestrator tools', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {

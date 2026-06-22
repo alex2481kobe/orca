@@ -65,6 +65,27 @@ function runMcp(env, requests) {
   });
 }
 
+function firstMcpResponseLine(input, env = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn('node', [serverPath], {
+      env: { ...process.env, ...env },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    let buffer = '';
+    child.stdout.on('data', (chunk) => {
+      buffer += chunk.toString();
+      const idx = buffer.indexOf('\n');
+      if (idx >= 0) {
+        child.kill();
+        resolve(buffer.slice(0, idx).trim());
+      }
+    });
+    child.on('error', reject);
+    setTimeout(() => { child.kill(); reject(new Error('mcp response timeout')); }, 8000);
+    child.stdin.write(`${input}\n`);
+  });
+}
+
 test('Orca MCP server: initialize, tools/list, and a proxied tools/call', async () => {
   const { server, calls, port } = await startStubApi();
   const env = {
@@ -201,4 +222,18 @@ test('Orca MCP server: a JSON-RPC batch gets a single array response (notificati
   assert.ok(Array.isArray(parsed), 'batch response must be a single JSON array');
   assert.equal(parsed.length, 2, 'notification contributes no response');
   assert.deepEqual(parsed.map((r) => r.id).sort(), [1, 2]);
+});
+
+test('Orca MCP server: malformed JSON-RPC input returns protocol errors', async () => {
+  const parseError = JSON.parse(await firstMcpResponseLine('{not-json'));
+  assert.equal(parseError.id, null);
+  assert.equal(parseError.error.code, -32700);
+
+  const emptyBatch = JSON.parse(await firstMcpResponseLine('[]'));
+  assert.equal(emptyBatch.id, null);
+  assert.equal(emptyBatch.error.code, -32600);
+
+  const nullId = JSON.parse(await firstMcpResponseLine(JSON.stringify({ jsonrpc: '2.0', id: null, method: 'ping' })));
+  assert.equal(nullId.id, null);
+  assert.deepEqual(nullId.result, {});
 });

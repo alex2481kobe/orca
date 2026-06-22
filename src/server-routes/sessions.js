@@ -253,7 +253,7 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
           discoveryUrl: `${origin}/api/agent-tools/discovery`,
           nextActionUrl: `${origin}/api/agent-tools/next-action?role=orchestrator&projectId=${encodeURIComponent(session.projectId)}&sessionId=${encodeURIComponent(session.id)}`,
         }, {
-          actor: body.actor || 'dashboard',
+          actor: req._toolLease?.actor || body.actor || 'dashboard',
           approved: body.approved,
           nextAction,
         });
@@ -323,8 +323,12 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
           return sendJson(res, 403, { error: 'Unsandboxed agent permissions (bypass/yolo/force) require workstation admin auth, not a paired device. Use a sandboxed mode (plan/auto-edit).' });
         }
         try {
-          const lane = await registry.createLane(session.id, body, {
-            actor: body.actor || 'dashboard',
+          const lanePayload = { ...body };
+          if (!lanePayload.owner && req._toolLease?.role === 'orchestrator') {
+            lanePayload.owner = 'executor';
+          }
+          const lane = await registry.createLane(session.id, lanePayload, {
+            actor: req._toolLease?.actor || body.actor || 'dashboard',
             approved: body.approved,
           });
           return sendJson(res, 201, lane);

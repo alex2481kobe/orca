@@ -13,6 +13,7 @@
 // in-app browser for the visual surface, and wire the MCP config for tool access.
 
 import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 
 // Absolute path to the stdio MCP server the desktop app will spawn. Resolved the
 // same way the lane executor-factory resolves it, so source and packaged builds
@@ -37,6 +38,26 @@ function buildEnv({ baseUrl, leaseToken, role, projectId, sessionId }) {
   if (projectId) env.ORCA_PROJECT_ID = String(projectId);
   if (sessionId) env.ORCA_SESSION_ID = String(sessionId);
   return env;
+}
+
+function looksAbsolutePath(value) {
+  return path.isAbsolute(value)
+    || /^[A-Za-z]:[\\/]/.test(value)
+    || /^\\\\[^\\]+\\[^\\]+/.test(value);
+}
+
+function validateLauncherPath(value, label) {
+  const text = String(value || '').trim();
+  if (!text) {
+    throw { status: 422, message: `${label} is required.` };
+  }
+  if (/[\x00-\x1f\x7f]/.test(text)) {
+    throw { status: 422, message: `${label} contains control characters.` };
+  }
+  if (!looksAbsolutePath(text)) {
+    throw { status: 422, message: `${label} must be an absolute executable path.` };
+  }
+  return text;
 }
 
 // Claude Desktop reads ~/Library/Application Support/Claude/claude_desktop_config.json
@@ -139,14 +160,15 @@ export function buildOrchestratorMcpConfigs({
 } = {}) {
   const resolvedRole = String(role || 'orchestrator');
   const env = buildEnv({ baseUrl, leaseToken, role, projectId, sessionId });
-  const resolvedNode = String(nodePath || process.execPath);
+  const resolvedNode = validateLauncherPath(nodePath || process.execPath, 'nodePath');
+  const resolvedServerPath = validateLauncherPath(serverPath || MCP_SERVER_PATH, 'serverPath');
   // Primary launcher: absolute node + bundled server path. This resolves to
   // wherever mcp-server.js actually lives — the installed app bundle, a global
   // npm install, or a source checkout — so it works WITHOUT the user opening
   // Orca's source. No Orca process needs to be started from source: the desktop
   // app/CLI spawns this stdio server itself, and it talks to the already-running
   // Orca HTTP API over loopback using the scoped lease.
-  const nodeLauncher = { command: resolvedNode, args: [serverPath] };
+  const nodeLauncher = { command: resolvedNode, args: [resolvedServerPath] };
   // Alternative for users who installed Orca globally (`npm i -g`): the `orca-mcp`
   // bin is on PATH, so no absolute path is needed at all.
   const binLauncher = { command: 'orca-mcp', args: [] };
@@ -157,7 +179,7 @@ export function buildOrchestratorMcpConfigs({
   return {
     serverKey: SERVER_KEY,
     nodePath: resolvedNode,
-    serverPath,
+    serverPath: resolvedServerPath,
     env,
     dashboardUrl: dashboardUrl || baseUrl || null,
     // Way A — visual: open the dashboard in the desktop app's in-app browser.

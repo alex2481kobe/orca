@@ -125,17 +125,17 @@ export function fakeTailnetState(state = 'missing') {
 let _tailnetCache = null; // { value, at }
 const TAILNET_TTL_MS = 20 * 1000;
 
-export function detectTailnetState({ fakeState = null, runner = spawnSync } = {}) {
+export function detectTailnetState({ fakeState = null, runner = spawnSync, localPort = process.env.PORT || 3000 } = {}) {
   if (fakeState) return fakeTailnetState(fakeState); // tests / injected — never cached
   if (runner === spawnSync && _tailnetCache && (Date.now() - _tailnetCache.at) < TAILNET_TTL_MS) {
     return _tailnetCache.value;
   }
-  const value = computeTailnetState(runner);
+  const value = computeTailnetState(runner, localPort);
   if (runner === spawnSync) _tailnetCache = { value, at: Date.now() };
   return value;
 }
 
-function computeTailnetState(runner) {
+function computeTailnetState(runner, localPort) {
   const binary = runner('tailscale', ['version'], {
     encoding: 'utf8',
     timeout: 1500,
@@ -166,10 +166,11 @@ function computeTailnetState(runner) {
   }
   const hostname = parsed?.Self?.DNSName ? String(parsed.Self.DNSName).replace(/\.$/, '') : null;
   // Read the ACTUAL Tailscale Serve config so we show the real reachable URL
-  // (e.g. http://host.ts.net with NO :3000 — Serve proxies port 80/443 to
-  // localhost:3000). Without this we'd show host.ts.net:3000, which a phone can't
-  // open because Orca only binds loopback.
-  const serve = readServeStatus(runner);
+  // (e.g. http://host.ts.net with no local port suffix — Serve proxies port
+  // 80/443 to Orca's current loopback port). Without this we'd show a tailnet URL
+  // with the local app port, which a phone often can't open because Orca only
+  // binds loopback.
+  const serve = readServeStatus(runner, { localPort });
   const setupStatus = parsed?.Self ? (serve.servedUrl ? 'serving' : 'setup_pending') : 'not_configured';
   return {
     provider: 'real-read-only',
@@ -189,9 +190,9 @@ function computeTailnetState(runner) {
   };
 }
 
-// Parse `tailscale serve status` to find the URL Serve actually proxies to Orca
-// (localhost:3000). Returns { servedUrl, serveMode } or empties when not serving.
-function readServeStatus(runner) {
+// Parse `tailscale serve status` to find the URL Serve actually proxies to Orca.
+// Returns { servedUrl, serveMode } or empties when not serving.
+function readServeStatus(runner, { localPort = process.env.PORT || 3000 } = {}) {
   try {
     const result = runner('tailscale', ['serve', 'status'], {
       encoding: 'utf8', timeout: 1500, maxBuffer: 64 * 1024, windowsHide: true,
@@ -199,7 +200,8 @@ function readServeStatus(runner) {
     if (result.error || result.status !== 0) return { servedUrl: null, serveMode: null };
     const text = String(result.stdout || '');
     // Only treat it as ours if it proxies to our local Orca port.
-    const proxiesOrca = /proxy\s+https?:\/\/(localhost|127\.0\.0\.1):3000/i.test(text);
+    const port = normalizePort(localPort, 3000);
+    const proxiesOrca = new RegExp(`proxy\\s+https?:\\/\\/(localhost|127\\.0\\.0\\.1):${port}(?:\\b|\\/|$)`, 'i').test(text);
     if (!proxiesOrca) return { servedUrl: null, serveMode: null };
     const httpsMatch = text.match(/https:\/\/[^\s]+\.ts\.net[^\s]*/i);
     const httpMatch = text.match(/http:\/\/[^\s]+\.ts\.net[^\s]*/i);
@@ -235,4 +237,3 @@ export async function boundedHealthCheck(url) {
     clearTimeout(timeout);
   }
 }
-

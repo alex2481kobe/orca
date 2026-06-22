@@ -2098,6 +2098,19 @@ test('MCP tool schema accepts env/workdir/description/owner/notes with bounds', 
       scope: ['all'],
       notes: 'x'.repeat(2000),
     }, { actor: 'test', approved: true }), (error) => error.status === 422);
+
+    for (const [name, workdir] of [
+      ['bad-workdir-newline', 'relative\npath'],
+      ['bad-workdir-tab', 'relative\tpath'],
+      ['bad-workdir-cr', 'relative\rpath'],
+    ]) {
+      assert.throws(() => registry.createMcpTool({
+        name,
+        command: 'node',
+        scope: ['all'],
+        workdir,
+      }, { actor: 'test', approved: true }), (error) => error.status === 422);
+    }
   } finally {
     await cleanup();
   }

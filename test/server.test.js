@@ -1314,6 +1314,7 @@ test('dashboard orchestrator messages create server-owned turns and scoped tool 
       body: {
         name: 'Orchestrator Chat Session',
         leader: 'mock',
+        approvedCapacity: 4,
         approved: true,
       },
     });
@@ -1372,6 +1373,42 @@ test('dashboard orchestrator messages create server-owned turns and scoped tool 
     });
     assert.equal(enrolled.status, 200);
     assert.equal(enrolled.body?.activeOrchestrator?.active, true);
+
+    const competingLease = await server.requestJson('/api/agent-tools/leases', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        role: 'orchestrator',
+        projectId: project.body.id,
+        sessionId: session.body.id,
+        actor: 'competing-orchestrator',
+      },
+    });
+    assert.equal(competingLease.status, 201);
+
+    const refusedMessage = await server.requestJson(`/api/sessions/${session.body.id}/orchestrator/messages`, {
+      method: 'POST',
+      headers: { 'x-orca-tool-lease': competingLease.body.leaseToken },
+      body: {
+        approved: true,
+        executorType: 'mock',
+        message: 'This should not queue because another orchestrator owns the session.',
+      },
+    });
+    assert.equal(refusedMessage.status, 409);
+    assert.match(refusedMessage.body?.error || '', /not the active orchestrator/i);
+
+    const ownerMessage = await server.requestJson(`/api/sessions/${session.body.id}/orchestrator/messages`, {
+      method: 'POST',
+      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
+      body: {
+        approved: true,
+        executorType: 'mock',
+        message: 'Owner lease queues a follow-up orchestrator turn.',
+      },
+    });
+    assert.equal(ownerMessage.status, 201);
+    assert.equal(ownerMessage.body?.lane?.owner, 'orchestrator');
 
     const leaseLane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
       method: 'POST',
@@ -3038,6 +3075,14 @@ test('orchestrator MCP bootstrap is token-gated and returns paste-ready desktop 
 
     // The full API token must never appear in the bootstrap payload.
     assert.equal(JSON.stringify(created.body).includes(token), false);
+
+    const badNodePath = await server.requestJson('/api/mcp/orchestrator-bootstrap', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'desktop-app', nodePath: '/usr/bin/node\n--eval=bad' },
+    });
+    assert.equal(badNodePath.status, 422);
+    assert.match(badNodePath.body?.error || '', /control characters/);
   } finally {
     await server.stop();
   }

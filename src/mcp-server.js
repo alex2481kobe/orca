@@ -18,8 +18,11 @@
 //   ORCA_LANE_ID / ORCA_SESSION_ID / ORCA_PROJECT_ID - default path params
 
 import readline from 'node:readline';
+import { createRequire } from 'node:module';
 import { TOOL_DEFINITIONS, normalizeRole, CONTRACT_VERSION, roleInstructions } from './agent-tools.js';
 
+const require = createRequire(import.meta.url);
+const PACKAGE_VERSION = require('../package.json').version || '0.0.0';
 const BASE_URL = String(process.env.ORCA_AGENT_TOOLS_BASE_URL || 'http://127.0.0.1:3000').replace(/\/$/, '');
 const LEASE_TOKEN = String(process.env.ORCA_TOOL_LEASE_TOKEN || '');
 const ROLE = normalizeRole(process.env.ORCA_ROLE || 'executor');
@@ -34,6 +37,11 @@ const SERVER_PROTOCOL_VERSION = '2024-11-05';
 // underscored names and keep a reverse map for routing.
 const toMcpName = (id) => id.replace(/\./g, '__');
 const fromMcpName = (name) => name.replace(/__/g, '.');
+const TOOL_QUERY_PARAMS = {
+  'session.next_action': ['role', 'projectId', 'sessionId', 'laneId'],
+  'tailscale.status': ['fake'],
+  'orca.setup_guide': ['localUrl', 'httpPort', 'httpsPort'],
+};
 
 function callableTools() {
   return TOOL_DEFINITIONS.filter(
@@ -65,13 +73,24 @@ function pathParams(route) {
   return [...route.matchAll(/\{(\w+)\}/g)].map((m) => m[1]);
 }
 
+function queryParams(tool) {
+  return TOOL_QUERY_PARAMS[tool.id] || [];
+}
+
 function toMcpTool(tool) {
   const params = pathParams(tool.route);
+  const query = queryParams(tool);
   const properties = {};
   for (const param of params) {
     properties[param] = {
       type: 'string',
       description: `${param}${DEFAULT_PARAMS[param] ? ' (defaults to this lane/session)' : ''}`,
+    };
+  }
+  for (const param of query) {
+    properties[param] = {
+      type: 'string',
+      description: `${param}${DEFAULT_PARAMS[param] || (param === 'role' && ROLE) ? ' (defaults from this MCP connection)' : ''}`,
     };
   }
   if (tool.mutating) {
@@ -103,6 +122,26 @@ function resolveRoute(route, args) {
   return { out, missing };
 }
 
+function appendQueryParams(tool, route, args = {}) {
+  const query = queryParams(tool);
+  if (!query.length) return route;
+  const values = {
+    role: ROLE,
+    ...DEFAULT_PARAMS,
+    ...(args && typeof args === 'object' ? args : {}),
+  };
+  const params = new URLSearchParams();
+  for (const key of query) {
+    const value = values[key];
+    if (value === undefined || value === null || value === '') continue;
+    if (typeof value === 'object') continue;
+    params.set(key, String(value));
+  }
+  const suffix = params.toString();
+  if (!suffix) return route;
+  return `${route}${route.includes('?') ? '&' : '?'}${suffix}`;
+}
+
 async function callTool(name, args = {}) {
   const id = fromMcpName(name);
   const tool = callableTools().find((t) => t.id === id);
@@ -114,7 +153,7 @@ async function callTool(name, args = {}) {
     return { isError: true, text: `Missing required parameter "${missing}" for ${id}.` };
   }
 
-  const url = `${BASE_URL}${out}`;
+  const url = `${BASE_URL}${appendQueryParams(tool, out, args)}`;
   const headers = {
     'x-orca-tool-lease': LEASE_TOKEN,
     accept: 'application/json',
@@ -221,16 +260,22 @@ function replyError(id, code, message) {
 }
 
 async function handle(message) {
+  if (!message || typeof message !== 'object' || Array.isArray(message)) {
+    return replyError(null, -32600, 'Invalid Request');
+  }
   const { id, method, params } = message;
   // Notifications (no id) get no response.
-  if (id === undefined || id === null) return null;
+  if (id === undefined) return null;
+  if (typeof method !== 'string') {
+    return replyError(id ?? null, -32600, 'Invalid Request');
+  }
 
   switch (method) {
     case 'initialize':
       return reply(id, {
         protocolVersion: params?.protocolVersion || SERVER_PROTOCOL_VERSION,
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: 'orca', version: '0.1.0', contractVersion: CONTRACT_VERSION },
+        serverInfo: { name: 'orca', version: PACKAGE_VERSION, contractVersion: CONTRACT_VERSION },
         instructions: instructionsForRole(),
       });
     case 'ping':
@@ -273,12 +318,16 @@ rl.on('line', async (line) => {
   try {
     message = JSON.parse(trimmed);
   } catch {
-    return; // ignore non-JSON lines
+    send(replyError(null, -32700, 'Parse error'));
+    return;
   }
   // JSON-RPC batch: an array of requests gets ONE array response (notifications
   // contribute nothing). A single request gets a single response.
   if (Array.isArray(message)) {
-    if (!message.length) return; // empty batch — ignore
+    if (!message.length) {
+      send(replyError(null, -32600, 'Invalid Request'));
+      return;
+    }
     const responses = (await Promise.all(message.map(handleAndCatch))).filter((r) => r != null);
     if (responses.length) send(responses);
     return;

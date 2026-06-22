@@ -81,6 +81,7 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
     'settings.export',
     'settings.import_dry_run',
     'settings.import_apply',
+    'orchestrator.message.send',
     'session.supervisor_audit',
   ]) {
     assert.equal(ids.has(id), true, `missing ${id}`);

@@ -421,6 +421,9 @@ function toolLeaseRequirementForRoute(method, parts) {
   if (parts[1] === 'sessions' && parts[2] && parts[3] === 'orchestrator' && parts[4] === 'status' && method === 'GET') {
     return { toolId: 'orchestrator.status', sessionId: parts[2] };
   }
+  if (parts[1] === 'sessions' && parts[2] && parts[3] === 'orchestrator' && parts[4] === 'messages' && method === 'POST') {
+    return { toolId: 'orchestrator.message.send', sessionId: parts[2] };
+  }
   if (parts[1] === 'tasks' && parts[2] && parts.length === 3) {
     if (method === 'PATCH') return { toolId: 'task.update' };
     if (method === 'DELETE') return { toolId: 'task.delete' };

@@ -71,6 +71,16 @@ export function renderAppearancePanel() {
 
 const selected = (actual, expected) => String(actual || '') === String(expected || '') ? 'selected' : '';
 const checked = (value) => value ? 'checked' : '';
+function localServeTarget() {
+  const port = (typeof window !== 'undefined' && window.location.port) ? window.location.port : '3000';
+  return `http://127.0.0.1:${port || '3000'}`;
+}
+
+function tailscaleServeCommand(mode = 'http') {
+  const target = localServeTarget();
+  if (mode === 'https') return `tailscale serve --bg --https=443 ${target}`;
+  return `tailscale serve --bg ${target}`;
+}
 
 // Count of REAL paired remote devices (workstation token-bootstrap sessions are
 // not devices). Returns null while the session list is still loading so callers
@@ -298,6 +308,8 @@ export function renderDesktopControlPanel(ctx) {
 
 export function renderSetupPanel(ctx) {
   const { tailnet, phoneUrl, browserPaired, tokenConfigured, phoneQr, accessModeSummary, accessModeOptions, privateSettings, authSessionRows } = ctx;
+  const httpServeCommand = tailscaleServeCommand('http');
+  const httpsServeCommand = tailscaleServeCommand('https');
   return `
       <article class="card control-card setup-wizard" id="section-setup" data-panel-card="access">
         <details class="disclosure">
@@ -371,8 +383,8 @@ export function renderSetupPanel(ctx) {
               <button type="submit">Save access settings</button>
             </form>
             <div class="lane-row">
-              <button class="secondary" data-action="copyPrivateAccessCommand" data-command="tailscale serve --bg http://127.0.0.1:3000" type="button">Copy HTTP Serve</button>
-              <button class="secondary" data-action="copyPrivateAccessCommand" data-command="tailscale serve --bg --https=443 http://127.0.0.1:3000" type="button">Copy HTTPS Serve</button>
+              <button class="secondary" data-action="copyPrivateAccessCommand" data-command="${safeAttr(httpServeCommand)}" type="button">Copy HTTP Serve</button>
+              <button class="secondary" data-action="copyPrivateAccessCommand" data-command="${safeAttr(httpsServeCommand)}" type="button">Copy HTTPS Serve</button>
               <button class="secondary" data-action="copyPrivateAccessCommand" data-command="tailscale serve reset" type="button">Copy disable Serve</button>
             </div>
           </div>
@@ -665,10 +677,20 @@ export function renderSupervisorPanel(ctx) {
       const counts = backlog.counts || {};
       const review = session.supervisorReview || null;
       const route = session.route || project.route || '/';
+      const reviewStatus = String(review?.status || review?.verdict || '').toLowerCase();
+      const rowTags = [
+        active ? '<span class="tag ok">Active</span>' : '<span class="tag warn">Idle</span>',
+        backlog.stalled ? '<span class="tag bad">Stalled</span>' : '',
+        counts.blocked ? `<span class="tag bad">${safeText(counts.blocked)} blocked</span>` : '',
+        reviewStatus === 'fix_requested' ? '<span class="tag warn">Fix requested</span>' : '',
+        reviewStatus === 'blocked' ? '<span class="tag bad">Supervisor blocked</span>' : '',
+        reviewStatus === 'accepted' ? '<span class="tag ok">Accepted</span>' : '',
+      ].filter(Boolean).join('');
       return `
         <div class="provider-row">
           <div>
             <strong>${safeText(project.name)} / ${safeText(session.name)}</strong>
+            <div>${rowTags}</div>
             <div class="tiny muted">
               ${active ? `orchestrator: ${safeText(session.activeOrchestrator?.actor || session.activeOrchestrator?.source || 'active')}` : 'orchestrator: idle'}
               · next: ${safeText(session.nextRequiredTool || 'none')}
@@ -693,12 +715,27 @@ export function renderSupervisorPanel(ctx) {
   const totalSessions = projects.reduce((sum, project) => sum + (Array.isArray(project.sessions) ? project.sessions.length : 0), 0);
   const activeCount = projects.reduce((sum, project) =>
     sum + (Array.isArray(project.sessions) ? project.sessions.filter((session) => session.activeOrchestrator?.active).length : 0), 0);
+  const triageCounts = projects.reduce((acc, project) => {
+    for (const session of Array.isArray(project.sessions) ? project.sessions : []) {
+      const reviewStatus = String(session.supervisorReview?.status || session.supervisorReview?.verdict || '').toLowerCase();
+      const counts = session.backlog?.counts || {};
+      if (session.backlog?.stalled) acc.stalled += 1;
+      if (counts.blocked) acc.blocked += Number(counts.blocked) || 0;
+      if (reviewStatus === 'fix_requested') acc.fixRequested += 1;
+    }
+    return acc;
+  }, { stalled: 0, blocked: 0, fixRequested: 0 });
   return `
       <article class="card control-card" id="section-supervisor" data-panel-card="supervisor">
         <div class="settings-panel-head">
           <div>
             <h3>Supervisor agent</h3>
             <p class="muted">${safeText(projects.length)} projects · ${safeText(totalSessions)} sessions · ${safeText(activeCount)} active orchestrator${activeCount === 1 ? '' : 's'}</p>
+            <div>
+              ${triageCounts.stalled ? `<span class="tag bad">${safeText(triageCounts.stalled)} stalled</span>` : ''}
+              ${triageCounts.blocked ? `<span class="tag bad">${safeText(triageCounts.blocked)} blocked</span>` : ''}
+              ${triageCounts.fixRequested ? `<span class="tag warn">${safeText(triageCounts.fixRequested)} fix requested</span>` : '<span class="tag ok">No supervisor blockers</span>'}
+            </div>
           </div>
           <button data-action="connectSupervisorApp" type="button">Connect supervisor</button>
         </div>
@@ -709,6 +746,7 @@ export function renderSupervisorPanel(ctx) {
 
 export function renderPrivateAccessPanel(ctx) {
   const { accessModeSummary, tailnet, accessModeOptions, privateSettings, phoneUrl, commandRows, privateTargets, targetRows } = ctx;
+  const httpsServeCommand = tailscaleServeCommand('https');
   return `
       <article class="card control-card" id="section-private-access" data-panel-card="access">
         <details class="disclosure">
@@ -803,7 +841,7 @@ export function renderPrivateAccessPanel(ctx) {
                     {
                       title: 'Run the HTTPS Serve command yourself',
                       detail: 'Orca only copies commands here; it does not run HTTPS setup for you.',
-                      actions: '<button class="btn-ghost" data-action="copyPrivateAccessCommand" data-command="tailscale serve --bg --https=443 http://127.0.0.1:3000" type="button">Copy HTTPS command</button>',
+                      actions: `<button class="btn-ghost" data-action="copyPrivateAccessCommand" data-command="${safeAttr(httpsServeCommand)}" type="button">Copy HTTPS command</button>`,
                     },
                     {
                       title: 'Disable HTTPS Serve',

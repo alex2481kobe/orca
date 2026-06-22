@@ -2,13 +2,26 @@
 
 import { refs, shell } from './state.js';
 import { writeHtml } from './dom.js';
-import { renderLaneExecutorGuidance } from './render-fragments.js';
+import { activeOrchestratorLaneForSession, renderLaneExecutorGuidance } from './render-fragments.js';
 import { safeText, safeAttr } from './format.js';
 import { icon } from './icons.js';
 import { renderExecutorSidePanel, renderOrchestratorConsole, renderChatThreadInner, renderExecutorListInner } from './render-session-parts.js';
 import { hydrateComposerContext } from './composer-context.js';
 import { isForeignModel, defaultModelFor } from './executor.js';
 import { refreshConfigLabel } from './composer-config.js';
+
+function renderActiveOrchestratorChip(session) {
+  const active = session?.orchestratorThread?.activeOrchestrator || null;
+  if (active?.active && !active.stale) {
+    return `<span class="tag ok">Orchestrator: ${safeText(active.actor || active.source || 'active')}</span>`;
+  }
+  const lane = activeOrchestratorLaneForSession(session);
+  if (lane) {
+    const klass = ['queued', 'starting', 'running'].includes(lane.state) ? 'ok' : lane.state === 'failed' ? 'bad' : 'warn';
+    return `<span class="tag ${klass}">Orchestrator lane: ${safeText(lane.state || 'unknown')}</span>`;
+  }
+  return '<span class="tag warn">Orchestrator: idle</span>';
+}
 
 export function renderSession(project, session) {
   const sid = session.id;
@@ -32,6 +45,7 @@ export function renderSession(project, session) {
             <span class="crumb-project">${safeText(project.name)}</span>
             <span class="crumb-sep">/</span>
             <span class="crumb-session">${safeText(session.name)}</span>
+            <span id="orchestrator-chip-${safeAttr(sid)}">${renderActiveOrchestratorChip(session)}</span>
           </div>
           <div class="session-topbar-side session-tools">
             <button class="info-toggle" data-action="toggleExecutorPanel" type="button" aria-label="Toggle agents panel" title="Agents & tools">
@@ -55,6 +69,8 @@ export function renderSession(project, session) {
     shellEl.classList.toggle('info-open', panelOpen);
     const toggleBtn = shellEl.querySelector('.info-toggle');
     if (toggleBtn) toggleBtn.classList.toggle('active', panelOpen);
+    const orchestratorChip = document.getElementById(`orchestrator-chip-${sid}`);
+    if (orchestratorChip) writeHtml(orchestratorChip, renderActiveOrchestratorChip(session));
   }
 
   // Targeted real-time updates: fill the volatile mounts. Each writeHtml is a

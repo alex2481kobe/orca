@@ -153,6 +153,9 @@ function sanitizeMcpWorkdir(raw) {
   if (/\x00/.test(text)) {
     throw { status: 422, message: 'MCP tool workdir contains invalid bytes.' };
   }
+  if (/[\x01-\x1f\x7f]/.test(text)) {
+    throw { status: 422, message: 'MCP tool workdir contains control characters.' };
+  }
   return text;
 }
 

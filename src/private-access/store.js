@@ -225,8 +225,8 @@ export class PrivateAccessStore {
     return buildSetupPlan(input);
   }
 
-  tailnetState(fakeState = null) {
-    return detectTailnetState({ fakeState, runner: this.runner });
+  tailnetState(fakeState = null, { localPort = process.env.PORT || 3000 } = {}) {
+    return detectTailnetState({ fakeState, runner: this.runner, localPort });
   }
 
   // Run Tailscale Serve for the user (HTTP, tailnet-only) so a phone can reach Orca
@@ -242,9 +242,10 @@ export class PrivateAccessStore {
       return { ok: false, action, error: 'Tailscale is not signed in. Sign in first, then try again.', tailnet };
     }
     const safePort = Number.parseInt(port, 10);
+    const targetPort = Number.isInteger(safePort) && safePort > 0 ? safePort : 3000;
     const args = action === 'disable'
       ? ['serve', 'reset']
-      : ['serve', '--bg', `http://127.0.0.1:${Number.isInteger(safePort) && safePort > 0 ? safePort : 3000}`];
+      : ['serve', '--bg', `http://127.0.0.1:${targetPort}`];
     const result = this.runner('tailscale', args, { encoding: 'utf8', timeout: 9000, maxBuffer: 128 * 1024, windowsHide: true });
     const ok = !result.error && result.status === 0;
     const output = `${result.stdout || ''}${result.stderr || ''}`.trim().slice(0, 600);
@@ -260,8 +261,7 @@ export class PrivateAccessStore {
       action,
       error: ok ? null : (output || 'Tailscale Serve command failed. You may need to grant the Tailscale operator (run `sudo tailscale set --operator=$USER` once).'),
       output,
-      tailnet: this.tailnetState(),
+      tailnet: this.tailnetState(null, { localPort: targetPort }),
     };
   }
 }
-
