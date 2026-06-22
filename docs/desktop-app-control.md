@@ -174,6 +174,9 @@ profiles and custom CLI adapters are available where configured and approved.
 - `orchestrator__enroll` only **binds** an already-issued lease to a session and
   marks ownership; it never mints or widens a credential. Takeover/resign
   coordinate handoff between chats.
+- Orchestrator MCP leases can read Tailscale status/setup plans and manage saved
+  project live links. They do not receive the host-level Tailscale Serve mutation
+  tool; use the workstation/admin CLI path for that.
 - All tool calls stay on loopback; nothing is exposed to the tailnet by this flow.
 
 ## Both paths together

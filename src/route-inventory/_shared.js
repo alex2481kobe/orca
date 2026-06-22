@@ -34,6 +34,11 @@ const PUBLIC_ROUTE_KEYS = new Set([
 const ADMIN_ROUTE_KEYS = new Set([
   'DELETE /api/agent-tools/leases/{leaseId}',
   'POST /api/executors/{executor}/cli/reinstall',
+  // Custom MCP tools define host-executed commands. Mutating them is admin-only
+  // in src/server-routes/mcp.js; paired phones may list redacted tools only.
+  'POST /api/mcp/tools',
+  'PATCH /api/mcp/tools/{toolId}',
+  'DELETE /api/mcp/tools/{toolId}',
   'GET /api/providers/export',
   'PATCH /api/providers/{providerId}',
   'POST /api/providers/{providerId}/secret',
@@ -63,8 +68,10 @@ function resolveAuthContract(method, routePath, declared) {
   const key = `${method} ${routePath}`;
   if (PUBLIC_ROUTE_KEYS.has(key)) return declared === AUTH_PUBLIC ? AUTH_PUBLIC : declared;
   if (ADMIN_ROUTE_KEYS.has(key)) return AUTH_ADMIN;
-  // Preserve special operator variants (e.g. heartbeat worker token).
-  if (String(declared || '').includes('worker_token')) return declared;
+  const declaredAuth = String(declared || '');
+  // Preserve special operator variants (worker tokens, scoped tool leases,
+  // optional token modes) while still upgrading unsafe "none" declarations below.
+  if (declaredAuth.startsWith(`${AUTH_OPERATOR}_`)) return declaredAuth;
   // Everything else returns data or mutates the workspace -> operator minimum.
   return AUTH_OPERATOR;
 }

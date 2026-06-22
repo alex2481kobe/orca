@@ -2,7 +2,7 @@
 
 import { CONTRACT_VERSION } from './contract.js';
 import { findTool } from './tool-definitions.js';
-import { normalizeRole, availableToolIdsForRole, blockedToolSummariesForRole } from './roles.js';
+import { normalizeRole, availableToolIdsForRole } from './roles.js';
 import { buildMcpToolsByExecutor } from './registry-views.js';
 
 function latestPendingAudit(registry, laneId) {
@@ -200,7 +200,7 @@ export function buildNextActionEnvelope(registry, {
     // driving an action the role can't perform (e.g. executor on audit.queue_one).
     nextToolPermitted: allowedTools.includes(nextRequiredTool),
     allowedTools,
-    blockedTools: blockedToolSummariesForRole(normalizedRole),
+    blockedTools: [],
     summary: lane
       ? `Lane "${lane.title}" is ${lane.state}.`
       : (session ? `Session "${session.name}" is ready for orchestration.` : (project ? `Project "${project.name}" is selected.` : 'No project selected.')),

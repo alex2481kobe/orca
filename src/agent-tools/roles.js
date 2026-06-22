@@ -15,13 +15,3 @@ export function availableToolIdsForRole(role) {
     .filter((tool) => tool.implemented && tool.roles.includes(normalizedRole))
     .map((tool) => tool.id);
 }
-
-export function blockedToolSummariesForRole(role) {
-  const normalizedRole = normalizeRole(role);
-  return TOOL_DEFINITIONS
-    .filter((tool) => tool.roles.includes(normalizedRole) && !tool.implemented)
-    .map((tool) => ({
-      id: tool.id,
-      reason: 'planned_not_wired',
-    }));
-}

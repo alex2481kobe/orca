@@ -386,6 +386,13 @@ const stopCodexLane = await req('POST', `/api/lanes/${codexLane.body.id}/stop`, 
 });
 if (stopCodexLane.status !== 200 || stopCodexLane.body?.state !== 'stopped') fail('stopCodexLane', JSON.stringify(stopCodexLane));
 
+const deleteSmokeTool = await req('DELETE', `/api/mcp/tools/${tool.body.id}`, {
+  actor: 'dashboard',
+  approved: true,
+});
+if (deleteSmokeTool.status !== 200) fail('deleteSmokeMcpTool', JSON.stringify(deleteSmokeTool));
+log('mcpToolCleanup', tool.body.id);
+
 const resumeExecution = await req('POST', `/api/sessions/${session.body.id}/capacity/policy`, {
   actor: 'dashboard',
   approved: true,

@@ -27,6 +27,13 @@
  *                                                            # bootstrap + auto session + enroll, one shot
  *   orca-agent rules [role]                                   # the shared role rulebook every surface uses
  *   orca-agent bootstrap [--project <id>] [--session <id>]   # mint + print a lease (and a `claude mcp add` line)
+ *   orca-agent projects                                      # list projects visible to this lease
+ *   orca-agent links <projectId>                             # list saved live links for a project
+ *   orca-agent link-upsert <projectId> <label> <url> [--tailnet URL] [--local URL] [--https URL] [--port N] [--kind vite] [--favorite] [--check]
+ *   orca-agent link-check <projectId> <linkId> [--prefer auto|local|tailnet|https]
+ *   orca-agent tailscale-status                              # read private Tailscale/Serve status
+ *   orca-agent tailscale-setup                               # print the dry-run setup plan
+ *   orca-agent tailscale-serve enable|disable [--port N]     # admin/workstation action; never Funnel
  *   orca-agent next [--session <id>]                          # server-approved next legal tool
  *   orca-agent status <sessionId>                             # ownership + lane tree + backlog
  *   orca-agent enroll <sessionId> [--takeover]                # become the active orchestrator
@@ -115,6 +122,17 @@ function parseArgs(argv) {
   return { _, flags };
 }
 
+function queryString(params = {}) {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== false && value !== '') {
+      search.set(key, String(value));
+    }
+  }
+  const text = search.toString();
+  return text ? `?${text}` : '';
+}
+
 async function api(method, path, body) {
   const headers = { accept: 'application/json', 'x-orca-tool-lease': await ensureLease() };
   if (body !== undefined) headers['content-type'] = 'application/json';
@@ -136,6 +154,35 @@ const { _, flags } = parseArgs(rest);
 function show(r) {
   if (!r.ok) die(`${r.status} ${r.data?.error || r.text || ''}`.trim(), 2);
   out(r.data ?? r.text);
+}
+
+function parsePort(value) {
+  if (!value) return undefined;
+  const port = Number.parseInt(value, 10);
+  if (!Number.isFinite(port) || port < 1 || port > 65535) die('--port must be between 1 and 65535');
+  return port;
+}
+
+function quickLinkBody(projectId, label, url, flags) {
+  if (!projectId) die('project id required');
+  if (!label) die('link label required');
+  if (!url) die('link URL required');
+  const body = {
+    approved: true,
+    label,
+    url,
+  };
+  if (flags.id) body.id = flags.id;
+  if (flags.local || flags['local-url']) body.localUrl = flags.local || flags['local-url'];
+  if (flags.tailnet || flags['tailnet-url']) body.tailnetHttpUrl = flags.tailnet || flags['tailnet-url'];
+  if (flags.https || flags['https-url']) body.httpsServeUrl = flags.https || flags['https-url'];
+  if (flags.port) body.port = parsePort(flags.port);
+  if (flags.kind) body.kind = flags.kind;
+  if (flags.group) body.group = flags.group;
+  if (flags['health-path']) body.healthPath = flags['health-path'];
+  if (flags.favorite) body.favorite = true;
+  if (flags.hidden) body.hidden = true;
+  return body;
 }
 
 switch (cmd) {
@@ -179,6 +226,68 @@ switch (cmd) {
       codexCli: r.data.bootstrap?.clients?.codexCli?.command || null,
       expiresAt: r.data.lease?.expiresAt || null,
     });
+    break;
+  }
+  case 'projects': {
+    show(await api('GET', '/api/projects'));
+    break;
+  }
+  case 'links': {
+    const projectId = _[0] || die('usage: orca-agent links <projectId>');
+    const r = await api('GET', `/api/projects/${encodeURIComponent(projectId)}`);
+    if (!r.ok) die(`${r.status} ${r.data?.error || r.text}`, 2);
+    out({
+      projectId: r.data?.id,
+      name: r.data?.name,
+      quickLinks: r.data?.quickLinks || [],
+    });
+    break;
+  }
+  case 'link-upsert': {
+    const projectId = _[0] || die('usage: orca-agent link-upsert <projectId> <label> <url> [--tailnet URL] [--local URL] [--https URL] [--port N] [--kind vite] [--favorite] [--check]');
+    const label = _[1] || die('link label required');
+    const url = _[2] || die('link URL required');
+    const saved = await api('POST', `/api/projects/${encodeURIComponent(projectId)}/quick-links`, quickLinkBody(projectId, label, url, flags));
+    if (!saved.ok) die(`${saved.status} ${saved.data?.error || saved.text}`, 2);
+    if (!flags.check) {
+      out(saved.data);
+      break;
+    }
+    const linkId = saved.data?.link?.id;
+    const checked = linkId
+      ? await api('POST', `/api/projects/${encodeURIComponent(projectId)}/quick-links/${encodeURIComponent(linkId)}/check`, { prefer: flags.prefer || 'auto' })
+      : null;
+    out({ saved: saved.data, checked: checked?.data || null });
+    break;
+  }
+  case 'link-check': {
+    const projectId = _[0] || die('usage: orca-agent link-check <projectId> <linkId> [--prefer auto|local|tailnet|https]');
+    const linkId = _[1] || die('link id required');
+    show(await api('POST', `/api/projects/${encodeURIComponent(projectId)}/quick-links/${encodeURIComponent(linkId)}/check`, { prefer: flags.prefer || 'auto' }));
+    break;
+  }
+  case 'tailscale-status': {
+    show(await api('GET', `/api/private-access/tailnet${queryString({ fake: flags.fake })}`));
+    break;
+  }
+  case 'tailscale-setup': {
+    show(await api('GET', `/api/private-access/setup-plan${queryString({
+      localUrl: flags.local || flags['local-url'],
+      httpPort: flags['http-port'],
+      httpsPort: flags['https-port'],
+    })}`));
+    break;
+  }
+  case 'tailscale-serve': {
+    const action = _[0] || die('usage: orca-agent tailscale-serve enable|disable [--port N]');
+    if (!['enable', 'disable'].includes(action)) die('tailscale-serve action must be enable or disable');
+    const r = await adminPost('/api/private-access/serve', {
+      action,
+      port: parsePort(flags.port) || 3000,
+      approved: true,
+    });
+    if (!r.ok) die(`${r.status} ${r.data?.error || r.text}`, 2);
+    out(r.data ?? r.text);
     break;
   }
   case 'next': {
@@ -241,6 +350,6 @@ switch (cmd) {
     break;
   }
   default:
-    out('orca-agent — drive Orca from any agent. Commands: start, rules, bootstrap, next, status, enroll, resign, create-session, add-task, bulk-add, backlog, call. See header for usage.');
+    out('orca-agent — drive Orca from any agent. Commands: start, projects, links, link-upsert, link-check, tailscale-status, tailscale-setup, tailscale-serve, rules, bootstrap, next, status, enroll, resign, create-session, add-task, bulk-add, backlog, call. See header for usage.');
     if (cmd && cmd !== 'help') process.exit(1);
 }

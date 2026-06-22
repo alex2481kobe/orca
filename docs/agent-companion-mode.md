@@ -51,6 +51,14 @@ orca-agent status  <sessionId>     # ownership + live lane tree + backlog roll-u
 orca-agent backlog <sessionId>
 orca-agent resign  <sessionId>     # hand off
 
+# Project links for phone/Tailscale use:
+orca-agent projects
+orca-agent links <projectId>
+orca-agent link-upsert <projectId> "Example App" "http://127.0.0.1:5173" \
+  --tailnet "http://mac.tailnet.ts.net:5173" --port 5173 --kind vite --favorite --check
+orca-agent tailscale-status
+orca-agent tailscale-setup
+
 # See the exact rulebook every surface obeys (shared, single source):
 orca-agent rules orchestrator
 
@@ -72,6 +80,11 @@ yourself (or via `orca-agent call …/audit/accept`). `backlog.status` reports
 `complete`/`allAccepted` when every task is accepted — and, if a run stalls, a
 `stalled` flag plus `stallReasons` (capacity 0, non-auto policy, escalated audits,
 blocked tasks) so you can see why at a glance.
+
+Host-level Tailscale Serve changes remain an explicit workstation/admin action:
+`orca-agent tailscale-serve enable --port 3000` uses the admin path locally and
+never enables Funnel. Scoped MCP/orchestrator leases can read status/setup plans
+and save project links, but they do not receive the Serve mutation tool.
 
 ## Using it from a chat right now
 

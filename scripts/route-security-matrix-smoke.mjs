@@ -68,11 +68,12 @@ if (extra.length) {
 for (const route of ROUTE_INVENTORY) {
   const row = matrixRows.get(routeKey(route));
   if (!row) continue;
+  const authCell = row.match(/^\|\s*`[A-Z]+`\s*\|\s*`[^`]+`\s*\|\s*([^|]+?)\s*\|/)?.[1]?.trim();
   const smokeItems = Array.isArray(route.smokeCoverage) ? route.smokeCoverage : [];
   if (!smokeItems.length || !smokeItems.some((item) => row.includes(item))) {
     fail('matrix row missing smoke coverage', routeKey(route));
   }
-  if (!row.includes(route.auth)) fail('matrix row missing auth contract', routeKey(route));
+  if (authCell !== route.auth) fail('matrix row auth contract mismatch', `${routeKey(route)} expected ${route.auth}, got ${authCell || 'unparsed'}`);
   if (!row.includes(route.mutationRisk)) fail('matrix row missing risk contract', routeKey(route));
   if (!row.includes(route.auditEvent)) fail('matrix row missing audit contract', routeKey(route));
 }

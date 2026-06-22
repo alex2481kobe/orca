@@ -296,7 +296,13 @@ function toolLeaseRequirementForRoute(method, parts) {
   if (parts[1] === 'projects' && parts[2] && parts.length === 3 && method === 'GET') {
     return { toolId: 'project.describe', projectId: parts[2] };
   }
-  if (parts[1] === 'projects' && parts[2] && parts[3] === 'quick-links' && parts.length === 4 && method === 'PATCH') {
+  if (parts[1] === 'projects' && parts[2] && parts[3] === 'archive' && parts.length === 4 && method === 'POST') {
+    return { toolId: 'project.archive', projectId: parts[2] };
+  }
+  if (parts[1] === 'projects' && parts[2] && parts[3] === 'restore' && parts.length === 4 && method === 'POST') {
+    return { toolId: 'project.restore', projectId: parts[2] };
+  }
+  if (parts[1] === 'projects' && parts[2] && parts[3] === 'quick-links' && parts.length === 4 && method === 'POST') {
     return { toolId: 'project.quick_link.upsert', projectId: parts[2] };
   }
   if (parts[1] === 'projects' && parts[2] && parts[3] === 'quick-links' && parts[4] && parts.length === 5 && method === 'DELETE') {
@@ -318,6 +324,12 @@ function toolLeaseRequirementForRoute(method, parts) {
   }
   if (parts[1] === 'policy' && parts.length === 2 && method === 'GET') {
     return { toolId: 'settings.describe_effective' };
+  }
+  if (parts[1] === 'private-access' && parts[2] === 'tailnet' && parts.length === 3 && method === 'GET') {
+    return { toolId: 'tailscale.status' };
+  }
+  if (parts[1] === 'private-access' && parts[2] === 'setup-plan' && parts.length === 3 && method === 'GET') {
+    return { toolId: 'orca.setup_guide' };
   }
   if (parts[1] === 'providers' && parts.length === 2 && method === 'GET') {
     return { toolId: 'provider.list' };

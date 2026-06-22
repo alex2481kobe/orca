@@ -96,6 +96,7 @@ test('required critique blocks audit until current findings are recorded', async
       (error) => error.status === 409,
     );
 
+    registry.enrollOrchestrator(session.id, { leaseId: 'dashboard', actor: 'test-orchestrator' });
     const before = buildNextActionEnvelope(registry, {
       role: 'orchestrator',
       projectId: project.id,
@@ -152,6 +153,7 @@ test('visual-required critique refuses stale or missing screenshot evidence', as
     registry.markLaneCompleted(registry.getLane(lane.id));
     assert.equal(registry.getLane(lane.id).critiqueMode, 'visual-required');
 
+    registry.enrollOrchestrator(session.id, { leaseId: 'dashboard', actor: 'test-orchestrator' });
     const before = buildNextActionEnvelope(registry, {
       role: 'orchestrator',
       projectId: project.id,

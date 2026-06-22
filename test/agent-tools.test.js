@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
+  availableToolIdsForRole,
   buildAgentToolDiscovery,
   buildNextActionEnvelope,
   findTool,
@@ -39,13 +40,10 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
     'executor.capabilities',
     'supervisor.overview',
     'lane.create',
-    'lane.claim',
     'lane.heartbeat',
     'lane.submit',
-    'lane.block',
     'lane.shutdown',
     'lane.controls.update',
-    'lane.archive',
     'capacity.request',
     'capacity.approve',
     'capacity.reject',
@@ -56,14 +54,12 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
     'critique.waive',
     'audit.queue_one',
     'audit.queue_all_ready',
-    'audit.claim',
     'audit.findings.record',
     'audit.accept',
     'audit.request_fix',
     'audit.block',
     'evidence.capture_screenshot',
     'evidence.capture_video',
-    'evidence.attach_artifact',
     'evidence.list',
     'evidence.latest',
     'evidence.cleanup_dry_run',
@@ -73,8 +69,6 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
     'provider.configure',
     'provider.secret.set',
     'provider.secret.delete',
-    'provider.install_plan',
-    'provider.update_plan',
     'project.list',
     'project.describe',
     'project.quick_link.upsert',
@@ -82,7 +76,6 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
     'project.quick_link.health',
     'project.archive',
     'project.restore',
-    'project.reorder',
     'settings.describe_effective',
     'settings.update',
     'settings.export',
@@ -93,10 +86,22 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
     assert.equal(ids.has(id), true, `missing ${id}`);
   }
   assert.equal(JSON.stringify(discovery).includes(process.cwd()), false);
+  assert.deepEqual(discovery.tools.filter((tool) => !tool.implemented || !tool.route).map((tool) => tool.id), []);
+  assert.deepEqual(discovery.roles.flatMap((role) => role.plannedTools), []);
+  assert.match(discovery.leasePolicy, /Scoped tool leases authenticate MCP and CLI agent calls/);
+  assert.equal(discovery.leasePolicy.includes('future guarded'), false);
+  assert.equal(discovery.leasePolicy.includes('normal dashboard auth today'), false);
+  assert.equal(findTool('project.quick_link.upsert')?.method, 'POST');
   assert.equal(findTool('project.quick_link.upsert')?.route, '/api/projects/{projectId}/quick-links');
   assert.equal(findTool('project.quick_link.delete')?.route, '/api/projects/{projectId}/quick-links/{linkId}');
   assert.equal(findTool('project.quick_link.health')?.route, '/api/projects/{projectId}/quick-links/{linkId}/check');
   assert.equal(findTool('project.quick_link.health')?.implemented, true);
+  assert.equal(findTool('project.archive')?.route, '/api/projects/{projectId}/archive');
+  assert.equal(findTool('project.archive')?.implemented, true);
+  assert.equal(findTool('project.restore')?.route, '/api/projects/{projectId}/restore');
+  assert.equal(findTool('project.restore')?.implemented, true);
+  assert.equal(availableToolIdsForRole('orchestrator').includes('project.archive'), false);
+  assert.equal(availableToolIdsForRole('dashboard').includes('project.archive'), true);
   assert.equal(buildAgentToolDiscovery().roles.some((role) => role.role === 'supervisor'), true);
 });
 
@@ -214,13 +219,14 @@ test('tool leases are scoped, hashed at rest, and enforce allowed tools', async 
   });
 });
 
-test('Tailscale MCP tools are defined for agents (status + serve configure)', () => {
+test('Tailscale agent tools expose read-only setup and keep Serve configure admin-only', () => {
   const status = findTool('tailscale.status');
   assert.ok(status, 'tailscale.status tool exists');
   assert.equal(status.method, 'GET');
   assert.equal(status.route, '/api/private-access/tailnet');
   assert.equal(status.implemented, true);
   assert.equal(status.mutating, false);
+  assert.ok(status.roles.includes('orchestrator'), 'orchestrator can read Tailscale status');
 
   const configure = findTool('tailscale.serve.configure');
   assert.ok(configure, 'tailscale.serve.configure tool exists');
@@ -228,9 +234,12 @@ test('Tailscale MCP tools are defined for agents (status + serve configure)', ()
   assert.equal(configure.route, '/api/private-access/serve');
   assert.equal(configure.implemented, true);
   assert.equal(configure.mutating, true);
-  assert.ok(configure.roles.includes('orchestrator'), 'orchestrator can configure serve');
+  assert.deepEqual(configure.roles, ['dashboard']);
+  assert.equal(availableToolIdsForRole('orchestrator').includes('tailscale.serve.configure'), false);
+
   const guide = findTool('orca.setup_guide');
   assert.ok(guide, 'orca.setup_guide tool exists');
   assert.equal(guide.route, '/api/private-access/setup-plan');
   assert.equal(guide.mutating, false);
+  assert.ok(guide.roles.includes('orchestrator'), 'orchestrator can read setup guide');
 });

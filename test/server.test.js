@@ -1542,6 +1542,27 @@ test('server MCP tool env (secrets) is shown to admin but redacted for paired op
     assert.notEqual(opList.body[0].env.GITHUB_TOKEN, 'ghp_supersecret_value');
     const opGet = await server.requestJson(`/api/mcp/tools/${created.body.id}`, { method: 'GET', headers: { cookie } });
     assert.notEqual(opGet.body.env.GITHUB_TOKEN, 'ghp_supersecret_value');
+
+    const operatorCreate = await server.requestJson('/api/mcp/tools', {
+      method: 'POST',
+      headers: { cookie },
+      body: { name: 'phone-tool', command: 'node', args: ['--version'], scope: ['all'], approved: true },
+    });
+    assert.equal(operatorCreate.status, 403);
+
+    const operatorPatch = await server.requestJson(`/api/mcp/tools/${created.body.id}`, {
+      method: 'PATCH',
+      headers: { cookie },
+      body: { enabled: false, approved: true },
+    });
+    assert.equal(operatorPatch.status, 403);
+
+    const operatorDelete = await server.requestJson(`/api/mcp/tools/${created.body.id}`, {
+      method: 'DELETE',
+      headers: { cookie },
+      body: { approved: true },
+    });
+    assert.equal(operatorDelete.status, 403);
   } finally {
     await server.stop();
   }
@@ -2274,6 +2295,151 @@ test('project live links are server-authoritative, SSRF-checked, health-checked,
   } finally {
     await server.stop();
     await target.close();
+  }
+});
+
+test('orchestrator tool leases can manage project links and read private-access setup state', async () => {
+  const token = 'route-token-agent-project-links';
+  const server = await startServer({ token });
+
+  try {
+    const project = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        name: 'Agent Link Project',
+        approved: true,
+      },
+    });
+    assert.equal(project.status, 201);
+
+    const lease = await server.requestJson('/api/agent-tools/leases', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        role: 'orchestrator',
+        projectId: project.body.id,
+        ttlMs: 60_000,
+      },
+    });
+    assert.equal(lease.status, 201);
+    assert.ok(lease.body?.leaseToken);
+
+    const tailnet = await server.requestJson('/api/private-access/tailnet?fake=serve-http', {
+      method: 'GET',
+      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
+    });
+    assert.equal(tailnet.status, 200);
+    assert.equal(tailnet.body?.serveMode, 'tailnet-http');
+
+    const setup = await server.requestJson('/api/private-access/setup-plan?localUrl=http%3A%2F%2F127.0.0.1%3A3000', {
+      method: 'GET',
+      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
+    });
+    assert.equal(setup.status, 200);
+    assert.equal(Array.isArray(setup.body?.commands), true);
+
+    const added = await server.requestJson(`/api/projects/${project.body.id}/quick-links`, {
+      method: 'POST',
+      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
+      body: {
+        approved: true,
+        label: 'Tailnet Vite',
+        url: 'http://orca.example.ts.net:5173/',
+        tailnetHttpUrl: 'http://orca.example.ts.net:5173/',
+        localUrl: 'http://127.0.0.1:5173/',
+        port: 5173,
+        kind: 'vite',
+        favorite: true,
+      },
+    });
+    assert.equal(added.status, 201);
+    assert.equal(added.body?.link?.label, 'Tailnet Vite');
+    assert.equal(added.body?.link?.tailnetHttpUrl, 'http://orca.example.ts.net:5173/');
+    assert.equal(added.body?.project?.quickLinks?.length, 1);
+
+    const serveConfigure = await server.requestJson('/api/private-access/serve', {
+      method: 'POST',
+      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
+      body: { action: 'enable', port: 3000 },
+    });
+    assert.equal(serveConfigure.status, 401);
+  } finally {
+    await server.stop();
+  }
+});
+
+test('project archive and restore are dashboard-only scoped tool routes', async () => {
+  const token = 'route-token-project-archive-tools';
+  const server = await startServer({ token });
+
+  try {
+    const project = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        name: 'Archive Tool Project',
+        approved: true,
+      },
+    });
+    assert.equal(project.status, 201);
+
+    const orchestratorLease = await server.requestJson('/api/agent-tools/leases', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        role: 'orchestrator',
+        projectId: project.body.id,
+        ttlMs: 60_000,
+      },
+    });
+    assert.equal(orchestratorLease.status, 201);
+    assert.equal(orchestratorLease.body?.lease?.allowedTools.includes('project.archive'), false);
+
+    const deniedArchive = await server.requestJson(`/api/projects/${project.body.id}/archive`, {
+      method: 'POST',
+      headers: { 'x-orca-tool-lease': orchestratorLease.body.leaseToken },
+      body: { approved: true },
+    });
+    assert.equal(deniedArchive.status, 401);
+
+    const dashboardLease = await server.requestJson('/api/agent-tools/leases', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        role: 'dashboard',
+        projectId: project.body.id,
+        ttlMs: 60_000,
+      },
+    });
+    assert.equal(dashboardLease.status, 201);
+    assert.equal(dashboardLease.body?.lease?.allowedTools.includes('project.archive'), true);
+    assert.equal(dashboardLease.body?.lease?.allowedTools.includes('project.restore'), true);
+
+    const archived = await server.requestJson(`/api/projects/${project.body.id}/archive`, {
+      method: 'POST',
+      headers: { 'x-orca-tool-lease': dashboardLease.body.leaseToken },
+      body: { approved: true },
+    });
+    assert.equal(archived.status, 200);
+    assert.equal(archived.body?.state, 'archived');
+
+    const hiddenFromList = await server.requestJson('/api/projects', {
+      method: 'GET',
+      headers: { 'x-orca-token': token },
+    });
+    assert.equal(hiddenFromList.status, 200);
+    assert.equal(hiddenFromList.body.some((item) => item.id === project.body.id), false);
+
+    const restored = await server.requestJson(`/api/projects/${project.body.id}/restore`, {
+      method: 'POST',
+      headers: { 'x-orca-tool-lease': dashboardLease.body.leaseToken },
+      body: { approved: true },
+    });
+    assert.equal(restored.status, 200);
+    assert.equal(restored.body?.state, 'active');
+  } finally {
+    await server.stop();
   }
 });
 

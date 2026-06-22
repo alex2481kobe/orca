@@ -52,6 +52,22 @@ Supported `kind` values are `dev-server`, `vite`, `preview`, `dashboard`,
 Writes require project-update approval. Health checks only check a saved link;
 they do not accept arbitrary probe URLs.
 
+For shell-capable agents and MCP-hosting apps, `orca-agent` exposes the common
+workflow without raw route memorization:
+
+```bash
+orca-agent projects
+orca-agent links <projectId>
+orca-agent link-upsert <projectId> "Example App" "http://127.0.0.1:5173" \
+  --tailnet "http://mac.tailnet.ts.net:5173" --port 5173 --kind vite --favorite --check
+orca-agent link-check <projectId> <linkId> --prefer tailnet
+```
+
+Use `orca-agent tailscale-status` and `orca-agent tailscale-setup` to inspect the
+private-access setup from a CLI agent. Enabling or disabling Tailscale Serve is a
+workstation/admin operation (`orca-agent tailscale-serve enable|disable`), not a
+scoped project-link tool.
+
 ## Evidence presets
 
 For a lane attached to a project, the server exposes

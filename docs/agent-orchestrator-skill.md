@@ -58,8 +58,9 @@ You drive executor agents entirely through lane tools — there is no separate
 - **Despawn / stop** a running executor: `lane.shutdown` (POST
   `/api/lanes/:id/stop`); clean up its worktree with the worktree-remove tool.
   The dashboard also exposes an operator **Stop lane** button.
-- **Deactivate** a lane from the workflow: `lane.block` / the audit `block`
-  transition.
+- **Deactivate** work from the workflow: stop live lanes with `lane.shutdown`;
+  use `audit.block` only for audit-stage work, or `task.update` with
+  `state:"blocked"` for backlog items.
 - **Pause new spawns** for a session: set `spawnPolicy: 'never'` (PATCH the
   session). New lanes stay `queued` until you restore `within_capacity`. This is
   the pause control — Orca does not suspend an already-running CLI process

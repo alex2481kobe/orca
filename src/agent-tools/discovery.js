@@ -2,7 +2,7 @@
 
 import { CONTRACT_VERSION, ROLES } from './contract.js';
 import { getToolDefinitions } from './tool-definitions.js';
-import { availableToolIdsForRole, blockedToolSummariesForRole } from './roles.js';
+import { availableToolIdsForRole } from './roles.js';
 import { buildMcpToolsByExecutor } from './registry-views.js';
 
 export function buildAgentToolDiscovery(registry = null) {
@@ -11,14 +11,14 @@ export function buildAgentToolDiscovery(registry = null) {
   const roles = [...ROLES].sort().map((role) => ({
     role,
     allowedImplementedTools: availableToolIdsForRole(role),
-    plannedTools: blockedToolSummariesForRole(role).map((tool) => tool.id),
+    plannedTools: [],
   }));
   return {
     contractVersion: CONTRACT_VERSION,
     generatedAt: new Date().toISOString(),
     publicSafe: true,
     secretPolicy: 'Discovery never includes secret values, env values, absolute workdirs, private docs, or local usernames.',
-    leasePolicy: 'Mutating agent tools require normal dashboard auth today; lane/session leases are minted by /api/agent-tools/leases and are required by future guarded tool execution routes.',
+    leasePolicy: 'Scoped tool leases authenticate MCP and CLI agent calls. Route guards accept only the tool ids granted to the lease; admin-only host actions still require API token or loopback workstation auth.',
     groups,
     roles,
     executorCapabilities: typeof registry?.getExecutorCapabilitiesMatrix === 'function'

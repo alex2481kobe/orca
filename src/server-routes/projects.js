@@ -40,6 +40,26 @@ export async function handleProjectRoutes(ctx, req, res, method, parts) {
       return sendJson(res, 404, { error: 'Project not found.' });
     }
 
+    if (parts.length === 4 && (parts[3] === 'archive' || parts[3] === 'restore') && method === 'POST') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+      if (rejectSpoofedActor(body, res)) return;
+      const nextState = parts[3] === 'archive' ? 'archived' : 'active';
+      try {
+        const updated = registry.updateProject(project.id, { state: nextState }, {
+          actor: body.actor || 'dashboard',
+          approved: body.approved,
+        });
+        return sendJson(res, 200, updated);
+      } catch (error) {
+        return sendJson(res, error.status || 500, {
+          error: error.message || `Could not ${parts[3]} project.`,
+          requiresApproval: error.requiresApproval || false,
+          risk: error.risk || null,
+        });
+      }
+    }
+
     if (parts.length === 3) {
       if (method === 'GET') return sendJson(res, 200, project);
       if (method === 'PATCH') {
