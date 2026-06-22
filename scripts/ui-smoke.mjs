@@ -26,6 +26,7 @@ import process from 'node:process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { launchChromium } from './playwright-launch.mjs';
 
 const args = process.argv.slice(2);
 const previousCwd = process.cwd();
@@ -187,7 +188,7 @@ async function htmlOnlyMode() {
 
 async function playwrightMode(pw) {
   log('mode', 'Playwright Chromium');
-  const browser = await pw.chromium.launch({ headless: true });
+  const browser = await launchChromium(pw, { headless: true });
   try {
   const ctx = await browser.newContext();
   await addSessionCookie(ctx, await createBrowserSessionCookie());

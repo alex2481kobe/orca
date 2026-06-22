@@ -34,7 +34,14 @@ export function effectiveProjectQuickLinkUrl(quick, mode = 'auto') {
   if (mode === 'local') return quick.localUrl || quick.url || '';
   if (mode === 'tailnet-http') return quick.tailnetHttpUrl || quick.httpsServeUrl || quick.localUrl || quick.url || '';
   if (mode === 'tailnet-https-serve') return quick.httpsServeUrl || quick.tailnetHttpUrl || quick.localUrl || quick.url || '';
-  return quick.url || quick.tailnetHttpUrl || quick.httpsServeUrl || quick.localUrl || '';
+  const remote = typeof window !== 'undefined' && !isLocalHostName(window.location.hostname);
+  if (remote) {
+    const https = window.location.protocol === 'https:';
+    return https
+      ? (quick.httpsServeUrl || quick.tailnetHttpUrl || quick.url || quick.localUrl || '')
+      : (quick.tailnetHttpUrl || quick.httpsServeUrl || quick.url || quick.localUrl || '');
+  }
+  return quick.localUrl || quick.url || quick.tailnetHttpUrl || quick.httpsServeUrl || '';
 }
 
 export function quickLinkHealthLabel(status) {

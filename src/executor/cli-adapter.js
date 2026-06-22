@@ -74,7 +74,9 @@ export class CliExecutorAdapter {
 
     if (this.enforceAllowedBinary) {
       const allowed = this.allowedBinaries;
-      const ok = allowed.includes(normalizedBinary) || allowed.includes(basename);
+      const ok = path.isAbsolute(binary)
+        ? allowed.includes(normalizedBinary)
+        : (allowed.includes(normalizedBinary) || allowed.includes(basename));
       if (!ok) {
         throw new Error(`Binary ${binary} is not in the approved allowlist for ${this.label}.`);
       }

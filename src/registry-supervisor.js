@@ -31,6 +31,15 @@ export const supervisorMethods = {
             try { backlog = this.sessionBacklogStatus(session.id); } catch { backlog = null; }
             const lanes = (this.lanes || []).filter((lane) => lane.sessionId === session.id);
             const activeLanes = lanes.filter((lane) => ['queued', 'starting', 'running', 'auditing', 'needs_critique', 'ready_for_audit', 'fix_requested'].includes(lane.state)).length;
+            const pendingApprovalLanes = lanes
+              .map((lane) => ({
+                laneId: lane.id,
+                title: lane.title,
+                executorType: lane.executorType,
+                count: safeArray(lane.pendingApprovals).filter((approval) => approval?.status === 'pending').length,
+              }))
+              .filter((lane) => lane.count > 0);
+            const pendingApprovalCount = pendingApprovalLanes.reduce((sum, lane) => sum + lane.count, 0);
             return {
               id: session.id,
               name: session.name,
@@ -49,6 +58,10 @@ export const supervisorMethods = {
                 warnings: backlog.warnings,
               } : null,
               activeLanes,
+              approvals: {
+                pending: pendingApprovalCount,
+                lanes: pendingApprovalLanes,
+              },
               supervisorReview: session.supervisorReview || null,
             };
           });
@@ -89,6 +102,12 @@ export const supervisorMethods = {
       actor: boundedText(actor, 120) || 'supervisor',
       reviewedAt: now,
     };
+    if (normalizedVerdict === 'request_fix' && !review.summary && !review.findings.length && !review.nextTask && !review.plan) {
+      throw { status: 422, message: 'request_fix requires a summary, finding, nextTask, or plan.' };
+    }
+    if (normalizedVerdict === 'block' && !review.summary && !review.findings.length) {
+      throw { status: 422, message: 'block requires a summary or finding.' };
+    }
     session.supervisorReview = review;
     session.updatedAt = now;
     const thread = typeof this.ensureOrchestratorThread === 'function'

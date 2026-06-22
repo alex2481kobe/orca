@@ -11,6 +11,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
+import { launchChromium } from './playwright-launch.mjs';
 
 const previousCwd = process.cwd();
 const previousEnv = { ...process.env };
@@ -430,7 +431,7 @@ async function checkRuntimeContract(pw) {
     { name: 'desktop', width: 1366, height: 900 },
     { name: 'phone', width: 390, height: 844, isMobile: true, hasTouch: true },
   ];
-  const browser = await pw.chromium.launch({ headless: true });
+  const browser = await launchChromium(pw, { headless: true });
   const summary = [];
   const sessionCookie = await createBrowserSessionCookie();
   try {

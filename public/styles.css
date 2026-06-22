@@ -1442,7 +1442,7 @@ body.sidebar-collapsed .sidebar-project-line {
 @media (hover: hover) { .auditor-lane-link:hover { text-decoration: underline; } }
 /* Project quick-link rows: name + health + check/remove controls. */
 .quick-link-row { align-items: center; display: flex; flex-wrap: wrap; gap: var(--space-2); width: 100%; }
-.quick-link-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quick-link-name { flex: 1 1 13rem; min-width: 10rem; overflow-wrap: anywhere; text-decoration: none; white-space: normal; }
 .quick-link-health { flex: 0 0 auto; }
 .quick-link-btn {
   background: var(--panel-soft); border: 1px solid var(--line); border-radius: var(--radius-sm);
@@ -2477,7 +2477,9 @@ body.sidebar-collapsed .pill {
 .provider-row button {
 	    flex: 1 1 calc(50% - 0.45rem);
 	    min-height: 44px;
+	    min-width: 5.5rem;
 	    text-align: center;
+	    white-space: nowrap;
 	  }
 	  .access-command,
 .access-target,
@@ -2486,6 +2488,37 @@ body.sidebar-collapsed .pill {
 	    display: grid;
 	  }
   .card-grid img { max-height: 50vh; object-fit: contain; }
+}
+
+.provider-row.settings-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.provider-row.settings-row .settings-row-controls button {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+@media (max-width: 700px) {
+  .provider-row.settings-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .provider-row.settings-row .settings-row-side {
+    width: 100%;
+  }
+
+  .provider-row.settings-row .settings-row-controls {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+
+  .provider-row.settings-row .settings-row-controls button {
+    flex: 1 1 calc(50% - 0.25rem);
+    min-width: 7rem;
+    white-space: nowrap;
+  }
 }
 
 @media (max-width: 420px) {

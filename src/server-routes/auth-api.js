@@ -12,6 +12,20 @@ export function createAuthApi(deps) {
     API_TOKEN, WORKER_TOKEN, SESSION_COOKIE_NAME,
   } = deps;
 
+  function hasPositiveSameOriginSignal(req) {
+    const origin = req.headers.origin || '';
+    if (origin) return sameOriginAllowed(req);
+    const fetchSite = String(req.headers['sec-fetch-site'] || '').toLowerCase();
+    if (fetchSite === 'same-origin') return true;
+    const referer = req.headers.referer || req.headers.referrer || '';
+    if (!referer) return false;
+    try {
+      return new URL(String(referer)).origin === requestOrigin(req);
+    } catch {
+      return false;
+    }
+  }
+
   async function handleAuthApi(req, res, method, parts) {
   if (parts[2] === 'status' && method === 'GET') {
     let session = currentBrowserSession(req);
@@ -20,7 +34,9 @@ export function createAuthApi(deps) {
     // header — authenticate. Only for an already-authenticated, same-origin admin
     // browser without an existing session; never weakens auth (token holder is
     // already an admin).
-    if (!session && sameOriginAllowed(req) && (hasValidApiToken(req) || isLocalBootstrapAdmin(req))) {
+    const tokenAuthenticated = hasValidApiToken(req);
+    const localBootstrapAuthenticated = isLocalBootstrapAdmin(req) && hasPositiveSameOriginSignal(req);
+    if (!session && sameOriginAllowed(req) && (tokenAuthenticated || localBootstrapAuthenticated)) {
       try {
         const minted = authSessions.createTrustedSession({
           label: 'Workstation browser',
@@ -35,7 +51,7 @@ export function createAuthApi(deps) {
     }
     return sendJson(res, 200, {
       apiTokenRequired: Boolean(API_TOKEN),
-      apiTokenAuthenticated: hasValidApiToken(req),
+      apiTokenAuthenticated: tokenAuthenticated,
       browserSessionSupported: true,
       browserSessionAuthenticated: Boolean(session),
       session,

@@ -753,35 +753,35 @@ test('Creating lanes rejects unknown or unauthorized MCP tool IDs', async () => 
     assert.throws(() => registry.createLane(session.id, {
       title: 'Unknown MCP tool',
       executorType: 'codex',
-      executorBinary: '/usr/bin/codex',
+      executorBinary: 'codex',
       mcpToolIds: ['ghost-tool'],
     }, { approved: true, actor: 'test' }), (error) => error.status === 422);
 
     assert.throws(() => registry.createLane(session.id, {
       title: 'Disallowed MCP tool',
       executorType: 'codex',
-      executorBinary: '/usr/bin/codex',
+      executorBinary: 'codex',
       mcpToolIds: ['scoped-claude-tool'],
     }, { approved: true, actor: 'test' }), (error) => error.status === 422);
 
     assert.throws(() => registry.createLane(session.id, {
       title: 'Disabled MCP tool',
       executorType: 'codex',
-      executorBinary: '/usr/bin/codex',
+      executorBinary: 'codex',
       mcpToolIds: ['disabled-claude-tool'],
     }, { approved: true, actor: 'test' }), (error) => error.status === 422);
 
     assert.throws(() => registry.createLane(session.id, {
       title: 'Scope mismatch MCP tool',
       executorType: 'codex',
-      executorBinary: '/usr/bin/codex',
+      executorBinary: 'codex',
       mcpToolIds: ['scoped-claude-tool'],
     }, { approved: true, actor: 'test' }), (error) => error.status === 422);
 
     const codexLane = await registry.createLane(session.id, {
       title: 'Valid codex with scoped tool',
       executorType: 'codex',
-      executorBinary: '/usr/bin/codex',
+      executorBinary: 'codex',
       mcpToolIds: ['scoped-codex-tool'],
     }, { approved: true, actor: 'test' });
     assert.equal(codexLane.mcpTools.length, 1);
@@ -851,7 +851,7 @@ test('first-class CLI lanes accept executor overrides and command payloads', asy
       title: 'Claude Lane',
       executorType: 'claude',
       command: 'claude --version',
-      executorBinary: '/usr/bin/claude',
+      executorBinary: 'claude',
       workdir: process.cwd(),
       mcpToolIds: [],
     }, { approved: true, actor: 'test' });
@@ -865,7 +865,7 @@ test('first-class CLI lanes accept executor overrides and command payloads', asy
       title: 'Gemini CLI Lane',
       executorType: 'gemini-cli',
       command: 'gemini --version',
-      executorBinary: '/usr/bin/gemini',
+      executorBinary: 'gemini',
       workdir: process.cwd(),
       mcpToolIds: [],
     }, { approved: true, actor: 'test' });
@@ -874,7 +874,7 @@ test('first-class CLI lanes accept executor overrides and command payloads', asy
       title: 'Composer CLI Lane',
       executorType: 'composer-cli',
       command: 'cursor-agent --version',
-      executorBinary: '/usr/local/bin/cursor-agent',
+      executorBinary: 'cursor-agent',
       workdir: process.cwd(),
       mcpToolIds: [],
     }, { approved: true, actor: 'test' });
@@ -889,7 +889,7 @@ test('first-class CLI lanes accept executor overrides and command payloads', asy
 });
 
 test('first-class CLI lanes enforce binary/command executor targeting', async () => {
-  const { registry, cleanup } = await withIsolatedRegistry();
+  const { registry, cleanup, tempDir } = await withIsolatedRegistry();
 
   try {
     const project = registry.createProject({ name: 'Executor Policy Project' }, { actor: 'test', approved: true });
@@ -920,14 +920,30 @@ test('first-class CLI lanes enforce binary/command executor targeting', async ()
     }, { approved: true, actor: 'test' }), (error) => error.status === 422);
 
     const validLane = registry.createLane(session.id, {
-      title: 'Valid codex override',
+      title: 'Valid codex bare binary',
       executorType: 'codex',
-      executorBinary: '/usr/local/bin/codex-runner',
+      executorBinary: 'codex',
       command: 'codex --help',
       mcpToolIds: [],
     }, { approved: true, actor: 'test' });
     assert.equal(validLane.executorType, 'codex');
-    assert.equal(validLane.executorBinary, '/usr/local/bin/codex-runner');
+    assert.equal(validLane.executorBinary, 'codex');
+
+    assert.throws(() => registry.createLane(session.id, {
+      title: 'Relative path codex command',
+      executorType: 'codex',
+      command: './codex --version',
+      mcpToolIds: [],
+    }, { approved: true, actor: 'test' }), (error) => error.status === 422);
+
+    const symlinkBinary = path.join(tempDir, 'codex');
+    await fs.symlink(process.execPath, symlinkBinary);
+    assert.throws(() => registry.createLane(session.id, {
+      title: 'Absolute symlink codex binary',
+      executorType: 'codex',
+      executorBinary: symlinkBinary,
+      mcpToolIds: [],
+    }, { approved: true, actor: 'test' }), (error) => error.status === 422);
 
     assert.throws(() => registry.createLane(session.id, {
       title: 'Invalid gemini command',
@@ -944,23 +960,66 @@ test('first-class CLI lanes enforce binary/command executor targeting', async ()
     }, { approved: true, actor: 'test' }), (error) => error.status === 422);
 
     const geminiLane = registry.createLane(session.id, {
-      title: 'Valid gemini override',
+      title: 'Valid gemini bare binary',
       executorType: 'gemini-cli',
       command: 'gemini --help',
-      executorBinary: '/opt/bin/gemini',
+      executorBinary: 'gemini',
       mcpToolIds: [],
     }, { approved: true, actor: 'test' });
     assert.equal(geminiLane.executorType, 'gemini-cli');
 
     const composerLane = registry.createLane(session.id, {
-      title: 'Valid composer override',
+      title: 'Valid composer bare binary',
       executorType: 'composer-cli',
       command: 'cursor-agent --help',
-      executorBinary: '/opt/bin/cursor-agent',
+      executorBinary: 'cursor-agent',
       mcpToolIds: [],
     }, { approved: true, actor: 'test' });
     assert.equal(composerLane.executorType, 'composer-cli');
   } finally {
+    await cleanup();
+  }
+});
+
+test('first-class CLI lanes accept explicitly configured absolute binaries', async () => {
+  const previousEnv = { ...process.env };
+  const restore = restoreEnv(previousEnv);
+  const { registry, cleanup, tempDir } = await withIsolatedRegistry();
+
+  try {
+    const configuredBinary = path.join(tempDir, 'bin', 'codex-real');
+    await fs.mkdir(path.dirname(configuredBinary), { recursive: true });
+    await fs.symlink(process.execPath, configuredBinary);
+    process.env.ORCA_CODEX_BINARY = configuredBinary;
+    process.env.ORCA_CODEX_ALLOWED_BINARIES = configuredBinary;
+
+    const project = registry.createProject({ name: 'Configured Binary Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, {
+      name: 'Configured Binary Session',
+      leader: 'codex',
+    }, { actor: 'test', approved: true });
+    const lane = registry.createLane(session.id, {
+      title: 'Configured absolute codex',
+      executorType: 'codex',
+      executorBinary: configuredBinary,
+      mcpToolIds: [],
+    }, { approved: true, actor: 'test' });
+    assert.equal(lane.executorBinary, configuredBinary);
+
+    const { CliExecutorAdapter } = await import('../src/executor/cli-adapter.js');
+    const adapter = new CliExecutorAdapter('codex', {
+      defaultBinary: configuredBinary,
+      allowedBinaries: [configuredBinary],
+      defaultWorkingDir: process.cwd(),
+      workdirRoots: [process.cwd()],
+    });
+    assert.equal(adapter._resolveBinary(configuredBinary), configuredBinary);
+    assert.throws(
+      () => adapter._resolveBinary(path.join(tempDir, 'codex')),
+      /not in the approved allowlist/,
+    );
+  } finally {
+    restore();
     await cleanup();
   }
 });
@@ -1040,6 +1099,19 @@ test('Lane workdirs default to the session workspace and reject traversal outsid
           mcpToolIds: [],
         }, { approved: true, actor: 'test' }),
         (error) => error.status === 422 && /resolves outside/.test(error.message),
+      );
+      assert.throws(
+        () => registry.createLane(session.id, {
+          title: 'Nested symlink escaping workspace lane',
+          executorType: 'codex',
+          workdir: 'link-outside/pwn',
+          mcpToolIds: [],
+        }, { approved: true, actor: 'test' }),
+        (error) => error.status === 422 && /resolves outside/.test(error.message),
+      );
+      await assert.rejects(
+        () => fs.stat(path.join(outsideDir, 'pwn')),
+        (error) => error.code === 'ENOENT',
       );
 
       const { CliExecutorAdapter } = await import('../src/executor/cli-adapter.js');
@@ -1724,6 +1796,10 @@ test('executor CLI reinstall preference for source commands is respected and sur
 });
 
 test('MCP config is generated per-lane with safe path and executor-specific shape', async () => {
+  const previousEnv = { ...process.env };
+  const restore = restoreEnv(previousEnv);
+  process.env.ORCA_CODEX_ALLOWED_BINARIES = 'codex';
+  process.env.ORCA_CLAUDE_ALLOWED_BINARIES = 'claude';
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
     const project = registry.createProject({ name: 'MCP Config Project' }, { actor: 'test', approved: true });
@@ -1740,7 +1816,7 @@ test('MCP config is generated per-lane with safe path and executor-specific shap
     const lane = registry.createLane(session.id, {
       title: 'MCP lane',
       executorType: 'codex',
-      executorBinary: '/usr/bin/codex',
+      command: 'codex --version',
       mcpToolIds: ['demo-tool'],
     }, { actor: 'test', approved: true });
 
@@ -1764,7 +1840,7 @@ test('MCP config is generated per-lane with safe path and executor-specific shap
     const claudeLane = registry.createLane(session.id, {
       title: 'Claude MCP lane',
       executorType: 'claude',
-      executorBinary: '/usr/bin/claude',
+      command: 'claude --version',
       mcpToolIds: ['demo-tool'],
     }, { actor: 'test', approved: true });
     const claudeAdapter = registry.getExecutorForType('claude');
@@ -1780,7 +1856,7 @@ test('MCP config is generated per-lane with safe path and executor-specific shap
     const noToolLane = registry.createLane(session.id, {
       title: 'No tool lane',
       executorType: 'codex',
-      executorBinary: '/usr/bin/codex',
+      command: 'codex --version',
     }, { actor: 'test', approved: true });
     const adapter2 = registry.getExecutorForType('codex');
     const runtimeDir2 = path.join(process.cwd(), 'artifacts', session.id, noToolLane.id);
@@ -1789,6 +1865,7 @@ test('MCP config is generated per-lane with safe path and executor-specific shap
     assert.equal(noConfig.configPath, null);
   } finally {
     await cleanup();
+    restore();
   }
 });
 

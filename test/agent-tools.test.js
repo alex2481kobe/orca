@@ -179,6 +179,42 @@ test('nextAction envelope only advertises an implemented nextRequiredTool', asyn
   });
 });
 
+test('session nextAction picks the highest-priority actionable lane after orchestrator enrollment', async () => {
+  await withIsolatedRegistry(async (registry) => {
+    const project = registry.createProject({ name: 'Multi Lane Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Multi Lane Session' }, { actor: 'test', approved: true });
+    const acceptedLane = registry.createLane(session.id, {
+      title: 'Already accepted',
+      executorType: 'mock',
+    }, { actor: 'test', approved: true });
+    const reviewLane = registry.createLane(session.id, {
+      title: 'Needs audit',
+      executorType: 'mock',
+    }, { actor: 'test', approved: true });
+
+    registry.markLaneCompleted(registry.getLane(acceptedLane.id));
+    registry.acceptLaneAudit(acceptedLane.id, { actor: 'test-auditor' });
+    registry.markLaneCompleted(registry.getLane(reviewLane.id));
+
+    const beforeEnroll = buildNextActionEnvelope(registry, {
+      role: 'orchestrator',
+      projectId: project.id,
+      sessionId: session.id,
+    });
+    assert.equal(beforeEnroll.laneId, null);
+    assert.equal(beforeEnroll.nextRequiredTool, 'orchestrator.enroll');
+
+    registry.enrollOrchestrator(session.id, { leaseId: 'dashboard', actor: 'test-orchestrator', source: 'dashboard' });
+    const afterEnroll = buildNextActionEnvelope(registry, {
+      role: 'orchestrator',
+      projectId: project.id,
+      sessionId: session.id,
+    });
+    assert.equal(afterEnroll.laneId, reviewLane.id);
+    assert.equal(afterEnroll.nextRequiredTool, 'audit.queue_one');
+  });
+});
+
 test('tool leases are scoped, hashed at rest, and enforce allowed tools', async () => {
   await withIsolatedRegistry(async (registry) => {
     const project = registry.createProject({ name: 'Lease Project' }, { actor: 'test', approved: true });

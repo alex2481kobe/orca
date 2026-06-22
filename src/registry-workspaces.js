@@ -2,6 +2,7 @@
 // enforcement) as a prototype mixin for OrcaRegistry. Extracted from registry.js.
 
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -29,6 +30,24 @@ function sanitizeWorkdirInput(raw) {
   if (text.length > MAX_WORKDIR_BYTES) return '__INVALID_LENGTH__';
   if (/\x00/.test(text)) return '__INVALID_BYTES__';
   return text;
+}
+
+function nearestExistingPathSync(targetPath) {
+  let current = path.resolve(targetPath);
+  while (current && current !== path.dirname(current)) {
+    try {
+      fsSync.lstatSync(current);
+      return current;
+    } catch {
+      current = path.dirname(current);
+    }
+  }
+  try {
+    fsSync.lstatSync(current);
+    return current;
+  } catch {
+    return null;
+  }
 }
 
 export const workspaceMethods = {
@@ -231,6 +250,19 @@ export const workspaceMethods = {
         };
       }
     }
+    const approvedRoots = path.isAbsolute(requested)
+      ? [sessionWorkdir, ...this.getApprovedRepoRoots()]
+      : [sessionWorkdir];
+    const nearestExisting = nearestExistingPathSync(workdir);
+    const existingParentAllowed = nearestExisting
+      ? approvedRoots.some((root) => isRealPathWithinBoundarySync(nearestExisting, root))
+      : false;
+    if (!existingParentAllowed) {
+      throw {
+        status: 422,
+        message: 'Lane workdir resolves outside approved execution roots.',
+      };
+    }
     try {
       ensureDirectorySync(workdir);
     } catch {
@@ -239,9 +271,6 @@ export const workspaceMethods = {
         message: 'Lane workdir could not be created.',
       };
     }
-    const approvedRoots = path.isAbsolute(requested)
-      ? [sessionWorkdir, ...this.getApprovedRepoRoots()]
-      : [sessionWorkdir];
     const withinRealBoundary = approvedRoots.some((root) => isRealPathWithinBoundarySync(workdir, root));
     if (!withinRealBoundary) {
       throw {

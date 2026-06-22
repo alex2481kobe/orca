@@ -2,32 +2,63 @@
 // server.js. ctx-threaded. Self-contained: always responds.
 
 // Provider CONFIG metadata (where the endpoint points + which env var/secret it
-// reads) is host-level info, not workflow data. Secrets are never returned, but
-// baseUrl/secretRef/apiKeyEnv are useful recon — strip them for non-admin
-// (paired operator) callers; the workstation-admin UI still sees everything.
-const ADMIN_ONLY_PROVIDER_FIELDS = ['baseUrl', 'secretRef', 'apiKeyEnv'];
-function redactProviderForOperator(profile) {
-  if (!profile || typeof profile !== 'object') return profile;
-  const out = { ...profile };
-  for (const f of ADMIN_ONLY_PROVIDER_FIELDS) delete out[f];
-  if (out.credential && typeof out.credential === 'object') {
-    const cred = { ...out.credential };
-    for (const f of ADMIN_ONLY_PROVIDER_FIELDS) delete cred[f];
-    out.credential = cred;
+// reads) is host-level info, not workflow data. Operator/paired clients get a
+// whitelist view: enough status to act, none of the workstation-specific
+// command, URL, environment, or secret reference details.
+const OPERATOR_PROVIDER_FIELDS = [
+  'id',
+  'displayName',
+  'kind',
+  'enabled',
+  'installPolicy',
+  'updatePolicy',
+];
+const OPERATOR_PROVIDER_HEALTH_FIELDS = [
+  'providerId',
+  'kind',
+  'status',
+  'enabled',
+  'installPolicy',
+  'updatePolicy',
+  'dryRunOnly',
+  'networkProbe',
+];
+
+function pickFields(source, fields) {
+  const out = {};
+  for (const field of fields) {
+    if (Object.prototype.hasOwnProperty.call(source, field)) out[field] = source[field];
   }
   return out;
 }
 
+function credentialPresence(credential) {
+  if (!credential || typeof credential !== 'object') return undefined;
+  return { present: Boolean(credential.present) };
+}
+
+function redactProviderForOperator(profile) {
+  if (!profile || typeof profile !== 'object') return profile;
+  const out = pickFields(profile, OPERATOR_PROVIDER_FIELDS);
+  const credential = credentialPresence(profile.credential);
+  if (credential) out.credential = credential;
+  return out;
+}
+
+function redactProviderListForOperator(result) {
+  if (!result || typeof result !== 'object') return result;
+  return {
+    schemaVersion: result.schemaVersion,
+    generatedAt: result.generatedAt,
+    profiles: Array.isArray(result.profiles) ? result.profiles.map(redactProviderForOperator) : [],
+  };
+}
+
 function redactProviderHealthForOperator(health) {
   if (!health || typeof health !== 'object') return health;
-  const out = { ...health };
-  for (const f of ADMIN_ONLY_PROVIDER_FIELDS) delete out[f];
-  delete out.apiStyle;
-  if (out.credential && typeof out.credential === 'object') {
-    out.credential = {
-      present: Boolean(out.credential.present),
-    };
-  }
+  const out = pickFields(health, OPERATOR_PROVIDER_HEALTH_FIELDS);
+  const credential = credentialPresence(health.credential);
+  if (credential) out.credential = credential;
   return out;
 }
 
@@ -37,10 +68,7 @@ export async function handleProvidersApi(ctx, req, res, method, parts) {
   if (parts.length === 2 && method === 'GET') {
     try {
       const result = await providerProfiles.listProfiles();
-      if (!isAdmin && result && Array.isArray(result.profiles)) {
-        result.profiles = result.profiles.map(redactProviderForOperator);
-      }
-      return sendJson(res, 200, result);
+      return sendJson(res, 200, isAdmin ? result : redactProviderListForOperator(result));
     } catch (error) {
       return sendJson(res, error.status || 500, { error: error.message || 'Could not list provider profiles.' });
     }

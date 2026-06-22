@@ -172,6 +172,7 @@ export async function handleSystemActions(event) {
         actor: 'dashboard',
         verdict,
         summary,
+        nextTask: verdict === 'request_fix' ? summary : '',
       },
     });
     if (response.ok) {

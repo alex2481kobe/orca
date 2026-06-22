@@ -423,6 +423,17 @@ test('with no API token, the local host bootstraps but proxied tailnet requests 
     });
     assert.equal(simpleFormMutation.status, 415);
 
+    const originlessStatus = await server.requestJson('/api/auth/status', { method: 'GET' });
+    assert.equal(originlessStatus.status, 200);
+    assert.equal(originlessStatus.response.headers['set-cookie'], undefined);
+
+    const sameOriginStatus = await server.requestJson('/api/auth/status', {
+      method: 'GET',
+      headers: { 'sec-fetch-site': 'same-origin' },
+    });
+    assert.equal(sameOriginStatus.status, 200);
+    assert.match(String(sameOriginStatus.response.headers['set-cookie'] || ''), /orca[_-]?session=/i);
+
     // A Tailscale Serve / reverse-proxied request carries forwarding headers and
     // must NOT be treated as the local bootstrap — no data without pairing.
     const proxied = await server.requestJson('/api/projects', {
@@ -1271,7 +1282,7 @@ test('API lane creation validates MCP tool IDs and executor constraints', async 
       },
     });
     assert.equal(badCommand.status, 422);
-    assert.equal(String(badCommand.body?.error || '').includes('must target an approved codex binary'), true);
+    assert.equal(String(badCommand.body?.error || '').includes('configured codex binary'), true);
 
     const validLane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
       method: 'POST',
@@ -2972,6 +2983,46 @@ test('provider profile API exposes first-class providers and memory-backed secre
     const operatorHealthText = JSON.stringify(operatorHealth.body);
     assert.equal(operatorHealthText.includes('OPENAI'), false);
     assert.equal(operatorHealthText.includes('memory'), false);
+
+    const operatorList = await server.requestJson('/api/providers', {
+      method: 'GET',
+      headers: { cookie: paired.response.headers['set-cookie'] },
+    });
+    assert.equal(operatorList.status, 200);
+    assert.equal(operatorList.body?.credentialBackend, undefined);
+    assert.equal(operatorList.body?.credentialBackends, undefined);
+    const operatorListText = JSON.stringify(operatorList.body);
+    for (const text of ['OPENAI', 'memory', 'envName', 'backend', 'secretRef', 'apiKeyEnv']) {
+      assert.equal(operatorListText.includes(text), false, `operator provider list leaked ${text}`);
+    }
+    const operatorApiProfile = operatorList.body?.profiles?.find((profile) => profile.id === 'openai-compatible');
+    assert.ok(operatorApiProfile);
+    for (const field of ['baseUrl', 'apiStyle', 'secretRef', 'apiKeyEnv', 'binary', 'version']) {
+      assert.equal(operatorApiProfile[field], undefined, `operator profile leaked ${field}`);
+    }
+    assert.deepEqual(operatorApiProfile.credential, { present: true });
+    const operatorProfileText = JSON.stringify(operatorApiProfile);
+    for (const text of ['OPENAI', 'memory', 'envName', 'backend', 'ref']) {
+      assert.equal(operatorProfileText.includes(text), false, `operator profile leaked ${text}`);
+    }
+
+    const operatorProfileGet = await server.requestJson('/api/providers/openai-compatible', {
+      method: 'GET',
+      headers: { cookie: paired.response.headers['set-cookie'] },
+    });
+    assert.equal(operatorProfileGet.status, 200);
+    assert.equal(operatorProfileGet.body?.baseUrl, undefined);
+    assert.equal(operatorProfileGet.body?.secretRef, undefined);
+    assert.equal(operatorProfileGet.body?.credential, undefined);
+
+    const operatorCliHealth = await server.requestJson('/api/providers/codex/health', {
+      method: 'GET',
+      headers: { cookie: paired.response.headers['set-cookie'] },
+    });
+    assert.equal(operatorCliHealth.status, 200);
+    for (const field of ['binary', 'version', 'exitCode', 'errorCode']) {
+      assert.equal(operatorCliHealth.body?.[field], undefined, `operator CLI health leaked ${field}`);
+    }
 
     const exported = await server.requestJson('/api/providers/export', { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(exported.status, 200);

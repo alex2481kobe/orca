@@ -11,7 +11,7 @@ import {
   normalizeExecutorType,
   buildLaneRoute,
 } from './registry-utils.js';
-import { FIRST_CLASS_CLI_EXECUTOR_TYPES } from './executor-factory.js';
+import { FIRST_CLASS_CLI_EXECUTOR_TYPES, getExecutorProfile } from './executor-factory.js';
 import { commandTargetsExecutorFirstToken } from './registry-reinstall.js';
 import { createLaneWorktree, describeRepoRoot } from './worktree-manager.js';
 import { sanitizeSettingsOverrides } from './effective-settings.js';
@@ -20,6 +20,38 @@ import { normalizeCritiqueMode, normalizeWorktreeMode } from './registry-lane-co
 
 const { QUEUED: QUEUED_STATE } = LANE_STATES;
 const MAX_WORKDIR_BYTES = 2048;
+
+function executorProfileBinaries(executorType) {
+  const profile = getExecutorProfile(executorType) || {};
+  return [
+    profile.defaultBinary,
+    ...safeArray(profile.allowedBinaries),
+  ]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+}
+
+function firstClassCliTokenAllowed(executorType, token) {
+  const text = String(token || '').trim();
+  if (!text) return true;
+  const configured = executorProfileBinaries(executorType);
+  const hasPathSeparator = /[\\/]/.test(text);
+  if (!hasPathSeparator) {
+    const lower = text.toLowerCase();
+    return configured
+      .filter((value) => !/[\\/]/.test(value))
+      .map((value) => value.toLowerCase())
+      .includes(lower)
+      && commandTargetsExecutorFirstToken(executorType, [text]);
+  }
+  if (!path.isAbsolute(text)) return false;
+  const resolved = path.resolve(text);
+  return configured
+    .filter((value) => path.isAbsolute(value))
+    .map((value) => path.resolve(value))
+    .includes(resolved)
+    && commandTargetsExecutorFirstToken(executorType, [path.basename(text)]);
+}
 
 export const laneCreateMethods = {
   createLane(sessionLocator, {
@@ -129,19 +161,17 @@ export const laneCreateMethods = {
     }
     if (FIRST_CLASS_CLI_EXECUTOR_TYPES.includes(normalizedExecutorType)) {
       const commandParts = String(command || '').trim().split(/\s+/).filter(Boolean);
-      if (commandParts.length > 0 && !commandTargetsExecutorFirstToken(normalizedExecutorType, commandParts)) {
+      if (commandParts.length > 0 && !firstClassCliTokenAllowed(normalizedExecutorType, commandParts[0])) {
         throw {
           status: 422,
-          message: `Lane command for ${normalizedExecutorType} must target an approved ${normalizedExecutorType} binary.`,
+          message: `Lane command for ${normalizedExecutorType} must start with a configured ${normalizedExecutorType} binary.`,
         };
       }
       if (!commandParts.length && executorBinary) {
-        const normalizedBinary = String(executorBinary).trim().toLowerCase();
-        const binaryName = path.basename(normalizedBinary);
-        if (!commandTargetsExecutorFirstToken(normalizedExecutorType, [binaryName])) {
+        if (!firstClassCliTokenAllowed(normalizedExecutorType, executorBinary)) {
           throw {
             status: 422,
-            message: `Lane executor binary for ${normalizedExecutorType} must target an approved ${normalizedExecutorType} binary.`,
+            message: `Lane executor binary for ${normalizedExecutorType} must be a configured ${normalizedExecutorType} binary.`,
           };
         }
       }

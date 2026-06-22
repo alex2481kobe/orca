@@ -33,6 +33,15 @@ test('supervisor overview summarizes projects, sessions, orchestrators, backlog,
     }, { actor: 'test', approved: true });
     registry.addTask(session.id, { title: 'First task' }, { actor: 'supervisor' });
     registry.enrollOrchestrator(session.id, { leaseId: 'dashboard', actor: 'dashboard', source: 'dashboard' });
+    const lane = registry.createLane(session.id, {
+      title: 'Needs approval',
+      executorType: 'mock',
+    }, { actor: 'test', approved: true });
+    registry.recordLaneApproval(lane.id, {
+      kind: 'tool',
+      detail: 'Executor wants to run a governed tool.',
+      actor: 'executor',
+    });
 
     const overview = registry.supervisorOverview();
     assert.equal(overview.projects.length, 1);
@@ -42,6 +51,8 @@ test('supervisor overview summarizes projects, sessions, orchestrators, backlog,
     assert.equal(summarized.worktreeMode, 'shared');
     assert.equal(summarized.backlog.counts.pending, 1);
     assert.equal(summarized.backlog.warnings.length, 1);
+    assert.equal(summarized.approvals.pending, 1);
+    assert.equal(summarized.approvals.lanes[0].laneId, lane.id);
 
     const next = buildNextActionEnvelope(registry, { role: 'supervisor' });
     assert.equal(next.nextRequiredTool, 'supervisor.overview');
@@ -73,6 +84,20 @@ test('supervisor audit records verdict and nudges the orchestrator thread', asyn
         verdict: 'maybe',
       }),
       (error) => error.status === 422 && /verdict must be accept, request_fix, or block/.test(error.message)
+    );
+    assert.throws(
+      () => registry.recordSupervisorSessionAudit(session.id, {
+        actor: 'supervisor',
+        verdict: 'request_fix',
+      }),
+      (error) => error.status === 422 && /request_fix requires/.test(error.message)
+    );
+    assert.throws(
+      () => registry.recordSupervisorSessionAudit(session.id, {
+        actor: 'supervisor',
+        verdict: 'block',
+      }),
+      (error) => error.status === 422 && /block requires/.test(error.message)
     );
   });
 });

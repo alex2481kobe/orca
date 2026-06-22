@@ -678,8 +678,10 @@ export function renderSupervisorPanel(ctx) {
       const review = session.supervisorReview || null;
       const route = session.route || project.route || '/';
       const reviewStatus = String(review?.status || review?.verdict || '').toLowerCase();
+      const pendingApprovals = Number.parseInt(session.approvals?.pending, 10) || 0;
       const rowTags = [
         active ? '<span class="tag ok">Active</span>' : '<span class="tag warn">Idle</span>',
+        pendingApprovals ? `<span class="tag warn">${safeText(pendingApprovals)} approval${pendingApprovals === 1 ? '' : 's'}</span>` : '',
         backlog.stalled ? '<span class="tag bad">Stalled</span>' : '',
         counts.blocked ? `<span class="tag bad">${safeText(counts.blocked)} blocked</span>` : '',
         reviewStatus === 'fix_requested' ? '<span class="tag warn">Fix requested</span>' : '',
@@ -721,10 +723,12 @@ export function renderSupervisorPanel(ctx) {
       const counts = session.backlog?.counts || {};
       if (session.backlog?.stalled) acc.stalled += 1;
       if (counts.blocked) acc.blocked += Number(counts.blocked) || 0;
+      if (session.approvals?.pending) acc.approvals += Number(session.approvals.pending) || 0;
       if (reviewStatus === 'fix_requested') acc.fixRequested += 1;
     }
     return acc;
-  }, { stalled: 0, blocked: 0, fixRequested: 0 });
+  }, { stalled: 0, blocked: 0, approvals: 0, fixRequested: 0 });
+  const hasSupervisorBlockers = triageCounts.stalled || triageCounts.blocked || triageCounts.approvals || triageCounts.fixRequested;
   return `
       <article class="card control-card" id="section-supervisor" data-panel-card="supervisor">
         <div class="settings-panel-head">
@@ -734,7 +738,9 @@ export function renderSupervisorPanel(ctx) {
             <div>
               ${triageCounts.stalled ? `<span class="tag bad">${safeText(triageCounts.stalled)} stalled</span>` : ''}
               ${triageCounts.blocked ? `<span class="tag bad">${safeText(triageCounts.blocked)} blocked</span>` : ''}
-              ${triageCounts.fixRequested ? `<span class="tag warn">${safeText(triageCounts.fixRequested)} fix requested</span>` : '<span class="tag ok">No supervisor blockers</span>'}
+              ${triageCounts.approvals ? `<span class="tag warn">${safeText(triageCounts.approvals)} approval${triageCounts.approvals === 1 ? '' : 's'}</span>` : ''}
+              ${triageCounts.fixRequested ? `<span class="tag warn">${safeText(triageCounts.fixRequested)} fix requested</span>` : ''}
+              ${hasSupervisorBlockers ? '' : '<span class="tag ok">No supervisor blockers</span>'}
             </div>
           </div>
           <button data-action="connectSupervisorApp" type="button">Connect supervisor</button>
@@ -747,12 +753,13 @@ export function renderSupervisorPanel(ctx) {
 export function renderPrivateAccessPanel(ctx) {
   const { accessModeSummary, tailnet, accessModeOptions, privateSettings, phoneUrl, commandRows, privateTargets, targetRows } = ctx;
   const httpsServeCommand = tailscaleServeCommand('https');
+  const targetCount = Array.isArray(privateTargets) ? privateTargets.filter((target) => !target.hidden).length : 0;
   return `
       <article class="card control-card" id="section-private-access" data-panel-card="access">
         <details class="disclosure">
           <summary>
             <span>Private access</span>
-            <small>${safeText(accessModeSummary)} · ${safeText(tailnet.setupStatus || 'setup_pending')}</small>
+            <small>${safeText(accessModeSummary)} · ${safeText(targetCount)} target${targetCount === 1 ? '' : 's'}</small>
           </summary>
           <div class="disclosure-body">
             <div class="access-summary">
@@ -819,6 +826,46 @@ export function renderPrivateAccessPanel(ctx) {
             </form>
             <details class="disclosure compact-disclosure">
               <summary>
+                <span>Saved private targets</span>
+                <small>${safeText(targetCount)} configured</small>
+              </summary>
+              <div class="disclosure-body">
+                ${targetRows || '<div class="muted">No private targets saved yet.</div>'}
+              </div>
+            </details>
+            <details class="disclosure compact-disclosure">
+              <summary>
+                <span>Add private target</span>
+                <small>Project or dev server</small>
+              </summary>
+              <div class="disclosure-body">
+                <form id="private-access-target-form">
+                  <label>Label
+                    <input name="label" placeholder="Example app" required />
+                  </label>
+                  <label>Mode
+                    <select name="mode">
+                      <option value="tailnet-http">Tailnet HTTP</option>
+                      <option value="tailnet-https-serve">Tailnet HTTPS Serve</option>
+                      <option value="local">Local only</option>
+                    </select>
+                  </label>
+                  <label>Local URL
+                    <input name="localUrl" inputmode="url" placeholder="http://127.0.0.1:5173" />
+                  </label>
+                  <label>Tailnet HTTP URL
+                    <input name="tailnetHttpUrl" inputmode="url" placeholder="http://mac.tailnet.ts.net:5173" />
+                  </label>
+                  <label>HTTPS Serve URL
+                    <input name="httpsServeUrl" inputmode="url" placeholder="https://mac.tailnet.ts.net" />
+                  </label>
+                  <label class="settings-checkbox"><input type="checkbox" name="favorite" checked> <span>Show as a preferred private link</span></label>
+                  <button type="submit">Add target</button>
+                </form>
+              </div>
+            </details>
+            <details class="disclosure compact-disclosure">
+              <summary>
                 <span>Phone URL and HTTPS wizard</span>
                 <small>Tailscale Serve</small>
               </summary>
@@ -865,7 +912,16 @@ export function renderPrivateAccessPanel(ctx) {
                 </div>
               </div>
             </details>
-            <div class="tiny muted">Per-project URLs live on each project (open a project to add its dev-server links) — this screen is only about Tailscale access to Orca itself.</div>
+            <details class="disclosure compact-disclosure">
+              <summary>
+                <span>Manual setup commands</span>
+                <small>Copy only</small>
+              </summary>
+              <div class="disclosure-body">
+                ${commandRows || '<div class="muted">No setup commands available for the current Tailscale state.</div>'}
+              </div>
+            </details>
+            <div class="tiny muted">Project live links still live on each project; private targets here are reusable workstation access entries.</div>
           </div>
         </details>
       </article>`;

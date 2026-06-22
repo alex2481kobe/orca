@@ -94,6 +94,67 @@ function chooseNextTool({ registry, role, project, session, lane, auditQueued, f
   return 'session.next_action';
 }
 
+function flowConfigForLane(registry, lane) {
+  return (lane && typeof registry?.getLaneFlowConfig === 'function')
+    ? registry.getLaneFlowConfig(lane)
+    : { template: 'orchestrator-executor', auditTier: 'orchestrator', fixRouting: 'same-agent', maxAuditLoops: 2, requireAuditPass: true };
+}
+
+function nextToolForLane({ registry, role, project, session, lane }) {
+  const auditQueued = lane ? Boolean(latestPendingAudit(registry, lane.id)) : false;
+  const flowConfig = flowConfigForLane(registry, lane);
+  return {
+    auditQueued,
+    flowConfig,
+    nextRequiredTool: chooseNextTool({
+      registry,
+      role,
+      project,
+      session,
+      lane,
+      auditQueued,
+      flow: flowConfig,
+    }),
+  };
+}
+
+const SESSION_LANE_ACTION_PRIORITY = {
+  'orchestrator.enroll': 5,
+  'evidence.capture_screenshot': 10,
+  'critique.bundle.create': 20,
+  'critique.findings.record': 20,
+  'audit.queue_one': 30,
+  'audit.findings.record': 30,
+  'lane.retry': 40,
+  'lane.create': 45,
+  'lane.heartbeat': 80,
+  'session.next_action': 90,
+};
+
+function chooseSessionLane(registry, { role, project, session }) {
+  if (!session) return null;
+  const normalizedRole = normalizeRole(role);
+  if (normalizedRole === 'orchestrator') {
+    let activeOrchestrator = null;
+    try { activeOrchestrator = registry.getActiveOrchestrator(session.id); } catch { activeOrchestrator = null; }
+    if (!activeOrchestrator?.active || activeOrchestrator?.stale) return null;
+  }
+  const lanes = (registry?.lanes || []).filter((item) => item.sessionId === session.id);
+  if (!lanes.length) return null;
+  return lanes
+    .map((lane) => {
+      const { nextRequiredTool } = nextToolForLane({ registry, role, project, session, lane });
+      const statePenalty = lane.state === 'accepted' ? 1000 : 0;
+      const updatedAt = Date.parse(lane.updatedAt || lane.createdAt || '') || 0;
+      return {
+        lane,
+        priority: statePenalty + (SESSION_LANE_ACTION_PRIORITY[nextRequiredTool] ?? 100),
+        updatedAt,
+      };
+    })
+    .sort((a, b) => (a.priority - b.priority) || (b.updatedAt - a.updatedAt))[0]?.lane || null;
+}
+
 function buildCapacity(registry, session) {
   if (session?.id && typeof registry?.getSessionCapacity === 'function') {
     return registry.getSessionCapacity(session.id);
@@ -141,20 +202,14 @@ export function buildNextActionEnvelope(registry, {
     : (project ? (registry?.sessions || []).find((item) => item.projectId === project.id) || null : null);
   const lane = laneId
     ? (typeof registry?.getLane === 'function' ? registry.getLane(laneId) : null)
-    : (session ? (registry?.lanes || []).find((item) => item.sessionId === session.id) || null : null);
+    : chooseSessionLane(registry, { role: normalizedRole, project, session });
   const allowedTools = availableToolIdsForRole(normalizedRole);
-  const auditQueued = lane ? Boolean(latestPendingAudit(registry, lane.id)) : false;
-  const flowConfig = (lane && typeof registry?.getLaneFlowConfig === 'function')
-    ? registry.getLaneFlowConfig(lane)
-    : { template: 'orchestrator-executor', auditTier: 'orchestrator', fixRouting: 'same-agent', maxAuditLoops: 2, requireAuditPass: true };
-  const nextRequiredTool = chooseNextTool({
+  const { auditQueued, flowConfig, nextRequiredTool } = nextToolForLane({
     registry,
     role: normalizedRole,
     project,
     session,
     lane,
-    auditQueued,
-    flow: flowConfig,
   });
   const nextTool = findTool(nextRequiredTool);
   const critiqueRequired = critiqueRequiredForLane(registry, lane);
