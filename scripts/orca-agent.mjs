@@ -33,6 +33,7 @@
  *   orca-agent supervisor-overview [--project <id>] [--session <id>]
  *   orca-agent supervisor-status <sessionId> [--project <id>]
  *   orca-agent supervisor-watch <laneId> [--project <id>] [--session <id>] [--idle-ms N] [--max-events N] [--json]
+ *   orca-agent supervisor-watch-all [--project <id>] [--session <id>] [--idle-ms N] [--max-events N] [--json]
  *   orca-agent supervisor-audit <sessionId> accept|request_fix|block <summary...> [--finding text] [--next-task text]
  *   orca-agent supervisor-resign [--project <id>] [--session <id>]
  *   orca-agent projects                                      # list projects visible to this lease
@@ -46,6 +47,7 @@
  *   orca-agent status <sessionId>                             # ownership + lane tree + backlog
  *   orca-agent tail <laneId> [--offset N] [--max-bytes N]     # bounded terminal.log tail for live lane output
  *   orca-agent watch <laneId> [--role orchestrator|supervisor] [--idle-ms N] [--max-events N] [--json]
+ *   orca-agent watch-session <sessionId> [--role orchestrator|supervisor] [--project <id>] [--idle-ms N] [--max-events N] [--json]
  *                                                            # stream raw live lane output over the existing SSE contract
  *   orca-agent enroll <sessionId> [--takeover]                # become the active orchestrator
  *   orca-agent resign <sessionId>
@@ -372,6 +374,151 @@ async function streamLane(laneId, leaseOptions = {}) {
   }
 }
 
+const WATCHABLE_LANE_STATES = new Set([
+  'queued',
+  'starting',
+  'running',
+  'needs_critique',
+  'ready_for_audit',
+  'auditing',
+  'fix_requested',
+]);
+
+function watchableLanes(lanes = []) {
+  const includeDone = Boolean(flags.done || flags.all);
+  return lanes
+    .filter((lane) => lane && lane.id)
+    .filter((lane) => includeDone || WATCHABLE_LANE_STATES.has(String(lane.state || '').toLowerCase()));
+}
+
+async function listSessionLanes(sessionId, leaseOptions = {}) {
+  const r = await api('GET', `/api/sessions/${encodeURIComponent(sessionId)}/lanes`, undefined, {
+    ...leaseOptions,
+    sessionId,
+  });
+  if (!r.ok) die(`${r.status} ${r.data?.error || r.text}`, 2);
+  return Array.isArray(r.data) ? r.data : [];
+}
+
+function collectSupervisorOverviewLanes(overview) {
+  const lanes = [];
+  for (const project of overview?.projects || []) {
+    for (const session of project.sessions || []) {
+      for (const lane of session.lanes || []) {
+        lanes.push({
+          ...lane,
+          projectId: project.id,
+          projectName: project.name,
+          sessionId: session.id,
+          sessionName: session.name,
+        });
+      }
+    }
+  }
+  return lanes;
+}
+
+function writeGroupedFrame(lane, frame, { jsonOutput }) {
+  const enriched = {
+    ...frame,
+    laneId: lane.id,
+    laneTitle: lane.title || '',
+    sessionId: lane.sessionId || null,
+    sessionName: lane.sessionName || '',
+    projectId: lane.projectId || null,
+    projectName: lane.projectName || '',
+  };
+  if (jsonOutput) {
+    process.stdout.write(`${JSON.stringify(enriched)}\n`);
+    return;
+  }
+  if (frame.event !== 'snapshot' && frame.event !== 'append') return;
+  const text = String(frame.data?.text || '');
+  if (!text) return;
+  const label = lane.title || lane.id;
+  const lines = text.split('\n').filter(Boolean);
+  if (lines.length) process.stdout.write(`${lines.map((line) => `[${label}] ${line}`).join('\n')}\n`);
+}
+
+async function streamLaneGroup(lanes, leaseOptions = {}) {
+  const selected = watchableLanes(lanes);
+  if (!selected.length) return;
+  const normalizedLeaseOptions = normalizeLeaseOptions(leaseOptions);
+  const headers = { accept: 'text/event-stream', 'x-orca-tool-lease': await ensureLease(normalizedLeaseOptions) };
+  const maxEvents = parsePositiveInt(flags['max-events'] || flags.maxEvents, null, '--max-events');
+  const idleMs = parsePositiveInt(flags['idle-ms'] || flags.idleMs, null, '--idle-ms');
+  const jsonOutput = Boolean(flags.json);
+  const decoder = new TextDecoder();
+  const readers = new Set();
+  let seenEvents = 0;
+  let lastFrameAt = Date.now();
+  let idleTimer = null;
+  let done = false;
+
+  const cancelAll = () => {
+    if (done) return;
+    done = true;
+    if (idleTimer) clearTimeout(idleTimer);
+    for (const reader of readers) {
+      try { reader.cancel(); } catch { /* ignore */ }
+    }
+  };
+  const scheduleIdle = () => {
+    if (!idleMs || done) return;
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(cancelAll, Math.max(1, idleMs - (Date.now() - lastFrameAt)));
+    if (typeof idleTimer.unref === 'function') idleTimer.unref();
+  };
+  scheduleIdle();
+
+  const readLane = async (lane) => {
+    const res = await fetch(`${BASE}/api/lanes/${encodeURIComponent(lane.id)}/stream`, { method: 'GET', headers });
+    if (!res.ok) {
+      const text = await res.text();
+      let data = null; try { data = text ? JSON.parse(text) : null; } catch { /* non-json */ }
+      throw new Error(`${res.status} ${data?.error || text || ''}`.trim());
+    }
+    const reader = res.body?.getReader ? res.body.getReader() : null;
+    if (!reader) throw new Error('lane stream response is not readable');
+    readers.add(reader);
+    let buffer = '';
+    const emitFrame = (frame) => {
+      if (done) return;
+      seenEvents += 1;
+      lastFrameAt = Date.now();
+      scheduleIdle();
+      writeGroupedFrame(lane, frame, { jsonOutput });
+      if (maxEvents && seenEvents >= maxEvents) cancelAll();
+    };
+    try {
+      while (!done) {
+        let readResult;
+        try {
+          readResult = await reader.read();
+        } catch (error) {
+          if (done) break;
+          throw error;
+        }
+        const { value, done: streamDone } = readResult;
+        if (streamDone) break;
+        buffer += decoder.decode(value, { stream: true });
+        buffer = decodeSseFrames(buffer, emitFrame);
+      }
+    } finally {
+      readers.delete(reader);
+    }
+  };
+
+  try {
+    await Promise.all(selected.map(readLane));
+  } catch (error) {
+    cancelAll();
+    die(error?.message || String(error), 2);
+  } finally {
+    cancelAll();
+  }
+}
+
 switch (cmd) {
   case 'rules': {
     out(roleInstructions(_[0] || 'orchestrator'));
@@ -599,6 +746,26 @@ switch (cmd) {
     await streamLane(laneId, commandLeaseOptions());
     break;
   }
+  case 'watch-session': {
+    const sessionId = _[0] || die('usage: orca-agent watch-session <sessionId> [--role orchestrator|supervisor] [--project <id>] [--idle-ms N] [--max-events N] [--json]');
+    const leaseOptions = {
+      role: flags.role || 'orchestrator',
+      projectId: flags.project || flags.projectId,
+      sessionId,
+    };
+    await streamLaneGroup(await listSessionLanes(sessionId, leaseOptions), leaseOptions);
+    break;
+  }
+  case 'supervisor-watch-all': {
+    const leaseOptions = commandLeaseOptions('supervisor');
+    const r = await api('GET', `/api/supervisor/overview${queryString({
+      projectId: flags.project || flags.projectId,
+      sessionId: flags.session || flags.sessionId,
+    })}`, undefined, leaseOptions);
+    if (!r.ok) die(`${r.status} ${r.data?.error || r.text}`, 2);
+    await streamLaneGroup(collectSupervisorOverviewLanes(r.data), leaseOptions);
+    break;
+  }
   case 'enroll': {
     const sessionId = _[0] || die('usage: orca-agent enroll <sessionId> [--takeover]');
     show(await api('POST', `/api/sessions/${encodeURIComponent(sessionId)}/orchestrator/enroll`, { takeover: Boolean(flags.takeover) }, {
@@ -673,6 +840,6 @@ switch (cmd) {
     break;
   }
   default:
-    out('orca-agent — drive Orca from any agent. Commands: start, projects, links, link-upsert, link-check, tailscale-status, tailscale-setup, tailscale-serve, rules, bootstrap, supervisor-bootstrap, supervisor-overview, supervisor-status, supervisor-watch, supervisor-audit, supervisor-resign, next, status, tail, watch, enroll, resign, create-session, add-task, bulk-add, backlog, call. See header for usage.');
+    out('orca-agent — drive Orca from any agent. Commands: start, projects, links, link-upsert, link-check, tailscale-status, tailscale-setup, tailscale-serve, rules, bootstrap, supervisor-bootstrap, supervisor-overview, supervisor-status, supervisor-watch, supervisor-watch-all, supervisor-audit, supervisor-resign, next, status, tail, watch, watch-session, enroll, resign, create-session, add-task, bulk-add, backlog, call. See header for usage.');
     if (cmd && cmd !== 'help') process.exit(1);
 }

@@ -179,6 +179,150 @@ test('orca-agent tail reads bounded lane output and enforces session-scoped leas
   });
 });
 
+test('orca-agent aggregate watches stream all visible worker lanes without crossing scope', async () => {
+  await withRealOrcaServer(async ({ baseUrl, requestJson, token, tempDir }) => {
+    const project = await requestJson('/api/projects', {
+      method: 'POST',
+      body: { name: 'Aggregate Watch Project', approved: true },
+    });
+    assert.equal(project.status, 201);
+    const hiddenProject = await requestJson('/api/projects', {
+      method: 'POST',
+      body: { name: 'Hidden Aggregate Watch Project', approved: true },
+    });
+    assert.equal(hiddenProject.status, 201);
+    const session = await requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      body: { name: 'Aggregate Watch Session', approved: true },
+    });
+    assert.equal(session.status, 201);
+    const hiddenSession = await requestJson(`/api/projects/${hiddenProject.body.id}/sessions`, {
+      method: 'POST',
+      body: { name: 'Hidden Aggregate Watch Session', approved: true },
+    });
+    assert.equal(hiddenSession.status, 201);
+
+    const laneOne = await requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      body: { title: 'Aggregate lane one', executorType: 'mock', approved: true },
+    });
+    const laneTwo = await requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      body: { title: 'Aggregate lane two', executorType: 'mock', approved: true },
+    });
+    const hiddenLane = await requestJson(`/api/sessions/${hiddenSession.body.id}/lanes`, {
+      method: 'POST',
+      body: { title: 'Hidden aggregate lane', executorType: 'mock', approved: true },
+    });
+    assert.equal(laneOne.status, 201);
+    assert.equal(laneTwo.status, 201);
+    assert.equal(hiddenLane.status, 201);
+
+    const logPath = async (lane) => {
+      const logDir = path.join(process.cwd(), 'artifacts', lane.sessionId, lane.id);
+      await fs.mkdir(logDir, { recursive: true });
+      return path.join(logDir, 'terminal.log');
+    };
+    const oneLog = await logPath(laneOne.body);
+    const twoLog = await logPath(laneTwo.body);
+    const hiddenLog = await logPath(hiddenLane.body);
+    await fs.writeFile(oneLog, 'AGG ONE INITIAL\n');
+    await fs.writeFile(twoLog, 'AGG TWO INITIAL\n');
+    await fs.writeFile(hiddenLog, 'AGG HIDDEN INITIAL\n');
+
+    const env = {
+      HOME: tempDir,
+      ORCA_AGENT_TOOLS_BASE_URL: baseUrl,
+      ORCA_API_TOKEN: token,
+      ORCA_TOOL_LEASE_TOKEN: '',
+    };
+    const enrolled = await runOrcaAgent(['enroll', session.body.id, '--project', project.body.id], env);
+    assert.equal(enrolled.code, 0, enrolled.stderr);
+
+    const sessionWatch = await runOrcaAgent([
+      'watch-session',
+      session.body.id,
+      '--project',
+      project.body.id,
+      '--json',
+      '--max-events',
+      '6',
+    ], env, {
+      onSpawn: () => {
+        setTimeout(() => {
+          fs.appendFile(oneLog, 'AGG ONE LIVE\n').catch(() => {});
+          fs.appendFile(twoLog, 'AGG TWO LIVE\n').catch(() => {});
+          fs.appendFile(hiddenLog, 'AGG HIDDEN LIVE\n').catch(() => {});
+        }, 100);
+      },
+    });
+    assert.equal(sessionWatch.code, 0, sessionWatch.stderr);
+    const sessionEvents = sessionWatch.stdout.trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
+    const visibleLaneIds = new Set([laneOne.body.id, laneTwo.body.id]);
+    assert.equal(sessionEvents.every((event) => visibleLaneIds.has(event.laneId)), true);
+    assert.equal(sessionEvents.some((event) => event.event === 'append' && event.data.text.includes('AGG ONE LIVE')), true);
+    assert.equal(sessionEvents.some((event) => event.event === 'append' && event.data.text.includes('AGG TWO LIVE')), true);
+    assert.equal(JSON.stringify(sessionEvents).includes(hiddenLane.body.id), false);
+    assert.equal(JSON.stringify(sessionEvents).includes('AGG HIDDEN'), false);
+
+    const supervisorLease = await requestJson('/api/agent-tools/leases', {
+      method: 'POST',
+      body: {
+        actor: 'aggregate-supervisor',
+        role: 'supervisor',
+        projectId: project.body.id,
+        sessionId: session.body.id,
+        ttlMs: 10 * 60 * 1000,
+      },
+    });
+    assert.equal(supervisorLease.status, 201);
+    const supervisorEnv = {
+      ...env,
+      ORCA_AGENT_ROLE: 'supervisor',
+      ORCA_TOOL_LEASE_TOKEN: supervisorLease.body.leaseToken,
+    };
+
+    const supervisorWatch = await runOrcaAgent([
+      'supervisor-watch-all',
+      '--project',
+      project.body.id,
+      '--session',
+      session.body.id,
+      '--json',
+      '--max-events',
+      '6',
+    ], supervisorEnv, {
+      onSpawn: () => {
+        setTimeout(() => {
+          fs.appendFile(oneLog, 'AGG SUP ONE LIVE\n').catch(() => {});
+          fs.appendFile(twoLog, 'AGG SUP TWO LIVE\n').catch(() => {});
+          fs.appendFile(hiddenLog, 'AGG SUP HIDDEN LIVE\n').catch(() => {});
+        }, 100);
+      },
+    });
+    assert.equal(supervisorWatch.code, 0, supervisorWatch.stderr);
+    const supervisorEvents = supervisorWatch.stdout.trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
+    assert.equal(supervisorEvents.every((event) => visibleLaneIds.has(event.laneId)), true);
+    assert.equal(supervisorEvents.some((event) => event.event === 'append' && event.data.text.includes('AGG SUP ONE LIVE')), true);
+    assert.equal(supervisorEvents.some((event) => event.event === 'append' && event.data.text.includes('AGG SUP TWO LIVE')), true);
+    assert.equal(JSON.stringify(supervisorEvents).includes(hiddenLane.body.id), false);
+    assert.equal(JSON.stringify(supervisorEvents).includes('AGG SUP HIDDEN'), false);
+
+    const deniedHidden = await runOrcaAgent([
+      'supervisor-watch-all',
+      '--project',
+      hiddenProject.body.id,
+      '--session',
+      hiddenSession.body.id,
+      '--json',
+      '--max-events',
+      '1',
+    ], supervisorEnv);
+    assert.equal(deniedHidden.code, 2);
+    assert.match(deniedHidden.stderr, /Tool lease project mismatch|Tool lease session mismatch/);
+  });
+});
+
 test('orca-agent enroll attaches to an existing session and enforces takeover ownership', async () => {
   await withRealOrcaServer(async ({ baseUrl, requestJson, token, tempDir }) => {
     const project = await requestJson('/api/projects', {
