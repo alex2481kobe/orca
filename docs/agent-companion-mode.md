@@ -53,6 +53,8 @@ orca-agent start "My run" --leader claude --cap 2
 orca-agent enroll <sessionId> --project <projectId>
 orca-agent enroll <sessionId> --project <projectId> --takeover
 
+orca-agent create-session <projectId> "Repo run" \
+  --repo-root /path/to/repo --worktree-mode isolated --cap 2 --leader codex
 echo '[{"title":"Add nav"},{"title":"Write tests"}]' | orca-agent bulk-add <sessionId>
 orca-agent status  <sessionId>     # ownership + live lane tree + backlog roll-up
 orca-agent backlog <sessionId>

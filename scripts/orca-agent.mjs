@@ -49,7 +49,7 @@
  *                                                            # stream raw live lane output over the existing SSE contract
  *   orca-agent enroll <sessionId> [--takeover]                # become the active orchestrator
  *   orca-agent resign <sessionId>
- *   orca-agent create-session <projectId> <name...> [--auto] [--cap N] [--leader codex|claude|mock]
+ *   orca-agent create-session <projectId> <name...> [--auto] [--cap N] [--leader codex|claude|mock] [--repo-root PATH] [--worktree-mode isolated|shared]
  *   orca-agent add-task <sessionId> <title...>
  *   orca-agent bulk-add <sessionId>     # reads a JSON array of tasks from stdin
  *   orca-agent backlog <sessionId>
@@ -251,6 +251,13 @@ function parsePort(value) {
   const port = Number.parseInt(value, 10);
   if (!Number.isFinite(port) || port < 1 || port > 65535) die('--port must be between 1 and 65535');
   return port;
+}
+
+function normalizeWorktreeMode(value) {
+  const mode = String(value || '').trim().toLowerCase();
+  if (!mode) return '';
+  if (mode === 'isolated' || mode === 'shared') return mode;
+  die('--worktree-mode must be isolated or shared');
 }
 
 function parsePositiveInt(value, fallback, label) {
@@ -611,11 +618,15 @@ switch (cmd) {
     break;
   }
   case 'create-session': {
-    const projectId = _[0] || die('usage: orca-agent create-session <projectId> <name...> [--auto] [--cap N] [--leader X]');
+    const projectId = _[0] || die('usage: orca-agent create-session <projectId> <name...> [--auto] [--cap N] [--leader X] [--repo-root PATH] [--worktree-mode isolated|shared]');
     const name = _.slice(1).join(' ') || die('session name required');
     // The lease is the authorization; policy-gated actions proceed with approved:true.
     const body = { approved: true, name, leader: flags.leader || 'codex', spawnPolicy: flags.auto ? 'auto' : 'within_capacity' };
-    if (flags.cap) body.approvedCapacity = Number.parseInt(flags.cap, 10);
+    if (flags.cap) body.approvedCapacity = parsePositiveInt(flags.cap, null, '--cap');
+    const repoRoot = flags['repo-root'] || flags.repoRoot;
+    if (repoRoot) body.repoRoot = repoRoot;
+    const worktreeMode = normalizeWorktreeMode(flags['worktree-mode'] || flags.worktreeMode);
+    if (worktreeMode) body.worktreeMode = worktreeMode;
     show(await api('POST', `/api/projects/${encodeURIComponent(projectId)}/sessions`, body, {
       role: 'orchestrator',
       projectId,

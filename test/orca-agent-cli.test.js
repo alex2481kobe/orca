@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -86,6 +86,12 @@ function runOrcaAgent(args, env, options = {}) {
       resolve({ code, stdout, stderr });
     });
   });
+}
+
+function runGit(args, cwd) {
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  return result;
 }
 
 test('orca-agent tail reads bounded lane output and enforces session-scoped leases', async () => {
@@ -387,6 +393,97 @@ test('orca-agent manages project live links while preserving supervisor read-onl
     const deniedCheck = await runOrcaAgent(['link-check', project.body.id, linkId, '--prefer', 'local'], supervisorEnv);
     assert.equal(deniedCheck.code, 2);
     assert.match(deniedCheck.stderr, /does not grant this tool/);
+  });
+});
+
+test('orca-agent creates repo-backed sessions and isolated worktree lanes from the CLI', async () => {
+  await withRealOrcaServer(async ({ baseUrl, requestJson, token, tempDir }) => {
+    const repoDir = path.join(tempDir, 'fixture-repo');
+    await fs.mkdir(repoDir, { recursive: true });
+    runGit(['init'], repoDir);
+    runGit(['config', 'user.email', 'orca-agent-cli@example.test'], repoDir);
+    runGit(['config', 'user.name', 'Orca Agent CLI'], repoDir);
+    await fs.writeFile(path.join(repoDir, 'README.md'), '# Orca agent CLI repo\n');
+    runGit(['add', 'README.md'], repoDir);
+    runGit(['commit', '-m', 'Initial fixture commit'], repoDir);
+    runGit(['branch', '-M', 'main'], repoDir);
+
+    const project = await requestJson('/api/projects', {
+      method: 'POST',
+      body: { name: 'CLI Repo Project', approved: true },
+    });
+    assert.equal(project.status, 201);
+    const env = {
+      HOME: tempDir,
+      ORCA_AGENT_TOOLS_BASE_URL: baseUrl,
+      ORCA_API_TOKEN: token,
+      ORCA_TOOL_LEASE_TOKEN: '',
+    };
+
+    const created = await runOrcaAgent([
+      'create-session',
+      project.body.id,
+      'CLI Repo Session',
+      '--repo-root',
+      repoDir,
+      '--worktree-mode',
+      'isolated',
+      '--cap',
+      '2',
+      '--leader',
+      'codex',
+    ], env);
+    assert.equal(created.code, 0, created.stderr);
+    const session = JSON.parse(created.stdout);
+    assert.equal(session.projectId, project.body.id);
+    assert.equal(session.name, 'CLI Repo Session');
+    assert.equal(session.leader, 'codex');
+    assert.equal(session.worktreeMode, 'isolated');
+    assert.equal(session.approvedCapacity, 2);
+    assert.equal(await fs.realpath(session.repoRoot), await fs.realpath(repoDir));
+
+    const enrolled = await runOrcaAgent(['enroll', session.id, '--project', project.body.id], env);
+    assert.equal(enrolled.code, 0, enrolled.stderr);
+    assert.equal(JSON.parse(enrolled.stdout).activeOrchestrator.actor, 'orca-agent-orchestrator');
+
+    const lanePayload = {
+      approved: true,
+      title: 'CLI repo worker',
+      executorType: 'mock',
+      taskPrompt: 'Prove the CLI repo-backed worktree flow.',
+      branch: 'dogfood/cli-repo-worker',
+    };
+    const laneRun = await runOrcaAgent([
+      'call',
+      'POST',
+      `/api/sessions/${session.id}/lanes`,
+      JSON.stringify(lanePayload),
+      '--project',
+      project.body.id,
+      '--session',
+      session.id,
+    ], env);
+    assert.equal(laneRun.code, 0, laneRun.stderr);
+    const lane = JSON.parse(laneRun.stdout);
+    assert.equal(lane.sessionId, session.id);
+    assert.equal(lane.repoRoot, session.repoRoot);
+    assert.equal(lane.worktreeMode, 'isolated');
+    assert.equal(lane.branch, 'dogfood/cli-repo-worker');
+    assert.equal(lane.branch.startsWith('codex/'), false);
+    assert.ok(lane.worktreePath);
+    const worktreeReal = await fs.realpath(lane.worktreePath);
+    const repoReal = await fs.realpath(repoDir);
+    assert.notEqual(worktreeReal, repoReal);
+    const expectedBase = path.join(tempDir, '.orca', 'workspaces', session.id, 'worktrees');
+    assert.equal(worktreeReal.startsWith(`${await fs.realpath(expectedBase)}${path.sep}`), true);
+    assert.match(runGit(['worktree', 'list', '--porcelain'], repoDir).stdout, new RegExp(lane.worktreePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+
+    const cachePath = path.join(tempDir, '.orca', 'agent-leases.json');
+    const cache = JSON.parse(await fs.readFile(cachePath, 'utf8'));
+    const keys = Object.keys(cache);
+    assert.ok(keys.some((key) => key.includes('role=orchestrator') && key.includes(`project=${project.body.id}`)));
+    assert.ok(keys.some((key) => key.includes('role=orchestrator') && key.includes(`session=${session.id}`)));
+    assert.equal(JSON.stringify(cache).includes(token), false);
   });
 });
 
