@@ -42,6 +42,7 @@ const steps = [
   { id: 'full-buildout-ledger', command: ['npm', 'run', 'smoke:full-buildout-ledger'], covers: ['npm run smoke:full-buildout-ledger'] },
   { id: 'security-headers', command: ['npm', 'run', 'smoke:security-headers'], covers: ['npm run smoke:security-headers'] },
   { id: 'streams', command: ['npm', 'run', 'smoke:streams'], covers: ['npm run smoke:streams'] },
+  { id: 'mcp-supervisor-flow', command: ['npm', 'run', 'smoke:mcp-supervisor-flow'], covers: ['npm run smoke:mcp-supervisor-flow'] },
   { id: 'private-access', command: ['npm', 'run', 'smoke:private-access'], covers: ['npm run smoke:private-access'] },
   { id: 'pwa-cache', command: ['npm', 'run', 'smoke:pwa-cache'], covers: ['npm run smoke:pwa-cache'] },
   { id: 'providers', command: ['npm', 'run', 'smoke:providers'], covers: ['npm run smoke:providers'] },
