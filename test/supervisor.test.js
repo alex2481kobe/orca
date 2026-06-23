@@ -53,10 +53,61 @@ test('supervisor overview summarizes projects, sessions, orchestrators, backlog,
     assert.equal(summarized.backlog.warnings.length, 1);
     assert.equal(summarized.approvals.pending, 1);
     assert.equal(summarized.approvals.lanes[0].laneId, lane.id);
+    assert.equal(summarized.lanes[0].id, lane.id);
+    assert.equal(summarized.lanes[0].pendingApprovals, 1);
 
     const next = buildNextActionEnvelope(registry, { role: 'supervisor' });
     assert.equal(next.nextRequiredTool, 'supervisor.overview');
     assert.equal(next.allowedTools.includes('session.supervisor_audit'), true);
+    assert.equal(next.allowedTools.includes('lane.get'), true);
+  });
+});
+
+test('supervisor bootstrap attaches to existing Orca state without duplicating sessions or lanes', async () => {
+  await withRegistry(async (registry) => {
+    const project = registry.createProject({ name: 'Attach Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Attach Session' }, { actor: 'test', approved: true });
+    registry.enrollOrchestrator(session.id, { leaseId: 'dashboard', actor: 'dashboard', source: 'dashboard' });
+    const lane = registry.createLane(session.id, {
+      title: 'Streaming worker',
+      executorType: 'mock',
+      taskDescription: 'Produce streamed progress.',
+    }, { actor: 'test', approved: true });
+    registry.appendLaneAgentEvent(registry.getLane(lane.id), {
+      source: 'mock',
+      type: 'message.assistant.delta',
+      title: 'Worker update',
+      content: 'checking files one by one',
+      stream: 'stdout',
+    }, { persist: true });
+
+    const beforeCounts = {
+      projects: registry.projects.length,
+      sessions: registry.sessions.length,
+      lanes: registry.lanes.length,
+    };
+    const bootstrap = registry.createOrchestratorMcpBootstrap({
+      role: 'supervisor',
+      projectId: project.id,
+      sessionId: session.id,
+      actor: 'codex-supervisor-chat',
+    });
+    assert.equal(registry.projects.length, beforeCounts.projects);
+    assert.equal(registry.sessions.length, beforeCounts.sessions);
+    assert.equal(registry.lanes.length, beforeCounts.lanes);
+    assert.equal(bootstrap.lease.role, 'supervisor');
+    assert.equal(bootstrap.bootstrap.clients.claudeDesktop.config.mcpServers.orca.env.ORCA_ROLE, 'supervisor');
+
+    const overview = registry.supervisorOverview();
+    assert.equal(overview.activeSupervisors.length, 1);
+    assert.equal(overview.activeSupervisors[0].actor, 'codex-supervisor-chat');
+    assert.equal(overview.projects[0].sessions[0].activeOrchestrator.actor, 'dashboard');
+    const summarizedLane = overview.projects[0].sessions[0].lanes.find((item) => item.id === lane.id);
+    assert.ok(summarizedLane);
+    assert.equal(summarizedLane.recentAgentEvents.some((event) => /checking files/.test(event.content)), true);
+
+    registry.revokeToolLease(bootstrap.lease.id, { actor: 'dashboard' });
+    assert.equal(registry.supervisorOverview().activeSupervisors.length, 0);
   });
 });
 

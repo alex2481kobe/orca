@@ -204,6 +204,31 @@ test('registry mints a supervisor MCP bootstrap with supervisor tool scope', asy
     assert.equal(result.lease.role, 'supervisor');
     assert.ok(result.lease.allowedTools.includes('supervisor.overview'));
     assert.ok(result.lease.allowedTools.includes('session.supervisor_audit'));
+    for (const id of [
+      'lane.list',
+      'lane.get',
+      'approval.list',
+      'evidence.list',
+      'evidence.latest',
+      'orchestrator.status',
+    ]) {
+      assert.equal(result.lease.allowedTools.includes(id), true, `supervisor lease includes ${id}`);
+    }
+    for (const id of [
+      'session.plan.update',
+      'session.create',
+      'capacity.set_policy',
+      'session.worktree_policy.update',
+      'settings.update',
+      'task.add',
+      'task.bulk_add',
+      'task.update',
+      'task.delete',
+      'lane.create',
+      'orchestrator.enroll',
+    ]) {
+      assert.equal(result.lease.allowedTools.includes(id), false, `supervisor lease excludes ${id}`);
+    }
     assert.equal(result.bootstrap.clients.claudeDesktop.config.mcpServers.orca.env.ORCA_ROLE, 'supervisor');
     const validated = registry.validateToolLease(result.leaseToken, {
       role: 'supervisor',

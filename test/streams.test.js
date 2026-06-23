@@ -113,6 +113,16 @@ function parseSseEvents(text) {
   }).filter(Boolean);
 }
 
+async function waitForBodyText(response, pattern, timeoutMs = 500) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const text = response.bodyText();
+    if (pattern.test(text)) return text;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Timed out waiting for body text matching ${pattern}`);
+}
+
 test('stream endpoint requires auth when API token is configured and returns a lightweight revision signal', async () => {
   const token = 'stream-test-token';
   const server = await startServer({
@@ -142,6 +152,88 @@ test('stream endpoint requires auth when API token is configured and returns a l
     // The signal carries NO lane/audit bodies — clients re-fetch via the tiered API.
     assert.equal(snapshot.activeLanes, undefined);
     assert.equal(snapshot.pendingAudits, undefined);
+  } finally {
+    await server.stop();
+  }
+});
+
+test('lane stream accepts scoped lane.get tool leases for live executor output', async () => {
+  const token = 'lane-stream-token';
+  const server = await startServer({
+    ORCA_API_TOKEN: token,
+  });
+  try {
+    const project = await server.request('/api/projects', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Lane Stream Project', approved: true },
+    });
+    assert.equal(project.status, 201);
+    const session = await server.request(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Lane Stream Session', approved: true },
+    });
+    assert.equal(session.status, 201);
+    const otherSession = await server.request(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Other Lane Stream Session', approved: true },
+    });
+    assert.equal(otherSession.status, 201);
+    const lane = await server.request(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { title: 'Streaming executor', executorType: 'mock', approved: true },
+    });
+    assert.equal(lane.status, 201);
+
+    const logDir = path.join(process.cwd(), 'artifacts', session.body.id, lane.body.id);
+    await fs.mkdir(logDir, { recursive: true });
+    await fs.writeFile(path.join(logDir, 'terminal.log'), 'hello from executor stream\n');
+
+    const denied = await server.request(`/api/lanes/${lane.body.id}/stream`);
+    assert.equal(denied.status, 401);
+
+    const wrongSessionLease = await server.request('/api/agent-tools/leases', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        actor: 'wrong-session-supervisor',
+        role: 'supervisor',
+        projectId: project.body.id,
+        sessionId: otherSession.body.id,
+        ttlMs: 10 * 60 * 1000,
+      },
+    });
+    assert.equal(wrongSessionLease.status, 201);
+    const scopedDenied = await server.request(`/api/lanes/${lane.body.id}/stream`, {
+      headers: { 'x-orca-tool-lease': wrongSessionLease.body.leaseToken },
+    });
+    assert.equal(scopedDenied.status, 401);
+
+    const supervisorLease = await server.request('/api/agent-tools/leases', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        actor: 'stream-supervisor',
+        role: 'supervisor',
+        projectId: project.body.id,
+        sessionId: session.body.id,
+        ttlMs: 10 * 60 * 1000,
+      },
+    });
+    assert.equal(supervisorLease.status, 201);
+
+    const stream = await server.request(`/api/lanes/${lane.body.id}/stream`, {
+      headers: { 'x-orca-tool-lease': supervisorLease.body.leaseToken },
+    });
+    assert.equal(stream.status, 200);
+    assert.equal(stream.headers['content-type'].includes('text/event-stream'), true);
+    const text = await waitForBodyText(stream, /hello from executor stream/);
+    const events = parseSseEvents(text);
+    assert.equal(events.some((event) => event.event === 'snapshot' && /hello from executor stream/.test(event.data.text)), true);
+    stream.res.emit('close');
   } finally {
     await server.stop();
   }

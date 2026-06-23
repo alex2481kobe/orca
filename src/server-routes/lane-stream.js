@@ -1,8 +1,9 @@
 // Per-lane LIVE terminal stream (GET /api/lanes/:id/stream) — the "terminal feel"
 // for the ONE lane a user has open. Tails that lane's raw terminal.log and pushes
 // new bytes over SSE as they arrive, so the focused lane reads like the real
-// terminal while the dashboard stays structured + lightweight. Operator-gated and
-// self-authorizing (like the main event stream), so it's wired before the JSON gate.
+// terminal while the dashboard stays structured + lightweight. It is self-
+// authorizing before the JSON gate: operator auth may stream any lane, and scoped
+// tool leases may stream only lanes they can read with lane.get.
 import { promises as fsp } from 'node:fs';
 import path from 'node:path';
 import { writeSse, streamHeartbeatMs } from '../event-streams.js';
@@ -12,7 +13,7 @@ const READ_MAX = 256 * 1024; // max bytes pushed per poll tick
 const POLL_MS = 350;
 
 export function createLaneStream(deps) {
-  const { registry, applySecurityHeaders, setCacheHeaders, sendJson, hasStreamAuth } = deps;
+  const { registry, applySecurityHeaders, setCacheHeaders, sendJson, hasStreamAuth, hasLaneStreamAuth } = deps;
 
   function laneTerminalLogPath(lane) {
     // Mirror the executor's runtimeDir (cli-adapter.js). lane.id/sessionId come
@@ -37,10 +38,13 @@ export function createLaneStream(deps) {
   }
 
   function handleLaneStream(req, res, laneId) {
-    if (!hasStreamAuth(req)) {
-      return sendJson(res, 401, { error: 'Unauthorized stream. Pair this device or supply a valid token.' });
-    }
     const lane = registry.getLane(laneId);
+    const streamAuthorized = () => (typeof hasLaneStreamAuth === 'function'
+      ? hasLaneStreamAuth(req, lane || { id: laneId })
+      : hasStreamAuth(req));
+    if (!streamAuthorized()) {
+      return sendJson(res, 401, { error: 'Unauthorized stream. Pair this device, supply a valid token, or use a lane.get tool lease.' });
+    }
     if (!lane) return sendJson(res, 404, { error: 'Lane not found.' });
     const logPath = laneTerminalLogPath(lane);
 
@@ -81,7 +85,7 @@ export function createLaneStream(deps) {
 
     const interval = setInterval(async () => {
       if (closed || reading) return;
-      if (!hasStreamAuth(req)) { writeSse(res, 'stream_close', { reason: 'auth_revoked' }); cleanup(); try { res.end(); } catch { /* ignore */ } return; }
+      if (!streamAuthorized()) { writeSse(res, 'stream_close', { reason: 'auth_revoked' }); cleanup(); try { res.end(); } catch { /* ignore */ } return; }
       reading = true;
       try {
         const { text, offset: next, reset } = await readRange(logPath, offset, READ_MAX);

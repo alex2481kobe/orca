@@ -157,22 +157,144 @@ test('MCP tool leases can update worktree policy and supervisor state with scope
       headers: { 'x-orca-tool-lease': orchestratorLease.body.leaseToken },
       body: { worktreeMode: 'shared', approved: true },
     });
-    assert.equal(scopedOut.status, 401);
+    assert.equal(scopedOut.status, 403);
+    assert.match(scopedOut.body.error, /Tool lease session mismatch/);
 
     const supervisorLease = await requestJson('/api/agent-tools/leases', {
       method: 'POST',
       headers: { 'x-orca-token': token },
-      body: { actor: 'dashboard', role: 'supervisor', ttlMs: 10 * 60 * 1000 },
+      body: { actor: 'attached-supervisor', role: 'supervisor', ttlMs: 10 * 60 * 1000 },
     });
     assert.equal(supervisorLease.status, 201);
     assert.equal(supervisorLease.body.lease.role, 'supervisor');
     assert.ok(supervisorLease.body.leaseToken);
+    assert.equal(supervisorLease.body.lease.allowedTools.includes('lane.get'), true);
+    assert.equal(supervisorLease.body.lease.allowedTools.includes('approval.list'), true);
+    assert.equal(supervisorLease.body.lease.allowedTools.includes('evidence.latest'), true);
+    assert.equal(supervisorLease.body.lease.allowedTools.includes('orchestrator.enroll'), false);
+    assert.equal(supervisorLease.body.lease.allowedTools.includes('lane.create'), false);
+    for (const deniedTool of [
+      'session.plan.update',
+      'session.create',
+      'capacity.set_policy',
+      'session.worktree_policy.update',
+      'settings.update',
+      'task.add',
+      'task.bulk_add',
+      'task.update',
+      'task.delete',
+    ]) {
+      assert.equal(supervisorLease.body.lease.allowedTools.includes(deniedTool), false);
+    }
+
+    const seedTask = await requestJson(`/api/sessions/${session.body.id}/tasks`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { title: 'Seed task' },
+    });
+    assert.equal(seedTask.status, 201);
+
+    for (const request of [
+      {
+        path: `/api/projects/${project.body.id}/sessions`,
+        method: 'POST',
+        body: { name: 'Denied child session', approved: true },
+      },
+      {
+        path: `/api/sessions/${session.body.id}/plan`,
+        method: 'POST',
+        body: { goal: 'Denied plan update' },
+      },
+      {
+        path: `/api/sessions/${session.body.id}/tasks`,
+        method: 'POST',
+        body: { title: 'Denied task' },
+      },
+      {
+        path: `/api/sessions/${session.body.id}/tasks/bulk`,
+        method: 'POST',
+        body: { tasks: [{ title: 'Denied bulk task' }] },
+      },
+      {
+        path: `/api/sessions/${session.body.id}/worktree-policy`,
+        method: 'POST',
+        body: { worktreeMode: 'shared', approved: true },
+      },
+      {
+        path: `/api/sessions/${session.body.id}/capacity/policy`,
+        method: 'POST',
+        body: { approvedCapacity: 3, approved: true },
+      },
+      {
+        path: `/api/settings/session/${session.body.id}`,
+        method: 'PATCH',
+        body: { settingsOverrides: { flow: { requireAuditPass: true } }, approved: true },
+      },
+      {
+        path: `/api/tasks/${seedTask.body.id}`,
+        method: 'PATCH',
+        body: { priority: 7 },
+      },
+      {
+        path: `/api/tasks/${seedTask.body.id}`,
+        method: 'DELETE',
+        body: {},
+      },
+    ]) {
+      const denied = await requestJson(request.path, {
+        method: request.method,
+        headers: { 'x-orca-tool-lease': supervisorLease.body.leaseToken },
+        body: request.body,
+      });
+      assert.equal(denied.status, 403, `${request.method} ${request.path}`);
+      assert.match(denied.body.error, /Tool lease does not grant this tool/);
+    }
+
+    const executorLane = await requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-orca-tool-lease': orchestratorLease.body.leaseToken },
+      body: { title: 'Visible executor', executorType: 'mock', approved: true },
+    });
+    assert.equal(executorLane.status, 201);
+
+    const supervisorLane = await requestJson(`/api/lanes/${executorLane.body.id}`, {
+      headers: { 'x-orca-tool-lease': supervisorLease.body.leaseToken },
+    });
+    assert.equal(supervisorLane.status, 200);
+    assert.equal(supervisorLane.body.id, executorLane.body.id);
+    assert.equal(supervisorLane.body.agentEvents.some((event) => event.type === 'agent.queued'), true);
+
+    const deniedEnroll = await requestJson(`/api/sessions/${session.body.id}/orchestrator/enroll`, {
+      method: 'POST',
+      headers: { 'x-orca-tool-lease': supervisorLease.body.leaseToken },
+      body: { takeover: true },
+    });
+    assert.equal(deniedEnroll.status, 403);
+    assert.match(deniedEnroll.body.error, /Tool lease does not grant this tool/);
+
+    const deniedLaneCreate = await requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-orca-tool-lease': supervisorLease.body.leaseToken },
+      body: { title: 'Should not spawn', executorType: 'mock', approved: true },
+    });
+    assert.equal(deniedLaneCreate.status, 403);
+    assert.match(deniedLaneCreate.body.error, /Tool lease does not grant this tool/);
+
+    const lanesAfterDenied = await requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      headers: { 'x-orca-token': token },
+    });
+    assert.equal(lanesAfterDenied.status, 200);
+    assert.equal(lanesAfterDenied.body.length, 1);
 
     const leaseOverview = await requestJson('/api/supervisor/overview', {
       headers: { 'x-orca-tool-lease': supervisorLease.body.leaseToken },
     });
     assert.equal(leaseOverview.status, 200);
     assert.equal(leaseOverview.body.projects[0].sessions.length, 2);
+    assert.equal(leaseOverview.body.activeSupervisors.some((lease) => lease.actor === 'attached-supervisor'), true);
+    const overviewLane = leaseOverview.body.projects[0].sessions[0].lanes.find((item) => item.id === executorLane.body.id);
+    assert.ok(overviewLane);
+    assert.equal(overviewLane.recentAgentEvents.some((event) => event.type === 'agent.queued'), true);
 
     const leaseAudit = await requestJson(`/api/sessions/${session.body.id}/supervisor/audit`, {
       method: 'POST',
@@ -187,7 +309,8 @@ test('MCP tool leases can update worktree policy and supervisor state with scope
       headers: { 'x-orca-tool-lease': orchestratorLease.body.leaseToken },
       body: { verdict: 'accept' },
     });
-    assert.equal(wrongRoleAudit.status, 401);
+    assert.equal(wrongRoleAudit.status, 403);
+    assert.match(wrongRoleAudit.body.error, /Tool lease does not grant this tool/);
 
     const deniedBootstrap = await requestJson('/api/mcp/supervisor-bootstrap', {
       method: 'POST',
@@ -204,5 +327,13 @@ test('MCP tool leases can update worktree policy and supervisor state with scope
     assert.equal(bootstrap.body.lease.role, 'supervisor');
     assert.equal(bootstrap.body.bootstrap.clients.claudeDesktop.config.mcpServers.orca.env.ORCA_ROLE, 'supervisor');
     assert.equal(JSON.stringify(bootstrap.body).includes(token), false);
+
+    const bootstrapOverview = await requestJson('/api/supervisor/overview', {
+      headers: { 'x-orca-tool-lease': bootstrap.body.leaseToken },
+    });
+    assert.equal(bootstrapOverview.status, 200);
+    assert.equal(bootstrapOverview.body.activeSupervisors.some((lease) => lease.actor === 'desktop-app'), true);
+    assert.equal(bootstrapOverview.body.projects[0].sessions.length, 2);
+    assert.equal(bootstrapOverview.body.projects[0].sessions[0].lanes.length, 1);
   });
 });

@@ -2463,7 +2463,8 @@ test('project archive and restore are dashboard-only scoped tool routes', async 
       headers: { 'x-orca-tool-lease': orchestratorLease.body.leaseToken },
       body: { approved: true },
     });
-    assert.equal(deniedArchive.status, 401);
+    assert.equal(deniedArchive.status, 403);
+    assert.match(deniedArchive.body.error, /Tool lease does not grant this tool/);
 
     const dashboardLease = await server.requestJson('/api/agent-tools/leases', {
       method: 'POST',

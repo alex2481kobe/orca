@@ -516,13 +516,47 @@ function hasSpecificToolLeaseAuth(req, requirement) {
   return false;
 }
 
-function hasToolLeaseRouteAuth(req, parts) {
+function validateToolLeaseRouteAuth(req, parts) {
   const requirement = toolLeaseRequirementForRoute(req.method || 'GET', parts);
-  return hasSpecificToolLeaseAuth(req, requirement);
+  const token = getToolLeaseToken(req);
+  if (!requirement || !token) {
+    return { allowed: false, requirement, error: null };
+  }
+  const toolIds = Array.isArray(requirement.toolIds) ? requirement.toolIds : [requirement.toolId];
+  let lastError = null;
+  for (const toolId of toolIds.filter(Boolean)) {
+    try {
+      const lease = registry.validateToolLease(token, {
+        ...requirement,
+        toolId,
+        toolIds: undefined,
+      });
+      req._toolLease = lease;
+      return { allowed: true, requirement, lease, error: null };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  return {
+    allowed: false,
+    requirement,
+    error: lastError || { status: 403, message: 'Tool lease rejected for this route.' },
+  };
 }
 
 function hasStreamAuth(req) {
   return hasOperatorAuth(req);
+}
+
+function hasLaneStreamAuth(req, lane) {
+  if (hasStreamAuth(req)) return true;
+  if (!lane?.id) return false;
+  return hasSpecificToolLeaseAuth(req, {
+    toolId: 'lane.get',
+    projectId: lane.projectId || null,
+    sessionId: lane.sessionId || null,
+    laneId: lane.id,
+  });
 }
 
 function hasDashboardAuth(req) {
@@ -600,7 +634,14 @@ function enforceAgentToolStateGate(req, res, parts) {
 
 function requireApiAuth(req, res, parts) {
   if (req.method === 'GET' && isPublicReadApiRoute(parts)) return true;
-  if (hasToolLeaseRouteAuth(req, parts)) return enforceAgentToolStateGate(req, res, parts);
+  const leaseAuth = validateToolLeaseRouteAuth(req, parts);
+  if (leaseAuth.allowed) return enforceAgentToolStateGate(req, res, parts);
+  if (leaseAuth.error) {
+    sendJson(res, leaseAuth.error.status || 403, {
+      error: leaseAuth.error.message || 'Tool lease rejected.',
+    });
+    return false;
+  }
   return requireOperatorAuth(req, res);
 }
 
@@ -723,7 +764,7 @@ const { handleEventStream } = createEventStream({
   registry, applySecurityHeaders, setCacheHeaders, sendJson, getSearchParams, hasStreamAuth,
 });
 const { handleLaneStream } = createLaneStream({
-  registry, applySecurityHeaders, setCacheHeaders, sendJson, hasStreamAuth,
+  registry, applySecurityHeaders, setCacheHeaders, sendJson, hasStreamAuth, hasLaneStreamAuth,
 });
 
 function normalizePathname(requestUrl) {
@@ -830,8 +871,9 @@ async function handleApi(req, res, pathname, method, parts) {
   if (parts[1] === 'streams' && parts[2] === 'events' && method === 'GET') {
     return handleEventStream(req, res);
   }
-  // Per-lane live terminal stream — self-authorizing SSE (operator-level), so it
-  // bypasses the generic JSON gate just like the main event stream.
+  // Per-lane live terminal stream — self-authorizing SSE (operator auth or a
+  // scoped lane.get tool lease), so it bypasses the generic JSON gate just like
+  // the main event stream.
   if (parts[1] === 'lanes' && parts[2] && parts[3] === 'stream' && parts.length === 4 && method === 'GET') {
     return handleLaneStream(req, res, parts[2]);
   }

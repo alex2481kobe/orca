@@ -103,7 +103,38 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
   assert.equal(findTool('project.restore')?.implemented, true);
   assert.equal(availableToolIdsForRole('orchestrator').includes('project.archive'), false);
   assert.equal(availableToolIdsForRole('dashboard').includes('project.archive'), true);
-  assert.equal(buildAgentToolDiscovery().roles.some((role) => role.role === 'supervisor'), true);
+  const supervisorRole = buildAgentToolDiscovery().roles.find((role) => role.role === 'supervisor');
+  assert.ok(supervisorRole);
+  const supervisorTools = new Set(supervisorRole.allowedImplementedTools);
+  for (const id of [
+    'supervisor.overview',
+    'orchestrator.status',
+    'lane.list',
+    'lane.get',
+    'approval.list',
+    'evidence.list',
+    'evidence.latest',
+    'session.supervisor_audit',
+  ]) {
+    assert.equal(supervisorTools.has(id), true, `supervisor missing ${id}`);
+  }
+  for (const id of [
+    'session.plan.update',
+    'session.create',
+    'capacity.set_policy',
+    'session.worktree_policy.update',
+    'settings.update',
+    'task.add',
+    'task.bulk_add',
+    'task.update',
+    'task.delete',
+    'lane.create',
+    'orchestrator.enroll',
+  ]) {
+    assert.equal(supervisorTools.has(id), false, `supervisor must not get ${id}`);
+  }
+  const supervisorMutatingTools = [...supervisorTools].filter((id) => findTool(id)?.mutating);
+  assert.deepEqual(supervisorMutatingTools, ['session.supervisor_audit']);
 });
 
 test('nextAction envelope only advertises an implemented nextRequiredTool', async () => {

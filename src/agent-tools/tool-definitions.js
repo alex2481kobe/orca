@@ -15,7 +15,7 @@ export const TOOL_DEFINITIONS = [
   {
     id: 'session.plan.update',
     group: 'session',
-    roles: ['supervisor', 'orchestrator', 'dashboard'],
+    roles: ['orchestrator', 'dashboard'],
     method: 'POST',
     route: '/api/sessions/{sessionId}/plan',
     implemented: true,
@@ -25,7 +25,7 @@ export const TOOL_DEFINITIONS = [
   {
     id: 'session.create',
     group: 'session',
-    roles: ['supervisor', 'orchestrator', 'dashboard'],
+    roles: ['orchestrator', 'dashboard'],
     method: 'POST',
     route: '/api/projects/{projectId}/sessions',
     implemented: true,
@@ -85,7 +85,7 @@ export const TOOL_DEFINITIONS = [
   {
     id: 'lane.list',
     group: 'lane',
-    roles: ['orchestrator', 'executor', 'auditor', 'dashboard'],
+    roles: ['supervisor', 'orchestrator', 'executor', 'auditor', 'dashboard'],
     method: 'GET',
     route: '/api/sessions/{sessionId}/lanes',
     implemented: true,
@@ -95,7 +95,7 @@ export const TOOL_DEFINITIONS = [
   {
     id: 'lane.get',
     group: 'lane',
-    roles: ['orchestrator', 'executor', 'auditor', 'dashboard'],
+    roles: ['supervisor', 'orchestrator', 'executor', 'auditor', 'dashboard'],
     method: 'GET',
     route: '/api/lanes/{laneId}',
     implemented: true,
@@ -135,7 +135,7 @@ export const TOOL_DEFINITIONS = [
   {
     id: 'approval.list',
     group: 'approval',
-    roles: ['executor', 'orchestrator', 'auditor', 'dashboard'],
+    roles: ['supervisor', 'executor', 'orchestrator', 'auditor', 'dashboard'],
     method: 'GET',
     route: '/api/lanes/{laneId}/approvals',
     implemented: true,
@@ -225,7 +225,7 @@ export const TOOL_DEFINITIONS = [
   {
     id: 'capacity.set_policy',
     group: 'capacity',
-    roles: ['dashboard', 'supervisor', 'orchestrator'],
+    roles: ['dashboard', 'orchestrator'],
     method: 'POST',
     route: '/api/sessions/{sessionId}/capacity/policy',
     implemented: true,
@@ -235,7 +235,7 @@ export const TOOL_DEFINITIONS = [
   {
     id: 'session.worktree_policy.update',
     group: 'session',
-    roles: ['supervisor', 'orchestrator', 'dashboard'],
+    roles: ['orchestrator', 'dashboard'],
     method: 'POST',
     route: '/api/sessions/{sessionId}/worktree-policy',
     implemented: true,
@@ -355,7 +355,7 @@ export const TOOL_DEFINITIONS = [
   {
     id: 'evidence.list',
     group: 'evidence',
-    roles: ['executor', 'orchestrator', 'auditor', 'critique', 'dashboard'],
+    roles: ['supervisor', 'executor', 'orchestrator', 'auditor', 'critique', 'dashboard'],
     method: 'GET',
     route: '/api/lanes/{laneId}/evidence',
     implemented: true,
@@ -365,7 +365,7 @@ export const TOOL_DEFINITIONS = [
   {
     id: 'evidence.latest',
     group: 'evidence',
-    roles: ['executor', 'orchestrator', 'auditor', 'critique', 'dashboard'],
+    roles: ['supervisor', 'executor', 'orchestrator', 'auditor', 'critique', 'dashboard'],
     method: 'GET',
     route: '/api/lanes/{laneId}/evidence/latest',
     implemented: true,
@@ -525,7 +525,7 @@ export const TOOL_DEFINITIONS = [
   {
     id: 'settings.update',
     group: 'settings',
-    roles: ['supervisor', 'orchestrator', 'dashboard'],
+    roles: ['orchestrator', 'dashboard'],
     method: 'PATCH',
     route: '/api/settings/{scope}/{id}',
     implemented: true,
@@ -615,7 +615,7 @@ export const TOOL_DEFINITIONS = [
   {
     id: 'task.add',
     group: 'task',
-    roles: ['supervisor', 'orchestrator', 'dashboard'],
+    roles: ['orchestrator', 'dashboard'],
     method: 'POST',
     route: '/api/sessions/{sessionId}/tasks',
     implemented: true,
@@ -625,7 +625,7 @@ export const TOOL_DEFINITIONS = [
   {
     id: 'task.bulk_add',
     group: 'task',
-    roles: ['supervisor', 'orchestrator', 'dashboard'],
+    roles: ['orchestrator', 'dashboard'],
     method: 'POST',
     route: '/api/sessions/{sessionId}/tasks/bulk',
     implemented: true,
@@ -645,7 +645,7 @@ export const TOOL_DEFINITIONS = [
   {
     id: 'task.update',
     group: 'task',
-    roles: ['supervisor', 'orchestrator', 'dashboard'],
+    roles: ['orchestrator', 'dashboard'],
     method: 'PATCH',
     route: '/api/tasks/{taskId}',
     implemented: true,
@@ -655,7 +655,7 @@ export const TOOL_DEFINITIONS = [
   {
     id: 'task.delete',
     group: 'task',
-    roles: ['supervisor', 'orchestrator', 'dashboard'],
+    roles: ['orchestrator', 'dashboard'],
     method: 'DELETE',
     route: '/api/tasks/{taskId}',
     implemented: true,

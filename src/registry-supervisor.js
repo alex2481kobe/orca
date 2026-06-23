@@ -14,13 +14,57 @@ function normalizeSupervisorVerdict(value) {
   return ['accept', 'request_fix', 'block'].includes(normalized) ? normalized : null;
 }
 
+function summarizeSupervisorLane(lane) {
+  const pendingApprovals = safeArray(lane.pendingApprovals)
+    .filter((approval) => approval?.status === 'pending').length;
+  return {
+    id: lane.id,
+    title: lane.title,
+    route: lane.route,
+    owner: lane.owner || null,
+    executorType: lane.executorType,
+    state: lane.state,
+    auditState: lane.auditState || null,
+    critiqueState: lane.critiqueState || null,
+    targetUrl: lane.targetUrl || '',
+    heartbeatAt: lane.heartbeatAt || null,
+    updatedAt: lane.updatedAt || null,
+    resultText: lane.resultText || '',
+    pendingApprovals,
+    recentAgentEvents: safeArray(lane.agentEvents).slice(-8).map((event) => ({
+      id: event.id,
+      at: event.at,
+      source: event.source,
+      type: event.type,
+      title: event.title || '',
+      content: event.content || '',
+      stream: event.stream || '',
+      toolName: event.toolName || '',
+    })),
+  };
+}
+
 export const supervisorMethods = {
   supervisorOverview({ projectId = null } = {}) {
+    const activeSupervisors = typeof this.listToolLeases === 'function'
+      ? this.listToolLeases({ activeOnly: true })
+        .filter((lease) => lease.role === 'supervisor')
+        .map((lease) => ({
+          id: lease.id,
+          actor: lease.actor,
+          projectId: lease.projectId || null,
+          sessionId: lease.sessionId || null,
+          createdAt: lease.createdAt,
+          expiresAt: lease.expiresAt,
+          active: lease.active,
+        }))
+      : [];
     const projects = (this.projects || [])
       .filter((project) => project.state !== 'archived')
       .filter((project) => !projectId || project.id === projectId || project.slug === projectId);
     return clonePayload({
       generatedAt: nowIso(),
+      activeSupervisors,
       projects: projects.map((project) => {
         const sessions = (this.sessions || [])
           .filter((session) => session.projectId === project.id && session.state !== 'archived')
@@ -62,6 +106,7 @@ export const supervisorMethods = {
                 pending: pendingApprovalCount,
                 lanes: pendingApprovalLanes,
               },
+              lanes: lanes.map(summarizeSupervisorLane),
               supervisorReview: session.supervisorReview || null,
             };
           });

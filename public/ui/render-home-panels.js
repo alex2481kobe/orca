@@ -670,6 +670,7 @@ export function renderMcpPanel(ctx) {
 export function renderSupervisorPanel(ctx) {
   const { supervisorOverview, supervisorBootstrapMarkup } = ctx;
   const projects = Array.isArray(supervisorOverview?.projects) ? supervisorOverview.projects : [];
+  const activeSupervisors = Array.isArray(supervisorOverview?.activeSupervisors) ? supervisorOverview.activeSupervisors : [];
   const sessionRows = projects.flatMap((project) =>
     (Array.isArray(project.sessions) ? project.sessions : []).map((session) => {
       const active = Boolean(session.activeOrchestrator?.active);
@@ -734,7 +735,7 @@ export function renderSupervisorPanel(ctx) {
         <div class="settings-panel-head">
           <div>
             <h3>Supervisor agent</h3>
-            <p class="muted">${safeText(projects.length)} projects · ${safeText(totalSessions)} sessions · ${safeText(activeCount)} active orchestrator${activeCount === 1 ? '' : 's'}</p>
+            <p class="muted">${safeText(projects.length)} projects · ${safeText(totalSessions)} sessions · ${safeText(activeCount)} active orchestrator${activeCount === 1 ? '' : 's'} · ${safeText(activeSupervisors.length)} supervisor${activeSupervisors.length === 1 ? '' : 's'}</p>
             <div>
               ${triageCounts.stalled ? `<span class="tag bad">${safeText(triageCounts.stalled)} stalled</span>` : ''}
               ${triageCounts.blocked ? `<span class="tag bad">${safeText(triageCounts.blocked)} blocked</span>` : ''}
