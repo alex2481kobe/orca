@@ -487,6 +487,45 @@ test('orca-agent manages project live links while preserving supervisor read-onl
     assert.equal(checked.code, 0, checked.stderr);
     assert.equal(JSON.parse(checked.stdout).result.status, 'reachable');
 
+    const tailnetLink = await runOrcaAgent([
+      'link-tailnet',
+      project.body.id,
+      'Phone Direct',
+      `${baseUrl}/`,
+      '--fake',
+      'logged-in',
+      '--port',
+      '5173',
+      '--kind',
+      'vite',
+      '--favorite',
+      '--health-path',
+      '/api/health',
+      '--check',
+      '--prefer',
+      'local',
+    ], env);
+    assert.equal(tailnetLink.code, 0, tailnetLink.stderr);
+    const tailnetLinkBody = JSON.parse(tailnetLink.stdout);
+    const tailnetLinkId = tailnetLinkBody.saved.link.id;
+    assert.equal(tailnetLinkBody.saved.link.label, 'Phone Direct');
+    assert.equal(tailnetLinkBody.saved.link.localUrl, `${baseUrl}/`);
+    assert.equal(tailnetLinkBody.saved.link.tailnetHttpUrl, 'http://orca.test-tailnet.ts.net:5173/');
+    assert.equal(tailnetLinkBody.saved.link.kind, 'vite');
+    assert.equal(tailnetLinkBody.checked.result.status, 'reachable');
+    assert.equal(tailnetLinkBody.checked.result.checkedUrl, `${baseUrl}/api/health`);
+
+    const tailnetMissing = await runOrcaAgent([
+      'link-tailnet',
+      project.body.id,
+      'Missing Tailnet',
+      `${baseUrl}/`,
+      '--fake',
+      'missing',
+    ], env);
+    assert.equal(tailnetMissing.code, 2);
+    assert.match(tailnetMissing.stderr, /Tailscale is not ready/);
+
     const cachePath = path.join(tempDir, '.orca', 'agent-leases.json');
     const cache = JSON.parse(await fs.readFile(cachePath, 'utf8'));
     const keys = Object.keys(cache);
@@ -511,7 +550,10 @@ test('orca-agent manages project live links while preserving supervisor read-onl
 
     const supervisorLinks = await runOrcaAgent(['links', project.body.id], supervisorEnv);
     assert.equal(supervisorLinks.code, 0, supervisorLinks.stderr);
-    assert.deepEqual(JSON.parse(supervisorLinks.stdout).quickLinks.map((link) => link.id), [linkId]);
+    assert.deepEqual(
+      JSON.parse(supervisorLinks.stdout).quickLinks.map((link) => link.id).sort(),
+      [linkId, tailnetLinkId].sort()
+    );
 
     const deniedHidden = await runOrcaAgent(['links', hiddenProject.body.id], supervisorEnv);
     assert.equal(deniedHidden.code, 2);
@@ -533,6 +575,17 @@ test('orca-agent manages project live links while preserving supervisor read-onl
     ], supervisorEnv);
     assert.equal(deniedUpsert.code, 2);
     assert.match(deniedUpsert.stderr, /does not grant this tool/);
+
+    const deniedTailnetUpsert = await runOrcaAgent([
+      'link-tailnet',
+      project.body.id,
+      'Supervisor Tailnet Mutation',
+      `${baseUrl}/`,
+      '--fake',
+      'logged-in',
+    ], supervisorEnv);
+    assert.equal(deniedTailnetUpsert.code, 2);
+    assert.match(deniedTailnetUpsert.stderr, /does not grant this tool/);
 
     const deniedCheck = await runOrcaAgent(['link-check', project.body.id, linkId, '--prefer', 'local'], supervisorEnv);
     assert.equal(deniedCheck.code, 2);

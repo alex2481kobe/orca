@@ -60,6 +60,8 @@ orca-agent projects
 orca-agent links <projectId>
 orca-agent link-upsert <projectId> "Example App" "http://127.0.0.1:5173" \
   --tailnet "http://mac.tailnet.ts.net:5173" --port 5173 --kind vite --favorite --check
+orca-agent link-tailnet <projectId> "Example App" "http://127.0.0.1:5173" \
+  --port 5173 --kind vite --favorite --check --prefer local
 orca-agent link-check <projectId> <linkId> --prefer tailnet
 ```
 
@@ -67,6 +69,12 @@ When the user wants to open a project from a phone or another tailnet device,
 pass `--prefer tailnet` (or MCP body `{ "prefer": "tailnet" }`) for the health
 check. The default `auto` preference checks the primary `url`, which is often
 the local loopback URL on the workstation.
+
+`link-tailnet` is the easiest agent path when Tailscale is already logged in: it
+reads the current read-only Tailscale hostname, derives a direct private
+tailnet URL from the local app URL and port, then saves both `localUrl` and
+`tailnetHttpUrl` through the same server-side quick-link contract. It does not
+enable Serve or bypass project-link approval/scope checks.
 
 Use `orca-agent tailscale-status` and `orca-agent tailscale-setup` to inspect the
 private-access setup from a CLI agent. Enabling or disabling Tailscale Serve is a

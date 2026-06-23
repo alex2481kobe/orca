@@ -171,7 +171,7 @@ export const part4 = [
     validation: 'actor spoofing rejected; scoped tool leases must validate against the project id; URL/port/kind fields validated; SSRF policy reused',
     auditEvent: 'project_quick_link_upserted',
     uiSurface: 'quick links/project URLs',
-    smokeCoverage: ['test/server.test.js'],
+    smokeCoverage: ['test/server.test.js', 'test/orca-agent-cli.test.js'],
     serverHints: ['upsertProjectQuickLink'],
   }),
   route({

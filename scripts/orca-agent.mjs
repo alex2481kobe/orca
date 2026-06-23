@@ -39,6 +39,8 @@
  *   orca-agent projects                                      # list projects visible to this lease
  *   orca-agent links <projectId>                             # list saved live links for a project
  *   orca-agent link-upsert <projectId> <label> <url> [--tailnet URL] [--local URL] [--https URL] [--port N] [--kind vite] [--favorite] [--check] [--prefer tailnet]
+ *   orca-agent link-tailnet <projectId> <label> <localUrl> [--port N] [--kind vite] [--favorite] [--check] [--prefer local]
+ *                                                            # save local + direct tailnet URLs using Tailscale hostname
  *   orca-agent link-check <projectId> <linkId> [--prefer auto|local|tailnet|https]
  *   orca-agent tailscale-status                              # read private Tailscale/Serve status
  *   orca-agent tailscale-setup                               # print the dry-run setup plan
@@ -266,6 +268,26 @@ function parsePort(value) {
   const port = Number.parseInt(value, 10);
   if (!Number.isFinite(port) || port < 1 || port > 65535) die('--port must be between 1 and 65535');
   return port;
+}
+
+function parseUrl(value, label) {
+  try {
+    return new URL(value);
+  } catch {
+    die(`${label} must be an absolute http(s) URL`);
+  }
+}
+
+function tailnetUrlFromLocal(localUrl, hostname, flags = {}) {
+  const parsed = parseUrl(localUrl, 'localUrl');
+  if (!['http:', 'https:'].includes(parsed.protocol)) die('localUrl must use http or https');
+  const explicitPort = parsePort(flags.port);
+  const inferredPort = parsed.port
+    ? Number.parseInt(parsed.port, 10)
+    : (parsed.protocol === 'https:' ? 443 : 80);
+  const safeHost = String(hostname || '').replace(/\.$/, '');
+  if (!safeHost) die('Tailscale hostname is unavailable. Run tailscale-setup first, then retry after login.');
+  return `http://${safeHost}:${explicitPort || inferredPort}${parsed.pathname || '/'}${parsed.search || ''}`;
 }
 
 function normalizeWorktreeMode(value) {
@@ -694,6 +716,42 @@ switch (cmd) {
     out({ saved: saved.data, checked: checked?.data || null });
     break;
   }
+  case 'link-tailnet': {
+    const projectId = _[0] || die('usage: orca-agent link-tailnet <projectId> <label> <localUrl> [--port N] [--kind vite] [--favorite] [--check] [--prefer local] [--fake state]');
+    const label = _[1] || die('link label required');
+    const localUrl = _[2] || die('localUrl required');
+    const tailnet = await api('GET', `/api/private-access/tailnet${queryString({ fake: flags.fake })}`, undefined, {
+      role: 'orchestrator',
+      projectId,
+    });
+    if (!tailnet.ok) die(`${tailnet.status} ${tailnet.data?.error || tailnet.text}`, 2);
+    if (!tailnet.data?.loggedIn || !tailnet.data?.hostname) {
+      die(`Tailscale is not ready: ${tailnet.data?.nextStep || 'sign in and configure Tailscale first.'}`, 2);
+    }
+    const tailnetHttpUrl = tailnetUrlFromLocal(localUrl, tailnet.data.hostname, flags);
+    const saved = await api('POST', `/api/projects/${encodeURIComponent(projectId)}/quick-links`, quickLinkBody(projectId, label, localUrl, {
+      ...flags,
+      local: localUrl,
+      tailnet: tailnetHttpUrl,
+    }), {
+      role: 'orchestrator',
+      projectId,
+    });
+    if (!saved.ok) die(`${saved.status} ${saved.data?.error || saved.text}`, 2);
+    if (!flags.check) {
+      out({ saved: saved.data, tailnet: tailnet.data });
+      break;
+    }
+    const linkId = saved.data?.link?.id;
+    const checked = linkId
+      ? await api('POST', `/api/projects/${encodeURIComponent(projectId)}/quick-links/${encodeURIComponent(linkId)}/check`, { prefer: flags.prefer || 'local' }, {
+        role: 'orchestrator',
+        projectId,
+      })
+      : null;
+    out({ saved: saved.data, checked: checked?.data || null, tailnet: tailnet.data });
+    break;
+  }
   case 'link-check': {
     const projectId = _[0] || die('usage: orca-agent link-check <projectId> <linkId> [--prefer auto|local|tailnet|https]');
     const linkId = _[1] || die('link id required');
@@ -851,6 +909,6 @@ switch (cmd) {
     break;
   }
   default:
-    out('orca-agent — drive Orca from any agent. Commands: start, projects, links, link-upsert, link-check, tailscale-status, tailscale-setup, tailscale-serve, rules, bootstrap, supervisor-bootstrap, supervisor-overview, supervisor-status, supervisor-watch, supervisor-watch-all, supervisor-audit, supervisor-resign, next, status, tail, watch, watch-session, enroll, resign, create-session, add-task, bulk-add, backlog, call. See header for usage.');
+    out('orca-agent — drive Orca from any agent. Commands: start, projects, links, link-upsert, link-tailnet, link-check, tailscale-status, tailscale-setup, tailscale-serve, rules, bootstrap, supervisor-bootstrap, supervisor-overview, supervisor-status, supervisor-watch, supervisor-watch-all, supervisor-audit, supervisor-resign, next, status, tail, watch, watch-session, enroll, resign, create-session, add-task, bulk-add, backlog, call. See header for usage.');
     if (cmd && cmd !== 'help') process.exit(1);
 }
