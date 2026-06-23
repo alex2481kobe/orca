@@ -2304,6 +2304,20 @@ test('Worktree manager creates per-lane worktree under approved base and cleanup
     assert.equal(lane.branch, 'feature/cleanup');
     assert.equal(lane.repoRoot, repoDir);
 
+    await assert.rejects(
+      registry.removeLaneWorktree(lane.id, { actor: 'test', approved: true }),
+      (error) => error.status === 409 && /still active/.test(error.message),
+    );
+
+    const duplicateLane = registry.createLane(session.id, {
+      title: 'duplicate branch lane',
+      executorType: 'mock',
+      branch: 'feature/cleanup',
+    }, { actor: 'test', approved: true });
+    assert.match(duplicateLane.branch, /^orca\/lane\//);
+    assert.notEqual(duplicateLane.branch, 'feature/cleanup');
+    assert.equal(duplicateLane.repoRoot, repoDir);
+
     // Mark terminal so cleanup can run.
     const target = registry.getLane(lane.id);
     target.state = 'done';
@@ -2314,7 +2328,19 @@ test('Worktree manager creates per-lane worktree under approved base and cleanup
       removeBranch: true,
     });
     assert.equal(cleanupResult.removed, true);
+    assert.equal(cleanupResult.branchRemoved, true);
     await assert.rejects(fs.access(lane.worktreePath), (error) => error.code === 'ENOENT');
+
+    const duplicateTarget = registry.getLane(duplicateLane.id);
+    duplicateTarget.state = 'done';
+    duplicateTarget.completedAt = new Date().toISOString();
+    const duplicateCleanup = await registry.removeLaneWorktree(duplicateLane.id, {
+      actor: 'test',
+      approved: true,
+      removeBranch: true,
+    });
+    assert.equal(duplicateCleanup.removed, true);
+    assert.equal(duplicateCleanup.branchRemoved, true);
   } finally {
     await cleanup();
   }
@@ -2375,15 +2401,33 @@ test('getSessionGitInfo reports branches/worktrees for git repos and isGit:false
     await fs.writeFile(path.join(repoDir, 'README.md'), 'hi');
     g('add', 'README.md');
     g('commit', '-qm', 'init');
+    g('branch', '-M', 'main');
     g('branch', 'feature/x');
+    const remoteDir = path.join(process.cwd(), 'git-info-origin.git');
+    spawnSync('git', ['init', '--bare', '-q', remoteDir], { encoding: 'utf8' });
+    g('remote', 'add', 'origin', remoteDir);
+    g('push', '-u', 'origin', 'main');
+    g('fetch', 'origin', 'main');
 
     const project = registry.createProject({ name: 'Git Info' }, { actor: 'test', approved: true });
     const gitSession = registry.createSession(project.id, { name: 'git', repoRoot: repoDir }, { actor: 'test', approved: true });
     const info = registry.getSessionGitInfo(gitSession.id);
     assert.equal(info.isGit, true);
     assert.ok(info.branches.includes('feature/x'), 'should list created branch');
+    assert.ok(info.remoteBranches.includes('origin/main'), 'should list remote-tracking branch');
+    assert.ok(info.branches.includes('origin/main'), 'branch picker should include remote-tracking branch');
     assert.ok(info.currentBranch, 'should report the current branch');
     assert.ok(Array.isArray(info.worktrees) && info.worktrees.length >= 1, 'should list at least the main worktree');
+
+    const remoteLane = registry.createLane(gitSession.id, {
+      title: 'remote base lane',
+      executorType: 'mock',
+      branch: 'origin/main',
+    }, { actor: 'test', approved: true });
+    assert.match(remoteLane.branch, /^orca\/lane\//);
+    const laneHead = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: remoteLane.worktreePath, encoding: 'utf8' }).stdout.trim();
+    const remoteHead = g('rev-parse', 'origin/main').stdout.trim();
+    assert.equal(laneHead, remoteHead, 'origin/main should be used as the worktree base ref');
 
     // Non-git folder → isGit:false (agent still runs there).
     const plainDir = path.join(process.cwd(), 'git-info-plain');

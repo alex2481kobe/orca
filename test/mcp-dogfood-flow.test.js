@@ -123,6 +123,56 @@ function parseMcpJson(response) {
   }
 }
 
+async function collectLaneStreamEvents({ baseUrl, sessionId, laneId, leaseToken }) {
+  const logPath = path.join(process.cwd(), 'artifacts', sessionId, laneId, 'terminal.log');
+  await fs.mkdir(path.dirname(logPath), { recursive: true });
+  await fs.writeFile(logPath, 'DOGFOOD INITIAL OUTPUT\n');
+
+  const events = [];
+  const response = await fetch(`${baseUrl}/api/lanes/${laneId}/stream`, {
+    headers: { 'x-orca-tool-lease': leaseToken },
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('content-type').includes('text/event-stream'), true);
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let appended = false;
+  const readLoop = (async () => {
+    for (let i = 0; i < 50; i += 1) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buffer.indexOf('\n\n')) >= 0) {
+        const frame = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        const event = frame.match(/^event: (.+)$/m)?.[1] || '';
+        const rawData = frame.match(/^data: (.+)$/m)?.[1] || '{}';
+        if (event) events.push({ event, data: JSON.parse(rawData) });
+      }
+      if (!appended && events.some((entry) => entry.event === 'snapshot')) {
+        appended = true;
+        await fs.appendFile(logPath, 'DOGFOOD LIVE OUTPUT\n');
+      }
+      if (events.some((entry) => entry.event === 'append')) {
+        break;
+      }
+    }
+  })();
+
+  const waitForAppend = (async () => {
+    for (let i = 0; i < 40; i += 1) {
+      if (events.some((entry) => entry.event === 'append')) return;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  })();
+  await Promise.race([readLoop, waitForAppend, new Promise((resolve) => setTimeout(resolve, 4000))]);
+  try { await reader.cancel(); } catch { /* ignore stream close races */ }
+  return events;
+}
+
 test('real MCP dogfood flow drives orchestrator ownership, live links, backlog, lane creation, and status', async () => {
   await withRealOrcaServer(async ({ baseUrl, requestJson, token }) => {
     const project = await requestJson('/api/projects', {
@@ -227,6 +277,18 @@ test('real MCP dogfood flow drives orchestrator ownership, live links, backlog, 
       }));
       assert.equal(lane.title, 'Dogfood executor lane');
       assert.equal(lane.owner, 'executor');
+
+      const streamEvents = await collectLaneStreamEvents({
+        baseUrl,
+        sessionId: session.body.id,
+        laneId: lane.id,
+        leaseToken: env.ORCA_TOOL_LEASE_TOKEN,
+      });
+      assert.equal(streamEvents.some((event) => event.event === 'stream_open'), true);
+      assert.equal(streamEvents.some((event) => event.event === 'snapshot'
+        && String(event.data.text || '').includes('DOGFOOD INITIAL OUTPUT')), true);
+      assert.equal(streamEvents.some((event) => event.event === 'append'
+        && String(event.data.text || '').includes('DOGFOOD LIVE OUTPUT')), true);
 
       const status = parseMcpJson(await mcp.callTool('orchestrator__status'));
       assert.equal(status.activeOrchestrator.actor, 'codex-dogfood');

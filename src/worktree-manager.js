@@ -27,23 +27,59 @@ function isValidRepoRoot(repoRoot) {
   return result.stdout.trim() === path.resolve(repoRoot);
 }
 
-function sanitizeBranchSegment(value) {
-  return String(value || '')
-    .replace(/[^A-Za-z0-9._-]/g, '-')
-    .replace(/-{2,}/g, '-')
-    .replace(/^[-.]+|[-.]+$/g, '')
-    .slice(0, 64);
+function fallbackLaneBranch(safeLaneId) {
+  const shortId = String(safeLaneId || '').replace(/-/g, '').slice(0, 8) || 'lane';
+  return `${BRANCH_PREFIX}${shortId}`;
 }
 
-function buildBranchName(branchHint, laneId) {
-  const trimmed = String(branchHint || '').trim();
-  if (trimmed) {
-    if (/^[A-Za-z0-9._\-\/]+$/.test(trimmed) && !trimmed.includes('..')) {
-      return trimmed.slice(0, MAX_BRANCH_LEN);
-    }
+function validRefText(value) {
+  const trimmed = String(value || '').trim();
+  if (
+    trimmed
+    && !trimmed.startsWith('-')
+    && !trimmed.includes('..')
+    && /^[A-Za-z0-9._\-\/]+$/.test(trimmed)
+  ) {
+    return trimmed.slice(0, MAX_BRANCH_LEN);
   }
-  const shortId = String(laneId || '').replace(/-/g, '').slice(0, 8) || 'lane';
-  return `${BRANCH_PREFIX}${shortId}`;
+  return '';
+}
+
+function refExists(repoRoot, ref) {
+  const result = runGit(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], { cwd: repoRoot });
+  return result.status === 0;
+}
+
+function isValidBranchName(repoRoot, branch) {
+  if (!branch) return false;
+  const result = runGit(['check-ref-format', '--branch', branch], { cwd: repoRoot });
+  return result.status === 0;
+}
+
+function remoteNameForRef(repoRoot, ref) {
+  const [remote] = String(ref || '').split('/');
+  if (!remote || remote === ref) return '';
+  const result = runGit(['remote', 'get-url', remote], { cwd: repoRoot });
+  return result.status === 0 ? remote : '';
+}
+
+function buildBranchPlan(repoRoot, branchHint, laneId) {
+  const safeLaneId = String(laneId || '').replace(/[^A-Za-z0-9._\-]/g, '');
+  const fallbackBranch = fallbackLaneBranch(safeLaneId);
+  const requested = validRefText(branchHint);
+  if (!requested || !isValidBranchName(repoRoot, requested)) {
+    return { ok: true, branch: fallbackBranch, baseRef: 'HEAD' };
+  }
+  if (refExists(repoRoot, requested)) {
+    return { ok: true, branch: fallbackBranch, baseRef: requested };
+  }
+  if (remoteNameForRef(repoRoot, requested)) {
+    return {
+      ok: false,
+      reason: `Remote ref ${requested} was not found. Fetch it or choose a local workflow branch name.`,
+    };
+  }
+  return { ok: true, branch: requested, baseRef: 'HEAD' };
 }
 
 function escapeForJson(value) {
@@ -89,9 +125,22 @@ export function readRepoGitInfo(repoRoot) {
     ['for-each-ref', '--format=%(refname:short)', '--sort=-committerdate', '--count=200', 'refs/heads'],
     { cwd: root },
   );
-  const branches = branchOut.status === 0
+  const localBranches = branchOut.status === 0
     ? branchOut.stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean).slice(0, 200)
     : [];
+  const remoteOut = runGit(
+    ['for-each-ref', '--format=%(refname:short)', '--sort=-committerdate', '--count=200', 'refs/remotes'],
+    { cwd: root },
+  );
+  const remoteBranches = remoteOut.status === 0
+    ? remoteOut.stdout.split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter((s) => s && !s.endsWith('/HEAD'))
+      .slice(0, 200)
+    : [];
+  const branches = [...localBranches, ...remoteBranches]
+    .filter((branch, index, all) => all.indexOf(branch) === index)
+    .slice(0, 250);
   const worktrees = [];
   const wtOut = runGit(['worktree', 'list', '--porcelain'], { cwd: root });
   if (wtOut.status === 0) {
@@ -115,6 +164,8 @@ export function readRepoGitInfo(repoRoot) {
     currentBranch: descriptor.headBranch,
     remoteUrl: descriptor.remoteUrl,
     branches,
+    localBranches,
+    remoteBranches,
     worktrees: worktrees.slice(0, 50),
   };
 }
@@ -189,14 +240,12 @@ export function createLaneWorktree({
     }
   }
 
-  let branch = buildBranchName(branchHint, laneId);
-  // Always force a unique branch — fallback to laneId suffix on collision.
-  const branchExists = runGit(['rev-parse', '--verify', '--quiet', branch], { cwd: descriptor.repoRoot });
-  if (branchExists.status === 0) {
-    branch = `${BRANCH_PREFIX}${safeLaneId.slice(0, 8)}`;
-  }
+  const branchPlan = buildBranchPlan(descriptor.repoRoot, branchHint, safeLaneId);
+  if (!branchPlan.ok) return branchPlan;
+  const branch = branchPlan.branch;
+  const resolvedBaseRef = safeBaseRef === 'HEAD' ? branchPlan.baseRef : safeBaseRef;
 
-  const addArgs = ['worktree', 'add', '-b', branch, worktreePath, safeBaseRef];
+  const addArgs = ['worktree', 'add', '-b', branch, worktreePath, resolvedBaseRef];
   const result = runGit(addArgs, { cwd: descriptor.repoRoot });
   if (result.status !== 0) {
     return {

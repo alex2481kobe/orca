@@ -448,6 +448,14 @@ test('MCP tool leases can update worktree policy and supervisor state with scope
     assert.equal(leaseAudit.status, 200);
     assert.equal(leaseAudit.body.supervisorReview.status, 'fix_requested');
 
+    const overviewAfterAudit = await requestJson('/api/supervisor/overview', {
+      headers: { 'x-orca-tool-lease': supervisorLease.body.leaseToken },
+    });
+    assert.equal(overviewAfterAudit.status, 200);
+    const auditedSession = overviewAfterAudit.body.projects[0].sessions
+      .find((item) => item.id === session.body.id);
+    assert.equal(auditedSession.supervisorReview.status, 'fix_requested');
+
     const wrongRoleAudit = await requestJson(`/api/sessions/${session.body.id}/supervisor/audit`, {
       method: 'POST',
       headers: { 'x-orca-tool-lease': orchestratorLease.body.leaseToken },
