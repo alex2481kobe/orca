@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -21,6 +21,7 @@ async function withRealOrcaServer(callback) {
   process.env.ORCA_API_TOKEN = 'dogfood-token';
   process.env.ORCA_AUTO_AUDIT = 'false';
   process.env.ORCA_RATE_LIMIT_DISABLED = 'true';
+  process.env.ORCA_REPO_ROOTS = tempDir;
   process.env.PORT = '0';
   process.env.ORCA_HOST = '127.0.0.1';
   const moduleUrl = `${pathToFileURL(serverEntry).href}?mcp-dogfood=${Date.now()}-${++importCounter}`;
@@ -121,6 +122,44 @@ function parseMcpJson(response) {
   } catch (error) {
     throw new Error(`Expected JSON MCP response, got: ${text}`);
   }
+}
+
+function runGit(args, cwd) {
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new Error(`git ${args.join(' ')} failed: ${result.stderr?.trim() || result.stdout?.trim() || 'unknown git error'}`);
+  }
+  return result.stdout.trim();
+}
+
+async function realPath(candidate) {
+  try {
+    return await fs.realpath(candidate);
+  } catch {
+    return path.resolve(candidate);
+  }
+}
+
+function pathWithin(child, parent) {
+  return child === parent || child.startsWith(`${parent}${path.sep}`);
+}
+
+async function createGitFixture(baseDir, name = 'fixture-repo') {
+  const repoDir = path.join(baseDir, name);
+  const originDir = path.join(baseDir, `${name}-origin.git`);
+  await fs.mkdir(repoDir, { recursive: true });
+  await fs.mkdir(originDir, { recursive: true });
+  runGit(['init', '--bare'], originDir);
+  runGit(['init'], repoDir);
+  runGit(['config', 'user.email', 'orca-dogfood@example.test'], repoDir);
+  runGit(['config', 'user.name', 'Orca Dogfood'], repoDir);
+  await fs.writeFile(path.join(repoDir, 'README.md'), '# Orca MCP dogfood fixture\n');
+  runGit(['add', 'README.md'], repoDir);
+  runGit(['commit', '-m', 'Initial fixture commit'], repoDir);
+  runGit(['branch', '-M', 'main'], repoDir);
+  runGit(['remote', 'add', 'origin', originDir], repoDir);
+  runGit(['push', '-u', 'origin', 'main'], repoDir);
+  return { repoDir, originDir };
 }
 
 async function collectLaneStreamEvents({ baseUrl, sessionId, laneId, leaseToken }) {
@@ -316,6 +355,126 @@ test('real MCP dogfood flow drives orchestrator ownership, live links, backlog, 
   });
 });
 
+test('real MCP orchestrator creates repo-backed sessions and worktree lanes', async () => {
+  let unsafeRoot = null;
+  try {
+    await withRealOrcaServer(async ({ requestJson, token }) => {
+      const { repoDir } = await createGitFixture(process.cwd(), 'mcp-worktree-repo');
+      const repoReal = await realPath(repoDir);
+      unsafeRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-mcp-outside-repo-'));
+
+    const project = await requestJson('/api/projects', {
+      method: 'POST',
+      body: { name: 'MCP Worktree Project', approved: true },
+    });
+    assert.equal(project.status, 201);
+    const bootstrap = await requestJson('/api/mcp/orchestrator-bootstrap', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        actor: 'codex-worktree-dogfood',
+        projectId: project.body.id,
+        ttlMs: 10 * 60 * 1000,
+        nodePath: process.execPath,
+      },
+    });
+    assert.equal(bootstrap.status, 201);
+    assert.equal(bootstrap.body.lease.role, 'orchestrator');
+    assert.equal(bootstrap.body.lease.projectId, project.body.id);
+
+    const env = bootstrap.body.bootstrap.clients.claudeDesktop.config.mcpServers.orca.env;
+    assert.equal(env.ORCA_PROJECT_ID, project.body.id);
+    assert.equal(env.ORCA_SESSION_ID || '', '');
+    const mcp = startMcpClient(env);
+    try {
+      const listed = await mcp.request('tools/list');
+      const toolNames = listed.result.tools.map((tool) => tool.name);
+      assert.ok(toolNames.includes('session__create'));
+      assert.ok(toolNames.includes('session__worktree_policy__update'));
+      assert.ok(toolNames.includes('lane__create'));
+
+      const unsafeSession = await mcp.callTool('session__create', {
+        body: {
+          name: 'Unsafe repo session',
+          approved: true,
+          repoRoot: unsafeRoot,
+        },
+      });
+      assert.equal(unsafeSession.result.isError, true);
+      assert.match(mcpText(unsafeSession), /outside the approved repo roots/i);
+
+      const session = parseMcpJson(await mcp.callTool('session__create', {
+        body: {
+          name: 'MCP Repo Session',
+          leader: 'codex',
+          approved: true,
+          approvedCapacity: 2,
+          spawnPolicy: 'within_capacity',
+          worktreeMode: 'isolated',
+          repoRoot: repoDir,
+        },
+      }));
+      assert.equal(await realPath(session.repoRoot), repoReal);
+      assert.equal(session.worktreeMode, 'isolated');
+
+      const enrolled = parseMcpJson(await mcp.callTool('orchestrator__enroll', {
+        sessionId: session.id,
+        body: { takeover: true },
+      }));
+      assert.equal(enrolled.activeOrchestrator.active, true);
+      assert.equal(enrolled.activeOrchestrator.actor, 'codex-worktree-dogfood');
+
+      const isolatedLane = parseMcpJson(await mcp.callTool('lane__create', {
+        sessionId: session.id,
+        body: {
+          title: 'MCP isolated worktree lane',
+          executorType: 'mock',
+          approved: true,
+          branch: 'origin/main',
+          taskPrompt: 'Prove origin/main becomes an isolated workflow branch.',
+        },
+      }));
+      assert.equal(await realPath(isolatedLane.repoRoot), repoReal);
+      assert.equal(isolatedLane.worktreeMode, 'isolated');
+      assert.match(isolatedLane.branch, /^orca\/lane\//);
+      assert.equal(isolatedLane.branch.startsWith('codex/'), false);
+      const isolatedWorktreeReal = await realPath(isolatedLane.worktreePath);
+      const isolatedBaseReal = await realPath(path.join(process.cwd(), '.orca', 'workspaces', session.id, 'worktrees'));
+      assert.equal(pathWithin(isolatedWorktreeReal, isolatedBaseReal), true);
+      const remoteHead = runGit(['rev-parse', 'origin/main'], repoDir);
+      const isolatedHead = runGit(['rev-parse', 'HEAD'], isolatedLane.worktreePath);
+      assert.equal(isolatedHead, remoteHead);
+
+      const policy = parseMcpJson(await mcp.callTool('session__worktree_policy__update', {
+        sessionId: session.id,
+        body: { worktreeMode: 'shared', approved: true },
+      }));
+      assert.equal(policy.worktreeMode, 'shared');
+
+      const sharedLane = parseMcpJson(await mcp.callTool('lane__create', {
+        sessionId: session.id,
+        body: {
+          title: 'MCP shared worktree lane',
+          executorType: 'mock',
+          approved: true,
+          branch: 'dogfood/shared-worktree',
+          taskPrompt: 'Prove shared worktree mode uses the session repo root.',
+        },
+      }));
+      assert.equal(sharedLane.worktreeMode, 'shared');
+      assert.equal(await realPath(sharedLane.worktreePath), repoReal);
+      assert.equal(await realPath(sharedLane.workdir), repoReal);
+      assert.equal(sharedLane.branch, 'dogfood/shared-worktree');
+      assert.equal(sharedLane.warnings.some((warning) => warning.kind === 'shared_worktree'), true);
+      } finally {
+        mcp.close();
+      }
+    });
+  } finally {
+    if (unsafeRoot) await fs.rm(unsafeRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
+  }
+});
+
 test('real supervisor MCP dogfood flow reads overview and records session audit', async () => {
   await withRealOrcaServer(async ({ requestJson, token }) => {
     const project = await requestJson('/api/projects', {
@@ -414,6 +573,99 @@ test('real supervisor MCP dogfood flow reads overview and records session audit'
         ?.sessions.find((item) => item.id === session.body.id);
       assert.equal(auditedSession?.supervisorReview?.status, 'fix_requested');
       assert.deepEqual(await counts(), beforeBootstrap);
+    } finally {
+      mcp.close();
+    }
+  });
+});
+
+test('scoped supervisor MCP dogfood flow cannot cross session boundaries', async () => {
+  await withRealOrcaServer(async ({ requestJson, token }) => {
+    const project = await requestJson('/api/projects', {
+      method: 'POST',
+      body: { name: 'Scoped Supervisor MCP Project', approved: true },
+    });
+    assert.equal(project.status, 201);
+    const scopedSession = await requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      body: { name: 'Scoped MCP Session', approved: true },
+    });
+    assert.equal(scopedSession.status, 201);
+    const hiddenSession = await requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      body: { name: 'Hidden MCP Session', approved: true },
+    });
+    assert.equal(hiddenSession.status, 201);
+    const scopedLane = await requestJson(`/api/sessions/${scopedSession.body.id}/lanes`, {
+      method: 'POST',
+      body: { title: 'Scoped visible lane', executorType: 'mock', approved: true },
+    });
+    assert.equal(scopedLane.status, 201);
+    const hiddenLane = await requestJson(`/api/sessions/${hiddenSession.body.id}/lanes`, {
+      method: 'POST',
+      body: { title: 'Hidden lane', executorType: 'mock', approved: true },
+    });
+    assert.equal(hiddenLane.status, 201);
+
+    const bootstrap = await requestJson('/api/mcp/supervisor-bootstrap', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        actor: 'scoped-supervisor-dogfood',
+        projectId: project.body.id,
+        sessionId: scopedSession.body.id,
+        ttlMs: 10 * 60 * 1000,
+        nodePath: process.execPath,
+      },
+    });
+    assert.equal(bootstrap.status, 201);
+    assert.equal(bootstrap.body.lease.role, 'supervisor');
+    assert.equal(bootstrap.body.lease.projectId, project.body.id);
+    assert.equal(bootstrap.body.lease.sessionId, scopedSession.body.id);
+    assert.equal(JSON.stringify(bootstrap.body).includes(token), false);
+
+    const env = bootstrap.body.bootstrap.clients.claudeDesktop.config.mcpServers.orca.env;
+    assert.equal(env.ORCA_ROLE, 'supervisor');
+    assert.equal(env.ORCA_PROJECT_ID, project.body.id);
+    assert.equal(env.ORCA_SESSION_ID, scopedSession.body.id);
+    const mcp = startMcpClient(env);
+    try {
+      const listed = await mcp.request('tools/list');
+      const toolNames = listed.result.tools.map((tool) => tool.name);
+      assert.ok(toolNames.includes('supervisor__overview'));
+      assert.ok(toolNames.includes('session__supervisor_audit'));
+      assert.equal(toolNames.includes('lane__create'), false);
+      assert.equal(toolNames.includes('orchestrator__enroll'), false);
+      assert.equal(toolNames.includes('session__plan__update'), false);
+
+      const overview = parseMcpJson(await mcp.callTool('supervisor__overview'));
+      assert.deepEqual(overview.projects.map((item) => item.id), [project.body.id]);
+      assert.deepEqual(overview.projects[0].sessions.map((item) => item.id), [scopedSession.body.id]);
+      assert.equal(overview.projects[0].sessions[0].lanes.some((lane) => lane.id === scopedLane.body.id), true);
+      assert.equal(JSON.stringify(overview).includes(hiddenSession.body.id), false);
+      assert.equal(JSON.stringify(overview).includes(hiddenLane.body.id), false);
+      assert.equal(overview.activeSupervisors.some((lease) => lease.actor === 'scoped-supervisor-dogfood'), true);
+
+      const deniedAudit = await mcp.callTool('session__supervisor_audit', {
+        sessionId: hiddenSession.body.id,
+        body: { verdict: 'accept', summary: 'Should not cross the scoped session boundary.' },
+      });
+      assert.equal(deniedAudit.result.isError, true);
+      assert.match(mcpText(deniedAudit), /Tool lease session mismatch/);
+
+      const audit = parseMcpJson(await mcp.callTool('session__supervisor_audit', {
+        body: {
+          verdict: 'accept',
+          summary: 'Scoped supervisor MCP dogfood accepted this session.',
+        },
+      }));
+      assert.equal(audit.sessionId, scopedSession.body.id);
+      assert.equal(audit.supervisorReview.status, 'accepted');
+
+      const afterAudit = parseMcpJson(await mcp.callTool('supervisor__overview'));
+      assert.deepEqual(afterAudit.projects.map((item) => item.id), [project.body.id]);
+      assert.deepEqual(afterAudit.projects[0].sessions.map((item) => item.id), [scopedSession.body.id]);
+      assert.equal(afterAudit.projects[0].sessions[0].supervisorReview.status, 'accepted');
     } finally {
       mcp.close();
     }
