@@ -26,6 +26,8 @@ server truth for:
 - backlog progress and stalled reasons;
 - capacity and worktree-mode warnings;
 - each session's next required tool.
+- active supervisor leases, including `lastSeenAt` when a supervisor MCP client
+  has actually checked in.
 
 ## Audit Flow
 

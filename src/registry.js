@@ -1,4 +1,4 @@
-import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import path from 'node:path';
 import { toolLeaseMethods } from './registry-tool-leases.js';
 import { notificationMethods } from './registry-notification-methods.js';
@@ -133,8 +133,8 @@ export class OrcaRegistry {
     this.laneExecutorMap = new Map();
     this.unknownExecutorAdapters = new Map();
 
-    fs.mkdir(this.artifactRoot, { recursive: true }).catch(() => {});
-    fs.mkdir(this.workspacesRoot, { recursive: true }).catch(() => {});
+    try { fsSync.mkdirSync(this.artifactRoot, { recursive: true }); } catch { /* best-effort startup path */ }
+    try { fsSync.mkdirSync(this.workspacesRoot, { recursive: true }); } catch { /* best-effort startup path */ }
     this.restoreFromDisk();
     if (!this.projects.length && parseBooleanEnv(process.env.ORCA_SEED, false)) {
       this.seed();

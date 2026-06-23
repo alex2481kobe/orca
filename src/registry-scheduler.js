@@ -143,13 +143,17 @@ export const schedulerMethods = {
   _trackAsync(promise) {
     if (!promise || typeof promise.then !== 'function') return promise;
     this._pendingWrites.add(promise);
-    promise.finally(() => this._pendingWrites.delete(promise));
+    const cleanup = () => this._pendingWrites.delete(promise);
+    promise.then(cleanup, cleanup);
     return promise;
   },
 
   async drainPendingWrites() {
-    if (!this._pendingWrites || this._pendingWrites.size === 0) return;
-    await Promise.allSettled([...this._pendingWrites]);
+    if (!this._pendingWrites) return;
+    while (this._pendingWrites.size > 0) {
+      await Promise.allSettled([...this._pendingWrites]);
+      await Promise.resolve();
+    }
   },
 
   async advanceLanes() {

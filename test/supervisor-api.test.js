@@ -138,6 +138,7 @@ test('supervisor overview respects scoped supervisor tool leases', async () => {
     assert.deepEqual(projectOverview.body.projects.map((project) => project.id), [projectA.body.id]);
     assert.deepEqual(projectOverview.body.projects[0].sessions.map((session) => session.id).sort(), [sessionA1.body.id, sessionA2.body.id].sort());
     assert.deepEqual(projectOverview.body.activeSupervisors.map((lease) => lease.actor), ['project-supervisor']);
+    assert.ok(Date.parse(projectOverview.body.activeSupervisors[0].lastSeenAt));
 
     const foreignOverview = await requestJson(`/api/supervisor/overview?projectId=${projectB.body.id}`, {
       headers: { 'x-orca-tool-lease': projectLease.body.leaseToken },
@@ -158,6 +159,45 @@ test('supervisor overview respects scoped supervisor tool leases', async () => {
     assert.deepEqual(sessionOverview.body.projects.map((project) => project.id), [projectA.body.id]);
     assert.deepEqual(sessionOverview.body.projects[0].sessions.map((session) => session.id), [sessionA1.body.id]);
     assert.deepEqual(sessionOverview.body.activeSupervisors.map((lease) => lease.actor), ['session-supervisor']);
+  });
+});
+
+test('orchestrator enroll rejects non-orchestrator tool leases at the route boundary', async () => {
+  await withServer(async ({ requestJson, token }) => {
+    const project = await requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Wrong Role Orchestrator Project', approved: true },
+    });
+    assert.equal(project.status, 201);
+    const session = await requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Wrong Role Orchestrator Session', approved: true },
+    });
+    assert.equal(session.status, 201);
+    const executorLease = await requestJson('/api/agent-tools/leases', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'executor-not-orchestrator', role: 'executor', projectId: project.body.id, sessionId: session.body.id, ttlMs: 60_000 },
+    });
+    assert.equal(executorLease.status, 201);
+    assert.equal(executorLease.body.lease.role, 'executor');
+    assert.equal(executorLease.body.lease.allowedTools.includes('orchestrator.enroll'), false);
+
+    const denied = await requestJson(`/api/sessions/${session.body.id}/orchestrator/enroll`, {
+      method: 'POST',
+      headers: { 'x-orca-tool-lease': executorLease.body.leaseToken },
+      body: { takeover: true },
+    });
+    assert.equal(denied.status, 403);
+    assert.match(denied.body.error, /Tool lease does not grant this tool/);
+
+    const status = await requestJson(`/api/sessions/${session.body.id}/orchestrator/status`, {
+      headers: { 'x-orca-token': token },
+    });
+    assert.equal(status.status, 200);
+    assert.equal(status.body.activeOrchestrator.active, false);
   });
 });
 
@@ -195,6 +235,17 @@ test('supervisor resign revokes only the caller supervisor lease', async () => {
     });
     assert.deepEqual(before.body.activeSupervisors.map((lease) => lease.actor).sort(), ['supervisor-a', 'supervisor-b']);
 
+    const malformedDenied = await requestJson('/api/supervisor/resign', {
+      method: 'POST',
+      headers: { 'x-orca-tool-lease': 'not-a-real-lease-token' },
+    });
+    assert.equal(malformedDenied.status, 401);
+    assert.match(malformedDenied.body.error, /not found/i);
+    const afterMalformed = await requestJson('/api/supervisor/overview', {
+      headers: { 'x-orca-token': token },
+    });
+    assert.deepEqual(afterMalformed.body.activeSupervisors.map((lease) => lease.actor).sort(), ['supervisor-a', 'supervisor-b']);
+
     const resigned = await requestJson('/api/supervisor/resign', {
       method: 'POST',
       headers: { 'x-orca-tool-lease': supervisorA.body.leaseToken },
@@ -221,6 +272,7 @@ test('supervisor resign revokes only the caller supervisor lease', async () => {
     });
     assert.equal(stillActive.status, 200);
     assert.deepEqual(stillActive.body.activeSupervisors.map((lease) => lease.actor), ['supervisor-b']);
+    assert.ok(Date.parse(stillActive.body.activeSupervisors[0].lastSeenAt));
   });
 });
 

@@ -15,10 +15,14 @@ async function withIsolatedRegistry() {
 
   const registry = new OrcaRegistry();
   const cleanup = async () => {
+    if (typeof registry.drainPendingWrites === 'function') {
+      await registry.drainPendingWrites();
+    }
     registry.stopScheduler();
     if (typeof registry.drainPendingWrites === 'function') {
       await registry.drainPendingWrites();
     }
+    await new Promise((resolve) => setTimeout(resolve, 10));
     process.chdir(previousCwd);
     await fs.rm(tempDir, { force: true, recursive: true, maxRetries: 5, retryDelay: 25 });
   };

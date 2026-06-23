@@ -77,9 +77,21 @@ export function createLaneStream(deps) {
         if (len > 0) await fh.read(buf, 0, len, start);
         await fh.close().catch(() => {});
         offset = stat.size;
-        if (!closed) writeSse(res, 'snapshot', { text: buf.toString('utf8'), truncated: start > 0 });
+        if (!closed) writeSse(res, 'snapshot', {
+          text: buf.toString('utf8'),
+          truncated: start > 0,
+          offset: start,
+          nextOffset: stat.size,
+          size: stat.size,
+        });
       } catch {
-        if (!closed) writeSse(res, 'snapshot', { text: '', truncated: false });
+        if (!closed) writeSse(res, 'snapshot', {
+          text: '',
+          truncated: false,
+          offset: 0,
+          nextOffset: 0,
+          size: 0,
+        });
       }
     })();
 
@@ -88,9 +100,18 @@ export function createLaneStream(deps) {
       if (!streamAuthorized()) { writeSse(res, 'stream_close', { reason: 'auth_revoked' }); cleanup(); try { res.end(); } catch { /* ignore */ } return; }
       reading = true;
       try {
+        const startOffset = offset;
         const { text, offset: next, reset } = await readRange(logPath, offset, READ_MAX);
         if (reset) { offset = 0; }
-        else if (text) { offset = next; if (!closed) writeSse(res, 'append', { text }); }
+        else if (text) {
+          offset = next;
+          if (!closed) writeSse(res, 'append', {
+            text,
+            offset: startOffset,
+            nextOffset: next,
+            bytes: Buffer.byteLength(text, 'utf8'),
+          });
+        }
         if (!closed && Date.now() - lastHeartbeat >= heartbeatMs) {
           lastHeartbeat = Date.now();
           writeSse(res, 'heartbeat', { at: new Date().toISOString() });

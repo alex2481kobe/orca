@@ -67,6 +67,7 @@ export const supervisorMethods = {
           projectId: lease.projectId || null,
           sessionId: lease.sessionId || null,
           createdAt: lease.createdAt,
+          lastSeenAt: lease.lastUsedAt || null,
           expiresAt: lease.expiresAt,
           active: lease.active,
         }))

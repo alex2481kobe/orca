@@ -239,7 +239,9 @@ try {
   if (overviewSession.nextRequiredTool !== 'lane.create') fail('supervisor overview wrong next action', overviewSession.nextRequiredTool);
   if (overviewSession.backlog?.counts?.pending !== 1) fail('supervisor overview missing backlog pending count', JSON.stringify(overviewSession.backlog));
   if (!overviewSession.lanes.some((item) => item.id === lane.body.id)) fail('supervisor overview missing executor lane');
-  if (!overview.data.activeSupervisors.some((item) => item.actor === 'supervisor-flow-chat')) fail('supervisor overview missing active supervisor');
+  const activeSupervisor = overview.data.activeSupervisors.find((item) => item.actor === 'supervisor-flow-chat');
+  if (!activeSupervisor) fail('supervisor overview missing active supervisor');
+  if (!Date.parse(activeSupervisor.lastSeenAt || '')) fail('supervisor overview missing supervisor lastSeenAt', JSON.stringify(activeSupervisor));
   log('overview', 'attached supervisor sees projects, active orchestrator, backlog, lanes, next action');
 
   await writeLaneTerminalLog(session.body.id, lane.body.id, 'SUPERVISOR FLOW LIVE OUTPUT\n');

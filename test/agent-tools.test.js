@@ -323,6 +323,7 @@ test('tool leases are scoped, hashed at rest, and enforce allowed tools', async 
     });
     assert.equal(Boolean(issued.leaseToken), true);
     assert.equal(issued.lease.allowedTools.includes('session.next_action'), true);
+    assert.equal(issued.lease.lastUsedAt, null);
     assert.equal(JSON.stringify(registry.toolLeases).includes(issued.leaseToken), false);
 
     const validated = registry.validateToolLease(issued.leaseToken, {
@@ -332,10 +333,17 @@ test('tool leases are scoped, hashed at rest, and enforce allowed tools', async 
       laneId: lane.id,
     });
     assert.equal(validated.id, issued.lease.id);
+    assert.ok(Date.parse(validated.lastUsedAt));
+    assert.ok(Date.parse(registry.toolLeases.find((lease) => lease.id === issued.lease.id).lastUsedAt));
     assert.throws(() => registry.validateToolLease(issued.leaseToken, {
       role: 'orchestrator',
       toolId: 'provider.secret.set',
     }), (error) => error.status === 403);
+    registry.toolLeases.find((lease) => lease.id === issued.lease.id).expiresAt = new Date(Date.now() - 1000).toISOString();
+    assert.throws(() => registry.validateToolLease(issued.leaseToken, {
+      role: 'orchestrator',
+      toolId: 'session.next_action',
+    }), (error) => error.status === 401 && /expired/.test(error.message));
   });
 });
 

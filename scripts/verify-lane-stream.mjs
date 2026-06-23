@@ -25,10 +25,12 @@ const lane = await fetch(`${base}/api/sessions/${session.id}/lanes`, { method: '
 
 const logPath = path.join(stateDir, 'artifacts', session.id, lane.id, 'terminal.log');
 await fsp.mkdir(path.dirname(logPath), { recursive: true });
-await fsp.writeFile(logPath, 'INITIAL LINE\n');
+const initialText = 'INITIAL LINE\n';
+await fsp.writeFile(logPath, initialText);
 
 // Connect to the SSE stream and collect frames.
 const events = [];
+const liveText = Array.from({ length: 620 }, (_, index) => `LIVE-${String(index).padStart(3, '0')}:${'z'.repeat(1000)}\n`).join('');
 const res = await fetch(`${base}/api/lanes/${lane.id}/stream`);
 const reader = res.body.getReader();
 const decoder = new TextDecoder();
@@ -45,24 +47,46 @@ const readLoop = (async () => {
       const dataMatch = frame.match(/^data: (.+)$/m);
       if (evMatch) events.push({ event: evMatch[1], data: dataMatch ? JSON.parse(dataMatch[1]) : null });
     }
-    if (events.some((e) => e.event === 'snapshot') && events.some((e) => e.event === 'append')) break;
+    const appendText = events.filter((e) => e.event === 'append').map((e) => e.data?.text || '').join('');
+    if (events.some((e) => e.event === 'snapshot') && appendText.length >= liveText.length) break;
   }
 })();
 // After connecting, append more output to the log to trigger a live 'append'.
 await new Promise((r) => setTimeout(r, 500));
-await fsp.appendFile(logPath, 'LIVE OUTPUT CHUNK\n');
+await fsp.appendFile(logPath, liveText);
 await Promise.race([readLoop, new Promise((r) => setTimeout(r, 4000))]);
 try { await reader.cancel(); } catch { /* ignore */ }
 
 const snapshot = events.find((e) => e.event === 'snapshot');
-const append = events.find((e) => e.event === 'append');
+const appends = events.filter((e) => e.event === 'append');
+let appendOffset = Buffer.byteLength(initialText);
+let appendText = '';
+let contiguous = appends.length > 0;
+for (const append of appends) {
+  if (append.data.offset !== appendOffset) contiguous = false;
+  if (append.data.bytes !== Buffer.byteLength(append.data.text || '', 'utf8')) contiguous = false;
+  if (append.data.bytes > 256 * 1024) contiguous = false;
+  appendOffset = append.data.nextOffset;
+  appendText += append.data.text || '';
+  if (appendText.length >= liveText.length) break;
+}
+const pass = events.some((e) => e.event === 'stream_open')
+  && Boolean(snapshot && snapshot.data.text.includes('INITIAL LINE'))
+  && snapshot?.data?.offset === 0
+  && snapshot?.data?.nextOffset === Buffer.byteLength(initialText)
+  && appends.length >= 3
+  && contiguous
+  && appendText === liveText
+  && appendOffset === Buffer.byteLength(initialText) + Buffer.byteLength(liveText);
 console.log(JSON.stringify({
   gotStreamOpen: events.some((e) => e.event === 'stream_open'),
   snapshotHasInitial: Boolean(snapshot && snapshot.data.text.includes('INITIAL LINE')),
-  appendHasLive: Boolean(append && append.data.text.includes('LIVE OUTPUT CHUNK')),
-  pass: events.some((e) => e.event === 'stream_open')
-    && Boolean(snapshot && snapshot.data.text.includes('INITIAL LINE'))
-    && Boolean(append && append.data.text.includes('LIVE OUTPUT CHUNK')),
+  snapshotNextOffset: snapshot?.data?.nextOffset || null,
+  appendEvents: appends.length,
+  appendBytes: appendText.length,
+  appendContiguous: contiguous,
+  pass,
 }, null, 2));
+if (!pass) process.exitCode = 1;
 if (sm.stopServer) await sm.stopServer(); await new Promise((r) => s.close(r));
-process.exit(0);
+process.exit(process.exitCode || 0);

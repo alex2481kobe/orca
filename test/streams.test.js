@@ -123,6 +123,22 @@ async function waitForBodyText(response, pattern, timeoutMs = 500) {
   throw new Error(`Timed out waiting for body text matching ${pattern}`);
 }
 
+async function waitForEvents(response, predicate, timeoutMs = 1500) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const events = parseSseEvents(response.bodyText());
+    if (predicate(events)) return events;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error('Timed out waiting for SSE event predicate');
+}
+
+async function closeStreamResponse(stream) {
+  if (!stream?.res) return;
+  stream.res.emit('close');
+  await new Promise((resolve) => setTimeout(resolve, 50));
+}
+
 test('stream endpoint requires auth when API token is configured and returns a lightweight revision signal', async () => {
   const token = 'stream-test-token';
   const server = await startServer({
@@ -255,8 +271,106 @@ test('lane stream accepts scoped lane.get tool leases for live executor output',
     const text = await waitForBodyText(stream, /hello from executor stream/);
     const events = parseSseEvents(text);
     assert.equal(events.some((event) => event.event === 'snapshot' && /hello from executor stream/.test(event.data.text)), true);
-    stream.res.emit('close');
+    await closeStreamResponse(stream);
   } finally {
+    await server.stop();
+  }
+});
+
+test('lane terminal tail and live stream preserve large-output continuity', async () => {
+  const token = 'lane-stream-continuity-token';
+  const server = await startServer({
+    ORCA_API_TOKEN: token,
+    ORCA_STREAM_HEARTBEAT_MS: '10000',
+  });
+  let stream = null;
+  try {
+    const project = await server.request('/api/projects', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Continuity Project', approved: true },
+    });
+    assert.equal(project.status, 201);
+    const session = await server.request(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Continuity Session', approved: true },
+    });
+    assert.equal(session.status, 201);
+    const lane = await server.request(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { title: 'Continuity executor', executorType: 'mock', approved: true },
+    });
+    assert.equal(lane.status, 201);
+    const supervisorLease = await server.request('/api/agent-tools/leases', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        actor: 'continuity-supervisor',
+        role: 'supervisor',
+        projectId: project.body.id,
+        sessionId: session.body.id,
+        ttlMs: 10 * 60 * 1000,
+      },
+    });
+    assert.equal(supervisorLease.status, 201);
+
+    const logDir = path.join(process.cwd(), 'artifacts', session.body.id, lane.body.id);
+    const logPath = path.join(logDir, 'terminal.log');
+    await fs.mkdir(logDir, { recursive: true });
+    const initialLog = Array.from({ length: 340 }, (_, index) => `tail-${String(index).padStart(3, '0')}:${'x'.repeat(1000)}\n`).join('');
+    await fs.writeFile(logPath, initialLog);
+
+    let offset = 0;
+    let reconstructed = '';
+    for (let guard = 0; guard < 40; guard += 1) {
+      const tail = await server.request(`/api/lanes/${lane.body.id}/terminal-tail?offset=${offset}&maxBytes=32768`, {
+        headers: { 'x-orca-tool-lease': supervisorLease.body.leaseToken },
+      });
+      assert.equal(tail.status, 200);
+      assert.equal(tail.body.offset, offset);
+      assert.ok(Buffer.byteLength(tail.body.text, 'utf8') <= 32768);
+      reconstructed += tail.body.text;
+      offset = tail.body.nextOffset;
+      if (tail.body.eof) break;
+    }
+    assert.equal(reconstructed, initialLog);
+    assert.equal(offset, Buffer.byteLength(initialLog, 'utf8'));
+
+    stream = await server.request(`/api/lanes/${lane.body.id}/stream`, {
+      headers: { 'x-orca-tool-lease': supervisorLease.body.leaseToken },
+    });
+    assert.equal(stream.status, 200);
+    const snapshotEvents = await waitForEvents(stream, (events) => events.some((event) => event.event === 'snapshot'));
+    const snapshot = snapshotEvents.find((event) => event.event === 'snapshot').data;
+    assert.equal(snapshot.nextOffset, Buffer.byteLength(initialLog, 'utf8'));
+    assert.equal(snapshot.size, Buffer.byteLength(initialLog, 'utf8'));
+    assert.equal(snapshot.truncated, true);
+
+    const liveOutput = Array.from({ length: 620 }, (_, index) => `live-${String(index).padStart(3, '0')}:${'y'.repeat(1000)}\n`).join('');
+    const liveStartOffset = Buffer.byteLength(initialLog, 'utf8');
+    await fs.appendFile(logPath, liveOutput);
+    const events = await waitForEvents(stream, (items) => {
+      const text = items.filter((event) => event.event === 'append').map((event) => event.data.text).join('');
+      return text.length >= liveOutput.length;
+    }, 3000);
+    const appendEvents = events.filter((event) => event.event === 'append');
+    assert.ok(appendEvents.length >= 3, 'large live output should be split into bounded append events');
+    let nextOffset = liveStartOffset;
+    let reconstructedLive = '';
+    for (const event of appendEvents) {
+      assert.equal(event.data.offset, nextOffset);
+      assert.equal(event.data.bytes, Buffer.byteLength(event.data.text, 'utf8'));
+      assert.ok(event.data.bytes <= 256 * 1024);
+      nextOffset = event.data.nextOffset;
+      reconstructedLive += event.data.text;
+      if (reconstructedLive.length >= liveOutput.length) break;
+    }
+    assert.equal(reconstructedLive, liveOutput);
+    assert.equal(nextOffset, liveStartOffset + Buffer.byteLength(liveOutput, 'utf8'));
+  } finally {
+    await closeStreamResponse(stream);
     await server.stop();
   }
 });

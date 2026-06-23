@@ -72,6 +72,7 @@ export const toolLeaseMethods = {
         .filter((toolId, index, all) => all.indexOf(toolId) === index)
         .slice(0, 100),
       createdAt: new Date(now).toISOString(),
+      lastUsedAt: null,
       expiresAt: new Date(now + ttl).toISOString(),
       revokedAt: null,
     };
@@ -117,6 +118,7 @@ export const toolLeaseMethods = {
       laneId: lease.laneId,
       allowedTools: safeArray(lease.allowedTools),
       createdAt: lease.createdAt,
+      lastUsedAt: lease.lastUsedAt || null,
       expiresAt: lease.expiresAt,
       revokedAt: lease.revokedAt || null,
       active: !lease.revokedAt && Date.parse(lease.expiresAt) > Date.now(),
@@ -199,6 +201,7 @@ export const toolLeaseMethods = {
     if (laneId && lease.laneId && lease.laneId !== laneId) {
       throw { status: 403, message: 'Tool lease lane mismatch.' };
     }
+    lease.lastUsedAt = new Date().toISOString();
     return this.publicToolLease(lease);
   },
 
