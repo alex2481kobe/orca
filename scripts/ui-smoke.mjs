@@ -268,6 +268,7 @@ async function playwrightMode(pw) {
         'checkPrivateAccessTarget',
         'copyPrivateAccessCommand',
         'createPairingCode',
+        'connectSupervisorApp',
         'requestBrowserNotifications',
         'removeWorktree',
         'retryLane',
@@ -284,6 +285,8 @@ async function playwrightMode(pw) {
         'workstationUseDir',
         'workstationPickerClose',
         'toggleProviderEnabled',
+        'openSettings',
+        'settingsBack',
       ]);
       return els
         .map((el) => el.getAttribute('data-action'))
