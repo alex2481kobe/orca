@@ -118,6 +118,8 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
     'evidence.list',
     'evidence.latest',
     'session.supervisor_audit',
+    'tailscale.status',
+    'orca.setup_guide',
   ]) {
     assert.equal(supervisorTools.has(id), true, `supervisor missing ${id}`);
   }

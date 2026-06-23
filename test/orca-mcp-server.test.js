@@ -217,6 +217,8 @@ test('Orca MCP server: supervisor role exposes inspection tools but no takeover 
       'evidence__list',
       'evidence__latest',
       'session__supervisor_audit',
+      'tailscale__status',
+      'orca__setup_guide',
     ]) {
       assert.ok(names.includes(name), `${name} exposed to supervisor`);
     }
@@ -236,6 +238,7 @@ test('Orca MCP server: supervisor role exposes inspection tools but no takeover 
       'lane__heartbeat',
       'lane__submit',
       'approval__request',
+      'tailscale__serve__configure',
     ]) {
       assert.equal(names.includes(name), false, `${name} hidden from supervisor`);
     }

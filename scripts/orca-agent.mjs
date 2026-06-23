@@ -29,7 +29,7 @@
  *   orca-agent bootstrap [--project <id>] [--session <id>]   # mint + print a lease (and a `claude mcp add` line)
  *   orca-agent projects                                      # list projects visible to this lease
  *   orca-agent links <projectId>                             # list saved live links for a project
- *   orca-agent link-upsert <projectId> <label> <url> [--tailnet URL] [--local URL] [--https URL] [--port N] [--kind vite] [--favorite] [--check]
+ *   orca-agent link-upsert <projectId> <label> <url> [--tailnet URL] [--local URL] [--https URL] [--port N] [--kind vite] [--favorite] [--check] [--prefer tailnet]
  *   orca-agent link-check <projectId> <linkId> [--prefer auto|local|tailnet|https]
  *   orca-agent tailscale-status                              # read private Tailscale/Serve status
  *   orca-agent tailscale-setup                               # print the dry-run setup plan
@@ -245,7 +245,7 @@ switch (cmd) {
     break;
   }
   case 'link-upsert': {
-    const projectId = _[0] || die('usage: orca-agent link-upsert <projectId> <label> <url> [--tailnet URL] [--local URL] [--https URL] [--port N] [--kind vite] [--favorite] [--check]');
+    const projectId = _[0] || die('usage: orca-agent link-upsert <projectId> <label> <url> [--tailnet URL] [--local URL] [--https URL] [--port N] [--kind vite] [--favorite] [--check] [--prefer tailnet]');
     const label = _[1] || die('link label required');
     const url = _[2] || die('link URL required');
     const saved = await api('POST', `/api/projects/${encodeURIComponent(projectId)}/quick-links`, quickLinkBody(projectId, label, url, flags));

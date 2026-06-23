@@ -11,10 +11,13 @@ export const centralRateLimit = 'central in-memory policy via src/rate-limiter.j
 //   none                                  -> public: liveness, auth status, static shell.
 //   one_time_pairing_code                 -> /api/auth/pair (consumes a code, no prior auth).
 //   api_token_or_paired_browser_session   -> operator: workflow control + all reads.
+//   api_token_or_paired_browser_session_or_scoped_tool_lease
+//                                         -> operator or a server-scoped MCP/CLI lease.
 //   ..._plus_optional_worker_token        -> operator, optionally a worker token.
 //   api_token_or_local_host_admin         -> admin: host mutation, credentials, network, devices.
 const AUTH_PUBLIC = 'none';
 const AUTH_OPERATOR = 'api_token_or_paired_browser_session';
+const AUTH_SCOPED_TOOL_LEASE = 'api_token_or_paired_browser_session_or_scoped_tool_lease';
 const AUTH_ADMIN = 'api_token_or_local_host_admin';
 
 // Genuinely public (no workspace/host data, or self-authorizing pairing).
@@ -71,6 +74,7 @@ function resolveAuthContract(method, routePath, declared) {
   const declaredAuth = String(declared || '');
   // Preserve special operator variants (worker tokens, scoped tool leases,
   // optional token modes) while still upgrading unsafe "none" declarations below.
+  if (declaredAuth === AUTH_SCOPED_TOOL_LEASE) return AUTH_SCOPED_TOOL_LEASE;
   if (declaredAuth.startsWith(`${AUTH_OPERATOR}_`)) return declaredAuth;
   // Everything else returns data or mutates the workspace -> operator minimum.
   return AUTH_OPERATOR;

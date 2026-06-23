@@ -63,6 +63,11 @@ orca-agent link-upsert <projectId> "Example App" "http://127.0.0.1:5173" \
 orca-agent link-check <projectId> <linkId> --prefer tailnet
 ```
 
+When the user wants to open a project from a phone or another tailnet device,
+pass `--prefer tailnet` (or MCP body `{ "prefer": "tailnet" }`) for the health
+check. The default `auto` preference checks the primary `url`, which is often
+the local loopback URL on the workstation.
+
 Use `orca-agent tailscale-status` and `orca-agent tailscale-setup` to inspect the
 private-access setup from a CLI agent. Enabling or disabling Tailscale Serve is a
 workstation/admin operation (`orca-agent tailscale-serve enable|disable`), not a

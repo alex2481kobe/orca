@@ -206,7 +206,7 @@ export const part1 = [
     auth: 'api_token_or_paired_browser_session_or_scoped_lane_get_tool_lease',
     mutationRisk: 'none',
     approval: 'authorized lane stream context; tool leases must grant lane.get for the lane',
-    validation: 'lane exists; operator auth may stream any lane; scoped tool lease must validate lane.get against the lane project/session/id; pushes bounded terminal.log snapshots and append events',
+    validation: 'lane exists; operator auth may stream any lane; scoped tool lease must validate lane.get against the lane project/session/id; pushes bounded terminal.log snapshots and offset-tagged append events',
     auditEvent: 'none',
     bodyLimit: 'none',
     rateLimit: centralRateLimit,

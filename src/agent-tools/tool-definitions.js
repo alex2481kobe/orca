@@ -510,7 +510,7 @@ export const TOOL_DEFINITIONS = [
     route: '/api/projects/{projectId}/quick-links/{linkId}/check',
     implemented: true,
     mutating: true,
-    summary: 'Health-check a validated project live link without accepting arbitrary URLs in the tool call.',
+    summary: 'Health-check a validated project live link without accepting arbitrary URLs in the tool call. Body.prefer can be auto|local|tailnet|https; use tailnet for phone/Tailscale checks.',
   },
   {
     id: 'project.archive',
@@ -695,7 +695,7 @@ export const TOOL_DEFINITIONS = [
   {
     id: 'tailscale.status',
     group: 'tailscale',
-    roles: ['orchestrator', 'dashboard'],
+    roles: ['supervisor', 'orchestrator', 'dashboard'],
     method: 'GET',
     route: '/api/private-access/tailnet',
     implemented: true,
@@ -715,7 +715,7 @@ export const TOOL_DEFINITIONS = [
   {
     id: 'orca.setup_guide',
     group: 'setup',
-    roles: ['orchestrator', 'dashboard'],
+    roles: ['supervisor', 'orchestrator', 'dashboard'],
     method: 'GET',
     route: '/api/private-access/setup-plan',
     implemented: true,

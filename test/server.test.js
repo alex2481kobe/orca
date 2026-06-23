@@ -2382,7 +2382,7 @@ test('project live links are server-authoritative, SSRF-checked, health-checked,
   }
 });
 
-test('orchestrator tool leases can manage project links and read private-access setup state', async () => {
+test('orchestrator and supervisor tool leases can read private-access setup state while Serve stays admin-only', async () => {
   const token = 'route-token-agent-project-links';
   const server = await startServer({ token });
 
@@ -2423,6 +2423,31 @@ test('orchestrator tool leases can manage project links and read private-access 
     assert.equal(setup.status, 200);
     assert.equal(Array.isArray(setup.body?.commands), true);
 
+    const supervisorLease = await server.requestJson('/api/agent-tools/leases', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        role: 'supervisor',
+        projectId: project.body.id,
+        ttlMs: 60_000,
+      },
+    });
+    assert.equal(supervisorLease.status, 201);
+
+    const supervisorTailnet = await server.requestJson('/api/private-access/tailnet?fake=serve-https', {
+      method: 'GET',
+      headers: { 'x-orca-tool-lease': supervisorLease.body.leaseToken },
+    });
+    assert.equal(supervisorTailnet.status, 200);
+    assert.equal(supervisorTailnet.body?.serveMode, 'tailnet-https-serve');
+
+    const supervisorSetup = await server.requestJson('/api/private-access/setup-plan?localUrl=http%3A%2F%2F127.0.0.1%3A3000', {
+      method: 'GET',
+      headers: { 'x-orca-tool-lease': supervisorLease.body.leaseToken },
+    });
+    assert.equal(supervisorSetup.status, 200);
+    assert.equal(Array.isArray(supervisorSetup.body?.commands), true);
+
     const added = await server.requestJson(`/api/projects/${project.body.id}/quick-links`, {
       method: 'POST',
       headers: { 'x-orca-tool-lease': lease.body.leaseToken },
@@ -2442,12 +2467,29 @@ test('orchestrator tool leases can manage project links and read private-access 
     assert.equal(added.body?.link?.tailnetHttpUrl, 'http://orca.example.ts.net:5173/');
     assert.equal(added.body?.project?.quickLinks?.length, 1);
 
+    const supervisorWriteDenied = await server.requestJson(`/api/projects/${project.body.id}/quick-links`, {
+      method: 'POST',
+      headers: { 'x-orca-tool-lease': supervisorLease.body.leaseToken },
+      body: {
+        approved: true,
+        label: 'Supervisor should not write',
+        url: 'http://orca.example.ts.net:5173/',
+      },
+    });
+    assert.equal(supervisorWriteDenied.status, 403);
+
     const serveConfigure = await server.requestJson('/api/private-access/serve', {
       method: 'POST',
       headers: { 'x-orca-tool-lease': lease.body.leaseToken },
       body: { action: 'enable', port: 3000 },
     });
     assert.equal(serveConfigure.status, 401);
+    const supervisorServeConfigure = await server.requestJson('/api/private-access/serve', {
+      method: 'POST',
+      headers: { 'x-orca-tool-lease': supervisorLease.body.leaseToken },
+      body: { action: 'enable', port: 3000 },
+    });
+    assert.equal(supervisorServeConfigure.status, 401);
   } finally {
     await server.stop();
   }
@@ -2608,6 +2650,99 @@ test('project archive and restore are dashboard-only scoped tool routes', async 
     });
     assert.equal(restored.status, 200);
     assert.equal(restored.body?.state, 'active');
+  } finally {
+    await server.stop();
+  }
+});
+
+test('scoped supervisor tool leases can read only their project/session/lane contract routes', async () => {
+  const token = 'route-token-scoped-supervisor-reads';
+  const server = await startServer({ token });
+
+  try {
+    const projectA = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Scoped Read Project A', approved: true },
+    });
+    assert.equal(projectA.status, 201);
+    const projectB = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Scoped Read Project B', approved: true },
+    });
+    assert.equal(projectB.status, 201);
+    const sessionA = await server.requestJson(`/api/projects/${projectA.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Scoped Read Session A', approved: true },
+    });
+    assert.equal(sessionA.status, 201);
+    const sessionB = await server.requestJson(`/api/projects/${projectB.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Scoped Read Session B', approved: true },
+    });
+    assert.equal(sessionB.status, 201);
+    const laneA = await server.requestJson(`/api/sessions/${sessionA.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { title: 'Scoped Read Lane A', executorType: 'mock', approved: true },
+    });
+    assert.equal(laneA.status, 201);
+    const laneB = await server.requestJson(`/api/sessions/${sessionB.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { title: 'Scoped Read Lane B', executorType: 'mock', approved: true },
+    });
+    assert.equal(laneB.status, 201);
+
+    const lease = await server.requestJson('/api/agent-tools/leases', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        actor: 'scoped-supervisor-reader',
+        role: 'supervisor',
+        projectId: projectA.body.id,
+        sessionId: sessionA.body.id,
+        ttlMs: 60_000,
+      },
+    });
+    assert.equal(lease.status, 201);
+    const leaseHeaders = { 'x-orca-tool-lease': lease.body.leaseToken };
+
+    const project = await server.requestJson(`/api/projects/${projectA.body.id}`, { headers: leaseHeaders });
+    assert.equal(project.status, 200);
+    assert.equal(project.body.id, projectA.body.id);
+
+    const sessions = await server.requestJson(`/api/projects/${projectA.body.id}/sessions`, { headers: leaseHeaders });
+    assert.equal(sessions.status, 200);
+    assert.deepEqual(sessions.body.map((session) => session.id), [sessionA.body.id]);
+
+    const session = await server.requestJson(`/api/sessions/${sessionA.body.id}`, { headers: leaseHeaders });
+    assert.equal(session.status, 200);
+    assert.equal(session.body.id, sessionA.body.id);
+
+    const lane = await server.requestJson(`/api/lanes/${laneA.body.id}`, { headers: leaseHeaders });
+    assert.equal(lane.status, 200);
+    assert.equal(lane.body.id, laneA.body.id);
+
+    const evidence = await server.requestJson(`/api/lanes/${laneA.body.id}/evidence`, { headers: leaseHeaders });
+    assert.equal(evidence.status, 200);
+    assert.equal(evidence.body.laneId, laneA.body.id);
+    assert.equal(Array.isArray(evidence.body.files), true);
+
+    const latest = await server.requestJson(`/api/lanes/${laneA.body.id}/evidence/latest`, { headers: leaseHeaders });
+    assert.equal(latest.status, 200);
+
+    const overview = await server.requestJson('/api/supervisor/overview', { headers: leaseHeaders });
+    assert.equal(overview.status, 200);
+    assert.deepEqual(overview.body.projects.map((item) => item.id), [projectA.body.id]);
+
+    const deniedProject = await server.requestJson(`/api/projects/${projectB.body.id}`, { headers: leaseHeaders });
+    assert.equal(deniedProject.status, 403);
+    const deniedLane = await server.requestJson(`/api/lanes/${laneB.body.id}`, { headers: leaseHeaders });
+    assert.equal(deniedLane.status, 403);
   } finally {
     await server.stop();
   }
