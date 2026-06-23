@@ -92,6 +92,105 @@ test('supervisor API overview and session audit are token-gated and routed', asy
   });
 });
 
+test('orchestrator MCP bootstrap attaches to existing Orca state without duplicating records', async () => {
+  await withServer(async ({ requestJson, token }) => {
+    const project = await requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Orchestrator Attach Project', approved: true },
+    });
+    assert.equal(project.status, 201);
+    const session = await requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Orchestrator Attach Session', approved: true },
+    });
+    assert.equal(session.status, 201);
+    const lane = await requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { title: 'Existing lane', executorType: 'mock', approved: true },
+    });
+    assert.equal(lane.status, 201);
+
+    const counts = async () => {
+      const projects = await requestJson('/api/projects', { headers: { 'x-orca-token': token } });
+      const sessions = await requestJson(`/api/projects/${project.body.id}/sessions`, { headers: { 'x-orca-token': token } });
+      const lanes = await requestJson(`/api/sessions/${session.body.id}/lanes`, { headers: { 'x-orca-token': token } });
+      assert.equal(projects.status, 200);
+      assert.equal(sessions.status, 200);
+      assert.equal(lanes.status, 200);
+      return {
+        projects: projects.body.length,
+        sessions: sessions.body.length,
+        lanes: lanes.body.length,
+      };
+    };
+    const before = await counts();
+
+    const bootstrapA = await requestJson('/api/mcp/orchestrator-bootstrap', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        actor: 'codex-orchestrator-chat-a',
+        projectId: project.body.id,
+        sessionId: session.body.id,
+        ttlMs: 10 * 60 * 1000,
+      },
+    });
+    assert.equal(bootstrapA.status, 201);
+    assert.equal(bootstrapA.body.lease.role, 'orchestrator');
+    assert.equal(bootstrapA.body.bootstrap.clients.claudeDesktop.config.mcpServers.orca.env.ORCA_ROLE, 'orchestrator');
+    assert.deepEqual(await counts(), before);
+
+    const enrolledA = await requestJson(`/api/sessions/${session.body.id}/orchestrator/enroll`, {
+      method: 'POST',
+      headers: { 'x-orca-tool-lease': bootstrapA.body.leaseToken },
+      body: {},
+    });
+    assert.equal(enrolledA.status, 200);
+    assert.equal(enrolledA.body.activeOrchestrator.actor, 'codex-orchestrator-chat-a');
+    assert.deepEqual(await counts(), before);
+
+    const bootstrapB = await requestJson('/api/mcp/orchestrator-bootstrap', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        actor: 'codex-orchestrator-chat-b',
+        projectId: project.body.id,
+        sessionId: session.body.id,
+        ttlMs: 10 * 60 * 1000,
+      },
+    });
+    assert.equal(bootstrapB.status, 201);
+    assert.deepEqual(await counts(), before);
+
+    const refusedB = await requestJson(`/api/sessions/${session.body.id}/orchestrator/enroll`, {
+      method: 'POST',
+      headers: { 'x-orca-tool-lease': bootstrapB.body.leaseToken },
+      body: {},
+    });
+    assert.equal(refusedB.status, 409);
+    assert.equal(refusedB.body.current.actor, 'codex-orchestrator-chat-a');
+
+    const takeoverB = await requestJson(`/api/sessions/${session.body.id}/orchestrator/enroll`, {
+      method: 'POST',
+      headers: { 'x-orca-tool-lease': bootstrapB.body.leaseToken },
+      body: { takeover: true },
+    });
+    assert.equal(takeoverB.status, 200);
+    assert.equal(takeoverB.body.activeOrchestrator.actor, 'codex-orchestrator-chat-b');
+    assert.deepEqual(await counts(), before);
+
+    const status = await requestJson(`/api/sessions/${session.body.id}/orchestrator/status`, {
+      headers: { 'x-orca-tool-lease': bootstrapB.body.leaseToken },
+    });
+    assert.equal(status.status, 200);
+    assert.equal(status.body.activeOrchestrator.actor, 'codex-orchestrator-chat-b');
+    assert.equal(String(status.body.tree || '').includes('Existing lane'), true);
+  });
+});
+
 test('MCP tool leases can update worktree policy and supervisor state with scoped gates', async () => {
   await withServer(async ({ requestJson, token }) => {
     const project = await requestJson('/api/projects', {
