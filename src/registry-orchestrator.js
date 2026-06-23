@@ -7,6 +7,7 @@ import { nowIso, clonePayload, normalizeExecutorType } from './registry-utils.js
 import { FIRST_CLASS_CLI_EXECUTOR_TYPES } from './executor-factory.js';
 import { buildNextActionEnvelope, findTool } from './agent-tools.js';
 import { renderLaneTree } from './render-lane-tree.js';
+import { readRepoGitInfo } from './worktree-manager.js';
 
 const MAX_ORCHESTRATOR_THREAD_MESSAGES = 500;
 // An active orchestrator that hasn't called a tool in this long is considered
@@ -58,6 +59,22 @@ function buildOrchestratorPrompt({
     transcript ? `Recent conversation:\n${transcript}` : '',
     `Current user request:\n${safeChatText(message)}`,
   ].filter(Boolean).join('\n\n');
+}
+
+function buildBranchInstruction(branchHint, session) {
+  const hint = safeChatText(branchHint, 200);
+  if (!hint) return '';
+  let remoteBranches = [];
+  try {
+    remoteBranches = session?.repoRoot ? readRepoGitInfo(session.repoRoot).remoteBranches || [] : [];
+  } catch {
+    remoteBranches = [];
+  }
+  const remoteLike = remoteBranches.includes(hint) || /^(origin|upstream)\//.test(hint);
+  if (remoteLike) {
+    return `Use git ref ${hint} as the base/reference. If you need to commit changes, create a local workflow branch from it instead of checking out the remote tracking ref directly.`;
+  }
+  return `Work on git branch: ${hint} (create or switch to it before making changes).`;
 }
 
 export const orchestratorMethods = {
@@ -417,11 +434,12 @@ export const orchestratorMethods = {
     const baseText = attachmentList.length
       ? `${text}\n\nAttached files (absolute paths you can read):\n${attachmentList.map(resolveAttachmentPath).filter(Boolean).map((p) => `- ${p}`).join('\n')}`
       : text;
-    // The composer's branch picker is a working-branch hint for the agent (the
-    // orchestrator runs in the shared repo, so it should switch/create the branch
-    // itself rather than us checking out under it).
-    const promptText = branchHint
-      ? `${baseText}\n\nWork on git branch: ${branchHint} (create or switch to it before making changes).`
+    // The composer branch picker is an instruction for the agent: local branch
+    // hints can be switched/created directly; remote refs are base refs for a
+    // local workflow branch.
+    const branchInstruction = buildBranchInstruction(branchHint, session);
+    const promptText = branchInstruction
+      ? `${baseText}\n\n${branchInstruction}`
       : baseText;
 
     const resolvedExecutorType = this.resolveOrchestratorExecutorType(session, executorType);

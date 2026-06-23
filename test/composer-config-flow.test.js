@@ -264,6 +264,18 @@ test('branch picked in chat is threaded into the orchestrator prompt', async () 
     const lane = latestOrchestratorLane(registry, session.id);
     assert.equal(lane.branch, 'feature/new-thing', 'branch is stored on the lane');
     assert.ok(/feature\/new-thing/.test(lane.taskPrompt), 'branch is included in the agent prompt');
+    assert.match(lane.taskPrompt, /create or switch to it/);
+
+    const remoteTurn = await send(registry, session.id, {
+      executorType: 'codex',
+      model: 'gpt-5.5',
+      intelligenceProfile: 'high',
+      branch: 'origin/main',
+    });
+    assert.equal(remoteTurn.lane.branch, 'origin/main', 'remote ref hint is stored on the lane');
+    assert.match(remoteTurn.lane.taskPrompt, /Use git ref origin\/main as the base\/reference/);
+    assert.match(remoteTurn.lane.taskPrompt, /create a local workflow branch from it/);
+    assert.doesNotMatch(remoteTurn.lane.taskPrompt, /create or switch to it/);
   } finally {
     await cleanup();
   }
