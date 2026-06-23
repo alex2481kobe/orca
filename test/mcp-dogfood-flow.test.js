@@ -163,9 +163,7 @@ async function createGitFixture(baseDir, name = 'fixture-repo') {
 }
 
 async function collectLaneStreamEvents({ baseUrl, sessionId, laneId, leaseToken }) {
-  const logPath = path.join(process.cwd(), 'artifacts', sessionId, laneId, 'terminal.log');
-  await fs.mkdir(path.dirname(logPath), { recursive: true });
-  await fs.writeFile(logPath, 'DOGFOOD INITIAL OUTPUT\n');
+  const logPath = await writeLaneTerminalLog(sessionId, laneId, 'DOGFOOD INITIAL OUTPUT\n');
 
   const events = [];
   const response = await fetch(`${baseUrl}/api/lanes/${laneId}/stream`, {
@@ -210,6 +208,13 @@ async function collectLaneStreamEvents({ baseUrl, sessionId, laneId, leaseToken 
   await Promise.race([readLoop, waitForAppend, new Promise((resolve) => setTimeout(resolve, 4000))]);
   try { await reader.cancel(); } catch { /* ignore stream close races */ }
   return events;
+}
+
+async function writeLaneTerminalLog(sessionId, laneId, text) {
+  const logPath = path.join(process.cwd(), 'artifacts', sessionId, laneId, 'terminal.log');
+  await fs.mkdir(path.dirname(logPath), { recursive: true });
+  await fs.writeFile(logPath, text);
+  return logPath;
 }
 
 test('real MCP dogfood flow drives orchestrator ownership, live links, backlog, lane creation, and status', async () => {
@@ -351,6 +356,101 @@ test('real MCP dogfood flow drives orchestrator ownership, live links, backlog, 
       assert.ok(String(status.tree || '').includes('Dogfood executor lane'));
     } finally {
       mcp.close();
+    }
+  });
+});
+
+test('real orchestrator MCP takeover attaches to existing state without duplicate records', async () => {
+  await withRealOrcaServer(async ({ requestJson, token }) => {
+    const project = await requestJson('/api/projects', {
+      method: 'POST',
+      body: { name: 'Real MCP Takeover Project', approved: true },
+    });
+    assert.equal(project.status, 201);
+    const session = await requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      body: { name: 'Real MCP Takeover Session', approved: true },
+    });
+    assert.equal(session.status, 201);
+    const lane = await requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      body: { title: 'Existing takeover lane', executorType: 'mock', approved: true },
+    });
+    assert.equal(lane.status, 201);
+
+    const counts = async () => {
+      const projects = await requestJson('/api/projects');
+      const sessions = await requestJson(`/api/projects/${project.body.id}/sessions`);
+      const lanes = await requestJson(`/api/sessions/${session.body.id}/lanes`);
+      assert.equal(projects.status, 200);
+      assert.equal(sessions.status, 200);
+      assert.equal(lanes.status, 200);
+      return {
+        projects: projects.body.length,
+        sessions: sessions.body.length,
+        lanes: lanes.body.length,
+      };
+    };
+    const beforeBootstrap = await counts();
+
+    const bootstrapA = await requestJson('/api/mcp/orchestrator-bootstrap', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        actor: 'real-mcp-orchestrator-a',
+        projectId: project.body.id,
+        sessionId: session.body.id,
+        ttlMs: 10 * 60 * 1000,
+        nodePath: process.execPath,
+      },
+    });
+    assert.equal(bootstrapA.status, 201);
+    const bootstrapB = await requestJson('/api/mcp/orchestrator-bootstrap', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        actor: 'real-mcp-orchestrator-b',
+        projectId: project.body.id,
+        sessionId: session.body.id,
+        ttlMs: 10 * 60 * 1000,
+        nodePath: process.execPath,
+      },
+    });
+    assert.equal(bootstrapB.status, 201);
+    assert.deepEqual(await counts(), beforeBootstrap);
+
+    const mcpA = startMcpClient(bootstrapA.body.bootstrap.clients.claudeDesktop.config.mcpServers.orca.env);
+    const mcpB = startMcpClient(bootstrapB.body.bootstrap.clients.claudeDesktop.config.mcpServers.orca.env);
+    try {
+      const enrolledA = parseMcpJson(await mcpA.callTool('orchestrator__enroll'));
+      assert.equal(enrolledA.activeOrchestrator.actor, 'real-mcp-orchestrator-a');
+      assert.deepEqual(await counts(), beforeBootstrap);
+
+      const refusedB = await mcpB.callTool('orchestrator__enroll');
+      assert.equal(refusedB.result.isError, true);
+      assert.match(mcpText(refusedB), /already has an active orchestrator/i);
+      assert.match(mcpText(refusedB), /real-mcp-orchestrator-a/);
+      assert.deepEqual(await counts(), beforeBootstrap);
+
+      const takeoverB = parseMcpJson(await mcpB.callTool('orchestrator__enroll', {
+        body: { takeover: true },
+      }));
+      assert.equal(takeoverB.activeOrchestrator.actor, 'real-mcp-orchestrator-b');
+      assert.deepEqual(await counts(), beforeBootstrap);
+
+      const staleA = await mcpA.callTool('lane__create', {
+        body: { title: 'Former owner must not spawn', executorType: 'mock', approved: true },
+      });
+      assert.equal(staleA.result.isError, true);
+      assert.match(mcpText(staleA), /not the active orchestrator/i);
+      assert.deepEqual(await counts(), beforeBootstrap);
+
+      const statusB = parseMcpJson(await mcpB.callTool('orchestrator__status'));
+      assert.equal(statusB.activeOrchestrator.actor, 'real-mcp-orchestrator-b');
+      assert.equal(String(statusB.tree || '').includes('Existing takeover lane'), true);
+    } finally {
+      mcpA.close();
+      mcpB.close();
     }
   });
 });
@@ -556,6 +656,16 @@ test('real supervisor MCP dogfood flow reads overview and records session audit'
       assert.equal(overviewSession.lanes.some((item) => item.id === lane.body.id), true);
       assert.equal(overview.activeSupervisors.some((lease) => lease.actor === 'codex-supervisor-dogfood'), true);
 
+      await writeLaneTerminalLog(session.body.id, lane.body.id, 'SUPERVISOR MCP LIVE OUTPUT\n');
+      const terminalTail = parseMcpJson(await mcp.callTool('lane__terminal__tail', {
+        laneId: lane.body.id,
+        maxBytes: 4096,
+      }));
+      assert.equal(terminalTail.laneId, lane.body.id);
+      assert.equal(terminalTail.text, 'SUPERVISOR MCP LIVE OUTPUT\n');
+      assert.equal(terminalTail.nextOffset, 'SUPERVISOR MCP LIVE OUTPUT\n'.length);
+      assert.equal(terminalTail.eof, true);
+
       const audit = parseMcpJson(await mcp.callTool('session__supervisor_audit', {
         sessionId: session.body.id,
         body: {
@@ -645,6 +755,20 @@ test('scoped supervisor MCP dogfood flow cannot cross session boundaries', async
       assert.equal(JSON.stringify(overview).includes(hiddenSession.body.id), false);
       assert.equal(JSON.stringify(overview).includes(hiddenLane.body.id), false);
       assert.equal(overview.activeSupervisors.some((lease) => lease.actor === 'scoped-supervisor-dogfood'), true);
+
+      await writeLaneTerminalLog(scopedSession.body.id, scopedLane.body.id, 'SCOPED SUPERVISOR LIVE OUTPUT\n');
+      await writeLaneTerminalLog(hiddenSession.body.id, hiddenLane.body.id, 'HIDDEN SUPERVISOR OUTPUT\n');
+      const scopedTail = parseMcpJson(await mcp.callTool('lane__terminal__tail', {
+        laneId: scopedLane.body.id,
+        maxBytes: 4096,
+      }));
+      assert.equal(scopedTail.text, 'SCOPED SUPERVISOR LIVE OUTPUT\n');
+      const deniedTail = await mcp.callTool('lane__terminal__tail', {
+        laneId: hiddenLane.body.id,
+        maxBytes: 4096,
+      });
+      assert.equal(deniedTail.result.isError, true);
+      assert.match(mcpText(deniedTail), /Tool lease session mismatch/);
 
       const deniedAudit = await mcp.callTool('session__supervisor_audit', {
         sessionId: hiddenSession.body.id,
