@@ -18,6 +18,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
+import { spawnSync } from 'node:child_process';
 
 const previousCwd = process.cwd();
 const previousEnv = { ...process.env };
@@ -32,6 +33,26 @@ const fail = (label, info = '') => {
   console.error(`[orchestrator-lifecycle FAIL] ${label}${info ? ' — ' + info : ''}`);
   throw new Error(label);
 };
+
+function git(args, cwd) {
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  if (result.status !== 0) {
+    fail(`git ${args.join(' ')}`, result.stderr?.trim() || result.stdout?.trim() || 'unknown git error');
+  }
+  return result;
+}
+
+async function realPath(candidate) {
+  try {
+    return await fs.realpath(candidate);
+  } catch {
+    return path.resolve(candidate);
+  }
+}
+
+function pathWithin(child, parent) {
+  return child === parent || child.startsWith(`${parent}${path.sep}`);
+}
 
 async function req(method, route, body) {
   const response = await fetch(`${base}${route}`, {
@@ -70,10 +91,21 @@ async function cleanup() {
 
 try {
   process.chdir(tempDir);
+  const repoDir = path.join(tempDir, 'fixture-repo');
+  await fs.mkdir(repoDir, { recursive: true });
+  git(['init'], repoDir);
+  git(['config', 'user.email', 'orca-smoke@example.test'], repoDir);
+  git(['config', 'user.name', 'Orca Smoke'], repoDir);
+  await fs.writeFile(path.join(repoDir, 'README.md'), '# Orca lifecycle fixture\n');
+  git(['add', 'README.md'], repoDir);
+  git(['commit', '-m', 'Initial fixture commit'], repoDir);
+  git(['branch', '-M', 'main'], repoDir);
+
   process.env.PORT = '0';
   process.env.ORCA_HOST = '127.0.0.1';
   process.env.ORCA_API_TOKEN = token;
   process.env.ORCA_CREDENTIAL_BACKEND = 'memory';
+  process.env.ORCA_REPO_ROOTS = tempDir;
 
   const serverModule = await import('../src/server.js');
   server = await serverModule.startServer(0, '127.0.0.1');
@@ -101,15 +133,21 @@ try {
     laneConcurrencyLimit: 2,
     approvedCapacity: 2,
     spawnPolicy: 'within_capacity',
+    worktreeMode: 'isolated',
+    repoRoot: repoDir,
   });
   if (session.status !== 201) fail('session create', JSON.stringify(session));
   const sessionId = session.body.id;
   if (session.body.leader !== 'codex') fail('session leader (orchestrator CLI) not recorded', JSON.stringify(session.body));
-  log('session', `${sessionId} leader=${session.body.leader} cap=${session.body.approvedCapacity}`);
+  const repoReal = await realPath(repoDir);
+  if (await realPath(session.body.repoRoot) !== repoReal) fail('session repoRoot not recorded', JSON.stringify(session.body));
+  if (session.body.worktreeMode !== 'isolated') fail('session worktreeMode not isolated', JSON.stringify(session.body));
+  log('session', `${sessionId} leader=${session.body.leader} cap=${session.body.approvedCapacity} repoRoot=${repoDir}`);
 
   // 3. Spawn two executor lanes (what lane.create does for the orchestrator).
   const laneIds = [];
   for (const i of [1, 2]) {
+    const branch = `dogfood/executor-${i}`;
     const lane = await req('POST', `/api/sessions/${sessionId}/lanes`, {
       actor: 'orchestrator',
       approved: true,
@@ -118,11 +156,24 @@ try {
       role: 'executor',
       executorType: 'mock',
       taskPrompt: `Prove executor lane ${i} lifecycle.`,
+      branch,
     });
     if (lane.status !== 201) fail(`spawn executor lane ${i}`, JSON.stringify(lane));
+    if (await realPath(lane.body.repoRoot) !== repoReal) fail(`lane ${i} repoRoot not recorded`, JSON.stringify(lane.body));
+    if (lane.body.branch !== branch) fail(`lane ${i} branch not recorded`, JSON.stringify(lane.body));
+    if (lane.body.branch.startsWith('codex/')) fail(`lane ${i} used deprecated codex/ branch`, lane.body.branch);
+    if (lane.body.worktreeMode !== 'isolated') fail(`lane ${i} not isolated`, JSON.stringify(lane.body));
+    if (!lane.body.worktreePath) fail(`lane ${i} missing managed worktree`, JSON.stringify(lane.body));
+    const worktreeReal = await realPath(lane.body.worktreePath);
+    if (worktreeReal === repoReal) fail(`lane ${i} reused repo root instead of managed worktree`, JSON.stringify(lane.body));
+    const expectedBase = await realPath(path.join(tempDir, '.orca', 'workspaces', sessionId, 'worktrees'));
+    if (!pathWithin(worktreeReal, expectedBase)) fail(`lane ${i} worktree outside managed base`, worktreeReal);
+    await fs.stat(worktreeReal);
+    const worktreeList = git(['worktree', 'list', '--porcelain'], repoDir).stdout;
+    if (!worktreeList.includes(worktreeReal)) fail(`lane ${i} worktree not registered`, worktreeList);
     laneIds.push(lane.body.id);
   }
-  log('spawn', `${laneIds.length} executor lanes created`);
+  log('spawn', `${laneIds.length} executor lanes created with isolated git worktrees`);
 
   // Dashboard tracking: both lanes are listed under the session.
   const listed = await req('GET', `/api/sessions/${sessionId}/lanes`);

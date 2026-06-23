@@ -315,3 +315,107 @@ test('real MCP dogfood flow drives orchestrator ownership, live links, backlog, 
     }
   });
 });
+
+test('real supervisor MCP dogfood flow reads overview and records session audit', async () => {
+  await withRealOrcaServer(async ({ requestJson, token }) => {
+    const project = await requestJson('/api/projects', {
+      method: 'POST',
+      body: { name: 'Supervisor MCP Dogfood Project', approved: true },
+    });
+    assert.equal(project.status, 201);
+    const session = await requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      body: {
+        name: 'Supervisor MCP Dogfood Session',
+        leader: 'mock',
+        approvedCapacity: 2,
+        approved: true,
+      },
+    });
+    assert.equal(session.status, 201);
+    const lane = await requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      body: { title: 'Existing supervised lane', executorType: 'mock', approved: true },
+    });
+    assert.equal(lane.status, 201);
+
+    const counts = async () => {
+      const projects = await requestJson('/api/projects');
+      const sessions = await requestJson(`/api/projects/${project.body.id}/sessions`);
+      const lanes = await requestJson(`/api/sessions/${session.body.id}/lanes`);
+      assert.equal(projects.status, 200);
+      assert.equal(sessions.status, 200);
+      assert.equal(lanes.status, 200);
+      return {
+        projects: projects.body.length,
+        sessions: sessions.body.length,
+        lanes: lanes.body.length,
+      };
+    };
+    const beforeBootstrap = await counts();
+    const bootstrap = await requestJson('/api/mcp/supervisor-bootstrap', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        actor: 'codex-supervisor-dogfood',
+        ttlMs: 10 * 60 * 1000,
+        nodePath: process.execPath,
+      },
+    });
+    assert.equal(bootstrap.status, 201);
+    assert.equal(bootstrap.body.lease.role, 'supervisor');
+    assert.deepEqual(await counts(), beforeBootstrap);
+
+    const env = bootstrap.body.bootstrap.clients.claudeDesktop.config.mcpServers.orca.env;
+    assert.equal(env.ORCA_ROLE, 'supervisor');
+    const mcp = startMcpClient(env);
+    try {
+      const init = await mcp.request('initialize', { protocolVersion: '2024-11-05' });
+      assert.equal(init.result.protocolVersion, '2024-11-05');
+      assert.match(init.result.instructions, /supervisor__overview/);
+      assert.match(init.result.instructions, /session__supervisor_audit/);
+
+      const listed = await mcp.request('tools/list');
+      const toolNames = listed.result.tools.map((tool) => tool.name);
+      assert.ok(toolNames.includes('supervisor__overview'));
+      assert.ok(toolNames.includes('session__supervisor_audit'));
+      assert.equal(toolNames.includes('lane__create'), false);
+      assert.equal(toolNames.includes('orchestrator__enroll'), false);
+
+      const deniedSpawn = await mcp.callTool('lane__create', {
+        sessionId: session.body.id,
+        body: { title: 'Supervisor should not spawn', executorType: 'mock', approved: true },
+      });
+      assert.equal(deniedSpawn.result.isError, true);
+      assert.match(mcpText(deniedSpawn), /Unknown or unavailable tool for role supervisor: lane\.create/);
+
+      const overview = parseMcpJson(await mcp.callTool('supervisor__overview'));
+      const overviewProject = overview.projects.find((item) => item.id === project.body.id);
+      assert.ok(overviewProject);
+      const overviewSession = overviewProject.sessions.find((item) => item.id === session.body.id);
+      assert.ok(overviewSession);
+      assert.equal(overviewSession.lanes.some((item) => item.id === lane.body.id), true);
+      assert.equal(overview.activeSupervisors.some((lease) => lease.actor === 'codex-supervisor-dogfood'), true);
+
+      const audit = parseMcpJson(await mcp.callTool('session__supervisor_audit', {
+        sessionId: session.body.id,
+        body: {
+          verdict: 'request_fix',
+          summary: 'Supervisor MCP dogfood requested a fix.',
+          findings: ['Real stdio supervisor MCP flow exercised.'],
+          nextTask: 'Tighten the implementation based on the supervisor finding.',
+        },
+      }));
+      assert.equal(audit.supervisorReview.status, 'fix_requested');
+
+      const afterAudit = parseMcpJson(await mcp.callTool('supervisor__overview'));
+      const auditedSession = afterAudit.projects
+        .find((item) => item.id === project.body.id)
+        ?.sessions.find((item) => item.id === session.body.id);
+      assert.equal(auditedSession?.supervisorReview?.status, 'fix_requested');
+      assert.deepEqual(await counts(), beforeBootstrap);
+    } finally {
+      mcp.close();
+    }
+  });
+});
