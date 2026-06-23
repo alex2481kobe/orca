@@ -48,6 +48,11 @@ reuse each other's authority. A token is only required when you've hardened Orca
 orca-agent start "My run" --leader claude --cap 2
 # -> { sessionId, owner, spawnPolicy: "auto", next: "orca-agent bulk-add <id>" }
 
+# Attach this chat to an existing session instead. Use --takeover only when you
+# intentionally replace the current active orchestrator.
+orca-agent enroll <sessionId> --project <projectId>
+orca-agent enroll <sessionId> --project <projectId> --takeover
+
 echo '[{"title":"Add nav"},{"title":"Write tests"}]' | orca-agent bulk-add <sessionId>
 orca-agent status  <sessionId>     # ownership + live lane tree + backlog roll-up
 orca-agent backlog <sessionId>

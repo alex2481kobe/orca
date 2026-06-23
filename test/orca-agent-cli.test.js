@@ -173,6 +173,111 @@ test('orca-agent tail reads bounded lane output and enforces session-scoped leas
   });
 });
 
+test('orca-agent enroll attaches to an existing session and enforces takeover ownership', async () => {
+  await withRealOrcaServer(async ({ baseUrl, requestJson, token, tempDir }) => {
+    const project = await requestJson('/api/projects', {
+      method: 'POST',
+      body: { name: 'CLI Orchestrator Attach Project', approved: true },
+    });
+    assert.equal(project.status, 201);
+    const session = await requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      body: { name: 'Existing CLI Orchestrator Session', approved: true },
+    });
+    assert.equal(session.status, 201);
+    const lane = await requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      body: { title: 'Existing executor lane', executorType: 'mock', approved: true },
+    });
+    assert.equal(lane.status, 201);
+
+    const counts = async () => {
+      const projects = await requestJson('/api/projects');
+      const sessions = await requestJson(`/api/projects/${project.body.id}/sessions`);
+      const lanes = await requestJson(`/api/sessions/${session.body.id}/lanes`);
+      assert.equal(projects.status, 200);
+      assert.equal(sessions.status, 200);
+      assert.equal(lanes.status, 200);
+      return {
+        projects: projects.body.length,
+        sessions: sessions.body.length,
+        lanes: lanes.body.length,
+      };
+    };
+    const beforeAttach = await counts();
+
+    const env = {
+      HOME: tempDir,
+      ORCA_AGENT_TOOLS_BASE_URL: baseUrl,
+      ORCA_API_TOKEN: token,
+      ORCA_TOOL_LEASE_TOKEN: '',
+    };
+
+    const enrolled = await runOrcaAgent(['enroll', session.body.id, '--project', project.body.id], env);
+    assert.equal(enrolled.code, 0, enrolled.stderr);
+    const enrolledBody = JSON.parse(enrolled.stdout);
+    assert.equal(enrolledBody.activeOrchestrator.active, true);
+    assert.equal(enrolledBody.activeOrchestrator.actor, 'orca-agent-orchestrator');
+    assert.deepEqual(await counts(), beforeAttach);
+
+    const cachePath = path.join(tempDir, '.orca', 'agent-leases.json');
+    const cache = JSON.parse(await fs.readFile(cachePath, 'utf8'));
+    const ownerCacheKey = Object.keys(cache)
+      .find((key) => key.includes('role=orchestrator') && key.includes(`project=${project.body.id}`) && key.includes(`session=${session.body.id}`));
+    assert.ok(ownerCacheKey, `expected scoped orchestrator cache key, got ${Object.keys(cache).join(', ')}`);
+    assert.equal(JSON.stringify(cache).includes(token), false);
+
+    const status = await runOrcaAgent(['status', session.body.id, '--project', project.body.id], env);
+    assert.equal(status.code, 0, status.stderr);
+    assert.match(status.stdout, /owner: orca-agent-orchestrator/);
+    assert.match(status.stdout, /Existing executor lane/);
+
+    const competingLease = await requestJson('/api/agent-tools/leases', {
+      method: 'POST',
+      body: {
+        actor: 'competing-cli-orchestrator',
+        role: 'orchestrator',
+        projectId: project.body.id,
+        sessionId: session.body.id,
+        ttlMs: 10 * 60 * 1000,
+      },
+    });
+    assert.equal(competingLease.status, 201);
+    const competingEnv = {
+      ...env,
+      ORCA_TOOL_LEASE_TOKEN: competingLease.body.leaseToken,
+    };
+
+    const refused = await runOrcaAgent(['enroll', session.body.id, '--project', project.body.id], competingEnv);
+    assert.equal(refused.code, 2);
+    assert.match(refused.stderr, /active orchestrator|takeover/i);
+    assert.deepEqual(await counts(), beforeAttach);
+
+    const takeover = await runOrcaAgent(['enroll', session.body.id, '--project', project.body.id, '--takeover'], competingEnv);
+    assert.equal(takeover.code, 0, takeover.stderr);
+    const takeoverBody = JSON.parse(takeover.stdout);
+    assert.equal(takeoverBody.activeOrchestrator.actor, 'competing-cli-orchestrator');
+
+    const ownerStatusAfterTakeover = await runOrcaAgent(['status', session.body.id, '--project', project.body.id], env);
+    assert.equal(ownerStatusAfterTakeover.code, 0, ownerStatusAfterTakeover.stderr);
+    assert.match(ownerStatusAfterTakeover.stdout, /owner: competing-cli-orchestrator/);
+
+    const resignedByOldOwner = await runOrcaAgent(['resign', session.body.id, '--project', project.body.id], env);
+    assert.equal(resignedByOldOwner.code, 2);
+    assert.match(resignedByOldOwner.stderr, /active orchestrator|does not hold/i);
+
+    const resigned = await runOrcaAgent(['resign', session.body.id, '--project', project.body.id], competingEnv);
+    assert.equal(resigned.code, 0, resigned.stderr);
+    const resignedBody = JSON.parse(resigned.stdout);
+    assert.equal(resignedBody.released, true);
+
+    const finalStatus = await runOrcaAgent(['status', session.body.id, '--project', project.body.id], env);
+    assert.equal(finalStatus.code, 0, finalStatus.stderr);
+    assert.match(finalStatus.stdout, /owner: \(none\)/);
+    assert.deepEqual(await counts(), beforeAttach);
+  });
+});
+
 test('orca-agent supervisor commands attach with role-scoped leases and resign cleanly', async () => {
   await withRealOrcaServer(async ({ baseUrl, requestJson, token, tempDir }) => {
     const project = await requestJson('/api/projects', {
