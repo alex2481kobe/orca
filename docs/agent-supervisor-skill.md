@@ -13,7 +13,8 @@ projects moving from one conversation:
 - inspect a session with `orchestrator.status`;
 - update a session goal/plan with `session.plan.update`;
 - add or adjust backlog tasks with `task.add`, `task.bulk_add`, or `task.update`;
-- review completed orchestrator/session outcomes with `session.supervisor_audit`.
+- review completed orchestrator/session outcomes with `session.supervisor_audit`;
+- detach cleanly with `supervisor.resign` when supervision is done.
 
 ## First Call
 
@@ -39,6 +40,13 @@ When an orchestrator reports that a session objective is done:
 
 The audit tool records an audit event and writes a system message into the
 orchestrator thread so the session owner sees the next instruction.
+
+## Lifecycle
+
+When you are done supervising, call `supervisor.resign`. The server revokes only
+your current supervisor tool lease, so other active supervisors remain visible
+and usable. Do not ask the dashboard or an operator token to resign on your
+behalf; this is a lease-owner action.
 
 ## Shared Worktrees
 

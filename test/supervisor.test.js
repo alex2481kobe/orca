@@ -58,6 +58,7 @@ test('supervisor overview summarizes projects, sessions, orchestrators, backlog,
 
     const next = buildNextActionEnvelope(registry, { role: 'supervisor' });
     assert.equal(next.nextRequiredTool, 'supervisor.overview');
+    assert.equal(next.allowedTools.includes('supervisor.resign'), true);
     assert.equal(next.allowedTools.includes('session.supervisor_audit'), true);
     assert.equal(next.allowedTools.includes('lane.get'), true);
   });

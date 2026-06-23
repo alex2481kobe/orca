@@ -35,5 +35,18 @@ export async function handleSupervisorRoutes(ctx, req, res, method, parts) {
     }
   }
 
+  if (parts[2] === 'resign' && parts.length === 3 && method === 'POST') {
+    const lease = req._toolLease || null;
+    if (!lease || lease.role !== 'supervisor') {
+      return sendJson(res, 403, { error: 'Supervisor resign requires a supervisor tool lease.' });
+    }
+    try {
+      const revoked = registry.revokeToolLease(lease.id, { actor: lease.actor || 'supervisor' });
+      return sendJson(res, 200, { resigned: true, lease: revoked });
+    } catch (error) {
+      return sendJson(res, error.status || 500, { error: error.message || 'Could not resign supervisor.' });
+    }
+  }
+
   return sendJson(res, 404, { error: 'Supervisor route not found.' });
 }

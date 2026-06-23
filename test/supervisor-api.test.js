@@ -161,6 +161,69 @@ test('supervisor overview respects scoped supervisor tool leases', async () => {
   });
 });
 
+test('supervisor resign revokes only the caller supervisor lease', async () => {
+  await withServer(async ({ requestJson, token }) => {
+    const project = await requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Supervisor Resign Project', approved: true },
+    });
+    assert.equal(project.status, 201);
+
+    const supervisorA = await requestJson('/api/agent-tools/leases', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'supervisor-a', role: 'supervisor', projectId: project.body.id, ttlMs: 60_000 },
+    });
+    assert.equal(supervisorA.status, 201);
+    const supervisorB = await requestJson('/api/agent-tools/leases', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'supervisor-b', role: 'supervisor', projectId: project.body.id, ttlMs: 60_000 },
+    });
+    assert.equal(supervisorB.status, 201);
+
+    const adminDenied = await requestJson('/api/supervisor/resign', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+    });
+    assert.equal(adminDenied.status, 403);
+    assert.match(adminDenied.body.error, /supervisor tool lease/i);
+
+    const before = await requestJson('/api/supervisor/overview', {
+      headers: { 'x-orca-token': token },
+    });
+    assert.deepEqual(before.body.activeSupervisors.map((lease) => lease.actor).sort(), ['supervisor-a', 'supervisor-b']);
+
+    const resigned = await requestJson('/api/supervisor/resign', {
+      method: 'POST',
+      headers: { 'x-orca-tool-lease': supervisorA.body.leaseToken },
+    });
+    assert.equal(resigned.status, 200);
+    assert.equal(resigned.body.resigned, true);
+    assert.equal(resigned.body.lease.actor, 'supervisor-a');
+    assert.equal(resigned.body.lease.active, false);
+    assert.ok(resigned.body.lease.revokedAt);
+
+    const after = await requestJson('/api/supervisor/overview', {
+      headers: { 'x-orca-token': token },
+    });
+    assert.deepEqual(after.body.activeSupervisors.map((lease) => lease.actor), ['supervisor-b']);
+
+    const revokedCannotRead = await requestJson('/api/supervisor/overview', {
+      headers: { 'x-orca-tool-lease': supervisorA.body.leaseToken },
+    });
+    assert.equal(revokedCannotRead.status, 401);
+    assert.match(revokedCannotRead.body.error, /revoked/i);
+
+    const stillActive = await requestJson('/api/supervisor/overview', {
+      headers: { 'x-orca-tool-lease': supervisorB.body.leaseToken },
+    });
+    assert.equal(stillActive.status, 200);
+    assert.deepEqual(stillActive.body.activeSupervisors.map((lease) => lease.actor), ['supervisor-b']);
+  });
+});
+
 test('orchestrator MCP bootstrap attaches to existing Orca state without duplicating records', async () => {
   await withServer(async ({ requestJson, token }) => {
     const project = await requestJson('/api/projects', {

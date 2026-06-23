@@ -16,7 +16,8 @@ capacity, evidence, critique, and audit gates.
 For an even higher-level controller, generate a supervisor lease with
 `POST /api/mcp/supervisor-bootstrap`. A supervisor uses the same MCP server with
 `ORCA_ROLE=supervisor`, starts from `supervisor__overview`, and coordinates many
-project orchestrators from one conversation.
+project orchestrators from one conversation. When the conversation is done, it
+calls `supervisor__resign` so Orca stops listing that MCP client as active.
 
 ## Way A — in-app browser (visual)
 

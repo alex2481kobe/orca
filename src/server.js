@@ -393,6 +393,9 @@ function toolLeaseRequirementForRoute(method, parts) {
   if (parts[1] === 'supervisor' && parts[2] === 'overview' && method === 'GET') {
     return { toolId: 'supervisor.overview' };
   }
+  if (parts[1] === 'supervisor' && parts[2] === 'resign' && method === 'POST') {
+    return { toolId: 'supervisor.resign' };
+  }
   if (parts[1] === 'sessions' && parts[2] && parts[3] === 'supervisor' && parts[4] === 'audit' && method === 'POST') {
     return { toolId: 'session.supervisor_audit', sessionId: parts[2] };
   }

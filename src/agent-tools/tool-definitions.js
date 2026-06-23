@@ -73,6 +73,16 @@ export const TOOL_DEFINITIONS = [
     summary: 'Read the cross-project supervisor view: projects, sessions, active orchestrators, backlog roll-ups, capacity/worktree warnings, and next required tools.',
   },
   {
+    id: 'supervisor.resign',
+    group: 'supervisor',
+    roles: ['supervisor'],
+    method: 'POST',
+    route: '/api/supervisor/resign',
+    implemented: true,
+    mutating: true,
+    summary: 'Detach this supervisor MCP client by revoking only its own supervisor tool lease.',
+  },
+  {
     id: 'lane.create',
     group: 'lane',
     roles: ['orchestrator', 'dashboard'],

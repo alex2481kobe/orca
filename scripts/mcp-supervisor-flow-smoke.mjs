@@ -216,7 +216,7 @@ try {
   const init = await supervisor.initialize();
   if (!/supervisor__overview/.test(init.instructions || '')) fail('supervisor instructions missing overview');
   const tools = await supervisor.listToolNames();
-  for (const need of ['supervisor__overview', 'session__supervisor_audit', 'lane__get', 'lane__terminal__tail']) {
+  for (const need of ['supervisor__overview', 'supervisor__resign', 'session__supervisor_audit', 'lane__get', 'lane__terminal__tail']) {
     if (!tools.includes(need)) fail('supervisor tools/list missing', need);
   }
   for (const denied of ['lane__create', 'orchestrator__enroll', 'session__plan__update']) {
@@ -284,7 +284,22 @@ try {
   if (!deniedTail.isError || !/Tool lease (project|session) mismatch/.test(deniedTail.text)) fail('scoped supervisor hidden tail denial', deniedTail.text);
   log('scope', 'scoped supervisor sees only allowed session and cannot tail hidden lane');
 
-  log('done', 'real MCP supervisor attach -> overview -> terminal tail -> audit -> scoped denial');
+  const scopedResign = await scopedSupervisor.call('supervisor__resign');
+  if (scopedResign.isError || scopedResign.data?.lease?.active !== false) fail('scoped supervisor__resign', scopedResign.text);
+  const afterScopedResign = await req('GET', '/api/supervisor/overview');
+  if (afterScopedResign.body.activeSupervisors.some((item) => item.actor === 'scoped-supervisor-flow-chat')) {
+    fail('scoped supervisor still active after resign', JSON.stringify(afterScopedResign.body.activeSupervisors));
+  }
+
+  const resign = await supervisor.call('supervisor__resign');
+  if (resign.isError || resign.data?.lease?.active !== false) fail('supervisor__resign', resign.text);
+  const afterResign = await req('GET', '/api/supervisor/overview');
+  if (afterResign.body.activeSupervisors.some((item) => ['supervisor-flow-chat', 'scoped-supervisor-flow-chat'].includes(item.actor))) {
+    fail('supervisor still active after resign', JSON.stringify(afterResign.body.activeSupervisors));
+  }
+  log('resign', 'supervisor MCP clients detached and disappeared from active supervisor overview');
+
+  log('done', 'real MCP supervisor attach -> overview -> terminal tail -> audit -> scoped denial -> resign');
 } finally {
   await cleanup();
 }

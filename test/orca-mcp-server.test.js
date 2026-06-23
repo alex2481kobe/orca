@@ -189,6 +189,15 @@ test('Orca MCP server: supervisor role exposes inspection tools but no takeover 
           arguments: { laneId: 'lane-1', offset: 3, maxBytes: 128 },
         },
       },
+      {
+        jsonrpc: '2.0',
+        id: 7,
+        method: 'tools/call',
+        params: {
+          name: 'supervisor__resign',
+          arguments: {},
+        },
+      },
     ]);
 
     const init = responses.get(1).result;
@@ -199,6 +208,7 @@ test('Orca MCP server: supervisor role exposes inspection tools but no takeover 
     const names = responses.get(2).result.tools.map((tool) => tool.name);
     for (const name of [
       'supervisor__overview',
+      'supervisor__resign',
       'orchestrator__status',
       'lane__list',
       'lane__get',
@@ -237,10 +247,14 @@ test('Orca MCP server: supervisor role exposes inspection tools but no takeover 
     assert.equal(responses.get(5).result.isError, true);
     assert.match(responses.get(5).result.content[0].text, /Unknown or unavailable tool for role supervisor: session\.plan\.update/);
     assert.equal(responses.get(6).result.isError, false);
-    assert.equal(calls.length, 1);
+    assert.equal(responses.get(7).result.isError, false);
+    assert.equal(calls.length, 2);
     assert.equal(calls[0].method, 'GET');
     assert.equal(calls[0].url, '/api/lanes/lane-1/terminal-tail?offset=3&maxBytes=128');
     assert.equal(calls[0].lease, 'lease-supervisor');
+    assert.equal(calls[1].method, 'POST');
+    assert.equal(calls[1].url, '/api/supervisor/resign');
+    assert.equal(calls[1].lease, 'lease-supervisor');
   } finally {
     server.close();
   }

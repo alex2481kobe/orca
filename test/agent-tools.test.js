@@ -109,6 +109,7 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
   const supervisorTools = new Set(supervisorRole.allowedImplementedTools);
   for (const id of [
     'supervisor.overview',
+    'supervisor.resign',
     'orchestrator.status',
     'lane.list',
     'lane.get',
@@ -136,7 +137,7 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
     assert.equal(supervisorTools.has(id), false, `supervisor must not get ${id}`);
   }
   const supervisorMutatingTools = [...supervisorTools].filter((id) => findTool(id)?.mutating);
-  assert.deepEqual(supervisorMutatingTools, ['session.supervisor_audit']);
+  assert.deepEqual(supervisorMutatingTools, ['supervisor.resign', 'session.supervisor_audit']);
 });
 
 test('nextAction envelope only advertises an implemented nextRequiredTool', async () => {

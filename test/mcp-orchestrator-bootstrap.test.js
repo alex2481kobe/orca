@@ -203,6 +203,7 @@ test('registry mints a supervisor MCP bootstrap with supervisor tool scope', asy
     assert.ok(result.leaseToken, 'returns the plaintext supervisor lease token once');
     assert.equal(result.lease.role, 'supervisor');
     assert.ok(result.lease.allowedTools.includes('supervisor.overview'));
+    assert.ok(result.lease.allowedTools.includes('supervisor.resign'));
     assert.ok(result.lease.allowedTools.includes('session.supervisor_audit'));
     for (const id of [
       'lane.list',
