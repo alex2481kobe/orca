@@ -137,3 +137,28 @@ test('orchestrator: a stale active orchestrator does not block a fresh enroll', 
     assert.equal(res.activeOrchestrator.actor, 'chat-b');
   });
 });
+
+test('orchestrator: revoked or expired chat leases become stale and do not block fresh attach', async () => {
+  await withRegistry(async (registry) => {
+    const { session } = makeSession(registry);
+    const revoked = makeLease(registry, session, 'revoked-chat');
+    const replacement = makeLease(registry, session, 'replacement-chat');
+    registry.enrollOrchestrator(session.id, { leaseId: revoked.id, actor: 'revoked-chat' });
+    registry.revokeToolLease(revoked.id, { actor: 'test' });
+    assert.equal(registry.getActiveOrchestrator(session.id).stale, true);
+    const afterRevoked = registry.enrollOrchestrator(session.id, { leaseId: replacement.id, actor: 'replacement-chat' });
+    assert.equal(afterRevoked.activeOrchestrator.actor, 'replacement-chat');
+
+    const expiring = makeLease(registry, session, 'expired-chat');
+    const afterExpiryReplacement = makeLease(registry, session, 'after-expiry-chat');
+    registry.enrollOrchestrator(session.id, { leaseId: expiring.id, actor: 'expired-chat', takeover: true });
+    const storedExpiring = registry.toolLeases.find((lease) => lease.id === expiring.id);
+    storedExpiring.expiresAt = new Date(Date.now() - 1000).toISOString();
+    assert.equal(registry.getActiveOrchestrator(session.id).stale, true);
+    const afterExpired = registry.enrollOrchestrator(session.id, {
+      leaseId: afterExpiryReplacement.id,
+      actor: 'after-expiry-chat',
+    });
+    assert.equal(afterExpired.activeOrchestrator.actor, 'after-expiry-chat');
+  });
+});

@@ -188,6 +188,51 @@ test('orchestrator MCP bootstrap attaches to existing Orca state without duplica
     assert.equal(status.status, 200);
     assert.equal(status.body.activeOrchestrator.actor, 'codex-orchestrator-chat-b');
     assert.equal(String(status.body.tree || '').includes('Existing lane'), true);
+
+    const revokedB = await requestJson(`/api/agent-tools/leases/${bootstrapB.body.lease.id}`, {
+      method: 'DELETE',
+      headers: { 'x-orca-token': token },
+    });
+    assert.equal(revokedB.status, 200);
+    assert.equal(revokedB.body.lease.active, false);
+
+    const bootstrapC = await requestJson('/api/mcp/orchestrator-bootstrap', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        actor: 'codex-orchestrator-chat-c',
+        projectId: project.body.id,
+        sessionId: session.body.id,
+        ttlMs: 10 * 60 * 1000,
+      },
+    });
+    assert.equal(bootstrapC.status, 201);
+    assert.deepEqual(await counts(), before);
+
+    const staleOwnerCreate = await requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-orca-tool-lease': bootstrapC.body.leaseToken },
+      body: { title: 'Must enroll first', executorType: 'mock', approved: true },
+    });
+    assert.equal(staleOwnerCreate.status, 409);
+    assert.match(staleOwnerCreate.body.error, /active orchestrator.*stale/i);
+    assert.equal(staleOwnerCreate.body.nextAction.nextRequiredTool, 'orchestrator.enroll');
+
+    const enrolledC = await requestJson(`/api/sessions/${session.body.id}/orchestrator/enroll`, {
+      method: 'POST',
+      headers: { 'x-orca-tool-lease': bootstrapC.body.leaseToken },
+      body: {},
+    });
+    assert.equal(enrolledC.status, 200);
+    assert.equal(enrolledC.body.activeOrchestrator.actor, 'codex-orchestrator-chat-c');
+
+    const createdByC = await requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-orca-tool-lease': bootstrapC.body.leaseToken },
+      body: { title: 'Replacement chat lane', executorType: 'mock', approved: true },
+    });
+    assert.equal(createdByC.status, 201);
+    assert.equal(createdByC.body.title, 'Replacement chat lane');
   });
 });
 
