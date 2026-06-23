@@ -45,10 +45,22 @@ function summarizeSupervisorLane(lane) {
 }
 
 export const supervisorMethods = {
-  supervisorOverview({ projectId = null } = {}) {
+  supervisorOverview({ projectId = null, sessionId = null } = {}) {
+    const scopedProject = projectId ? this.getProject(projectId) : null;
+    const scopedProjectId = scopedProject?.id || null;
+    const scopedProjectMissing = Boolean(projectId && !scopedProjectId);
+    const supervisorLeaseProjectId = (lease) => lease.projectId
+      || (lease.sessionId ? this.getSession(lease.sessionId)?.projectId : null)
+      || null;
     const activeSupervisors = typeof this.listToolLeases === 'function'
       ? this.listToolLeases({ activeOnly: true })
         .filter((lease) => lease.role === 'supervisor')
+        .filter((lease) => {
+          if (scopedProjectMissing) return false;
+          if (sessionId) return lease.sessionId === sessionId;
+          if (scopedProjectId) return supervisorLeaseProjectId(lease) === scopedProjectId;
+          return true;
+        })
         .map((lease) => ({
           id: lease.id,
           actor: lease.actor,
@@ -61,13 +73,15 @@ export const supervisorMethods = {
       : [];
     const projects = (this.projects || [])
       .filter((project) => project.state !== 'archived')
-      .filter((project) => !projectId || project.id === projectId || project.slug === projectId);
+      .filter(() => !scopedProjectMissing)
+      .filter((project) => !scopedProjectId || project.id === scopedProjectId);
     return clonePayload({
       generatedAt: nowIso(),
       activeSupervisors,
       projects: projects.map((project) => {
         const sessions = (this.sessions || [])
           .filter((session) => session.projectId === project.id && session.state !== 'archived')
+          .filter((session) => !sessionId || session.id === sessionId)
           .map((session) => {
             let status = null;
             let backlog = null;

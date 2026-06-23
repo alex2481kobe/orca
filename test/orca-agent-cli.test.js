@@ -88,6 +88,11 @@ test('orca-agent tail reads bounded lane output and enforces session-scoped leas
       body: { name: 'Orca Agent CLI Project', approved: true },
     });
     assert.equal(project.status, 201);
+    const hiddenProject = await requestJson('/api/projects', {
+      method: 'POST',
+      body: { name: 'Hidden Orca Agent CLI Project', approved: true },
+    });
+    assert.equal(hiddenProject.status, 201);
     const session = await requestJson(`/api/projects/${project.body.id}/sessions`, {
       method: 'POST',
       body: { name: 'Orca Agent CLI Session', approved: true },
@@ -126,6 +131,10 @@ test('orca-agent tail reads bounded lane output and enforces session-scoped leas
       ORCA_TOOL_LEASE_TOKEN: lease.body.leaseToken,
       ORCA_API_TOKEN: token,
     };
+    const projects = await runOrcaAgent(['projects'], env);
+    assert.equal(projects.code, 0, projects.stderr);
+    assert.deepEqual(JSON.parse(projects.stdout).map((item) => item.id), [project.body.id]);
+
     const result = await runOrcaAgent(['tail', lane.body.id, '--max-bytes', '4096'], env);
     assert.equal(result.code, 0, result.stderr);
     const tail = JSON.parse(result.stdout);

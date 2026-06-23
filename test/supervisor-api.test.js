@@ -92,6 +92,75 @@ test('supervisor API overview and session audit are token-gated and routed', asy
   });
 });
 
+test('supervisor overview respects scoped supervisor tool leases', async () => {
+  await withServer(async ({ requestJson, token }) => {
+    const projectA = await requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Scoped Supervisor A', approved: true },
+    });
+    assert.equal(projectA.status, 201);
+    const projectB = await requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Scoped Supervisor B', approved: true },
+    });
+    assert.equal(projectB.status, 201);
+    const sessionA1 = await requestJson(`/api/projects/${projectA.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Scoped Session A1', approved: true },
+    });
+    assert.equal(sessionA1.status, 201);
+    const sessionA2 = await requestJson(`/api/projects/${projectA.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Scoped Session A2', approved: true },
+    });
+    assert.equal(sessionA2.status, 201);
+    const sessionB = await requestJson(`/api/projects/${projectB.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Scoped Session B', approved: true },
+    });
+    assert.equal(sessionB.status, 201);
+
+    const projectLease = await requestJson('/api/agent-tools/leases', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'project-supervisor', role: 'supervisor', projectId: projectA.body.id, ttlMs: 60_000 },
+    });
+    assert.equal(projectLease.status, 201);
+    const projectOverview = await requestJson('/api/supervisor/overview', {
+      headers: { 'x-orca-tool-lease': projectLease.body.leaseToken },
+    });
+    assert.equal(projectOverview.status, 200);
+    assert.deepEqual(projectOverview.body.projects.map((project) => project.id), [projectA.body.id]);
+    assert.deepEqual(projectOverview.body.projects[0].sessions.map((session) => session.id).sort(), [sessionA1.body.id, sessionA2.body.id].sort());
+    assert.deepEqual(projectOverview.body.activeSupervisors.map((lease) => lease.actor), ['project-supervisor']);
+
+    const foreignOverview = await requestJson(`/api/supervisor/overview?projectId=${projectB.body.id}`, {
+      headers: { 'x-orca-tool-lease': projectLease.body.leaseToken },
+    });
+    assert.equal(foreignOverview.status, 403);
+    assert.match(foreignOverview.body.error, /Tool lease project mismatch/);
+
+    const sessionLease = await requestJson('/api/agent-tools/leases', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'session-supervisor', role: 'supervisor', sessionId: sessionA1.body.id, ttlMs: 60_000 },
+    });
+    assert.equal(sessionLease.status, 201);
+    const sessionOverview = await requestJson('/api/supervisor/overview', {
+      headers: { 'x-orca-tool-lease': sessionLease.body.leaseToken },
+    });
+    assert.equal(sessionOverview.status, 200);
+    assert.deepEqual(sessionOverview.body.projects.map((project) => project.id), [projectA.body.id]);
+    assert.deepEqual(sessionOverview.body.projects[0].sessions.map((session) => session.id), [sessionA1.body.id]);
+    assert.deepEqual(sessionOverview.body.activeSupervisors.map((lease) => lease.actor), ['session-supervisor']);
+  });
+});
+
 test('orchestrator MCP bootstrap attaches to existing Orca state without duplicating records', async () => {
   await withServer(async ({ requestJson, token }) => {
     const project = await requestJson('/api/projects', {

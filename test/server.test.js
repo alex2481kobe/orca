@@ -2477,6 +2477,26 @@ test('project-scoped tool leases cannot cross into sessions from another project
     });
     assert.equal(lease.status, 201);
 
+    const scopedProjects = await server.requestJson('/api/projects', {
+      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
+    });
+    assert.equal(scopedProjects.status, 200);
+    assert.deepEqual(scopedProjects.body.map((project) => project.id), [projectA.body.id]);
+
+    const ownNextAction = await server.requestJson(`/api/agent-tools/next-action?role=supervisor&projectId=${projectA.body.id}&sessionId=${sessionA.body.id}`, {
+      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
+    });
+    assert.equal(ownNextAction.status, 200);
+    assert.equal(ownNextAction.body.role, 'orchestrator');
+    assert.equal(ownNextAction.body.projectId, projectA.body.id);
+    assert.equal(ownNextAction.body.sessionId, sessionA.body.id);
+
+    const foreignNextAction = await server.requestJson(`/api/agent-tools/next-action?role=orchestrator&projectId=${projectB.body.id}&sessionId=${sessionB.body.id}`, {
+      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
+    });
+    assert.equal(foreignNextAction.status, 403);
+    assert.match(foreignNextAction.body?.error || '', /Tool lease project mismatch/);
+
     const ownBacklog = await server.requestJson(`/api/sessions/${sessionA.body.id}/backlog`, {
       headers: { 'x-orca-tool-lease': lease.body.leaseToken },
     });

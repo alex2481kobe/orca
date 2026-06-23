@@ -13,7 +13,16 @@ export async function handleProjectRoutes(ctx, req, res, method, parts) {
     rejectSpoofedActor,
   } = ctx;
     if (parts.length === 2 && method === 'GET') {
-      return sendJson(res, 200, registry.listProjects());
+      const lease = req._toolLease || null;
+      const leaseLane = lease?.laneId ? registry.getLane(lease.laneId) : null;
+      const leaseSession = lease?.sessionId
+        ? registry.getSession(lease.sessionId)
+        : (leaseLane?.sessionId ? registry.getSession(leaseLane.sessionId) : null);
+      const leaseProjectId = lease?.projectId || leaseSession?.projectId || leaseLane?.projectId || null;
+      const projects = registry.listProjects();
+      return sendJson(res, 200, leaseProjectId
+        ? projects.filter((project) => project.id === leaseProjectId)
+        : projects);
     }
 
     if (parts.length === 2 && method === 'POST') {
