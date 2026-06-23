@@ -118,6 +118,17 @@ function nextToolForLane({ registry, role, project, session, lane }) {
   };
 }
 
+function manualBacklogCanCreateLane(registry, session) {
+  if (!session?.id) return false;
+  let backlog = null;
+  let capacity = null;
+  try { backlog = registry.sessionBacklogStatus(session.id); } catch { backlog = null; }
+  try { capacity = registry.getSessionCapacity(session.id); } catch { capacity = null; }
+  return Number(backlog?.counts?.pending || 0) > 0
+    && String(backlog?.capacity?.spawnPolicy || capacity?.spawnPolicy || '') !== 'auto'
+    && Number(capacity?.idleSlots || 0) > 0;
+}
+
 const SESSION_LANE_ACTION_PRIORITY = {
   'orchestrator.enroll': 5,
   'evidence.capture_screenshot': 10,
@@ -140,19 +151,26 @@ function chooseSessionLane(registry, { role, project, session }) {
     if (!activeOrchestrator?.active || activeOrchestrator?.stale) return null;
   }
   const lanes = (registry?.lanes || []).filter((item) => item.sessionId === session.id);
-  if (!lanes.length) return null;
-  return lanes
+  const actionableLanes = lanes.filter((lane) => lane.state !== 'accepted');
+  if (!actionableLanes.length) return null;
+  const candidates = actionableLanes
     .map((lane) => {
       const { nextRequiredTool } = nextToolForLane({ registry, role, project, session, lane });
-      const statePenalty = lane.state === 'accepted' ? 1000 : 0;
       const updatedAt = Date.parse(lane.updatedAt || lane.createdAt || '') || 0;
       return {
         lane,
-        priority: statePenalty + (SESSION_LANE_ACTION_PRIORITY[nextRequiredTool] ?? 100),
+        priority: SESSION_LANE_ACTION_PRIORITY[nextRequiredTool] ?? 100,
         updatedAt,
       };
     })
-    .sort((a, b) => (a.priority - b.priority) || (b.updatedAt - a.updatedAt))[0]?.lane || null;
+    .sort((a, b) => (a.priority - b.priority) || (b.updatedAt - a.updatedAt));
+  const best = candidates[0] || null;
+  if (['orchestrator', 'dashboard'].includes(normalizedRole)
+    && manualBacklogCanCreateLane(registry, session)
+    && (!best || best.priority > SESSION_LANE_ACTION_PRIORITY['lane.create'])) {
+    return null;
+  }
+  return best?.lane || null;
 }
 
 function buildCapacity(registry, session) {

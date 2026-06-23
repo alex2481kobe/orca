@@ -106,6 +106,37 @@ test('deleteLane removes a terminal lane (and refuses a live one)', async () => 
   });
 });
 
+test('deleteLane removes terminal orchestrator turn references', async () => {
+  await withRegistry(async (registry) => {
+    const { session } = setup(registry);
+    const first = await registry.sendOrchestratorMessage(session.id, {
+      message: 'Plan the first step.',
+      executorType: 'mock',
+      baseUrl: 'http://127.0.0.1:1',
+    }, { actor: 'dashboard', approved: true });
+    const second = await registry.sendOrchestratorMessage(session.id, {
+      message: 'Plan the second step.',
+      executorType: 'mock',
+      baseUrl: 'http://127.0.0.1:1',
+    }, { actor: 'dashboard', approved: true });
+    registry.markLaneCompleted(registry.getLane(first.lane.id));
+    registry.markLaneCompleted(registry.getLane(second.lane.id));
+    assert.equal(registry.getOrchestratorThread(session.id).activeLaneId, second.lane.id);
+
+    await registry.deleteLane(second.lane.id, { actor: 'test' });
+    const afterSecondDelete = registry.getOrchestratorThread(session.id);
+    assert.equal(afterSecondDelete.activeLaneId, first.lane.id);
+    assert.equal(afterSecondDelete.activeLane?.id, first.lane.id);
+    assert.deepEqual(afterSecondDelete.laneIds, [first.lane.id]);
+
+    await registry.deleteLane(first.lane.id, { actor: 'test' });
+    const afterFirstDelete = registry.getOrchestratorThread(session.id);
+    assert.equal(afterFirstDelete.activeLaneId, null);
+    assert.equal(afterFirstDelete.activeLane, null);
+    assert.deepEqual(afterFirstDelete.laneIds, []);
+  });
+});
+
 test('deleteLane requeues an in_lane task instead of stranding it', async () => {
   await withRegistry(async (registry) => {
     const { session } = setup(registry);

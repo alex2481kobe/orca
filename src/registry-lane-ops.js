@@ -40,6 +40,16 @@ export const laneOpsMethods = {
       try { await this.removeLaneWorktree(lane.id, { actor, approved: true, removeBranch: false }); } catch { /* best effort */ }
     }
     this.lanes = (this.lanes || []).filter((entry) => entry.id !== lane.id);
+    const session = this.getSession(lane.sessionId);
+    const thread = session?.orchestratorThread;
+    if (thread && typeof thread === 'object') {
+      thread.laneIds = safeArray(thread.laneIds)
+        .filter((laneId) => laneId !== lane.id && this.getLane(laneId));
+      if (thread.activeLaneId === lane.id) {
+        thread.activeLaneId = thread.laneIds.at(-1) || null;
+      }
+      thread.updatedAt = nowIso();
+    }
     const affectedSessions = new Set();
     for (const task of this.tasks || []) {
       if (task.laneId !== lane.id) continue;

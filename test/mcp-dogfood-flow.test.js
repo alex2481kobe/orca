@@ -597,6 +597,17 @@ test('real supervisor MCP dogfood flow reads overview and records session audit'
       body: { title: 'Existing supervised lane', executorType: 'mock', approved: true },
     });
     assert.equal(lane.status, 201);
+    const existingOrchestrator = await requestJson(`/api/sessions/${session.body.id}/orchestrator/enroll`, {
+      method: 'POST',
+      body: {},
+    });
+    assert.equal(existingOrchestrator.status, 200);
+    assert.equal(existingOrchestrator.body.activeOrchestrator.actor, 'dashboard');
+    const pendingTask = await requestJson(`/api/sessions/${session.body.id}/tasks`, {
+      method: 'POST',
+      body: { title: 'Pending supervised backlog item', executorType: 'mock', approved: true },
+    });
+    assert.equal(pendingTask.status, 201);
 
     const counts = async () => {
       const projects = await requestJson('/api/projects');
@@ -653,6 +664,9 @@ test('real supervisor MCP dogfood flow reads overview and records session audit'
       assert.ok(overviewProject);
       const overviewSession = overviewProject.sessions.find((item) => item.id === session.body.id);
       assert.ok(overviewSession);
+      assert.equal(overviewSession.activeOrchestrator.actor, 'dashboard');
+      assert.equal(overviewSession.nextRequiredTool, 'lane.create');
+      assert.equal(overviewSession.backlog.counts.pending, 1);
       assert.equal(overviewSession.lanes.some((item) => item.id === lane.body.id), true);
       assert.equal(overview.activeSupervisors.some((lease) => lease.actor === 'codex-supervisor-dogfood'), true);
 

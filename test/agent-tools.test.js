@@ -248,6 +248,55 @@ test('session nextAction picks the highest-priority actionable lane after orches
   });
 });
 
+test('session nextAction ignores accepted lanes when backlog still has pending work', async () => {
+  await withIsolatedRegistry(async (registry) => {
+    const project = registry.createProject({ name: 'Pending Backlog Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Pending Backlog Session' }, { actor: 'test', approved: true });
+    const acceptedLane = registry.createLane(session.id, {
+      title: 'Accepted history',
+      executorType: 'mock',
+    }, { actor: 'test', approved: true });
+    registry.markLaneCompleted(registry.getLane(acceptedLane.id));
+    registry.acceptLaneAudit(acceptedLane.id, { actor: 'test-auditor' });
+    registry.addTask(session.id, { title: 'Pending next item', executorType: 'mock' });
+    registry.enrollOrchestrator(session.id, { leaseId: 'dashboard', actor: 'test-orchestrator', source: 'dashboard' });
+
+    const next = buildNextActionEnvelope(registry, {
+      role: 'orchestrator',
+      projectId: project.id,
+      sessionId: session.id,
+    });
+    assert.equal(next.laneId, null);
+    assert.equal(next.nextRequiredTool, 'lane.create');
+  });
+});
+
+test('session nextAction prefers manual backlog lane creation when live lanes leave idle capacity', async () => {
+  await withIsolatedRegistry(async (registry) => {
+    const project = registry.createProject({ name: 'Idle Capacity Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, {
+      name: 'Idle Capacity Session',
+      approvedCapacity: 2,
+      spawnPolicy: 'within_capacity',
+    }, { actor: 'test', approved: true });
+    registry.createLane(session.id, {
+      title: 'Already running',
+      executorType: 'mock',
+    }, { actor: 'test', approved: true });
+    registry.addTask(session.id, { title: 'Pending parallel item', executorType: 'mock' });
+    registry.enrollOrchestrator(session.id, { leaseId: 'dashboard', actor: 'test-orchestrator', source: 'dashboard' });
+
+    const next = buildNextActionEnvelope(registry, {
+      role: 'orchestrator',
+      projectId: project.id,
+      sessionId: session.id,
+    });
+    assert.equal(next.laneId, null);
+    assert.equal(next.nextRequiredTool, 'lane.create');
+    assert.equal(next.capacity.idleSlots, 1);
+  });
+});
+
 test('tool leases are scoped, hashed at rest, and enforce allowed tools', async () => {
   await withIsolatedRegistry(async (registry) => {
     const project = registry.createProject({ name: 'Lease Project' }, { actor: 'test', approved: true });
