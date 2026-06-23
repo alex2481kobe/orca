@@ -210,12 +210,17 @@ test('orca-agent aggregate watches stream all visible worker lanes without cross
       method: 'POST',
       body: { title: 'Aggregate lane two', executorType: 'mock', approved: true },
     });
+    const doneLane = await requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      body: { title: 'Aggregate accepted lane', executorType: 'mock', approved: true },
+    });
     const hiddenLane = await requestJson(`/api/sessions/${hiddenSession.body.id}/lanes`, {
       method: 'POST',
       body: { title: 'Hidden aggregate lane', executorType: 'mock', approved: true },
     });
     assert.equal(laneOne.status, 201);
     assert.equal(laneTwo.status, 201);
+    assert.equal(doneLane.status, 201);
     assert.equal(hiddenLane.status, 201);
 
     const logPath = async (lane) => {
@@ -225,10 +230,19 @@ test('orca-agent aggregate watches stream all visible worker lanes without cross
     };
     const oneLog = await logPath(laneOne.body);
     const twoLog = await logPath(laneTwo.body);
+    const doneLog = await logPath(doneLane.body);
     const hiddenLog = await logPath(hiddenLane.body);
     await fs.writeFile(oneLog, 'AGG ONE INITIAL\n');
     await fs.writeFile(twoLog, 'AGG TWO INITIAL\n');
+    await fs.writeFile(doneLog, 'AGG DONE INITIAL\n');
     await fs.writeFile(hiddenLog, 'AGG HIDDEN INITIAL\n');
+
+    const acceptedDone = await requestJson(`/api/lanes/${doneLane.body.id}/audit/accept`, {
+      method: 'POST',
+      body: { summary: 'Accepted for terminal-output review.' },
+    });
+    assert.equal(acceptedDone.status, 200);
+    assert.equal(acceptedDone.body.lane.state, 'accepted');
 
     const env = {
       HOME: tempDir,
@@ -264,6 +278,25 @@ test('orca-agent aggregate watches stream all visible worker lanes without cross
     assert.equal(sessionEvents.some((event) => event.event === 'append' && event.data.text.includes('AGG TWO LIVE')), true);
     assert.equal(JSON.stringify(sessionEvents).includes(hiddenLane.body.id), false);
     assert.equal(JSON.stringify(sessionEvents).includes('AGG HIDDEN'), false);
+    assert.equal(JSON.stringify(sessionEvents).includes(doneLane.body.id), false);
+    assert.equal(JSON.stringify(sessionEvents).includes('AGG DONE'), false);
+
+    const doneWatch = await runOrcaAgent([
+      'watch-session',
+      session.body.id,
+      '--project',
+      project.body.id,
+      '--json',
+      '--done',
+      '--idle-ms',
+      '250',
+    ], env);
+    assert.equal(doneWatch.code, 0, doneWatch.stderr);
+    const doneEvents = doneWatch.stdout.trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
+    assert.equal(doneEvents.some((event) =>
+      event.laneId === doneLane.body.id
+      && event.event === 'snapshot'
+      && event.data.text.includes('AGG DONE INITIAL')), true);
 
     const supervisorLease = await requestJson('/api/agent-tools/leases', {
       method: 'POST',

@@ -61,6 +61,7 @@ orca-agent backlog <sessionId>
 orca-agent tail <laneId> --max-bytes 4096
 orca-agent watch <laneId> --idle-ms 5000
 orca-agent watch-session <sessionId> --project <projectId> --idle-ms 5000 --json
+orca-agent watch-session <sessionId> --project <projectId> --done --idle-ms 5000 --json
 orca-agent resign  <sessionId>     # hand off
 
 # Project links for phone/Tailscale use:
@@ -118,6 +119,7 @@ node scripts/orca-agent.mjs supervisor-overview --project <projectId> --session 
 node scripts/orca-agent.mjs supervisor-status <sessionId> --project <projectId>
 node scripts/orca-agent.mjs supervisor-watch <laneId> --project <projectId> --session <sessionId> --idle-ms 5000
 node scripts/orca-agent.mjs supervisor-watch-all --project <projectId> --session <sessionId> --idle-ms 5000 --json
+node scripts/orca-agent.mjs supervisor-watch-all --project <projectId> --session <sessionId> --done --idle-ms 5000 --json
 node scripts/orca-agent.mjs supervisor-audit <sessionId> request_fix "Needs one more check" \
   --project <projectId> --finding "Missing acceptance evidence" --next-task "Add the proof"
 node scripts/orca-agent.mjs supervisor-resign --project <projectId> --session <sessionId>

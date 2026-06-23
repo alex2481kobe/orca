@@ -33,7 +33,7 @@
  *   orca-agent supervisor-overview [--project <id>] [--session <id>]
  *   orca-agent supervisor-status <sessionId> [--project <id>]
  *   orca-agent supervisor-watch <laneId> [--project <id>] [--session <id>] [--idle-ms N] [--max-events N] [--json]
- *   orca-agent supervisor-watch-all [--project <id>] [--session <id>] [--idle-ms N] [--max-events N] [--json]
+ *   orca-agent supervisor-watch-all [--project <id>] [--session <id>] [--idle-ms N] [--max-events N] [--json] [--done]
  *   orca-agent supervisor-audit <sessionId> accept|request_fix|block <summary...> [--finding text] [--next-task text]
  *   orca-agent supervisor-resign [--project <id>] [--session <id>]
  *   orca-agent projects                                      # list projects visible to this lease
@@ -49,7 +49,7 @@
  *   orca-agent status <sessionId>                             # ownership + lane tree + backlog
  *   orca-agent tail <laneId> [--offset N] [--max-bytes N]     # bounded terminal.log tail for live lane output
  *   orca-agent watch <laneId> [--role orchestrator|supervisor] [--idle-ms N] [--max-events N] [--json]
- *   orca-agent watch-session <sessionId> [--role orchestrator|supervisor] [--project <id>] [--idle-ms N] [--max-events N] [--json]
+ *   orca-agent watch-session <sessionId> [--role orchestrator|supervisor] [--project <id>] [--idle-ms N] [--max-events N] [--json] [--done]
  *                                                            # stream raw live lane output over the existing SSE contract
  *   orca-agent enroll <sessionId> [--takeover]                # become the active orchestrator
  *   orca-agent resign <sessionId>
@@ -816,7 +816,7 @@ switch (cmd) {
     break;
   }
   case 'watch-session': {
-    const sessionId = _[0] || die('usage: orca-agent watch-session <sessionId> [--role orchestrator|supervisor] [--project <id>] [--idle-ms N] [--max-events N] [--json]');
+    const sessionId = _[0] || die('usage: orca-agent watch-session <sessionId> [--role orchestrator|supervisor] [--project <id>] [--idle-ms N] [--max-events N] [--json] [--done]');
     const leaseOptions = {
       role: flags.role || 'orchestrator',
       projectId: flags.project || flags.projectId,
