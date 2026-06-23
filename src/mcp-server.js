@@ -14,7 +14,7 @@
 // Env (set by the lane runtime):
 //   ORCA_AGENT_TOOLS_BASE_URL  - e.g. http://127.0.0.1:3000
 //   ORCA_TOOL_LEASE_TOKEN      - scoped lease used as x-orca-tool-lease
-//   ORCA_ROLE                  - orchestrator | executor | auditor | critique
+//   ORCA_ROLE                  - supervisor | orchestrator | executor | auditor | critique
 //   ORCA_LANE_ID / ORCA_SESSION_ID / ORCA_PROJECT_ID - default path params
 
 import readline from 'node:readline';
@@ -39,6 +39,7 @@ const toMcpName = (id) => id.replace(/\./g, '__');
 const fromMcpName = (name) => name.replace(/__/g, '.');
 const TOOL_QUERY_PARAMS = {
   'session.next_action': ['role', 'projectId', 'sessionId', 'laneId'],
+  'lane.terminal.tail': ['offset', 'maxBytes'],
   'tailscale.status': ['fake'],
   'orca.setup_guide': ['localUrl', 'httpPort', 'httpsPort'],
 };

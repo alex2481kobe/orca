@@ -211,6 +211,11 @@ test('lane stream accepts scoped lane.get tool leases for live executor output',
       headers: { 'x-orca-tool-lease': wrongSessionLease.body.leaseToken },
     });
     assert.equal(scopedDenied.status, 401);
+    const scopedTailDenied = await server.request(`/api/lanes/${lane.body.id}/terminal-tail?maxBytes=64`, {
+      headers: { 'x-orca-tool-lease': wrongSessionLease.body.leaseToken },
+    });
+    assert.equal(scopedTailDenied.status, 403);
+    assert.match(scopedTailDenied.body.error, /Tool lease session mismatch/);
 
     const supervisorLease = await server.request('/api/agent-tools/leases', {
       method: 'POST',
@@ -224,6 +229,23 @@ test('lane stream accepts scoped lane.get tool leases for live executor output',
       },
     });
     assert.equal(supervisorLease.status, 201);
+
+    const tail = await server.request(`/api/lanes/${lane.body.id}/terminal-tail?maxBytes=64`, {
+      headers: { 'x-orca-tool-lease': supervisorLease.body.leaseToken },
+    });
+    assert.equal(tail.status, 200);
+    assert.equal(tail.body.text, 'hello from executor stream\n');
+    assert.equal(tail.body.offset, 0);
+    assert.equal(tail.body.nextOffset, 'hello from executor stream\n'.length);
+    assert.equal(tail.body.eof, true);
+
+    const incrementalTail = await server.request(`/api/lanes/${lane.body.id}/terminal-tail?offset=6&maxBytes=4`, {
+      headers: { 'x-orca-tool-lease': supervisorLease.body.leaseToken },
+    });
+    assert.equal(incrementalTail.status, 200);
+    assert.equal(incrementalTail.body.text, 'from');
+    assert.equal(incrementalTail.body.offset, 6);
+    assert.equal(incrementalTail.body.nextOffset, 10);
 
     const stream = await server.request(`/api/lanes/${lane.body.id}/stream`, {
       headers: { 'x-orca-tool-lease': supervisorLease.body.leaseToken },

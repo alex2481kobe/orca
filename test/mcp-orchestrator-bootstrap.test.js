@@ -207,6 +207,7 @@ test('registry mints a supervisor MCP bootstrap with supervisor tool scope', asy
     for (const id of [
       'lane.list',
       'lane.get',
+      'lane.terminal.tail',
       'approval.list',
       'evidence.list',
       'evidence.latest',

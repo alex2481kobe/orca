@@ -313,6 +313,7 @@ test('MCP tool leases can update worktree policy and supervisor state with scope
     assert.equal(supervisorLease.body.lease.role, 'supervisor');
     assert.ok(supervisorLease.body.leaseToken);
     assert.equal(supervisorLease.body.lease.allowedTools.includes('lane.get'), true);
+    assert.equal(supervisorLease.body.lease.allowedTools.includes('lane.terminal.tail'), true);
     assert.equal(supervisorLease.body.lease.allowedTools.includes('approval.list'), true);
     assert.equal(supervisorLease.body.lease.allowedTools.includes('evidence.latest'), true);
     assert.equal(supervisorLease.body.lease.allowedTools.includes('orchestrator.enroll'), false);
@@ -407,6 +408,16 @@ test('MCP tool leases can update worktree policy and supervisor state with scope
     assert.equal(supervisorLane.status, 200);
     assert.equal(supervisorLane.body.id, executorLane.body.id);
     assert.equal(supervisorLane.body.agentEvents.some((event) => event.type === 'agent.queued'), true);
+
+    const terminalDir = path.join(process.cwd(), 'artifacts', session.body.id, executorLane.body.id);
+    await fs.mkdir(terminalDir, { recursive: true });
+    await fs.writeFile(path.join(terminalDir, 'terminal.log'), 'supervisor live terminal output\n');
+    const supervisorTerminalTail = await requestJson(`/api/lanes/${executorLane.body.id}/terminal-tail?maxBytes=4096`, {
+      headers: { 'x-orca-tool-lease': supervisorLease.body.leaseToken },
+    });
+    assert.equal(supervisorTerminalTail.status, 200);
+    assert.equal(supervisorTerminalTail.body.text, 'supervisor live terminal output\n');
+    assert.equal(supervisorTerminalTail.body.nextOffset, 'supervisor live terminal output\n'.length);
 
     const deniedEnroll = await requestJson(`/api/sessions/${session.body.id}/orchestrator/enroll`, {
       method: 'POST',

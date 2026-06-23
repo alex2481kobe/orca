@@ -103,6 +103,16 @@ export const TOOL_DEFINITIONS = [
     summary: 'Read one lane in full: logs, agent events, changed files, the captured result (resultText), and processMeta — use this to see WHY a lane failed or what it produced.',
   },
   {
+    id: 'lane.terminal.tail',
+    group: 'lane',
+    roles: ['supervisor', 'orchestrator', 'executor', 'auditor', 'dashboard'],
+    method: 'GET',
+    route: '/api/lanes/{laneId}/terminal-tail',
+    implemented: true,
+    mutating: false,
+    summary: 'Read a bounded tail of raw terminal.log for near-live worker output. Query: offset, maxBytes. Use nextOffset for incremental polling.',
+  },
+  {
     id: 'lane.heartbeat',
     group: 'lane',
     roles: ['executor', 'dashboard'],

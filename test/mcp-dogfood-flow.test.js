@@ -219,6 +219,7 @@ test('real MCP dogfood flow drives orchestrator ownership, live links, backlog, 
       const listed = await mcp.request('tools/list');
       const toolNames = listed.result.tools.map((tool) => tool.name);
       assert.ok(toolNames.includes('orchestrator__message__send'));
+      assert.ok(toolNames.includes('lane__terminal__tail'));
       assert.ok(toolNames.includes('project__quick_link__upsert'));
       assert.ok(toolNames.includes('task__bulk_add'));
 
@@ -289,6 +290,16 @@ test('real MCP dogfood flow drives orchestrator ownership, live links, backlog, 
         && String(event.data.text || '').includes('DOGFOOD INITIAL OUTPUT')), true);
       assert.equal(streamEvents.some((event) => event.event === 'append'
         && String(event.data.text || '').includes('DOGFOOD LIVE OUTPUT')), true);
+
+      const terminalTail = parseMcpJson(await mcp.callTool('lane__terminal__tail', {
+        laneId: lane.id,
+        maxBytes: 4096,
+      }));
+      assert.equal(terminalTail.laneId, lane.id);
+      assert.equal(terminalTail.text.includes('DOGFOOD INITIAL OUTPUT'), true);
+      assert.equal(terminalTail.text.includes('DOGFOOD LIVE OUTPUT'), true);
+      assert.equal(terminalTail.nextOffset, terminalTail.size);
+      assert.equal(terminalTail.eof, true);
 
       const status = parseMcpJson(await mcp.callTool('orchestrator__status'));
       assert.equal(status.activeOrchestrator.actor, 'codex-dogfood');

@@ -4,7 +4,68 @@
 // keeps fresh instances per import. Returns FALL_THROUGH when no lane sub-route
 // matched, so the caller continues its dispatch chain (ending in a 404).
 
+import { promises as fsp } from 'node:fs';
+import path from 'node:path';
+
 export const FALL_THROUGH = Symbol('orca-route-fall-through');
+
+const TERMINAL_TAIL_DEFAULT_BYTES = 32 * 1024;
+const TERMINAL_TAIL_MAX_BYTES = 128 * 1024;
+
+function laneTerminalLogPath(lane) {
+  return path.join(process.cwd(), 'artifacts', String(lane.sessionId || 'orphan'), String(lane.id), 'terminal.log');
+}
+
+async function readLaneTerminalTail(lane, { offset = null, maxBytes = TERMINAL_TAIL_DEFAULT_BYTES } = {}) {
+  const parsedMax = Number.parseInt(maxBytes, 10);
+  const limit = Math.max(1, Math.min(TERMINAL_TAIL_MAX_BYTES, Number.isFinite(parsedMax) ? parsedMax : TERMINAL_TAIL_DEFAULT_BYTES));
+  const parsedOffset = offset === null || offset === undefined || offset === ''
+    ? null
+    : Number.parseInt(offset, 10);
+  const logPath = laneTerminalLogPath(lane);
+  let fh;
+  try {
+    fh = await fsp.open(logPath, 'r');
+    const stat = await fh.stat();
+    const requestedOffset = Number.isFinite(parsedOffset) && parsedOffset >= 0 ? parsedOffset : null;
+    const start = requestedOffset === null
+      ? Math.max(0, stat.size - limit)
+      : Math.min(requestedOffset, stat.size);
+    const len = Math.min(limit, stat.size - start);
+    const buffer = Buffer.alloc(len);
+    if (len > 0) await fh.read(buffer, 0, len, start);
+    return {
+      laneId: lane.id,
+      sessionId: lane.sessionId,
+      artifact: 'terminal.log',
+      size: stat.size,
+      offset: start,
+      nextOffset: start + len,
+      maxBytes: limit,
+      truncated: requestedOffset === null && start > 0,
+      eof: start + len >= stat.size,
+      text: buffer.toString('utf8'),
+    };
+  } catch (error) {
+    if (error && error.code === 'ENOENT') {
+      return {
+        laneId: lane.id,
+        sessionId: lane.sessionId,
+        artifact: 'terminal.log',
+        size: 0,
+        offset: 0,
+        nextOffset: 0,
+        maxBytes: limit,
+        truncated: false,
+        eof: true,
+        text: '',
+      };
+    }
+    throw error;
+  } finally {
+    if (fh) await fh.close().catch(() => {});
+  }
+}
 
 export async function handleLaneRoutes(ctx, req, res, method, parts) {
   const {
@@ -25,6 +86,24 @@ export async function handleLaneRoutes(ctx, req, res, method, parts) {
 
     if (parts.length === 3 && method === 'GET') {
       return sendJson(res, 200, lane);
+    }
+
+    if (parts.length === 4 && parts[3] === 'terminal-tail' && method === 'GET') {
+      const searchParams = getSearchParams(req.url || '/');
+      if (!searchParams) {
+        return sendJson(res, 400, {
+          error: 'Invalid request query string.',
+        });
+      }
+      try {
+        const tail = await readLaneTerminalTail(lane, {
+          offset: searchParams.get('offset'),
+          maxBytes: searchParams.get('maxBytes'),
+        });
+        return sendJson(res, 200, tail);
+      } catch (error) {
+        return sendJson(res, error.status || 500, { error: error.message || 'Could not read lane terminal tail.' });
+      }
     }
 
     if (parts.length === 3 && method === 'DELETE') {

@@ -434,6 +434,9 @@ function toolLeaseRequirementForRoute(method, parts) {
   if (parts[1] === 'lanes' && parts[2] && parts.length === 3 && method === 'GET') {
     return { toolId: 'lane.get', laneId: parts[2] };
   }
+  if (parts[1] === 'lanes' && parts[2] && parts[3] === 'terminal-tail' && method === 'GET') {
+    return { toolId: 'lane.terminal.tail', laneId: parts[2] };
+  }
   if (parts[1] === 'lanes' && parts[2] && parts.length === 3 && method === 'DELETE') {
     return { toolId: 'lane.delete', laneId: parts[2] };
   }
@@ -493,15 +496,28 @@ function toolLeaseRequirementForRoute(method, parts) {
   return null;
 }
 
+function resolveToolLeaseRequirementScope(requirement) {
+  if (!requirement || !requirement.laneId) return requirement;
+  if (requirement.projectId && requirement.sessionId) return requirement;
+  const lane = registry.getLane(requirement.laneId);
+  if (!lane) return requirement;
+  return {
+    ...requirement,
+    projectId: requirement.projectId || lane.projectId || null,
+    sessionId: requirement.sessionId || lane.sessionId || null,
+  };
+}
+
 function hasSpecificToolLeaseAuth(req, requirement) {
   const token = getToolLeaseToken(req);
   if (!token) return false;
   if (!requirement) return false;
-  const toolIds = Array.isArray(requirement.toolIds) ? requirement.toolIds : [requirement.toolId];
+  const scopedRequirement = resolveToolLeaseRequirementScope(requirement);
+  const toolIds = Array.isArray(scopedRequirement.toolIds) ? scopedRequirement.toolIds : [scopedRequirement.toolId];
   for (const toolId of toolIds.filter(Boolean)) {
     try {
       const lease = registry.validateToolLease(token, {
-        ...requirement,
+        ...scopedRequirement,
         toolId,
         toolIds: undefined,
       });
@@ -517,7 +533,7 @@ function hasSpecificToolLeaseAuth(req, requirement) {
 }
 
 function validateToolLeaseRouteAuth(req, parts) {
-  const requirement = toolLeaseRequirementForRoute(req.method || 'GET', parts);
+  const requirement = resolveToolLeaseRequirementScope(toolLeaseRequirementForRoute(req.method || 'GET', parts));
   const token = getToolLeaseToken(req);
   if (!requirement || !token) {
     return { allowed: false, requirement, error: null };
@@ -602,7 +618,7 @@ function isPublicReadApiRoute(parts) {
 // out-of-order tool calls with a 409 + nextAction envelope so the agent learns
 // the required next step. Dashboard/admin calls are not routed through here.
 function enforceAgentToolStateGate(req, res, parts) {
-  const requirement = toolLeaseRequirementForRoute(req.method || 'GET', parts);
+  const requirement = resolveToolLeaseRequirementScope(toolLeaseRequirementForRoute(req.method || 'GET', parts));
   if (!requirement) return true;
   const toolId = requirement.toolId
     || (Array.isArray(requirement.toolIds) ? requirement.toolIds[0] : null);

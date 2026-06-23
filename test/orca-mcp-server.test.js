@@ -139,7 +139,7 @@ test('Orca MCP server: initialize, tools/list, and a proxied tools/call', async 
 });
 
 test('Orca MCP server: supervisor role exposes inspection tools but no takeover or spawn tools', async () => {
-  const { server, port } = await startStubApi();
+  const { server, calls, port } = await startStubApi();
   const env = {
     ORCA_AGENT_TOOLS_BASE_URL: `http://127.0.0.1:${port}`,
     ORCA_TOOL_LEASE_TOKEN: 'lease-supervisor',
@@ -180,11 +180,21 @@ test('Orca MCP server: supervisor role exposes inspection tools but no takeover 
           arguments: { body: { goal: 'blocked' } },
         },
       },
+      {
+        jsonrpc: '2.0',
+        id: 6,
+        method: 'tools/call',
+        params: {
+          name: 'lane__terminal__tail',
+          arguments: { laneId: 'lane-1', offset: 3, maxBytes: 128 },
+        },
+      },
     ]);
 
     const init = responses.get(1).result;
     assert.match(init.instructions, /SUPERVISOR/);
     assert.match(init.instructions, /lane__list \/ lane__get/);
+    assert.match(init.instructions, /lane__terminal__tail/);
 
     const names = responses.get(2).result.tools.map((tool) => tool.name);
     for (const name of [
@@ -192,6 +202,7 @@ test('Orca MCP server: supervisor role exposes inspection tools but no takeover 
       'orchestrator__status',
       'lane__list',
       'lane__get',
+      'lane__terminal__tail',
       'approval__list',
       'evidence__list',
       'evidence__latest',
@@ -225,6 +236,11 @@ test('Orca MCP server: supervisor role exposes inspection tools but no takeover 
     assert.match(responses.get(4).result.content[0].text, /Unknown or unavailable tool for role supervisor: orchestrator\.enroll/);
     assert.equal(responses.get(5).result.isError, true);
     assert.match(responses.get(5).result.content[0].text, /Unknown or unavailable tool for role supervisor: session\.plan\.update/);
+    assert.equal(responses.get(6).result.isError, false);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].method, 'GET');
+    assert.equal(calls[0].url, '/api/lanes/lane-1/terminal-tail?offset=3&maxBytes=128');
+    assert.equal(calls[0].lease, 'lease-supervisor');
   } finally {
     server.close();
   }
