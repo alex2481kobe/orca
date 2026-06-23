@@ -17,6 +17,7 @@ const log = (label, info = '') => console.log(`[process-lifecycle] ${label}${inf
 
 const previousEnv = { ...process.env };
 const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-process-smoke-'));
+const canonicalTempDir = await fs.realpath(tempDir);
 
 function restoreEnv() {
   Object.keys(process.env).forEach((key) => {
@@ -82,7 +83,7 @@ try {
   assert.equal(successLane.processMeta.exitCode, 0);
   assert.equal(successLane.processMeta.binary, process.execPath);
   assert.deepEqual(successLane.processMeta.args, ['--version']);
-  assert.equal(successLane.processMeta.cwd, tempDir);
+  assert.equal(await fs.realpath(successLane.processMeta.cwd), canonicalTempDir);
   assert.equal(successLane.processMeta.envPolicy, 'allowlist');
   assert.equal(completed.includes(successLane.id), true);
   assert.equal(logs.some((item) => item.includes('adapter started')), true);
