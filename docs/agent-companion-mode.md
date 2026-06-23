@@ -49,6 +49,7 @@ orca-agent start "My run" --leader claude --cap 2
 echo '[{"title":"Add nav"},{"title":"Write tests"}]' | orca-agent bulk-add <sessionId>
 orca-agent status  <sessionId>     # ownership + live lane tree + backlog roll-up
 orca-agent backlog <sessionId>
+orca-agent tail <laneId> --max-bytes 4096
 orca-agent resign  <sessionId>     # hand off
 
 # Project links for phone/Tailscale use:

@@ -36,6 +36,7 @@
  *   orca-agent tailscale-serve enable|disable [--port N]     # admin/workstation action; never Funnel
  *   orca-agent next [--session <id>]                          # server-approved next legal tool
  *   orca-agent status <sessionId>                             # ownership + lane tree + backlog
+ *   orca-agent tail <laneId> [--offset N] [--max-bytes N]     # bounded terminal.log tail for live lane output
  *   orca-agent enroll <sessionId> [--takeover]                # become the active orchestrator
  *   orca-agent resign <sessionId>
  *   orca-agent create-session <projectId> <name...> [--auto] [--cap N] [--leader codex|claude|mock]
@@ -303,6 +304,14 @@ switch (cmd) {
     out(`owner: ${r.data.activeOrchestrator?.active ? r.data.activeOrchestrator.actor : '(none)'}  ·  next: ${r.data.nextRequiredTool}`);
     break;
   }
+  case 'tail': {
+    const laneId = _[0] || die('usage: orca-agent tail <laneId> [--offset N] [--max-bytes N]');
+    show(await api('GET', `/api/lanes/${encodeURIComponent(laneId)}/terminal-tail${queryString({
+      offset: flags.offset,
+      maxBytes: flags['max-bytes'] || flags.maxBytes,
+    })}`));
+    break;
+  }
   case 'enroll': {
     const sessionId = _[0] || die('usage: orca-agent enroll <sessionId> [--takeover]');
     show(await api('POST', `/api/sessions/${encodeURIComponent(sessionId)}/orchestrator/enroll`, { takeover: Boolean(flags.takeover) }));
@@ -350,6 +359,6 @@ switch (cmd) {
     break;
   }
   default:
-    out('orca-agent — drive Orca from any agent. Commands: start, projects, links, link-upsert, link-check, tailscale-status, tailscale-setup, tailscale-serve, rules, bootstrap, next, status, enroll, resign, create-session, add-task, bulk-add, backlog, call. See header for usage.');
+    out('orca-agent — drive Orca from any agent. Commands: start, projects, links, link-upsert, link-check, tailscale-status, tailscale-setup, tailscale-serve, rules, bootstrap, next, status, tail, enroll, resign, create-session, add-task, bulk-add, backlog, call. See header for usage.');
     if (cmd && cmd !== 'help') process.exit(1);
 }
