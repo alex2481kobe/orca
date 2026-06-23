@@ -278,6 +278,118 @@ test('orca-agent enroll attaches to an existing session and enforces takeover ow
   });
 });
 
+test('orca-agent manages project live links while preserving supervisor read-only boundaries', async () => {
+  await withRealOrcaServer(async ({ baseUrl, requestJson, token, tempDir }) => {
+    const project = await requestJson('/api/projects', {
+      method: 'POST',
+      body: { name: 'CLI Live Link Project', approved: true },
+    });
+    assert.equal(project.status, 201);
+    const hiddenProject = await requestJson('/api/projects', {
+      method: 'POST',
+      body: { name: 'Hidden CLI Live Link Project', approved: true },
+    });
+    assert.equal(hiddenProject.status, 201);
+
+    const env = {
+      HOME: tempDir,
+      ORCA_AGENT_TOOLS_BASE_URL: baseUrl,
+      ORCA_API_TOKEN: token,
+      ORCA_TOOL_LEASE_TOKEN: '',
+    };
+    const localUrl = `${baseUrl}/api/health`;
+    const upserted = await runOrcaAgent([
+      'link-upsert',
+      project.body.id,
+      'Phone Vite',
+      localUrl,
+      '--local',
+      localUrl,
+      '--tailnet',
+      'http://orca.example.ts.net:5173',
+      '--port',
+      '5173',
+      '--kind',
+      'vite',
+      '--favorite',
+      '--check',
+      '--prefer',
+      'local',
+    ], env);
+    assert.equal(upserted.code, 0, upserted.stderr);
+    const upsertedBody = JSON.parse(upserted.stdout);
+    assert.equal(upsertedBody.saved.link.label, 'Phone Vite');
+    assert.equal(upsertedBody.saved.link.kind, 'vite');
+    assert.equal(upsertedBody.saved.link.favorite, true);
+    assert.equal(upsertedBody.saved.link.tailnetHttpUrl, 'http://orca.example.ts.net:5173/');
+    assert.equal(upsertedBody.checked.result.status, 'reachable');
+    assert.equal(upsertedBody.checked.result.httpStatus, 200);
+    assert.match(upsertedBody.checked.result.checkedUrl, /\/api\/health$/);
+
+    const linkId = upsertedBody.saved.link.id;
+    const links = await runOrcaAgent(['links', project.body.id, '--project', project.body.id], env);
+    assert.equal(links.code, 0, links.stderr);
+    const linksBody = JSON.parse(links.stdout);
+    assert.equal(linksBody.projectId, project.body.id);
+    assert.deepEqual(linksBody.quickLinks.map((link) => link.id), [linkId]);
+
+    const checked = await runOrcaAgent(['link-check', project.body.id, linkId, '--prefer', 'local'], env);
+    assert.equal(checked.code, 0, checked.stderr);
+    assert.equal(JSON.parse(checked.stdout).result.status, 'reachable');
+
+    const cachePath = path.join(tempDir, '.orca', 'agent-leases.json');
+    const cache = JSON.parse(await fs.readFile(cachePath, 'utf8'));
+    const keys = Object.keys(cache);
+    assert.ok(keys.some((key) => key.includes('role=orchestrator') && key.includes(`project=${project.body.id}`)));
+    assert.equal(JSON.stringify(cache).includes(token), false);
+
+    const supervisorLease = await requestJson('/api/agent-tools/leases', {
+      method: 'POST',
+      body: {
+        actor: 'cli-link-supervisor',
+        role: 'supervisor',
+        projectId: project.body.id,
+        ttlMs: 10 * 60 * 1000,
+      },
+    });
+    assert.equal(supervisorLease.status, 201);
+    const supervisorEnv = {
+      ...env,
+      ORCA_AGENT_ROLE: 'supervisor',
+      ORCA_TOOL_LEASE_TOKEN: supervisorLease.body.leaseToken,
+    };
+
+    const supervisorLinks = await runOrcaAgent(['links', project.body.id], supervisorEnv);
+    assert.equal(supervisorLinks.code, 0, supervisorLinks.stderr);
+    assert.deepEqual(JSON.parse(supervisorLinks.stdout).quickLinks.map((link) => link.id), [linkId]);
+
+    const deniedHidden = await runOrcaAgent(['links', hiddenProject.body.id], supervisorEnv);
+    assert.equal(deniedHidden.code, 2);
+    assert.match(deniedHidden.stderr, /Tool lease project mismatch/);
+
+    const tailnet = await runOrcaAgent(['tailscale-status', '--fake', 'serve-http'], supervisorEnv);
+    assert.equal(tailnet.code, 0, tailnet.stderr);
+    assert.equal(JSON.parse(tailnet.stdout).serveMode, 'tailnet-http');
+
+    const setup = await runOrcaAgent(['tailscale-setup', '--local', localUrl], supervisorEnv);
+    assert.equal(setup.code, 0, setup.stderr);
+    assert.equal(Array.isArray(JSON.parse(setup.stdout).commands), true);
+
+    const deniedUpsert = await runOrcaAgent([
+      'link-upsert',
+      project.body.id,
+      'Supervisor Mutation',
+      localUrl,
+    ], supervisorEnv);
+    assert.equal(deniedUpsert.code, 2);
+    assert.match(deniedUpsert.stderr, /does not grant this tool/);
+
+    const deniedCheck = await runOrcaAgent(['link-check', project.body.id, linkId, '--prefer', 'local'], supervisorEnv);
+    assert.equal(deniedCheck.code, 2);
+    assert.match(deniedCheck.stderr, /does not grant this tool/);
+  });
+});
+
 test('orca-agent supervisor commands attach with role-scoped leases and resign cleanly', async () => {
   await withRealOrcaServer(async ({ baseUrl, requestJson, token, tempDir }) => {
     const project = await requestJson('/api/projects', {
