@@ -497,15 +497,26 @@ function toolLeaseRequirementForRoute(method, parts) {
 }
 
 function resolveToolLeaseRequirementScope(requirement) {
-  if (!requirement || !requirement.laneId) return requirement;
-  if (requirement.projectId && requirement.sessionId) return requirement;
-  const lane = registry.getLane(requirement.laneId);
-  if (!lane) return requirement;
-  return {
-    ...requirement,
-    projectId: requirement.projectId || lane.projectId || null,
-    sessionId: requirement.sessionId || lane.sessionId || null,
-  };
+  if (!requirement) return requirement;
+  if (requirement.laneId) {
+    if (requirement.projectId && requirement.sessionId) return requirement;
+    const lane = registry.getLane(requirement.laneId);
+    if (!lane) return requirement;
+    return {
+      ...requirement,
+      projectId: requirement.projectId || lane.projectId || null,
+      sessionId: requirement.sessionId || lane.sessionId || null,
+    };
+  }
+  if (!requirement.projectId && requirement.sessionId) {
+    const session = registry.getSession(requirement.sessionId);
+    if (!session) return requirement;
+    return {
+      ...requirement,
+      projectId: session.projectId || null,
+    };
+  }
+  return requirement;
 }
 
 function hasSpecificToolLeaseAuth(req, requirement) {

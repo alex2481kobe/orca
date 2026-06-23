@@ -2435,6 +2435,71 @@ test('orchestrator tool leases can manage project links and read private-access 
   }
 });
 
+test('project-scoped tool leases cannot cross into sessions from another project', async () => {
+  const token = 'route-token-project-scope-session-routes';
+  const server = await startServer({ token });
+
+  try {
+    const projectA = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Lease Project A', approved: true },
+    });
+    assert.equal(projectA.status, 201);
+    const projectB = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Lease Project B', approved: true },
+    });
+    assert.equal(projectB.status, 201);
+    const sessionA = await server.requestJson(`/api/projects/${projectA.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Session A', approved: true },
+    });
+    assert.equal(sessionA.status, 201);
+    const sessionB = await server.requestJson(`/api/projects/${projectB.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Session B', approved: true },
+    });
+    assert.equal(sessionB.status, 201);
+
+    const lease = await server.requestJson('/api/agent-tools/leases', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        actor: 'project-scope-orchestrator',
+        role: 'orchestrator',
+        projectId: projectA.body.id,
+        ttlMs: 60_000,
+      },
+    });
+    assert.equal(lease.status, 201);
+
+    const ownBacklog = await server.requestJson(`/api/sessions/${sessionA.body.id}/backlog`, {
+      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
+    });
+    assert.equal(ownBacklog.status, 200);
+
+    const foreignBacklog = await server.requestJson(`/api/sessions/${sessionB.body.id}/backlog`, {
+      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
+    });
+    assert.equal(foreignBacklog.status, 403);
+    assert.match(foreignBacklog.body?.error || '', /Tool lease project mismatch/);
+
+    const foreignTask = await server.requestJson(`/api/sessions/${sessionB.body.id}/tasks`, {
+      method: 'POST',
+      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
+      body: { title: 'Should stay outside scope' },
+    });
+    assert.equal(foreignTask.status, 403);
+    assert.match(foreignTask.body?.error || '', /Tool lease project mismatch/);
+  } finally {
+    await server.stop();
+  }
+});
+
 test('project archive and restore are dashboard-only scoped tool routes', async () => {
   const token = 'route-token-project-archive-tools';
   const server = await startServer({ token });
