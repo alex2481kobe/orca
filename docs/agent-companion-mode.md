@@ -37,8 +37,10 @@ A thin authenticated tool-runner (`scripts/orca-agent.mjs`, bin `orca-agent`).
 
 **Zero ceremony locally.** On the workstation (loopback) with no API token set, you
 need **nothing** — the first command auto-provisions and caches a scoped lease
-(`.orca/agent-lease.json`, gitignored, 0600). A token is only required when you've
-hardened Orca (`ORCA_API_TOKEN` set) or are driving it remotely (then set
+(`~/.orca/agent-leases.json`, 0600). Leases are cached by base URL, role, project,
+and session so an orchestrator chat and a supervisor chat do not accidentally
+reuse each other's authority. A token is only required when you've hardened Orca
+(`ORCA_API_TOKEN` set) or are driving it remotely (then set
 `ORCA_TOOL_LEASE_TOKEN`).
 
 ```bash
@@ -70,6 +72,7 @@ orca-agent next --session <sessionId>   # ask the server what's legal next
 # Need the lease/config for an MCP client instead? bootstrap prints it + a
 # ready-to-run `claude mcp add` command.
 orca-agent bootstrap --project <projectId>
+orca-agent bootstrap --role supervisor --project <projectId>
 ```
 
 With `--auto` (spawnPolicy `auto`), Orca fans the backlog out across executor lanes
@@ -98,6 +101,19 @@ node scripts/orca-agent.mjs enroll <sessionId>
 That makes *this* chat the active orchestrator. From then on it holds the session
 (others are refused) and must follow the server's `nextAction` flow — the same
 contract an MCP-connected orchestrator obeys.
+
+To make the current chat a supervisor instead, use the supervisor commands:
+
+```bash
+node scripts/orca-agent.mjs supervisor-overview --project <projectId> --session <sessionId>
+node scripts/orca-agent.mjs supervisor-status <sessionId> --project <projectId>
+node scripts/orca-agent.mjs supervisor-audit <sessionId> request_fix "Needs one more check" \
+  --project <projectId> --finding "Missing acceptance evidence" --next-task "Add the proof"
+node scripts/orca-agent.mjs supervisor-resign --project <projectId> --session <sessionId>
+```
+
+`supervisor-resign` revokes only the caller's supervisor lease and clears that
+cached lease entry. It does not remove other supervisors or dashboard operators.
 
 See also [`desktop-app-control.md`](desktop-app-control.md) for the MCP-client setup
 (Codex CLI/app, Claude Code CLI, Claude Desktop, and compatible MCP clients).

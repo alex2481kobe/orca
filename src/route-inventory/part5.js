@@ -48,10 +48,10 @@ export const part5 = [
     auth: 'api_token_or_paired_browser_session_or_scoped_tool_lease',
     mutationRisk: 'none',
     approval: 'authorized operator or scoped supervisor.overview tool lease',
-    validation: 'supervisor tool lease or operator auth; public-safe cross-project state summary',
+    validation: 'supervisor tool lease or operator auth; public-safe cross-project state summary; projectId/sessionId filters reject scoped lease mismatches',
     auditEvent: 'none',
     uiSurface: 'supervisor console',
-    smokeCoverage: ['test/supervisor.test.js', 'test/supervisor-api.test.js'],
+    smokeCoverage: ['test/supervisor.test.js', 'test/supervisor-api.test.js', 'test/orca-agent-cli.test.js'],
     serverHints: ['supervisorOverview'],
   }),
   route({

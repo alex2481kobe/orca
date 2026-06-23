@@ -165,3 +165,153 @@ test('orca-agent tail reads bounded lane output and enforces session-scoped leas
     assert.match(denied.stderr, /Tool lease session mismatch/);
   });
 });
+
+test('orca-agent supervisor commands attach with role-scoped leases and resign cleanly', async () => {
+  await withRealOrcaServer(async ({ baseUrl, requestJson, token, tempDir }) => {
+    const project = await requestJson('/api/projects', {
+      method: 'POST',
+      body: { name: 'CLI Supervisor Project', approved: true },
+    });
+    assert.equal(project.status, 201);
+    const hiddenProject = await requestJson('/api/projects', {
+      method: 'POST',
+      body: { name: 'Hidden CLI Supervisor Project', approved: true },
+    });
+    assert.equal(hiddenProject.status, 201);
+    const session = await requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      body: { name: 'CLI Supervised Session', approved: true },
+    });
+    assert.equal(session.status, 201);
+    const hiddenSession = await requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      body: { name: 'Hidden CLI Supervised Session', approved: true },
+    });
+    assert.equal(hiddenSession.status, 201);
+    const lane = await requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      body: { title: 'CLI supervised lane', executorType: 'mock', approved: true },
+    });
+    assert.equal(lane.status, 201);
+
+    const counts = async () => {
+      const projects = await requestJson('/api/projects');
+      const sessions = await requestJson(`/api/projects/${project.body.id}/sessions`);
+      const lanes = await requestJson(`/api/sessions/${session.body.id}/lanes`);
+      assert.equal(projects.status, 200);
+      assert.equal(sessions.status, 200);
+      assert.equal(lanes.status, 200);
+      return {
+        projects: projects.body.length,
+        sessions: sessions.body.length,
+        lanes: lanes.body.length,
+      };
+    };
+    const beforeAttach = await counts();
+
+    const env = {
+      HOME: tempDir,
+      ORCA_AGENT_TOOLS_BASE_URL: baseUrl,
+      ORCA_API_TOKEN: token,
+      ORCA_TOOL_LEASE_TOKEN: '',
+    };
+
+    const bootstrap = await runOrcaAgent([
+      'bootstrap',
+      '--role',
+      'supervisor',
+      '--project',
+      project.body.id,
+      '--session',
+      session.body.id,
+    ], env);
+    assert.equal(bootstrap.code, 0, bootstrap.stderr);
+    const bootstrapBody = JSON.parse(bootstrap.stdout);
+    assert.equal(bootstrapBody.role, 'supervisor');
+    assert.equal(String(bootstrapBody.export).includes(bootstrapBody.leaseToken), true);
+    assert.equal(JSON.stringify(bootstrapBody).includes(token), false);
+
+    const status = await runOrcaAgent(['status', session.body.id, '--project', project.body.id], env);
+    assert.equal(status.code, 0, status.stderr);
+    assert.match(status.stdout, /owner: /);
+
+    const overviewRun = await runOrcaAgent([
+      'supervisor-overview',
+      '--project',
+      project.body.id,
+      '--session',
+      session.body.id,
+    ], env);
+    assert.equal(overviewRun.code, 0, overviewRun.stderr);
+    const overview = JSON.parse(overviewRun.stdout);
+    assert.deepEqual(overview.projects.map((item) => item.id), [project.body.id]);
+    assert.deepEqual(overview.projects[0].sessions.map((item) => item.id), [session.body.id]);
+    assert.equal(JSON.stringify(overview).includes(hiddenProject.body.id), false);
+    assert.equal(JSON.stringify(overview).includes(hiddenSession.body.id), false);
+    assert.equal(overview.activeSupervisors.some((lease) => lease.actor === 'orca-agent-supervisor'), true);
+    assert.deepEqual(await counts(), beforeAttach);
+
+    const cachePath = path.join(tempDir, '.orca', 'agent-leases.json');
+    const cache = JSON.parse(await fs.readFile(cachePath, 'utf8'));
+    const keys = Object.keys(cache);
+    const orchestratorKey = keys.find((key) => key.includes('role=orchestrator') && key.includes(`project=${project.body.id}`) && key.includes(`session=${session.body.id}`));
+    const supervisorKey = keys.find((key) => key.includes('role=supervisor') && key.includes(`project=${project.body.id}`) && key.includes(`session=${session.body.id}`));
+    assert.ok(orchestratorKey, `expected orchestrator cache key, got ${keys.join(', ')}`);
+    assert.ok(supervisorKey, `expected supervisor cache key, got ${keys.join(', ')}`);
+    assert.notEqual(cache[orchestratorKey].leaseToken, cache[supervisorKey].leaseToken);
+    assert.equal(JSON.stringify(cache).includes(token), false);
+
+    const deniedHidden = await runOrcaAgent([
+      'supervisor-overview',
+      '--project',
+      project.body.id,
+      '--session',
+      hiddenSession.body.id,
+    ], {
+      ...env,
+      ORCA_TOOL_LEASE_TOKEN: cache[supervisorKey].leaseToken,
+    });
+    assert.equal(deniedHidden.code, 2);
+    assert.match(deniedHidden.stderr, /Tool lease session mismatch/);
+
+    const supervisorStatus = await runOrcaAgent(['supervisor-status', session.body.id, '--project', project.body.id], env);
+    assert.equal(supervisorStatus.code, 0, supervisorStatus.stderr);
+    assert.match(supervisorStatus.stdout, /next: /);
+
+    const audit = await runOrcaAgent([
+      'supervisor-audit',
+      session.body.id,
+      'request_fix',
+      'CLI supervisor requested one more check.',
+      '--project',
+      project.body.id,
+      '--finding',
+      'CLI supervisor dogfood proof.',
+      '--next-task',
+      'Address the CLI supervisor finding.',
+    ], env);
+    assert.equal(audit.code, 0, audit.stderr);
+    const auditBody = JSON.parse(audit.stdout);
+    assert.equal(auditBody.supervisorReview.status, 'fix_requested');
+
+    const resign = await runOrcaAgent([
+      'supervisor-resign',
+      '--project',
+      project.body.id,
+      '--session',
+      session.body.id,
+    ], env);
+    assert.equal(resign.code, 0, resign.stderr);
+    const resignBody = JSON.parse(resign.stdout);
+    assert.equal(resignBody.resigned, true);
+    assert.equal(resignBody.lease.active, false);
+
+    const cacheAfterResign = JSON.parse(await fs.readFile(cachePath, 'utf8'));
+    assert.equal(Object.keys(cacheAfterResign).some((key) => key.includes('role=supervisor') && key.includes(`session=${session.body.id}`)), false);
+
+    const afterResign = await requestJson(`/api/supervisor/overview?projectId=${project.body.id}&sessionId=${session.body.id}`);
+    assert.equal(afterResign.status, 200);
+    assert.equal(afterResign.body.activeSupervisors.some((lease) => lease.actor === 'orca-agent-supervisor'), false);
+    assert.deepEqual(await counts(), beforeAttach);
+  });
+});

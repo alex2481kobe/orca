@@ -20,15 +20,29 @@ export async function handleSupervisorRoutes(ctx, req, res, method, parts) {
         : (leaseLane?.sessionId ? registry.getSession(leaseLane.sessionId) : null);
       const leaseProjectId = lease?.projectId || leaseSession?.projectId || leaseLane?.projectId || null;
       const requestedProjectId = searchParams.get('projectId') || null;
+      const requestedSessionId = searchParams.get('sessionId') || null;
+      const requestedSession = requestedSessionId ? registry.getSession(requestedSessionId) : null;
+      if (requestedSessionId && !requestedSession) {
+        return sendJson(res, 404, { error: 'Session not found.' });
+      }
       if (leaseProjectId && requestedProjectId) {
         const requestedProject = registry.getProject(requestedProjectId);
         if (!requestedProject || requestedProject.id !== leaseProjectId) {
           return sendJson(res, 403, { error: 'Tool lease project mismatch.' });
         }
       }
+      if (leaseSession?.id && requestedSessionId && requestedSessionId !== leaseSession.id) {
+        return sendJson(res, 403, { error: 'Tool lease session mismatch.' });
+      }
+      if (requestedSession && requestedProjectId && requestedSession.projectId !== requestedProjectId) {
+        return sendJson(res, 422, { error: 'Session does not belong to the requested project.' });
+      }
+      if (leaseProjectId && requestedSession && requestedSession.projectId !== leaseProjectId) {
+        return sendJson(res, 403, { error: 'Tool lease project mismatch.' });
+      }
       return sendJson(res, 200, registry.supervisorOverview({
-        projectId: requestedProjectId || leaseProjectId || null,
-        sessionId: lease?.sessionId || leaseLane?.sessionId || null,
+        projectId: requestedProjectId || requestedSession?.projectId || leaseProjectId || null,
+        sessionId: requestedSessionId || lease?.sessionId || leaseLane?.sessionId || null,
       }));
     } catch (error) {
       return sendJson(res, error.status || 500, { error: error.message || 'Could not read supervisor overview.' });
