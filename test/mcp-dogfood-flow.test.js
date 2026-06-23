@@ -247,16 +247,20 @@ test('real MCP dogfood flow drives orchestrator ownership, live links, backlog, 
           localUrl: `${baseUrl}/`,
           kind: 'dashboard',
           favorite: true,
+          healthPath: '/api/health',
           approved: true,
         },
       }));
       assert.equal(quickLink.link.label, 'Dogfood Orca');
+      assert.equal(quickLink.link.healthPath, '/api/health');
 
       const quickHealth = parseMcpJson(await mcp.callTool('project__quick_link__health', {
         linkId: quickLink.link.id,
         body: { approved: true },
       }));
       assert.equal(quickHealth.result.status, 'reachable');
+      assert.equal(quickHealth.result.httpStatus, 200);
+      assert.equal(quickHealth.result.checkedUrl, `${baseUrl}/api/health`);
 
       const tasks = parseMcpJson(await mcp.callTool('task__bulk_add', {
         body: {

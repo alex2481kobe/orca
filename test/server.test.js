@@ -2312,6 +2312,20 @@ test('project live links are server-authoritative, SSRF-checked, health-checked,
     });
     assert.equal(badSsr.status, 422);
 
+    const badHealthPath = await server.requestJson(`/api/projects/${project.body.id}/quick-links`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+        label: 'Bad Health Path',
+        url: target.url,
+        healthPath: 'https://example.com/health',
+      },
+    });
+    assert.equal(badHealthPath.status, 422);
+    assert.match(badHealthPath.body?.error || '', /healthPath/);
+
     const added = await server.requestJson(`/api/projects/${project.body.id}/quick-links`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
@@ -2324,6 +2338,7 @@ test('project live links are server-authoritative, SSRF-checked, health-checked,
         port: target.port,
         kind: 'vite',
         favorite: true,
+        healthPath: 'readyz',
       },
     });
     assert.equal(added.status, 201);
@@ -2331,6 +2346,7 @@ test('project live links are server-authoritative, SSRF-checked, health-checked,
     assert.equal(added.body?.link?.kind, 'vite');
     assert.equal(added.body?.link?.port, target.port);
     assert.equal(added.body?.link?.favorite, true);
+    assert.equal(added.body?.link?.healthPath, '/readyz');
     assert.equal(added.body?.project?.quickLinks?.length, 1);
 
     const checked = await server.requestJson(`/api/projects/${project.body.id}/quick-links/${added.body.link.id}/check`, {
@@ -2346,6 +2362,8 @@ test('project live links are server-authoritative, SSRF-checked, health-checked,
     assert.equal(checked.body?.link?.healthStatus, 'reachable');
     assert.equal(checked.body?.link?.lastStatusCode, 200);
     assert.equal(target.requests.length >= 1, true);
+    assert.equal(target.requests.at(-1)?.url, '/readyz');
+    assert.match(checked.body?.result?.checkedUrl || '', /\/readyz$/);
 
     const removed = await server.requestJson(`/api/projects/${project.body.id}/quick-links/${added.body.link.id}`, {
       method: 'DELETE',

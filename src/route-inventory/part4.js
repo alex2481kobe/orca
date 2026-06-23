@@ -207,7 +207,7 @@ export const part4 = [
     auth: 'api_token_or_paired_browser_session',
     mutationRisk: 'medium',
     approval: 'none_low_risk_health_check',
-    validation: 'actor spoofing rejected; quick link exists; health check uses validated quick-link URL only',
+    validation: 'actor spoofing rejected; quick link exists; health check uses validated quick-link URL plus relative healthPath only',
     auditEvent: 'project_quick_link_health_checked',
     uiSurface: 'quick links/project URLs',
     smokeCoverage: ['test/server.test.js'],

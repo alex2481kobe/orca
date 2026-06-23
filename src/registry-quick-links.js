@@ -9,12 +9,32 @@ import { validateNetworkUrl, publicHostResolvesSafely } from './url-policy.js';
 export const MAX_PROJECT_QUICK_LINKS = 50;
 const QUICK_LINK_KINDS = new Set(['dev-server', 'vite', 'preview', 'dashboard', 'artifact', 'docs', 'other']);
 const QUICK_LINK_HEALTH_STATUSES = new Set(['configured_unchecked', 'reachable', 'unreachable', 'not_checkable']);
+const URL_SCHEME_RE = /^[A-Za-z][A-Za-z0-9+.-]*:/;
 
 export function sanitizeQuickLinkText(raw, fallback = '', max = 120) {
   return String(raw ?? fallback)
     .replace(/[\x00-\x1f\x7f]/g, '')
     .trim()
     .slice(0, max);
+}
+
+export function normalizeQuickLinkHealthPath(raw, fallback = '/') {
+  const text = sanitizeQuickLinkText(raw, fallback, 240) || fallback;
+  if (!text || text === '/') return '/';
+  if (text.startsWith('//') || text.startsWith('\\') || URL_SCHEME_RE.test(text)) {
+    throw { status: 422, message: 'healthPath must be a relative URL path.' };
+  }
+  if (text.includes('\\')) {
+    throw { status: 422, message: 'healthPath must use URL path separators.' };
+  }
+  return text.startsWith('/') ? text : `/${text}`;
+}
+
+function quickLinkHealthCheckUrl(baseUrl, healthPath = '/') {
+  const path = normalizeQuickLinkHealthPath(healthPath);
+  if (path === '/') return baseUrl;
+  const origin = new URL(baseUrl).origin;
+  return new URL(path, origin).toString();
 }
 
 function normalizeQuickLinkUrl(raw, field, { allowBlank = false } = {}) {
@@ -68,7 +88,7 @@ export function normalizeQuickLink(raw = {}, existing = null) {
     group: sanitizeQuickLinkText(raw.group ?? existing?.group ?? '', '', 80),
     favorite: Boolean(raw.favorite ?? existing?.favorite ?? false),
     hidden: Boolean(raw.hidden ?? existing?.hidden ?? false),
-    healthPath: sanitizeQuickLinkText(raw.healthPath ?? existing?.healthPath ?? '/', '/', 240) || '/',
+    healthPath: normalizeQuickLinkHealthPath(raw.healthPath ?? existing?.healthPath ?? '/'),
     healthStatus: QUICK_LINK_HEALTH_STATUSES.has(healthStatus) ? healthStatus : 'configured_unchecked',
     lastCheckedAt: existing?.lastCheckedAt || raw.lastCheckedAt || null,
     lastStatusCode: Number.isFinite(existing?.lastStatusCode) ? existing.lastStatusCode : (Number.isFinite(raw.lastStatusCode) ? raw.lastStatusCode : null),
@@ -111,6 +131,10 @@ export async function boundedQuickLinkHealthCheck(link, { prefer = 'auto' } = {}
       allowPublic: true,
       allowSensitive: false,
     });
+    policy = {
+      ...policy,
+      url: quickLinkHealthCheckUrl(policy.url, link.healthPath || '/'),
+    };
   } catch (error) {
     return {
       status: 'unreachable',
