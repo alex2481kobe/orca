@@ -775,7 +775,7 @@ export function renderSupervisorPanel(ctx) {
           { label: 'Scope', value: 'Fleet/session' },
           { label: 'Execution', value: 'No spawn' },
         ])}
-        ${settingsCallout('Bounded supervisor power', 'Supervisors can inspect projects, watch worker output, update plans/backlog, audit sessions, and resign. They cannot take over orchestrator ownership or create executor lanes.')}
+        ${settingsCallout('Bounded supervisor power', 'Supervisors can inspect projects, watch worker output, audit sessions, and resign. They cannot mutate plans, backlog tasks, ownership, settings, or executor lanes.')}
         ${supervisorBootstrapMarkup}
         <details class="disclosure compact-disclosure">
           <summary>

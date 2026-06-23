@@ -13,10 +13,15 @@ projects moving from one conversation:
 - inspect a session with `orchestrator.status`;
 - inspect near-live worker output with `lane.terminal.tail` or the per-lane
   stream when a lane is actively running;
-- update a session goal/plan with `session.plan.update`;
-- add or adjust backlog tasks with `task.add`, `task.bulk_add`, or `task.update`;
+- inspect backlog, task, evidence, approval, and policy state with read-only
+  tools;
 - review completed orchestrator/session outcomes with `session.supervisor_audit`;
 - detach cleanly with `supervisor.resign` when supervision is done.
+
+The supervisor does not mutate session plans, backlog tasks, capacity, worktree
+policy, settings, lanes, or orchestrator ownership. Use `session.supervisor_audit`
+with concrete `findings` and `nextTask` when the active orchestrator should make
+changes.
 
 ## First Call
 

@@ -142,6 +142,13 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
   assert.deepEqual(supervisorMutatingTools, ['supervisor.resign', 'session.supervisor_audit']);
 });
 
+test('supervisor docs match the bounded read/audit role contract', async () => {
+  const doc = await fs.readFile(new URL('../docs/agent-supervisor-skill.md', import.meta.url), 'utf8');
+  assert.match(doc, /does not mutate session plans, backlog tasks, capacity, worktree\s+policy, settings, lanes, or orchestrator ownership/i);
+  assert.doesNotMatch(doc, /session\.plan\.update/);
+  assert.doesNotMatch(doc, /task\.add|task\.bulk_add|task\.update/);
+});
+
 test('nextAction envelope only advertises an implemented nextRequiredTool', async () => {
   await withIsolatedRegistry(async (registry) => {
     const project = registry.createProject({ name: 'Agent Tools Project' }, { actor: 'test', approved: true });

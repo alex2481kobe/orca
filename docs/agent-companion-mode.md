@@ -125,8 +125,9 @@ node scripts/orca-agent.mjs supervisor-resign --project <projectId> --session <s
 
 Once attached, the dashboard's Settings -> Supervisor page lists that chat as a
 registered supervisor agent. This is the intentionally bounded "god supervisor"
-surface: it can inspect, watch, plan, audit, and resign, but it cannot take over
-orchestrator ownership or spawn executor lanes.
+surface: it can inspect, watch, audit, and resign, but it cannot mutate plans,
+backlog tasks, worktree policy, settings, orchestrator ownership, or executor
+lanes.
 
 `supervisor-resign` revokes only the caller's supervisor lease and clears that
 cached lease entry. It does not remove other supervisors or dashboard operators.
