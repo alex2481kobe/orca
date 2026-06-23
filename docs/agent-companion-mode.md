@@ -123,6 +123,10 @@ node scripts/orca-agent.mjs supervisor-audit <sessionId> request_fix "Needs one 
 node scripts/orca-agent.mjs supervisor-resign --project <projectId> --session <sessionId>
 ```
 
+When a supervisor requests a fix, the normal orchestrator view carries it too:
+`node scripts/orca-agent.mjs status <sessionId> --project <projectId>` prints the
+current supervisor review and next task below the lane tree.
+
 Once attached, the dashboard's Settings -> Supervisor page lists that chat as a
 registered supervisor agent. This is the intentionally bounded "god supervisor"
 surface: it can inspect, watch, audit, and resign, but it cannot mutate plans,

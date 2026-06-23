@@ -126,10 +126,10 @@ export const part5 = [
     auth: 'api_token_or_paired_browser_session_or_scoped_tool_lease',
     mutationRisk: 'none',
     approval: 'authorized operator or scoped orchestrator.status tool lease',
-    validation: 'session exists; scoped tool leases must validate against the session project/id; returns ownership + lane tree + backlog roll-up + next required tool',
+    validation: 'session exists; scoped tool leases must validate against the session project/id; returns ownership + lane tree + backlog roll-up + supervisor review + next required tool',
     auditEvent: 'none',
     uiSurface: 'session orchestrator console',
-    smokeCoverage: ['smoke:mcp-backlog-flow'],
+    smokeCoverage: ['smoke:mcp-backlog-flow', 'test/orca-agent-cli.test.js'],
     serverHints: ['orchestratorStatus'],
   }),
   route({

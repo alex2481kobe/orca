@@ -128,6 +128,9 @@ test('supervisor audit records verdict and nudges the orchestrator thread', asyn
     assert.equal(stored.supervisorReview.verdict, 'request_fix');
     assert.equal(stored.orchestratorThread.messages.at(-1).role, 'system');
     assert.match(stored.orchestratorThread.messages.at(-1).content, /No screenshot evidence/);
+    const status = registry.orchestratorStatus(session.id);
+    assert.equal(status.supervisorReview.status, 'fix_requested');
+    assert.equal(status.supervisorReview.nextTask, 'Ask the orchestrator to capture evidence and rerun audit.');
     assert.ok(registry.auditEvents.some((event) =>
       event.type === 'session_supervisor_audited' && event.status === 'pending'));
     assert.throws(

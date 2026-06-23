@@ -77,6 +77,19 @@ const PROCESS_LEASES = new Map();
 function die(msg, code = 1) { console.error(`orca-agent: ${msg}`); process.exit(code); }
 function out(value) { console.log(typeof value === 'string' ? value : JSON.stringify(value, null, 2)); }
 
+function supervisorReviewLine(review) {
+  if (!review || !review.status) return '';
+  const detail = review.nextTask || review.summary || (Array.isArray(review.findings) ? review.findings[0] : '');
+  return `supervisor: ${review.status}${detail ? ` · ${detail}` : ''}`;
+}
+
+function printSessionStatus(data) {
+  out(data.tree || '(no tree)');
+  out(`owner: ${data.activeOrchestrator?.active ? data.activeOrchestrator.actor : '(none)'}  ·  next: ${data.nextRequiredTool}`);
+  const reviewLine = supervisorReviewLine(data.supervisorReview);
+  if (reviewLine) out(reviewLine);
+}
+
 function normalizeLeaseRole(value) {
   const role = String(value || 'orchestrator').trim().toLowerCase();
   if (role === 'orchestrator' || role === 'supervisor') return role;
@@ -598,8 +611,7 @@ switch (cmd) {
       sessionId,
     });
     if (!r.ok) die(`${r.status} ${r.data?.error || r.text}`, 2);
-    out(r.data.tree || '(no tree)');
-    out(`owner: ${r.data.activeOrchestrator?.active ? r.data.activeOrchestrator.actor : '(none)'}  ·  next: ${r.data.nextRequiredTool}`);
+    printSessionStatus(r.data);
     break;
   }
   case 'supervisor-watch': {
@@ -729,8 +741,7 @@ switch (cmd) {
       sessionId,
     });
     if (!r.ok) die(`${r.status} ${r.data?.error || r.text}`, 2);
-    out(r.data.tree || '(no tree)');
-    out(`owner: ${r.data.activeOrchestrator?.active ? r.data.activeOrchestrator.actor : '(none)'}  ·  next: ${r.data.nextRequiredTool}`);
+    printSessionStatus(r.data);
     break;
   }
   case 'tail': {

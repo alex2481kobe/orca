@@ -802,6 +802,16 @@ test('orca-agent supervisor commands attach with role-scoped leases and resign c
     const auditBody = JSON.parse(audit.stdout);
     assert.equal(auditBody.supervisorReview.status, 'fix_requested');
 
+    const orchestratorStatusAfterAudit = await runOrcaAgent([
+      'status',
+      session.body.id,
+      '--project',
+      project.body.id,
+    ], env);
+    assert.equal(orchestratorStatusAfterAudit.code, 0, orchestratorStatusAfterAudit.stderr);
+    assert.match(orchestratorStatusAfterAudit.stdout, /supervisor: fix_requested/);
+    assert.match(orchestratorStatusAfterAudit.stdout, /Address the CLI supervisor finding\./);
+
     const resign = await runOrcaAgent([
       'supervisor-resign',
       '--project',

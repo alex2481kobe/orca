@@ -321,6 +321,7 @@ export const orchestratorMethods = {
       sessionId: session.id,
       sessionName: session.name,
       activeOrchestrator: this.getActiveOrchestrator(session.id),
+      supervisorReview: session.supervisorReview || null,
       backlog,
       flow: envelope.flow,
       capacity: envelope.capacity,
