@@ -11,6 +11,8 @@ projects moving from one conversation:
 
 - read the fleet view with `supervisor.overview`;
 - inspect a session with `orchestrator.status`;
+- inspect near-live worker output with `lane.terminal.tail` or the per-lane
+  stream when a lane is actively running;
 - update a session goal/plan with `session.plan.update`;
 - add or adjust backlog tasks with `task.add`, `task.bulk_add`, or `task.update`;
 - review completed orchestrator/session outcomes with `session.supervisor_audit`;
@@ -34,7 +36,8 @@ server truth for:
 When an orchestrator reports that a session objective is done:
 
 1. Call `orchestrator.status` for that session.
-2. Inspect accepted lanes, evidence, backlog status, and warnings.
+2. Inspect accepted lanes, evidence, backlog status, live terminal output when
+   relevant, and warnings.
 3. Call `session.supervisor_audit` with one verdict:
    - `accept` when the session is ready;
    - `request_fix` with findings and `nextTask` when the orchestrator should fix;

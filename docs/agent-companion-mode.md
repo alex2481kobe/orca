@@ -52,6 +52,7 @@ echo '[{"title":"Add nav"},{"title":"Write tests"}]' | orca-agent bulk-add <sess
 orca-agent status  <sessionId>     # ownership + live lane tree + backlog roll-up
 orca-agent backlog <sessionId>
 orca-agent tail <laneId> --max-bytes 4096
+orca-agent watch <laneId> --idle-ms 5000
 orca-agent resign  <sessionId>     # hand off
 
 # Project links for phone/Tailscale use:
@@ -107,6 +108,7 @@ To make the current chat a supervisor instead, use the supervisor commands:
 ```bash
 node scripts/orca-agent.mjs supervisor-overview --project <projectId> --session <sessionId>
 node scripts/orca-agent.mjs supervisor-status <sessionId> --project <projectId>
+node scripts/orca-agent.mjs supervisor-watch <laneId> --project <projectId> --session <sessionId> --idle-ms 5000
 node scripts/orca-agent.mjs supervisor-audit <sessionId> request_fix "Needs one more check" \
   --project <projectId> --finding "Missing acceptance evidence" --next-task "Add the proof"
 node scripts/orca-agent.mjs supervisor-resign --project <projectId> --session <sessionId>
@@ -114,6 +116,9 @@ node scripts/orca-agent.mjs supervisor-resign --project <projectId> --session <s
 
 `supervisor-resign` revokes only the caller's supervisor lease and clears that
 cached lease entry. It does not remove other supervisors or dashboard operators.
+Use `tail` when the chat needs a bounded snapshot and `watch` when it needs the
+live terminal feel from a worker lane; both use scoped leases, so session/project
+boundaries are still enforced by Orca.
 
 See also [`desktop-app-control.md`](desktop-app-control.md) for the MCP-client setup
 (Codex CLI/app, Claude Code CLI, Claude Desktop, and compatible MCP clients).

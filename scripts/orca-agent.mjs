@@ -32,6 +32,7 @@
  *   orca-agent supervisor-bootstrap [--project <id>] [--session <id>]
  *   orca-agent supervisor-overview [--project <id>] [--session <id>]
  *   orca-agent supervisor-status <sessionId> [--project <id>]
+ *   orca-agent supervisor-watch <laneId> [--project <id>] [--session <id>] [--idle-ms N] [--max-events N] [--json]
  *   orca-agent supervisor-audit <sessionId> accept|request_fix|block <summary...> [--finding text] [--next-task text]
  *   orca-agent supervisor-resign [--project <id>] [--session <id>]
  *   orca-agent projects                                      # list projects visible to this lease
@@ -44,6 +45,8 @@
  *   orca-agent next [--session <id>]                          # server-approved next legal tool
  *   orca-agent status <sessionId>                             # ownership + lane tree + backlog
  *   orca-agent tail <laneId> [--offset N] [--max-bytes N]     # bounded terminal.log tail for live lane output
+ *   orca-agent watch <laneId> [--role orchestrator|supervisor] [--idle-ms N] [--max-events N] [--json]
+ *                                                            # stream raw live lane output over the existing SSE contract
  *   orca-agent enroll <sessionId> [--takeover]                # become the active orchestrator
  *   orca-agent resign <sessionId>
  *   orca-agent create-session <projectId> <name...> [--auto] [--cap N] [--leader codex|claude|mock]
@@ -250,6 +253,13 @@ function parsePort(value) {
   return port;
 }
 
+function parsePositiveInt(value, fallback, label) {
+  if (value === undefined || value === null || value === false || value === '') return fallback;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) die(`${label} must be a positive integer`);
+  return parsed;
+}
+
 function quickLinkBody(projectId, label, url, flags) {
   if (!projectId) die('project id required');
   if (!label) die('link label required');
@@ -270,6 +280,89 @@ function quickLinkBody(projectId, label, url, flags) {
   if (flags.favorite) body.favorite = true;
   if (flags.hidden) body.hidden = true;
   return body;
+}
+
+function decodeSseFrames(buffer, emitFrame) {
+  let nextBuffer = buffer;
+  let idx;
+  while ((idx = nextBuffer.indexOf('\n\n')) >= 0) {
+    const frame = nextBuffer.slice(0, idx);
+    nextBuffer = nextBuffer.slice(idx + 2);
+    const lines = frame.split('\n');
+    const eventLine = lines.find((line) => line.startsWith('event:'));
+    const dataLines = lines
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice(5).trimStart());
+    if (!dataLines.length) continue;
+    let data = null;
+    try { data = JSON.parse(dataLines.join('\n')); } catch { data = { text: dataLines.join('\n') }; }
+    emitFrame({
+      event: eventLine ? eventLine.slice(6).trim() : 'message',
+      data,
+    });
+  }
+  return nextBuffer;
+}
+
+async function streamLane(laneId, leaseOptions = {}) {
+  const normalizedLeaseOptions = normalizeLeaseOptions(leaseOptions);
+  const headers = { accept: 'text/event-stream', 'x-orca-tool-lease': await ensureLease(normalizedLeaseOptions) };
+  const res = await fetch(`${BASE}/api/lanes/${encodeURIComponent(laneId)}/stream`, { method: 'GET', headers });
+  if (!res.ok) {
+    const text = await res.text();
+    let data = null; try { data = text ? JSON.parse(text) : null; } catch { /* non-json */ }
+    die(`${res.status} ${data?.error || text || ''}`.trim(), 2);
+  }
+  const maxEvents = parsePositiveInt(flags['max-events'] || flags.maxEvents, null, '--max-events');
+  const idleMs = parsePositiveInt(flags['idle-ms'] || flags.idleMs, null, '--idle-ms');
+  const jsonOutput = Boolean(flags.json);
+  const reader = res.body?.getReader ? res.body.getReader() : null;
+  if (!reader) die('lane stream response is not readable', 2);
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let seenEvents = 0;
+  let lastFrameAt = Date.now();
+  let idleTimer = null;
+  const scheduleIdle = () => {
+    if (!idleMs) return;
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      try { reader.cancel(); } catch { /* ignore */ }
+    }, Math.max(1, idleMs - (Date.now() - lastFrameAt)));
+    if (typeof idleTimer.unref === 'function') idleTimer.unref();
+  };
+  scheduleIdle();
+  const emitFrame = (frame) => {
+    seenEvents += 1;
+    lastFrameAt = Date.now();
+    scheduleIdle();
+    if (jsonOutput) {
+      process.stdout.write(`${JSON.stringify(frame)}\n`);
+    } else if (frame.event === 'snapshot' || frame.event === 'append') {
+      process.stdout.write(String(frame.data?.text || ''));
+    }
+  };
+  try {
+    while (true) {
+      let readResult;
+      try {
+        readResult = await reader.read();
+      } catch (error) {
+        if (idleMs) break;
+        throw error;
+      }
+      const { value, done } = readResult;
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      buffer = decodeSseFrames(buffer, emitFrame);
+      if (maxEvents && seenEvents >= maxEvents) {
+        try { await reader.cancel(); } catch { /* ignore */ }
+        break;
+      }
+    }
+  } finally {
+    if (idleTimer) clearTimeout(idleTimer);
+  }
 }
 
 switch (cmd) {
@@ -353,6 +446,15 @@ switch (cmd) {
     if (!r.ok) die(`${r.status} ${r.data?.error || r.text}`, 2);
     out(r.data.tree || '(no tree)');
     out(`owner: ${r.data.activeOrchestrator?.active ? r.data.activeOrchestrator.actor : '(none)'}  ·  next: ${r.data.nextRequiredTool}`);
+    break;
+  }
+  case 'supervisor-watch': {
+    const laneId = _[0] || die('usage: orca-agent supervisor-watch <laneId> [--project <id>] [--session <id>] [--idle-ms N] [--max-events N] [--json]');
+    await streamLane(laneId, {
+      role: 'supervisor',
+      projectId: flags.project || flags.projectId,
+      sessionId: flags.session || flags.sessionId,
+    });
     break;
   }
   case 'supervisor-audit': {
@@ -485,6 +587,11 @@ switch (cmd) {
     })}`, undefined, commandLeaseOptions()));
     break;
   }
+  case 'watch': {
+    const laneId = _[0] || die('usage: orca-agent watch <laneId> [--role orchestrator|supervisor] [--project <id>] [--session <id>] [--idle-ms N] [--max-events N] [--json]');
+    await streamLane(laneId, commandLeaseOptions());
+    break;
+  }
   case 'enroll': {
     const sessionId = _[0] || die('usage: orca-agent enroll <sessionId> [--takeover]');
     show(await api('POST', `/api/sessions/${encodeURIComponent(sessionId)}/orchestrator/enroll`, { takeover: Boolean(flags.takeover) }, {
@@ -555,6 +662,6 @@ switch (cmd) {
     break;
   }
   default:
-    out('orca-agent — drive Orca from any agent. Commands: start, projects, links, link-upsert, link-check, tailscale-status, tailscale-setup, tailscale-serve, rules, bootstrap, supervisor-bootstrap, supervisor-overview, supervisor-status, supervisor-audit, supervisor-resign, next, status, tail, enroll, resign, create-session, add-task, bulk-add, backlog, call. See header for usage.');
+    out('orca-agent — drive Orca from any agent. Commands: start, projects, links, link-upsert, link-check, tailscale-status, tailscale-setup, tailscale-serve, rules, bootstrap, supervisor-bootstrap, supervisor-overview, supervisor-status, supervisor-watch, supervisor-audit, supervisor-resign, next, status, tail, watch, enroll, resign, create-session, add-task, bulk-add, backlog, call. See header for usage.');
     if (cmd && cmd !== 'help') process.exit(1);
 }

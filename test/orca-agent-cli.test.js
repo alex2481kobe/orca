@@ -55,7 +55,7 @@ async function withRealOrcaServer(callback) {
   }
 }
 
-function runOrcaAgent(args, env) {
+function runOrcaAgent(args, env, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [orcaAgentPath, ...args], {
       cwd: root,
@@ -70,6 +70,13 @@ function runOrcaAgent(args, env) {
     }, 8000);
     child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
     child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+    if (typeof options.onSpawn === 'function') {
+      try { options.onSpawn(child); } catch (error) {
+        child.kill();
+        clearTimeout(timer);
+        reject(error);
+      }
+    }
     child.on('error', (error) => {
       clearTimeout(timer);
       reject(error);
@@ -193,6 +200,10 @@ test('orca-agent supervisor commands attach with role-scoped leases and resign c
       body: { title: 'CLI supervised lane', executorType: 'mock', approved: true },
     });
     assert.equal(lane.status, 201);
+    const logDir = path.join(process.cwd(), 'artifacts', session.body.id, lane.body.id);
+    const logPath = path.join(logDir, 'terminal.log');
+    await fs.mkdir(logDir, { recursive: true });
+    await fs.writeFile(logPath, 'CLI WATCH INITIAL\n');
 
     const counts = async () => {
       const projects = await requestJson('/api/projects');
@@ -277,6 +288,45 @@ test('orca-agent supervisor commands attach with role-scoped leases and resign c
     const supervisorStatus = await runOrcaAgent(['supervisor-status', session.body.id, '--project', project.body.id], env);
     assert.equal(supervisorStatus.code, 0, supervisorStatus.stderr);
     assert.match(supervisorStatus.stdout, /next: /);
+
+    const watched = await runOrcaAgent([
+      'supervisor-watch',
+      lane.body.id,
+      '--project',
+      project.body.id,
+      '--session',
+      session.body.id,
+      '--json',
+      '--max-events',
+      '3',
+    ], env, {
+      onSpawn: () => {
+        setTimeout(() => {
+          fs.appendFile(logPath, 'CLI WATCH LIVE\n').catch(() => {});
+        }, 100);
+      },
+    });
+    assert.equal(watched.code, 0, watched.stderr);
+    const watchEvents = watched.stdout.trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
+    assert.deepEqual(watchEvents.map((event) => event.event), ['stream_open', 'snapshot', 'append']);
+    assert.equal(watchEvents[1].data.text, 'CLI WATCH INITIAL\n');
+    assert.equal(watchEvents[2].data.text, 'CLI WATCH LIVE\n');
+    assert.equal(watchEvents[2].data.offset, 'CLI WATCH INITIAL\n'.length);
+
+    const idleWatch = await runOrcaAgent([
+      'supervisor-watch',
+      lane.body.id,
+      '--project',
+      project.body.id,
+      '--session',
+      session.body.id,
+      '--json',
+      '--idle-ms',
+      '250',
+    ], env);
+    assert.equal(idleWatch.code, 0, idleWatch.stderr);
+    const idleEvents = idleWatch.stdout.trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
+    assert.equal(idleEvents.some((event) => event.event === 'snapshot' && event.data.text.includes('CLI WATCH LIVE')), true);
 
     const audit = await runOrcaAgent([
       'supervisor-audit',
