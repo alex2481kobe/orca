@@ -31,6 +31,10 @@ server truth for:
 - active supervisor leases, including `lastSeenAt` when a supervisor MCP client
   has actually checked in.
 
+The dashboard's Settings -> Supervisor page reads from the same overview. If you
+are attached correctly, your supervisor actor appears there as a registered
+supervisor agent with its scope, last-seen time, and expiry.
+
 ## Audit Flow
 
 When an orchestrator reports that a session objective is done:

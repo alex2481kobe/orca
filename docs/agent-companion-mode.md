@@ -123,6 +123,11 @@ node scripts/orca-agent.mjs supervisor-audit <sessionId> request_fix "Needs one 
 node scripts/orca-agent.mjs supervisor-resign --project <projectId> --session <sessionId>
 ```
 
+Once attached, the dashboard's Settings -> Supervisor page lists that chat as a
+registered supervisor agent. This is the intentionally bounded "god supervisor"
+surface: it can inspect, watch, plan, audit, and resign, but it cannot take over
+orchestrator ownership or spawn executor lanes.
+
 `supervisor-resign` revokes only the caller's supervisor lease and clears that
 cached lease entry. It does not remove other supervisors or dashboard operators.
 Use `tail` when the chat needs a bounded snapshot and `watch` when it needs the

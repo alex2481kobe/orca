@@ -1577,6 +1577,15 @@ body.sidebar-collapsed .sidebar-project-line {
   margin-bottom: var(--space-3);
 }
 
+.settings-panel-head > div:first-child {
+  min-width: 0;
+}
+
+.settings-panel-head > button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .settings-panel-head h3,
 .settings-panel-head p {
   margin: 0;
@@ -1654,6 +1663,7 @@ body.sidebar-collapsed .sidebar-project-line {
 
 .settings-action-main {
   display: grid;
+  flex: 1 1 14rem;
   gap: 0.25rem;
   min-width: 0;
 }
@@ -1671,10 +1681,11 @@ body.sidebar-collapsed .sidebar-project-line {
 .settings-action-controls {
   align-items: center;
   display: flex;
-  flex: 0 0 auto;
+  flex: 1 1 18rem;
   flex-wrap: wrap;
   gap: 0.45rem;
   justify-content: flex-end;
+  min-width: 0;
 }
 
 .settings-callout {
@@ -1872,9 +1883,14 @@ body.sidebar-collapsed .sidebar-project-line {
   }
 
   .settings-action-row,
+  .settings-panel-head,
   .settings-callout {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .settings-panel-head > button {
+    width: 100%;
   }
 
   .settings-row {
@@ -1887,6 +1903,11 @@ body.sidebar-collapsed .sidebar-project-line {
     justify-content: flex-start;
     max-width: 100%;
     width: 100%;
+  }
+
+  .settings-action-main,
+  .settings-action-controls {
+    flex: 0 1 auto;
   }
 
   .settings-row-controls {

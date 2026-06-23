@@ -318,6 +318,18 @@ async function seedInventoryState() {
   });
   if (lane.status !== 201) fail('create inventory lane', JSON.stringify(lane.body));
 
+  const supervisorLease = await requestJson('/api/agent-tools/leases', {
+    method: 'POST',
+    body: {
+      actor: 'ui-inventory-supervisor',
+      role: 'supervisor',
+      projectId: project.body.id,
+      sessionId: session.body.id,
+      ttlMs: 60_000,
+    },
+  });
+  if (supervisorLease.status !== 201) fail('create inventory supervisor lease', JSON.stringify(supervisorLease.body));
+
   return {
     project: project.body,
     session: session.body,
@@ -374,6 +386,8 @@ async function checkRoute(page, viewport, screen) {
       actions: Array.from(document.querySelectorAll('[data-action]')).map((element) => element.getAttribute('data-action') || ''),
     }));
     if (!before.text.includes('Supervisor agent')) fail(`${viewport.name}/supervisor missing heading`);
+    if (!before.text.includes('Active supervisor agents')) fail(`${viewport.name}/supervisor missing active supervisor section`);
+    if (!before.text.includes('ui-inventory-supervisor')) fail(`${viewport.name}/supervisor missing registered supervisor actor`);
     if (!before.text.includes('worktree:')) fail(`${viewport.name}/supervisor missing worktree mode summary`);
     if (!before.actions.includes('connectSupervisorApp')) fail(`${viewport.name}/supervisor missing bootstrap action`);
     await page.click('[data-action="connectSupervisorApp"]');

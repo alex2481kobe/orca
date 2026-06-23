@@ -151,6 +151,13 @@ function settingsCallout(title, detail, actions = '') {
     </div>`;
 }
 
+function inlineMeta(parts = []) {
+  return parts
+    .filter((part) => part !== undefined && part !== null && String(part).trim())
+    .map((part) => `<span>${safeText(part)}</span>`)
+    .join('');
+}
+
 function pairedDevicesDisclosure({ uikey, summary, rows, emptyText, bodyPrefix = '' }) {
   return `
         <details class="disclosure compact-disclosure" data-uikey="${uikey}">
@@ -671,6 +678,23 @@ export function renderSupervisorPanel(ctx) {
   const { supervisorOverview, supervisorBootstrapMarkup } = ctx;
   const projects = Array.isArray(supervisorOverview?.projects) ? supervisorOverview.projects : [];
   const activeSupervisors = Array.isArray(supervisorOverview?.activeSupervisors) ? supervisorOverview.activeSupervisors : [];
+  const supervisorRows = activeSupervisors.map((lease) => {
+    const scope = lease.sessionId ? 'Session scoped' : lease.projectId ? 'Project scoped' : 'Fleet scoped';
+    const seen = lease.lastSeenAt ? `Last seen ${formatRelative(lease.lastSeenAt)}` : 'Not seen yet';
+    const expires = lease.expiresAt ? `Expires ${formatRelative(lease.expiresAt)}` : 'No expiry';
+    return `
+        <div class="provider-row settings-row">
+          <div class="settings-row-main">
+            <strong>${safeText(lease.actor || 'Supervisor agent')}</strong>
+            <div class="settings-row-meta">
+              ${inlineMeta([scope, seen, expires])}
+            </div>
+          </div>
+          <div class="settings-row-side">
+            <span class="tag ok">Registered</span>
+          </div>
+        </div>`;
+  }).join('');
   const sessionRows = projects.flatMap((project) =>
     (Array.isArray(project.sessions) ? project.sessions : []).map((session) => {
       const active = Boolean(session.activeOrchestrator?.active);
@@ -746,7 +770,22 @@ export function renderSupervisorPanel(ctx) {
           </div>
           <button data-action="connectSupervisorApp" type="button">Connect supervisor</button>
         </div>
+        ${settingsSummaryGrid([
+          { label: 'Role', value: 'Review' },
+          { label: 'Scope', value: 'Fleet/session' },
+          { label: 'Execution', value: 'No spawn' },
+        ])}
+        ${settingsCallout('Bounded supervisor power', 'Supervisors can inspect projects, watch worker output, update plans/backlog, audit sessions, and resign. They cannot take over orchestrator ownership or create executor lanes.')}
         ${supervisorBootstrapMarkup}
+        <details class="disclosure compact-disclosure">
+          <summary>
+            <span>Active supervisor agents</span>
+            <small>${safeText(activeSupervisors.length)} registered</small>
+          </summary>
+          <div class="disclosure-body">
+            <div class="provider-list">${supervisorRows || '<div class="muted">No active supervisor agents.</div>'}</div>
+          </div>
+        </details>
         <div class="provider-list">${sessionRows || '<div class="muted">No active sessions yet.</div>'}</div>
       </article>`;
 }
