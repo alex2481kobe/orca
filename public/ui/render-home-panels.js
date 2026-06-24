@@ -677,7 +677,45 @@ export function renderMcpPanel(ctx) {
 export function renderSupervisorPanel(ctx) {
   const { supervisorOverview, supervisorBootstrapMarkup } = ctx;
   const projects = Array.isArray(supervisorOverview?.projects) ? supervisorOverview.projects : [];
+  const attention = Array.isArray(supervisorOverview?.attention) ? supervisorOverview.attention : [];
   const activeSupervisors = Array.isArray(supervisorOverview?.activeSupervisors) ? supervisorOverview.activeSupervisors : [];
+  const signalLabel = (kind = '') => ({
+    blocked_by_supervisor: 'Supervisor blocked',
+    fix_requested: 'Fix requested',
+    backlog_stalled: 'Backlog stalled',
+    approval_pending: 'Approval pending',
+    orchestrator_needed: 'Needs orchestrator',
+    session_review_ready: 'Review ready',
+    next_action_available: 'Next action',
+    monitor_lanes: 'Monitor lanes',
+    healthy: 'Healthy',
+  }[kind] || kind || 'Attention');
+  const signalTone = (kind = '') => {
+    if (['blocked_by_supervisor', 'backlog_stalled'].includes(kind)) return 'bad';
+    if (kind === 'healthy') return 'ok';
+    return 'warn';
+  };
+  const attentionRows = attention.map((item) => {
+    const kind = item.kind || 'attention';
+    const tool = item.recommendedTool || item.nextRequiredTool || 'supervisor.overview';
+    const route = item.route || '/';
+    return `
+        <div class="provider-row settings-row">
+          <div class="settings-row-main">
+            <strong>${safeText(item.projectName || item.projectId || 'Project')} / ${safeText(item.sessionName || item.sessionId || 'Session')}</strong>
+            <div>
+              <span class="tag ${safeAttr(signalTone(kind))}">${safeText(signalLabel(kind))}</span>
+              <span class="tag">${safeText(tool)}</span>
+            </div>
+            <div class="settings-row-meta">
+              ${safeText(item.message || 'No additional detail.')}
+            </div>
+          </div>
+          <div class="settings-row-side">
+            <a class="secondary" href="${safeAttr(route)}">Open</a>
+          </div>
+        </div>`;
+  }).join('');
   const supervisorRows = activeSupervisors.map((lease) => {
     const scope = lease.sessionId ? 'Session scoped' : lease.projectId ? 'Project scoped' : 'Fleet scoped';
     const seen = lease.lastSeenAt ? `Last seen ${formatRelative(lease.lastSeenAt)}` : 'Not seen yet';
@@ -701,10 +739,13 @@ export function renderSupervisorPanel(ctx) {
       const backlog = session.backlog || {};
       const counts = backlog.counts || {};
       const review = session.supervisorReview || null;
+      const signal = session.supervisorSignal || {};
+      const signalKind = signal.kind || 'healthy';
       const route = session.route || project.route || '/';
       const reviewStatus = String(review?.status || review?.verdict || '').toLowerCase();
       const pendingApprovals = Number.parseInt(session.approvals?.pending, 10) || 0;
       const rowTags = [
+        `<span class="tag ${safeAttr(signalTone(signalKind))}">${safeText(signalLabel(signalKind))}</span>`,
         active ? '<span class="tag ok">Active</span>' : '<span class="tag warn">Idle</span>',
         pendingApprovals ? `<span class="tag warn">${safeText(pendingApprovals)} approval${pendingApprovals === 1 ? '' : 's'}</span>` : '',
         backlog.stalled ? '<span class="tag bad">Stalled</span>' : '',
@@ -722,6 +763,7 @@ export function renderSupervisorPanel(ctx) {
               ${active ? `orchestrator: ${safeText(session.activeOrchestrator?.actor || session.activeOrchestrator?.source || 'active')}` : 'orchestrator: idle'}
               · next: ${safeText(session.nextRequiredTool || 'none')}
               · worktree: ${safeText(session.worktreeMode || 'isolated')}
+              · recommended: ${safeText(signal.recommendedTool || session.nextRequiredTool || 'none')}
             </div>
             <div class="tiny muted">
               backlog: ${safeText(counts.accepted || 0)} accepted / ${safeText(counts.total || 0)} total
@@ -761,6 +803,7 @@ export function renderSupervisorPanel(ctx) {
             <h3>Supervisor agent</h3>
             <p class="muted">${safeText(projects.length)} projects · ${safeText(totalSessions)} sessions · ${safeText(activeCount)} active orchestrator${activeCount === 1 ? '' : 's'} · ${safeText(activeSupervisors.length)} supervisor${activeSupervisors.length === 1 ? '' : 's'}</p>
             <div>
+              ${attention.length ? `<span class="tag warn">${safeText(attention.length)} attention</span>` : ''}
               ${triageCounts.stalled ? `<span class="tag bad">${safeText(triageCounts.stalled)} stalled</span>` : ''}
               ${triageCounts.blocked ? `<span class="tag bad">${safeText(triageCounts.blocked)} blocked</span>` : ''}
               ${triageCounts.approvals ? `<span class="tag warn">${safeText(triageCounts.approvals)} approval${triageCounts.approvals === 1 ? '' : 's'}</span>` : ''}
@@ -775,6 +818,10 @@ export function renderSupervisorPanel(ctx) {
           { label: 'Scope', value: 'Fleet/session' },
           { label: 'Execution', value: 'No spawn' },
         ])}
+        <div class="settings-section">
+          <h4 class="settings-section-title">Attention queue</h4>
+          <div class="provider-list">${attentionRows || '<div class="muted">No sessions need supervisor attention.</div>'}</div>
+        </div>
         ${settingsCallout('Bounded supervisor power', 'Supervisors can inspect projects, watch worker output, audit sessions, and resign. They cannot mutate plans, backlog tasks, ownership, settings, or executor lanes.')}
         ${supervisorBootstrapMarkup}
         <details class="disclosure compact-disclosure">

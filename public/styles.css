@@ -2327,6 +2327,12 @@ pre {
   padding: 0.7rem;
 }
 
+.provider-row a.secondary {
+  min-height: 36px;
+  padding: 0.42rem 0.7rem;
+  text-decoration: none;
+}
+
 /* Responsive: collapse sidebar to drawer on phones */
 @media (max-width: 880px) {
   /* Mobile mirrors desktop: NO topbar at all. The drawer carries the brand
@@ -2495,7 +2501,8 @@ body.sidebar-collapsed .pill {
 .access-command button,
 .access-target button,
 .access-target a.secondary,
-.provider-row button {
+.provider-row button,
+.provider-row a.secondary {
 	    flex: 1 1 calc(50% - 0.45rem);
 	    min-height: 44px;
 	    min-width: 5.5rem;

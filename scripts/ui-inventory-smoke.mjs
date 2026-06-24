@@ -386,6 +386,8 @@ async function checkRoute(page, viewport, screen) {
       actions: Array.from(document.querySelectorAll('[data-action]')).map((element) => element.getAttribute('data-action') || ''),
     }));
     if (!before.text.includes('Supervisor agent')) fail(`${viewport.name}/supervisor missing heading`);
+    if (!before.text.includes('Attention queue')) fail(`${viewport.name}/supervisor missing attention queue`);
+    if (!before.text.includes('Needs orchestrator')) fail(`${viewport.name}/supervisor missing attention signal`);
     if (!before.text.includes('Active supervisor agents')) fail(`${viewport.name}/supervisor missing active supervisor section`);
     if (!before.text.includes('ui-inventory-supervisor')) fail(`${viewport.name}/supervisor missing registered supervisor actor`);
     if (!before.text.includes('worktree:')) fail(`${viewport.name}/supervisor missing worktree mode summary`);
