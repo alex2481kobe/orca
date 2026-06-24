@@ -2012,6 +2012,19 @@ test('agent tool routes expose discovery, nextAction, and token-gated leases', a
     });
     assert.equal(deniedLease.status, 401);
 
+    const invalidRoleLease = await server.requestJson('/api/agent-tools/leases', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        actor: 'dashboard',
+        role: 'god',
+        projectId: project.body.id,
+        sessionId: session.body.id,
+      },
+    });
+    assert.equal(invalidRoleLease.status, 422);
+    assert.match(invalidRoleLease.body?.error || '', /role must be/i);
+
     const lease = await server.requestJson('/api/agent-tools/leases', {
       method: 'POST',
       headers: { 'x-orca-token': token },

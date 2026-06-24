@@ -2,6 +2,9 @@
 // checks self-guard on parts[1] so the caller gates on parts[1]==='agent-tools'.
 
 import { FALL_THROUGH } from './lanes.js';
+import { ROLES } from '../agent-tools/contract.js';
+
+const TOOL_LEASE_ROLE_MESSAGE = 'Tool lease role must be supervisor, orchestrator, executor, auditor, critique, or dashboard.';
 
 export async function handleAgentToolRoutes(ctx, req, res, method, parts) {
   const { registry, sendJson, sendBodyError, parseJsonBody, rejectSpoofedActor, getSearchParams, buildAgentToolDiscovery, buildNextActionEnvelope, requireAdminAuth } = ctx;
@@ -88,8 +91,12 @@ export async function handleAgentToolRoutes(ctx, req, res, method, parts) {
       if (body === null) return sendBodyError(req, res);
       if (rejectSpoofedActor(body, res)) return;
       try {
+        const requestedRole = String(body.role || 'orchestrator').trim().toLowerCase() || 'orchestrator';
+        if (!ROLES.has(requestedRole)) {
+          return sendJson(res, 422, { error: TOOL_LEASE_ROLE_MESSAGE });
+        }
         const nextAction = buildNextActionEnvelope(registry, {
-          role: body.role,
+          role: requestedRole,
           projectId: body.projectId,
           sessionId: body.sessionId,
           laneId: body.laneId,
