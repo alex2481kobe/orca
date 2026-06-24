@@ -94,11 +94,12 @@ export async function handleAgentToolRoutes(ctx, req, res, method, parts) {
           sessionId: body.sessionId,
           laneId: body.laneId,
         });
-        // Orchestrator/supervisor leases are off-origin host credentials that
-        // /api/mcp/orchestrator-bootstrap gates behind ADMIN. Minting it here must
+        // Dashboard/orchestrator/supervisor leases are off-origin host credentials
+        // with broad workflow/host power. Minting them here must
         // require admin too, or a paired operator (phone) could escalate by asking
-        // for role:"orchestrator"/"supervisor". Executor/auditor leases stay operator-level.
-        if (['orchestrator', 'supervisor'].includes(nextAction.role) && !requireAdminAuth(req, res)) return;
+        // for role:"dashboard"/"orchestrator"/"supervisor". Executor/auditor/
+        // critique leases stay operator-level.
+        if (['dashboard', 'orchestrator', 'supervisor'].includes(nextAction.role) && !requireAdminAuth(req, res)) return;
         const result = registry.createToolLease({
           role: nextAction.role,
           projectId: body.projectId || null,

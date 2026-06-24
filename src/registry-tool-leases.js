@@ -8,6 +8,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { safeArray } from './registry-utils.js';
 import { availableToolIdsForRole, buildNextActionEnvelope } from './agent-tools.js';
+import { ROLES } from './agent-tools/contract.js';
 import { buildOrchestratorMcpConfigs } from './mcp-orchestrator-bootstrap.js';
 
 // Authoritative workflow gates: lane states in which each agent tool is legal.
@@ -35,7 +36,10 @@ export const toolLeaseMethods = {
     ttlMs = 15 * 60 * 1000,
     actor = 'dashboard',
   } = {}) {
-    const normalizedRole = String(role || 'orchestrator').trim().toLowerCase().replace(/[^a-z_-]/g, '') || 'orchestrator';
+    const normalizedRole = String(role || 'orchestrator').trim().toLowerCase() || 'orchestrator';
+    if (!ROLES.has(normalizedRole)) {
+      throw { status: 422, message: 'Tool lease role must be supervisor, orchestrator, executor, auditor, critique, or dashboard.' };
+    }
     const project = projectId ? this.getProject(projectId) : null;
     if (projectId && !project) {
       throw { status: 404, message: 'Project not found for tool lease.' };
@@ -48,11 +52,31 @@ export const toolLeaseMethods = {
     if (laneId && !lane) {
       throw { status: 404, message: 'Lane not found for tool lease.' };
     }
+    const laneSession = lane ? this.getSession(lane.sessionId) : null;
     if (session && project && session.projectId !== project.id) {
       throw { status: 422, message: 'Tool lease session does not belong to the requested project.' };
     }
     if (lane && session && lane.sessionId !== session.id) {
       throw { status: 422, message: 'Tool lease lane does not belong to the requested session.' };
+    }
+    if (lane && project && lane.projectId !== project.id) {
+      throw { status: 422, message: 'Tool lease lane does not belong to the requested project.' };
+    }
+    if (lane && !laneSession) {
+      throw { status: 422, message: 'Tool lease lane session is missing.' };
+    }
+    const roleTools = new Set(availableToolIdsForRole(normalizedRole));
+    const normalizedAllowedTools = safeArray(allowedTools)
+      .map((toolId) => String(toolId || '').trim())
+      .filter(Boolean)
+      .filter((toolId, index, all) => all.indexOf(toolId) === index)
+      .slice(0, 100);
+    const disallowedTools = normalizedAllowedTools.filter((toolId) => !roleTools.has(toolId));
+    if (disallowedTools.length) {
+      throw {
+        status: 422,
+        message: `Tool lease role "${normalizedRole}" cannot grant tool(s): ${disallowedTools.join(', ')}.`,
+      };
     }
     const ttl = Math.max(30 * 1000, Math.min(24 * 60 * 60 * 1000, Number.parseInt(ttlMs, 10) || 15 * 60 * 1000));
     const leaseToken = `${randomUUID()}-${randomUUID()}`;
@@ -66,11 +90,7 @@ export const toolLeaseMethods = {
       projectId: project?.id || null,
       sessionId: session?.id || null,
       laneId: lane?.id || null,
-      allowedTools: safeArray(allowedTools)
-        .map((toolId) => String(toolId || '').trim())
-        .filter(Boolean)
-        .filter((toolId, index, all) => all.indexOf(toolId) === index)
-        .slice(0, 100),
+      allowedTools: normalizedAllowedTools,
       createdAt: new Date(now).toISOString(),
       lastUsedAt: null,
       expiresAt: new Date(now + ttl).toISOString(),

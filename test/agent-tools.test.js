@@ -353,6 +353,27 @@ test('tool leases are scoped, hashed at rest, and enforce allowed tools', async 
       role: 'orchestrator',
       toolId: 'session.next_action',
     }), (error) => error.status === 401 && /expired/.test(error.message));
+
+    assert.throws(() => registry.createToolLease({
+      role: 'god',
+      allowedTools: ['session.next_action'],
+    }), (error) => error.status === 422 && /role must be/i.test(error.message));
+
+    assert.throws(() => registry.createToolLease({
+      role: 'executor',
+      projectId: project.id,
+      sessionId: session.id,
+      laneId: lane.id,
+      allowedTools: ['provider.secret.set'],
+    }), (error) => error.status === 422 && /cannot grant/i.test(error.message));
+
+    const otherProject = registry.createProject({ name: 'Other Lease Project' }, { actor: 'test', approved: true });
+    assert.throws(() => registry.createToolLease({
+      role: 'executor',
+      projectId: otherProject.id,
+      laneId: lane.id,
+      allowedTools: ['lane.get'],
+    }), (error) => error.status === 422 && /lane does not belong to the requested project/.test(error.message));
   });
 });
 

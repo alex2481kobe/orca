@@ -544,16 +544,18 @@ test('paired devices get operator access but are denied host administration', as
       ['POST', '/api/auth/pairing-codes', { actor: 'dashboard', label: 'rogue' }],
       ['GET', '/api/providers/export', undefined],
       ['GET', '/api/app/export', undefined],
-      // An orchestrator lease is an off-origin host credential — a paired operator
-      // must not be able to mint one (same gate as /api/mcp/orchestrator-bootstrap).
+      // Dashboard/orchestrator/supervisor leases are off-origin host credentials —
+      // a paired operator must not be able to mint them.
+      ['POST', '/api/agent-tools/leases', { actor: 'dashboard', role: 'dashboard' }],
       ['POST', '/api/agent-tools/leases', { actor: 'dashboard', role: 'orchestrator' }],
+      ['POST', '/api/agent-tools/leases', { actor: 'dashboard', role: 'supervisor' }],
     ];
     for (const [method, route, body] of adminAttempts) {
       const res = await server.requestJson(route, { method, headers: { cookie }, body });
       assert.equal(res.status, 403, `${method} ${route} must be admin-only for paired devices (got ${res.status})`);
     }
 
-    // But a NON-orchestrator (executor) lease stays an operator-level action.
+    // But a worker-lane lease stays an operator-level action.
     const execLease = await server.requestJson('/api/agent-tools/leases', {
       method: 'POST', headers: { cookie }, body: { actor: 'dashboard', role: 'executor' },
     });
