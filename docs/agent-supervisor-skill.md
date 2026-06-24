@@ -33,6 +33,8 @@ server truth for:
 - backlog progress and stalled reasons;
 - capacity and worktree-mode warnings;
 - each session's next required tool.
+- the top-level `attention` queue and each session's `supervisorSignal`, which
+  are the server-derived "what needs attention first" hints;
 - active supervisor leases, including `lastSeenAt` when a supervisor MCP client
   has actually checked in.
 

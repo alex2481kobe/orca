@@ -42,10 +42,22 @@ test('supervisor overview summarizes projects, sessions, orchestrators, backlog,
       detail: 'Executor wants to run a governed tool.',
       actor: 'executor',
     });
+    const fixSession = registry.createSession(project.id, {
+      name: 'Supervisor Fix Session',
+      spawnPolicy: 'auto',
+      approvedCapacity: 1,
+    }, { actor: 'test', approved: true });
+    registry.enrollOrchestrator(fixSession.id, { leaseId: 'fix-dashboard', actor: 'fix-dashboard', source: 'dashboard' });
+    registry.recordSupervisorSessionAudit(fixSession.id, {
+      actor: 'supervisor',
+      verdict: 'request_fix',
+      summary: 'Needs one more proof pass.',
+      nextTask: 'Have the orchestrator add evidence and rerun the audit.',
+    });
 
     const overview = registry.supervisorOverview();
     assert.equal(overview.projects.length, 1);
-    const summarized = overview.projects[0].sessions[0];
+    const summarized = overview.projects[0].sessions.find((item) => item.id === session.id);
     assert.equal(summarized.id, session.id);
     assert.equal(summarized.activeOrchestrator.active, true);
     assert.equal(summarized.worktreeMode, 'shared');
@@ -55,6 +67,13 @@ test('supervisor overview summarizes projects, sessions, orchestrators, backlog,
     assert.equal(summarized.approvals.lanes[0].laneId, lane.id);
     assert.equal(summarized.lanes[0].id, lane.id);
     assert.equal(summarized.lanes[0].pendingApprovals, 1);
+    assert.equal(summarized.supervisorSignal.kind, 'approval_pending');
+    assert.equal(summarized.supervisorSignal.recommendedTool, 'approval.list');
+    assert.equal(overview.attention[0].sessionId, fixSession.id);
+    assert.equal(overview.attention[0].kind, 'fix_requested');
+    assert.equal(overview.attention[0].recommendedTool, 'orchestrator.status');
+    assert.equal(overview.attention[1].sessionId, session.id);
+    assert.equal(overview.attention[1].kind, 'approval_pending');
 
     const next = buildNextActionEnvelope(registry, { role: 'supervisor' });
     assert.equal(next.nextRequiredTool, 'supervisor.overview');

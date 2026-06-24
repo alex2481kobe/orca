@@ -70,7 +70,7 @@ export const TOOL_DEFINITIONS = [
     route: '/api/supervisor/overview',
     implemented: true,
     mutating: false,
-    summary: 'Read the cross-project supervisor view: projects, sessions, active orchestrators, backlog roll-ups, capacity/worktree warnings, and next required tools.',
+    summary: 'Read the cross-project supervisor view: projects, sessions, active orchestrators, attention queue, backlog roll-ups, warnings, and next required tools.',
   },
   {
     id: 'supervisor.resign',

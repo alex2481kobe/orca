@@ -44,6 +44,49 @@ function summarizeSupervisorLane(lane) {
   };
 }
 
+function supervisorSignalForSession({ session, status, backlog, activeLanes = 0, pendingApprovalCount = 0 }) {
+  const review = session.supervisorReview || null;
+  const nextRequiredTool = status?.nextRequiredTool || null;
+  const backlogCounts = backlog?.counts || {};
+  const pendingBacklog = Number(backlogCounts.pending || 0);
+  const failedBacklog = Number(backlogCounts.failed || 0);
+  const blockedBacklog = Number(backlogCounts.blocked || 0);
+  const make = (kind, priority, message, recommendedTool = 'orchestrator.status') => ({
+    kind,
+    priority,
+    message,
+    recommendedTool,
+    nextRequiredTool,
+  });
+
+  if (review?.status === 'blocked') {
+    return make('blocked_by_supervisor', 10, review.summary || 'Supervisor blocked this session.', 'orchestrator.status');
+  }
+  if (review?.status === 'fix_requested') {
+    return make('fix_requested', 20, review.nextTask || review.summary || 'Supervisor requested a fix.', 'orchestrator.status');
+  }
+  if (backlog?.stalled || failedBacklog || blockedBacklog) {
+    const reason = safeArray(backlog?.stallReasons)[0] || `${failedBacklog} failed, ${blockedBacklog} blocked backlog item(s).`;
+    return make('backlog_stalled', 30, reason, 'backlog.status');
+  }
+  if (pendingApprovalCount > 0) {
+    return make('approval_pending', 40, `${pendingApprovalCount} pending approval${pendingApprovalCount === 1 ? '' : 's'} need review.`, 'approval.list');
+  }
+  if (!status?.activeOrchestrator?.active && (pendingBacklog > 0 || activeLanes > 0)) {
+    return make('orchestrator_needed', 50, 'Session has work but no active orchestrator.', 'orchestrator.status');
+  }
+  if (backlog?.complete && backlog?.allAccepted && review?.status !== 'accepted') {
+    return make('session_review_ready', 60, 'All backlog work is accepted; supervisor review is ready.', 'session.supervisor_audit');
+  }
+  if (nextRequiredTool && nextRequiredTool !== 'session.next_action') {
+    return make('next_action_available', 70, `Next required tool is ${nextRequiredTool}.`, nextRequiredTool);
+  }
+  if (activeLanes > 0) {
+    return make('monitor_lanes', 80, `${activeLanes} active lane${activeLanes === 1 ? '' : 's'} running or awaiting review.`, 'lane.terminal.tail');
+  }
+  return make('healthy', 100, 'No immediate supervisor action required.', 'supervisor.overview');
+}
+
 export const supervisorMethods = {
   supervisorOverview({ projectId = null, sessionId = null } = {}) {
     const scopedProject = projectId ? this.getProject(projectId) : null;
@@ -76,64 +119,87 @@ export const supervisorMethods = {
       .filter((project) => project.state !== 'archived')
       .filter(() => !scopedProjectMissing)
       .filter((project) => !scopedProjectId || project.id === scopedProjectId);
+    const projectSummaries = projects.map((project) => {
+      const sessions = (this.sessions || [])
+        .filter((session) => session.projectId === project.id && session.state !== 'archived')
+        .filter((session) => !sessionId || session.id === sessionId)
+        .map((session) => {
+          let status = null;
+          let backlog = null;
+          try { status = this.orchestratorStatus(session.id); } catch { status = null; }
+          try { backlog = this.sessionBacklogStatus(session.id); } catch { backlog = null; }
+          const lanes = (this.lanes || []).filter((lane) => lane.sessionId === session.id);
+          const activeLanes = lanes.filter((lane) => ['queued', 'starting', 'running', 'auditing', 'needs_critique', 'ready_for_audit', 'fix_requested'].includes(lane.state)).length;
+          const pendingApprovalLanes = lanes
+            .map((lane) => ({
+              laneId: lane.id,
+              title: lane.title,
+              executorType: lane.executorType,
+              count: safeArray(lane.pendingApprovals).filter((approval) => approval?.status === 'pending').length,
+            }))
+            .filter((lane) => lane.count > 0);
+          const pendingApprovalCount = pendingApprovalLanes.reduce((sum, lane) => sum + lane.count, 0);
+          const supervisorSignal = supervisorSignalForSession({
+            session,
+            status,
+            backlog,
+            activeLanes,
+            pendingApprovalCount,
+          });
+          return {
+            id: session.id,
+            name: session.name,
+            route: session.route,
+            repoConfigured: Boolean(session.repoRoot),
+            worktreeMode: normalizeWorktreeMode(session.worktreeMode),
+            activeOrchestrator: status?.activeOrchestrator || { active: false },
+            nextRequiredTool: status?.nextRequiredTool || null,
+            capacity: status?.capacity || null,
+            backlog: backlog ? {
+              counts: backlog.counts,
+              complete: backlog.complete,
+              allAccepted: backlog.allAccepted,
+              stalled: backlog.stalled,
+              stallReasons: backlog.stallReasons,
+              warnings: backlog.warnings,
+            } : null,
+            activeLanes,
+            approvals: {
+              pending: pendingApprovalCount,
+              lanes: pendingApprovalLanes,
+            },
+            lanes: lanes.map(summarizeSupervisorLane),
+            supervisorReview: session.supervisorReview || null,
+            supervisorSignal,
+          };
+        });
+      return {
+        id: project.id,
+        name: project.name,
+        slug: project.slug,
+        route: project.route,
+        sessionCount: sessions.length,
+        sessions,
+      };
+    });
+    const attention = projectSummaries
+      .flatMap((project) => project.sessions.map((session) => ({
+        projectId: project.id,
+        projectName: project.name,
+        sessionId: session.id,
+        sessionName: session.name,
+        route: session.route,
+        ...session.supervisorSignal,
+      })))
+      .filter((item) => item.kind !== 'healthy')
+      .sort((a, b) => (a.priority - b.priority)
+        || String(a.projectName).localeCompare(String(b.projectName))
+        || String(a.sessionName).localeCompare(String(b.sessionName)));
     return clonePayload({
       generatedAt: nowIso(),
       activeSupervisors,
-      projects: projects.map((project) => {
-        const sessions = (this.sessions || [])
-          .filter((session) => session.projectId === project.id && session.state !== 'archived')
-          .filter((session) => !sessionId || session.id === sessionId)
-          .map((session) => {
-            let status = null;
-            let backlog = null;
-            try { status = this.orchestratorStatus(session.id); } catch { status = null; }
-            try { backlog = this.sessionBacklogStatus(session.id); } catch { backlog = null; }
-            const lanes = (this.lanes || []).filter((lane) => lane.sessionId === session.id);
-            const activeLanes = lanes.filter((lane) => ['queued', 'starting', 'running', 'auditing', 'needs_critique', 'ready_for_audit', 'fix_requested'].includes(lane.state)).length;
-            const pendingApprovalLanes = lanes
-              .map((lane) => ({
-                laneId: lane.id,
-                title: lane.title,
-                executorType: lane.executorType,
-                count: safeArray(lane.pendingApprovals).filter((approval) => approval?.status === 'pending').length,
-              }))
-              .filter((lane) => lane.count > 0);
-            const pendingApprovalCount = pendingApprovalLanes.reduce((sum, lane) => sum + lane.count, 0);
-            return {
-              id: session.id,
-              name: session.name,
-              route: session.route,
-              repoConfigured: Boolean(session.repoRoot),
-              worktreeMode: normalizeWorktreeMode(session.worktreeMode),
-              activeOrchestrator: status?.activeOrchestrator || { active: false },
-              nextRequiredTool: status?.nextRequiredTool || null,
-              capacity: status?.capacity || null,
-              backlog: backlog ? {
-                counts: backlog.counts,
-                complete: backlog.complete,
-                allAccepted: backlog.allAccepted,
-                stalled: backlog.stalled,
-                stallReasons: backlog.stallReasons,
-                warnings: backlog.warnings,
-              } : null,
-              activeLanes,
-              approvals: {
-                pending: pendingApprovalCount,
-                lanes: pendingApprovalLanes,
-              },
-              lanes: lanes.map(summarizeSupervisorLane),
-              supervisorReview: session.supervisorReview || null,
-            };
-          });
-        return {
-          id: project.id,
-          name: project.name,
-          slug: project.slug,
-          route: project.route,
-          sessionCount: sessions.length,
-          sessions,
-        };
-      }),
+      attention,
+      projects: projectSummaries,
     });
   },
 
