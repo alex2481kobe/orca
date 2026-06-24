@@ -51,6 +51,12 @@ function supervisorSignalForSession({ session, status, backlog, activeLanes = 0,
   const pendingBacklog = Number(backlogCounts.pending || 0);
   const failedBacklog = Number(backlogCounts.failed || 0);
   const blockedBacklog = Number(backlogCounts.blocked || 0);
+  const approvedCapacity = Number(backlog?.capacity?.approvedCapacity ?? status?.capacity?.approvedCapacity ?? 0);
+  const escalatedAudits = Number(backlog?.escalatedAudits || 0);
+  const hardBacklogProblem = failedBacklog > 0
+    || blockedBacklog > 0
+    || escalatedAudits > 0
+    || (pendingBacklog > 0 && approvedCapacity <= 0);
   const make = (kind, priority, message, recommendedTool = 'orchestrator.status') => ({
     kind,
     priority,
@@ -65,7 +71,7 @@ function supervisorSignalForSession({ session, status, backlog, activeLanes = 0,
   if (review?.status === 'fix_requested') {
     return make('fix_requested', 20, review.nextTask || review.summary || 'Supervisor requested a fix.', 'orchestrator.status');
   }
-  if (backlog?.stalled || failedBacklog || blockedBacklog) {
+  if (hardBacklogProblem) {
     const reason = safeArray(backlog?.stallReasons)[0] || `${failedBacklog} failed, ${blockedBacklog} blocked backlog item(s).`;
     return make('backlog_stalled', 30, reason, 'backlog.status');
   }

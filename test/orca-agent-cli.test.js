@@ -744,6 +744,15 @@ test('orca-agent supervisor commands attach with role-scoped leases and resign c
       body: { title: 'CLI supervised lane', executorType: 'mock', approved: true },
     });
     assert.equal(lane.status, 201);
+    const task = await requestJson(`/api/sessions/${session.body.id}/tasks`, {
+      method: 'POST',
+      body: {
+        title: 'CLI supervised pending task',
+        executorType: 'mock',
+        approved: true,
+      },
+    });
+    assert.equal(task.status, 201);
     const logDir = path.join(process.cwd(), 'artifacts', session.body.id, lane.body.id);
     const logPath = path.join(logDir, 'terminal.log');
     await fs.mkdir(logDir, { recursive: true });
@@ -805,6 +814,21 @@ test('orca-agent supervisor commands attach with role-scoped leases and resign c
     assert.equal(JSON.stringify(overview).includes(hiddenSession.body.id), false);
     assert.equal(overview.activeSupervisors.some((lease) => lease.actor === 'orca-agent-supervisor'), true);
     assert.deepEqual(await counts(), beforeAttach);
+
+    const overviewSummary = await runOrcaAgent([
+      'supervisor-overview',
+      '--project',
+      project.body.id,
+      '--session',
+      session.body.id,
+      '--summary',
+    ], env);
+    assert.equal(overviewSummary.code, 0, overviewSummary.stderr);
+    assert.match(overviewSummary.stdout, /active supervisors: /);
+    assert.match(overviewSummary.stdout, /attention:/);
+    assert.match(overviewSummary.stdout, /CLI Supervisor Project \/ CLI Supervised Session -> orchestrator\.status/);
+    assert.equal(overviewSummary.stdout.includes(hiddenProject.body.id), false);
+    assert.equal(overviewSummary.stdout.includes(hiddenSession.body.id), false);
 
     const cachePath = path.join(tempDir, '.orca', 'agent-leases.json');
     const cache = JSON.parse(await fs.readFile(cachePath, 'utf8'));

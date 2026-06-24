@@ -237,6 +237,14 @@ try {
   if (!overviewSession) fail('supervisor overview missing session');
   if (overviewSession.activeOrchestrator?.actor !== 'dashboard') fail('supervisor overview missing active orchestrator', JSON.stringify(overviewSession.activeOrchestrator));
   if (overviewSession.nextRequiredTool !== 'lane.create') fail('supervisor overview wrong next action', overviewSession.nextRequiredTool);
+  const attentionItem = (overview.data.attention || []).find((item) => item.sessionId === session.body.id);
+  if (!attentionItem) fail('supervisor overview missing attention item', JSON.stringify(overview.data.attention));
+  if (attentionItem.kind !== 'next_action_available' || attentionItem.recommendedTool !== 'lane.create') {
+    fail('supervisor overview wrong attention signal', JSON.stringify(attentionItem));
+  }
+  if (overviewSession.supervisorSignal?.kind !== attentionItem.kind) {
+    fail('supervisor overview session signal mismatch', JSON.stringify({ sessionSignal: overviewSession.supervisorSignal, attentionItem }));
+  }
   if (overviewSession.backlog?.counts?.pending !== 1) fail('supervisor overview missing backlog pending count', JSON.stringify(overviewSession.backlog));
   if (!overviewSession.lanes.some((item) => item.id === lane.body.id)) fail('supervisor overview missing executor lane');
   const activeSupervisor = overview.data.activeSupervisors.find((item) => item.actor === 'supervisor-flow-chat');

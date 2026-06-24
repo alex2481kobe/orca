@@ -30,7 +30,7 @@
  *   orca-agent bootstrap [--role orchestrator|supervisor] [--project <id>] [--session <id>]
  *                                                            # mint + print a lease (and a `claude mcp add` line)
  *   orca-agent supervisor-bootstrap [--project <id>] [--session <id>]
- *   orca-agent supervisor-overview [--project <id>] [--session <id>]
+ *   orca-agent supervisor-overview [--project <id>] [--session <id>] [--summary]
  *   orca-agent supervisor-status <sessionId> [--project <id>]
  *   orca-agent supervisor-watch <laneId> [--project <id>] [--session <id>] [--idle-ms N] [--max-events N] [--json]
  *   orca-agent supervisor-watch-all [--project <id>] [--session <id>] [--idle-ms N] [--max-events N] [--json] [--done]
@@ -90,6 +90,35 @@ function printSessionStatus(data) {
   out(`owner: ${data.activeOrchestrator?.active ? data.activeOrchestrator.actor : '(none)'}  ·  next: ${data.nextRequiredTool}`);
   const reviewLine = supervisorReviewLine(data.supervisorReview);
   if (reviewLine) out(reviewLine);
+}
+
+function printSupervisorOverviewSummary(data) {
+  const attention = Array.isArray(data?.attention) ? data.attention : [];
+  const projects = Array.isArray(data?.projects) ? data.projects : [];
+  const activeSupervisors = Array.isArray(data?.activeSupervisors) ? data.activeSupervisors : [];
+  out(`active supervisors: ${activeSupervisors.length}`);
+  out(`projects: ${projects.length}`);
+  if (attention.length) {
+    out('attention:');
+    for (const item of attention) {
+      const projectName = item.projectName || item.projectId || '(project)';
+      const sessionName = item.sessionName || item.sessionId || '(session)';
+      const tool = item.recommendedTool || item.nextRequiredTool || 'supervisor.overview';
+      const message = item.message ? ` - ${item.message}` : '';
+      out(`- ${item.kind}: ${projectName} / ${sessionName} -> ${tool}${message}`);
+    }
+  } else {
+    out('attention: none');
+  }
+  for (const project of projects) {
+    const sessions = Array.isArray(project.sessions) ? project.sessions : [];
+    out(`project: ${project.name || project.id} (${sessions.length} session${sessions.length === 1 ? '' : 's'})`);
+    for (const session of sessions) {
+      const signal = session.supervisorSignal?.kind || 'healthy';
+      const tool = session.supervisorSignal?.recommendedTool || session.nextRequiredTool || 'supervisor.overview';
+      out(`  session: ${session.name || session.id} - signal ${signal} - tool ${tool}`);
+    }
+  }
 }
 
 function normalizeLeaseRole(value) {
@@ -619,10 +648,13 @@ switch (cmd) {
     break;
   }
   case 'supervisor-overview': {
-    show(await api('GET', `/api/supervisor/overview${queryString({
+    const r = await api('GET', `/api/supervisor/overview${queryString({
       projectId: flags.project || flags.projectId,
       sessionId: flags.session || flags.sessionId,
-    })}`, undefined, commandLeaseOptions('supervisor')));
+    })}`, undefined, commandLeaseOptions('supervisor'));
+    if (!r.ok) die(`${r.status} ${r.data?.error || r.text || ''}`.trim(), 2);
+    if (flags.summary) printSupervisorOverviewSummary(r.data);
+    else out(r.data ?? r.text);
     break;
   }
   case 'supervisor-status': {

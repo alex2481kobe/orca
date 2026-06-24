@@ -115,7 +115,7 @@ contract an MCP-connected orchestrator obeys.
 To make the current chat a supervisor instead, use the supervisor commands:
 
 ```bash
-node scripts/orca-agent.mjs supervisor-overview --project <projectId> --session <sessionId>
+node scripts/orca-agent.mjs supervisor-overview --project <projectId> --session <sessionId> --summary
 node scripts/orca-agent.mjs supervisor-status <sessionId> --project <projectId>
 node scripts/orca-agent.mjs supervisor-watch <laneId> --project <projectId> --session <sessionId> --idle-ms 5000
 node scripts/orca-agent.mjs supervisor-watch-all --project <projectId> --session <sessionId> --idle-ms 5000 --json
@@ -128,6 +128,8 @@ node scripts/orca-agent.mjs supervisor-resign --project <projectId> --session <s
 When a supervisor requests a fix, the normal orchestrator view carries it too:
 `node scripts/orca-agent.mjs status <sessionId> --project <projectId>` prints the
 current supervisor review and next task below the lane tree.
+Use `supervisor-overview --summary` for the compact attention queue; omit
+`--summary` when another tool needs the full JSON contract.
 
 Once attached, the dashboard's Settings -> Supervisor page lists that chat as a
 registered supervisor agent. This is the intentionally bounded "god supervisor"
