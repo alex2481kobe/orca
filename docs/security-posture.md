@@ -13,7 +13,7 @@ npm audit --omit=dev → 0 vulnerabilities   (also enforced by manual CI)
 The server, dashboard, and PWA — the code every user runs — have **zero** known
 vulnerable dependencies.
 
-## Rust desktop shell (`src-tauri/`, Tauri v2)
+## Rust desktop shell (`src-tauri/`, Tauri v2.11.3)
 
 ```
 cargo audit → 0 vulnerabilities, 17 warnings
@@ -36,10 +36,24 @@ Orca depends on directly.
   Tauri bumps its webview dependency stack upstream; we'll pick that up on the next
   Tauri update.
 
-The likely source of the GitHub Dependabot "1 moderate" alert is the `glib`
-unsoundness advisory (RUSTSEC‑2024‑0429 / its GHSA equivalent). It is transitive,
-Linux‑only, and not reachable in Orca's shipped targets, so it can be dismissed in
-the GitHub UI as "vulnerable code is not actually used" with a link to this file.
+Checked against GitHub Dependabot on 2026-06-24: the open "1 moderate" alert is
+`glib` `GHSA-wrw7-89jp-8q8g` / `RUSTSEC-2024-0429`, fixed upstream at
+`glib 0.20.0`. The exact resolved chain is:
+
+```
+tauri 2.11.3
+└─ tauri-runtime-wry 2.11.3
+   └─ wry 0.55.1 / webkit2gtk 2.0.2 / tray-icon 0.24.1
+      └─ gtk-rs 0.18.x
+         └─ glib 0.18.5
+```
+
+The dependency is transitive, Linux-only, and not reachable in Orca's shipped
+targets, so it can be dismissed in the GitHub UI as "vulnerable code is not
+actually used" with a link to this file. Do not dismiss future `glib` alerts by
+pattern; re-check the resolved chain first, because the action is only justified
+while Orca's validated release targets remain macOS + phone web/PWA and Tauri/Wry
+still pin the Linux GTK stack below `glib 0.20.0`.
 
 ## Keeping it clean
 
