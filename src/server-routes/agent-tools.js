@@ -68,6 +68,7 @@ export async function handleAgentToolRoutes(ctx, req, res, method, parts) {
       }));
     }
     if (parts[2] === 'leases' && parts.length === 3 && method === 'GET') {
+      if (!requireAdminAuth(req, res)) return;
       const searchParams = getSearchParams(req.url || '/');
       if (!searchParams) {
         return sendJson(res, 400, { error: 'Invalid request query string.' });

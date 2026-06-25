@@ -3435,7 +3435,13 @@ test('agent tool leases can be listed and admin-revoked (audit H2)', async () =>
     });
     const cookie = paired.response.headers['set-cookie'];
 
-    // Operator (paired session) may NOT revoke — admin only.
+    // Operator (paired session) may NOT enumerate or revoke leases — admin only.
+    const operatorList = await server.requestJson('/api/agent-tools/leases?activeOnly=true', {
+      method: 'GET',
+      headers: { cookie },
+    });
+    assert.equal(operatorList.status, 403);
+
     const operatorRevoke = await server.requestJson(`/api/agent-tools/leases/${leaseId}`, {
       method: 'DELETE',
       headers: { cookie },

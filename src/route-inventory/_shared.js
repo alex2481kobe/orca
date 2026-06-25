@@ -35,6 +35,7 @@ const PUBLIC_ROUTE_KEYS = new Set([
 // Host-level administration: only the workstation (API token or non-proxied
 // loopback bootstrap) may reach these. Paired devices are denied (403).
 const ADMIN_ROUTE_KEYS = new Set([
+  'GET /api/agent-tools/leases',
   'DELETE /api/agent-tools/leases/{leaseId}',
   'POST /api/executors/{executor}/cli/reinstall',
   // Custom MCP tools define host-executed commands. Mutating them is admin-only
