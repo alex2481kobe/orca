@@ -24,8 +24,8 @@ export function exactUrlForAccessMode(target, mode) {
 export function fallbackUrlForAccessMode(target, mode) {
   if (!target) return '';
   if (mode === 'local') return target.localUrl || '';
-  if (mode === 'tailnet-https-serve') return target.httpsServeUrl || target.tailnetHttpUrl || target.localUrl || '';
-  if (mode === 'tailnet-http') return target.tailnetHttpUrl || target.httpsServeUrl || target.localUrl || '';
+  if (mode === 'tailnet-https-serve') return target.httpsServeUrl || target.tailnetHttpUrl || '';
+  if (mode === 'tailnet-http') return target.tailnetHttpUrl || target.httpsServeUrl || '';
   return target.tailnetHttpUrl || target.httpsServeUrl || target.localUrl || '';
 }
 

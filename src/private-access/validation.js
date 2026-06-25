@@ -167,6 +167,12 @@ export function normalizeTarget(raw = {}, existing = null) {
     allowBlank: true,
     field: 'httpsServeUrl',
   });
+  if (mode === 'tailnet-http' && !tailnetHttpUrl) {
+    throw { status: 422, message: 'tailnet-http targets require tailnetHttpUrl.' };
+  }
+  if (mode === 'tailnet-https-serve' && !httpsServeUrl) {
+    throw { status: 422, message: 'tailnet-https-serve targets require httpsServeUrl.' };
+  }
   const preferredOpenTarget = normalizeText(raw.preferredOpenTarget || existing?.preferredOpenTarget || 'external').toLowerCase();
   const type = normalizeText(raw.type || existing?.type || 'app').slice(0, 40);
   const group = normalizeText(raw.group || existing?.group || '').slice(0, 80);
@@ -197,8 +203,8 @@ export function normalizeTarget(raw = {}, existing = null) {
 
 export function targetUrlForMode(target) {
   if (!target) return null;
-  if (target.mode === 'tailnet-https-serve') return target.httpsServeUrl || target.localUrl;
-  if (target.mode === 'tailnet-http') return target.tailnetHttpUrl || target.localUrl;
+  if (target.mode === 'tailnet-https-serve') return target.httpsServeUrl || null;
+  if (target.mode === 'tailnet-http') return target.tailnetHttpUrl || null;
   return target.localUrl;
 }
 

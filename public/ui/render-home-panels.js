@@ -932,9 +932,9 @@ export function renderPrivateAccessPanel(ctx) {
                   </label>
                   <label>Mode
                     <select name="mode">
+                      <option value="local">Local only</option>
                       <option value="tailnet-http">Tailnet HTTP</option>
                       <option value="tailnet-https-serve">Tailnet HTTPS Serve</option>
-                      <option value="local">Local only</option>
                     </select>
                   </label>
                   <label>Local URL

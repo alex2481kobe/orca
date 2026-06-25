@@ -11,6 +11,7 @@ import {
   fakeTailnetState,
   validateAccessUrl,
 } from '../src/private-access.js';
+import { targetUrlForMode } from '../src/private-access/validation.js';
 
 test('private access URL validation rejects unsafe protocols, credentials, and Funnel URLs', () => {
   assert.equal(validateAccessUrl('http://127.0.0.1:3000', { mode: 'local' }), 'http://127.0.0.1:3000/');
@@ -74,6 +75,27 @@ test('private access settings default to auto while targets require explicit mod
       }),
       (error) => /Unsupported private access mode/.test(error.message),
     );
+    await assert.rejects(
+      () => store.createTarget({
+        label: 'Tailnet without URL',
+        mode: 'tailnet-http',
+        localUrl: 'http://127.0.0.1:3000',
+      }),
+      (error) => /tailnetHttpUrl/.test(error.message),
+    );
+    await assert.rejects(
+      () => store.createTarget({
+        label: 'HTTPS without URL',
+        mode: 'tailnet-https-serve',
+        localUrl: 'http://127.0.0.1:3000',
+      }),
+      (error) => /httpsServeUrl/.test(error.message),
+    );
+    assert.equal(targetUrlForMode({
+      mode: 'tailnet-http',
+      localUrl: 'http://127.0.0.1:3000/',
+      tailnetHttpUrl: null,
+    }), null);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }

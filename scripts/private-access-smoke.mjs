@@ -127,7 +127,14 @@ const funnel = await req('POST', '/api/private-access/targets', {
   httpsServeUrl: 'https://orca.funnel.ts.net',
 });
 if (funnel.status !== 422) fail('Funnel URL should be rejected', JSON.stringify(funnel.data));
-log('funnel rejection', 'ok');
+const missingTailnetUrl = await req('POST', '/api/private-access/targets', {
+  actor: 'dashboard',
+  label: 'Tailnet missing URL',
+  mode: 'tailnet-http',
+  localUrl: base,
+});
+if (missingTailnetUrl.status !== 422) fail('Tailnet target without tailnet URL should be rejected', JSON.stringify(missingTailnetUrl.data));
+log('target rejections', 'ok');
 
 const check = await req('POST', `/api/private-access/targets/${target.data.id}/check`, { actor: 'dashboard' });
 if (check.status !== 200) fail('target check', JSON.stringify(check.data));

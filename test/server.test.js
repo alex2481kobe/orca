@@ -3448,6 +3448,19 @@ test('private access API exposes mocked tailnet state, dry-run setup plans, and 
     });
     assert.equal(badFunnel.status, 422);
     assert.equal(String(badFunnel.body?.error || '').includes('Funnel'), true);
+
+    const missingTailnetUrl = await server.requestJson('/api/private-access/targets', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        actor: 'dashboard',
+        label: 'Tailnet without URL',
+        mode: 'tailnet-http',
+        localUrl: 'http://127.0.0.1:3000',
+      },
+    });
+    assert.equal(missingTailnetUrl.status, 422);
+    assert.match(missingTailnetUrl.body?.error || '', /tailnetHttpUrl/);
   } finally {
     await server.stop();
   }
