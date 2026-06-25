@@ -41,7 +41,7 @@ export async function handlePrivateAccessApi(ctx, req, res, method, parts) {
     if (body === null) return sendBodyError(req, res);
     if (rejectSpoofedActor(body, res)) return;
     try {
-      const result = privateAccess.configureServe({
+      const result = await privateAccess.configureServe({
         action: body.action === 'disable' ? 'disable' : 'enable',
         port: body.port || 3000,
       });

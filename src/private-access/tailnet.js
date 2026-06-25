@@ -120,16 +120,33 @@ export function fakeTailnetState(state = 'missing') {
 // --json, serve status). /api/private-access is polled on EVERY refresh (1-3s), so
 // without a cache that's a continuous pile of synchronous subprocesses blocking the
 // event loop. Tailnet state changes rarely → cache the real-probe result briefly.
-let _tailnetCache = null; // { value, at }
+let _tailnetCache = null; // { value, at, localPort }
 const TAILNET_TTL_MS = 20 * 1000;
 
-export function detectTailnetState({ fakeState = null, runner = spawnSync, localPort = process.env.PORT || 3000 } = {}) {
+export function clearTailnetStateCache() {
+  _tailnetCache = null;
+}
+
+export function detectTailnetState({
+  fakeState = null,
+  runner = spawnSync,
+  localPort = process.env.PORT || 3000,
+  forceRefresh = false,
+  cache = runner === spawnSync,
+} = {}) {
   if (fakeState) return fakeTailnetState(fakeState); // tests / injected — never cached
-  if (runner === spawnSync && _tailnetCache && (Date.now() - _tailnetCache.at) < TAILNET_TTL_MS) {
+  const normalizedLocalPort = normalizePort(localPort, 3000);
+  if (
+    cache
+    && !forceRefresh
+    && _tailnetCache
+    && _tailnetCache.localPort === normalizedLocalPort
+    && (Date.now() - _tailnetCache.at) < TAILNET_TTL_MS
+  ) {
     return _tailnetCache.value;
   }
-  const value = computeTailnetState(runner, localPort);
-  if (runner === spawnSync) _tailnetCache = { value, at: Date.now() };
+  const value = computeTailnetState(runner, normalizedLocalPort);
+  if (cache) _tailnetCache = { value, at: Date.now(), localPort: normalizedLocalPort };
   return value;
 }
 

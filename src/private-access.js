@@ -8,6 +8,7 @@ export {
 } from './private-access/validation.js';
 export {
   buildSetupPlan,
+  clearTailnetStateCache,
   detectTailnetState,
   fakeTailnetState,
 } from './private-access/tailnet.js';

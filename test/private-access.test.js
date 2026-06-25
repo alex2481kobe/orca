@@ -6,6 +6,7 @@ import test from 'node:test';
 import {
   PrivateAccessStore,
   detectTailnetState,
+  clearTailnetStateCache,
   buildSetupPlan,
   fakeTailnetState,
   validateAccessUrl,
@@ -136,45 +137,55 @@ test('private access targets are capped to avoid unbounded state growth', async 
   }
 });
 
-test('configureServe runs Serve commands and reflects detected state; refuses when not signed in', () => {
+test('configureServe runs Serve commands, refreshes detected state, and persists audit', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-private-access-serve-'));
   const calls = [];
+  let serveConfigured = false;
   const onlineRunner = (bin, args) => {
     calls.push(args.join(' '));
     if (args[0] === 'version') return { status: 0, stdout: '1.0' };
     if (args[0] === 'status') return { status: 0, stdout: JSON.stringify({ Self: { DNSName: 'mac.tailnet.ts.net.' } }) };
-    if (args[0] === 'serve' && args[1] === 'status') return { status: 0, stdout: 'http://mac.tailnet.ts.net (tailnet only)\n|-- / proxy http://localhost:3000' };
-    if (args[0] === 'serve') return { status: 0, stdout: '' };
+    if (args[0] === 'serve' && args[1] === 'status') {
+      return { status: 0, stdout: serveConfigured ? 'http://mac.tailnet.ts.net (tailnet only)\n|-- / proxy http://localhost:3000' : '' };
+    }
+    if (args[0] === 'serve') {
+      serveConfigured = args[1] !== 'reset';
+      return { status: 0, stdout: '' };
+    }
     return { status: 1, stdout: '' };
   };
-  const store = new PrivateAccessStore({ stateFile: null, runner: onlineRunner });
-  const enabled = store.configureServe({ action: 'enable', port: 3000 });
-  assert.equal(enabled.ok, true);
-  assert.ok(calls.includes('serve --bg http://127.0.0.1:3000'), 'enable runs the HTTP serve command');
-  assert.equal(enabled.tailnet.servedUrl, 'http://mac.tailnet.ts.net');
-  const disabled = store.configureServe({ action: 'disable' });
-  assert.ok(calls.includes('serve reset'), 'disable runs serve reset');
-  assert.equal(disabled.ok, true);
+  try {
+    const stateFile = path.join(dir, 'private-access.json');
+    const store = new PrivateAccessStore({ stateFile, runner: onlineRunner });
+    const enabled = await store.configureServe({ action: 'enable', port: 3000 });
+    assert.equal(enabled.ok, true);
+    assert.ok(calls.includes('serve --bg http://127.0.0.1:3000'), 'enable runs the HTTP serve command');
+    assert.equal(enabled.tailnet.servedUrl, 'http://mac.tailnet.ts.net');
+    const disabled = await store.configureServe({ action: 'disable' });
+    assert.ok(calls.includes('serve reset'), 'disable runs serve reset');
+    assert.equal(disabled.ok, true);
 
-  const customCalls = [];
-  const customRunner = (bin, args) => {
-    customCalls.push(args.join(' '));
-    if (args[0] === 'version') return { status: 0, stdout: '1.0' };
-    if (args[0] === 'status') return { status: 0, stdout: JSON.stringify({ Self: { DNSName: 'mac.tailnet.ts.net.' } }) };
-    if (args[0] === 'serve' && args[1] === 'status') return { status: 0, stdout: 'https://mac.tailnet.ts.net (tailnet only)\n|-- / proxy http://localhost:4173' };
-    if (args[0] === 'serve') return { status: 0, stdout: '' };
-    return { status: 1, stdout: '' };
-  };
-  const customStore = new PrivateAccessStore({ stateFile: null, runner: customRunner });
-  const customEnabled = customStore.configureServe({ action: 'enable', port: 4173 });
-  assert.equal(customEnabled.ok, true);
-  assert.ok(customCalls.includes('serve --bg http://127.0.0.1:4173'), 'enable uses the requested Orca port');
-  assert.equal(customEnabled.tailnet.servedUrl, 'https://mac.tailnet.ts.net');
-  assert.equal(customEnabled.tailnet.serveMode, 'tailnet-https-serve');
+    const reloaded = new PrivateAccessStore({ stateFile, runner: onlineRunner });
+    await reloaded.ensureLoaded();
+    const serveAudits = reloaded.state.auditEvents.filter((event) => event.type === 'tailscale_serve_configured');
+    assert.equal(serveAudits.length, 2);
+    assert.equal(serveAudits[0].status, 'passed');
 
-  // Not signed in -> refuses without running serve.
-  const offline = new PrivateAccessStore({ stateFile: null, runner: (bin, args) => (args[0] === 'version' ? { status: 0, stdout: '1.0' } : { status: 1, stdout: '' }) });
-  const refused = offline.configureServe({ action: 'enable' });
-  assert.equal(refused.ok, false);
+    // Not signed in -> refuses without running serve.
+    const offlineCalls = [];
+    const offline = new PrivateAccessStore({
+      stateFile: path.join(dir, 'offline.json'),
+      runner: (bin, args) => {
+        offlineCalls.push(args.join(' '));
+        return args[0] === 'version' ? { status: 0, stdout: '1.0' } : { status: 1, stdout: '' };
+      },
+    });
+    const refused = await offline.configureServe({ action: 'enable' });
+    assert.equal(refused.ok, false);
+    assert.equal(offlineCalls.some((call) => call.startsWith('serve --bg')), false);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 });
 
 test('detectTailnetState surfaces the real Serve URL (no :3000) and ignores non-Orca serve', () => {
@@ -200,4 +211,27 @@ test('detectTailnetState surfaces the real Serve URL (no :3000) and ignores non-
   });
   assert.equal(customPort.serveConfigured, true);
   assert.equal(customPort.servedUrl, 'https://mac.tailnet.ts.net');
+});
+
+test('detectTailnetState can force-refresh the cached real-probe state', () => {
+  clearTailnetStateCache();
+  let serveConfigured = false;
+  const runner = (bin, args) => {
+    if (args[0] === 'version') return { status: 0, stdout: '1.0' };
+    if (args[0] === 'status') return { status: 0, stdout: JSON.stringify({ Self: { DNSName: 'mac.tailnet.ts.net.' } }) };
+    if (args[0] === 'serve' && args[1] === 'status') {
+      return { status: 0, stdout: serveConfigured ? 'http://mac.tailnet.ts.net\n|-- / proxy http://localhost:3000' : '' };
+    }
+    return { status: 1, stdout: '' };
+  };
+
+  const initial = detectTailnetState({ runner, cache: true, localPort: 3000 });
+  assert.equal(initial.serveConfigured, false);
+  serveConfigured = true;
+  const cached = detectTailnetState({ runner, cache: true, localPort: 3000 });
+  assert.equal(cached.serveConfigured, false);
+  const refreshed = detectTailnetState({ runner, cache: true, forceRefresh: true, localPort: 3000 });
+  assert.equal(refreshed.serveConfigured, true);
+  assert.equal(refreshed.servedUrl, 'http://mac.tailnet.ts.net');
+  clearTailnetStateCache();
 });

@@ -232,15 +232,16 @@ export class PrivateAccessStore {
     return buildSetupPlan(input);
   }
 
-  tailnetState(fakeState = null, { localPort = process.env.PORT || 3000 } = {}) {
-    return detectTailnetState({ fakeState, runner: this.runner, localPort });
+  tailnetState(fakeState = null, { localPort = process.env.PORT || 3000, forceRefresh = false } = {}) {
+    return detectTailnetState({ fakeState, runner: this.runner, localPort, forceRefresh });
   }
 
   // Run Tailscale Serve for the user (HTTP, tailnet-only) so a phone can reach Orca
   // without copy-pasting commands. `action: 'enable'` runs `tailscale serve --bg
   // http://127.0.0.1:<port>`; `'disable'` runs `tailscale serve reset`. Returns the
   // result + freshly-detected tailnet state. Never enables Funnel.
-  configureServe({ action = 'enable', port = 3000 } = {}) {
+  async configureServe({ action = 'enable', port = 3000 } = {}) {
+    await this.ensureLoaded();
     const tailnet = this.tailnetState();
     if (!tailnet.binaryAvailable) {
       return { ok: false, action, error: 'Tailscale is not installed. Install it and sign in first.', tailnet };
@@ -263,12 +264,13 @@ export class PrivateAccessStore {
       summary: `Tailscale Serve ${action} ${ok ? 'succeeded' : 'failed'}`,
       evidence: { action, exitCode: result.status ?? null },
     });
+    await this.persist();
     return {
       ok,
       action,
       error: ok ? null : (output || 'Tailscale Serve command failed. You may need to grant the Tailscale operator (run `sudo tailscale set --operator=$USER` once).'),
       output,
-      tailnet: this.tailnetState(null, { localPort: targetPort }),
+      tailnet: this.tailnetState(null, { localPort: targetPort, forceRefresh: true }),
     };
   }
 }
