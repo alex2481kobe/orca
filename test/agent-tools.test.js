@@ -82,6 +82,7 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
     'settings.export',
     'settings.import_dry_run',
     'settings.import_apply',
+    'orchestrator.thread.get',
     'orchestrator.message.send',
     'session.supervisor_audit',
   ]) {
@@ -110,6 +111,7 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
   for (const id of [
     'supervisor.overview',
     'supervisor.resign',
+    'orchestrator.thread.get',
     'orchestrator.status',
     'lane.list',
     'lane.get',

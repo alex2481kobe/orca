@@ -3,7 +3,8 @@
  * End-to-end proof that an external chat can attach to an already-running Orca
  * as SUPERVISOR through the real stdio MCP server:
  *   existing project/session/lane/orchestrator -> supervisor bootstrap ->
- *   MCP initialize/tools/list -> supervisor.overview -> lane.terminal.tail ->
+ *   MCP initialize/tools/list -> supervisor.overview -> orchestrator.thread.get ->
+ *   lane.terminal.tail ->
  *   session.supervisor_audit -> scoped supervisor boundary denial.
  *
  * This mirrors Claude Code CLI / Codex app / Claude Desktop MCP transport while
@@ -216,7 +217,7 @@ try {
   const init = await supervisor.initialize();
   if (!/supervisor__overview/.test(init.instructions || '')) fail('supervisor instructions missing overview');
   const tools = await supervisor.listToolNames();
-  for (const need of ['supervisor__overview', 'supervisor__resign', 'session__supervisor_audit', 'lane__get', 'lane__terminal__tail']) {
+  for (const need of ['supervisor__overview', 'supervisor__resign', 'session__supervisor_audit', 'orchestrator__thread__get', 'lane__get', 'lane__terminal__tail']) {
     if (!tools.includes(need)) fail('supervisor tools/list missing', need);
   }
   for (const denied of ['lane__create', 'orchestrator__enroll', 'session__plan__update']) {
@@ -250,6 +251,10 @@ try {
   const activeSupervisor = overview.data.activeSupervisors.find((item) => item.actor === 'supervisor-flow-chat');
   if (!activeSupervisor) fail('supervisor overview missing active supervisor');
   if (!Date.parse(activeSupervisor.lastSeenAt || '')) fail('supervisor overview missing supervisor lastSeenAt', JSON.stringify(activeSupervisor));
+
+  const thread = await supervisor.call('orchestrator__thread__get', { sessionId: session.body.id });
+  if (thread.isError || thread.data?.sessionId !== session.body.id) fail('orchestrator__thread__get', thread.text);
+  log('orchestrator thread', `messages=${Array.isArray(thread.data.messages) ? thread.data.messages.length : 0}`);
   log('overview', 'attached supervisor sees projects, active orchestrator, backlog, lanes, next action');
 
   await writeLaneTerminalLog(session.body.id, lane.body.id, 'SUPERVISOR FLOW LIVE OUTPUT\n');

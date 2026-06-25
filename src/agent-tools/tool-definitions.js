@@ -603,6 +603,16 @@ export const TOOL_DEFINITIONS = [
     summary: 'Release the active-orchestrator role you hold for this session so another chat or a human can take over.',
   },
   {
+    id: 'orchestrator.thread.get',
+    group: 'orchestrator',
+    roles: ['supervisor', 'orchestrator', 'dashboard'],
+    method: 'GET',
+    route: '/api/sessions/{sessionId}/orchestrator',
+    implemented: true,
+    mutating: false,
+    summary: 'Read the existing server-owned orchestrator thread/messages for a session without taking ownership or spawning a new orchestrator.',
+  },
+  {
     id: 'orchestrator.status',
     group: 'orchestrator',
     roles: ['supervisor', 'orchestrator', 'executor', 'auditor', 'dashboard'],

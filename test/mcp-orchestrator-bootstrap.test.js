@@ -212,6 +212,7 @@ test('registry mints a supervisor MCP bootstrap with supervisor tool scope', asy
       'approval.list',
       'evidence.list',
       'evidence.latest',
+      'orchestrator.thread.get',
       'orchestrator.status',
     ]) {
       assert.equal(result.lease.allowedTools.includes(id), true, `supervisor lease includes ${id}`);

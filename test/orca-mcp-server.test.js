@@ -185,13 +185,22 @@ test('Orca MCP server: supervisor role exposes inspection tools but no takeover 
         id: 6,
         method: 'tools/call',
         params: {
+          name: 'orchestrator__thread__get',
+          arguments: {},
+        },
+      },
+      {
+        jsonrpc: '2.0',
+        id: 7,
+        method: 'tools/call',
+        params: {
           name: 'lane__terminal__tail',
           arguments: { laneId: 'lane-1', offset: 3, maxBytes: 128 },
         },
       },
       {
         jsonrpc: '2.0',
-        id: 7,
+        id: 8,
         method: 'tools/call',
         params: {
           name: 'supervisor__resign',
@@ -209,6 +218,7 @@ test('Orca MCP server: supervisor role exposes inspection tools but no takeover 
     for (const name of [
       'supervisor__overview',
       'supervisor__resign',
+      'orchestrator__thread__get',
       'orchestrator__status',
       'lane__list',
       'lane__get',
@@ -251,13 +261,17 @@ test('Orca MCP server: supervisor role exposes inspection tools but no takeover 
     assert.match(responses.get(5).result.content[0].text, /Unknown or unavailable tool for role supervisor: session\.plan\.update/);
     assert.equal(responses.get(6).result.isError, false);
     assert.equal(responses.get(7).result.isError, false);
-    assert.equal(calls.length, 2);
+    assert.equal(responses.get(8).result.isError, false);
+    assert.equal(calls.length, 3);
     assert.equal(calls[0].method, 'GET');
-    assert.equal(calls[0].url, '/api/lanes/lane-1/terminal-tail?offset=3&maxBytes=128');
+    assert.equal(calls[0].url, '/api/sessions/sess-1/orchestrator');
     assert.equal(calls[0].lease, 'lease-supervisor');
-    assert.equal(calls[1].method, 'POST');
-    assert.equal(calls[1].url, '/api/supervisor/resign');
+    assert.equal(calls[1].method, 'GET');
+    assert.equal(calls[1].url, '/api/lanes/lane-1/terminal-tail?offset=3&maxBytes=128');
     assert.equal(calls[1].lease, 'lease-supervisor');
+    assert.equal(calls[2].method, 'POST');
+    assert.equal(calls[2].url, '/api/supervisor/resign');
+    assert.equal(calls[2].lease, 'lease-supervisor');
   } finally {
     server.close();
   }

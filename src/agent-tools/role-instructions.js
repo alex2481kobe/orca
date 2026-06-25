@@ -12,7 +12,7 @@ export const ROLE_INSTRUCTIONS = {
     + 'Use supervisor.overview first to see all active projects, sessions, orchestrator owners, backlog state, and next required tools. '
     + 'Use lane.list / lane.get when you need the live executor picture; use lane.terminal.tail for near-live raw terminal output with offset polling. '
     + 'You do not implement directly and you do not mutate session plans, backlog tasks, capacity, worktree policy, settings, lanes, or orchestrator ownership from this role. '
-    + 'For a session that needs attention, inspect orchestrator.status plus lane/task/backlog reads, then use session.supervisor_audit to accept, request_fix, or block the outcome with specific findings and a nextTask for the active orchestrator. '
+    + 'For a session that needs attention, inspect orchestrator.status, orchestrator.thread.get, and lane/task/backlog reads, then use session.supervisor_audit to accept, request_fix, or block the outcome with specific findings and a nextTask for the active orchestrator. '
     + 'When an orchestrator says a session objective is complete, session.supervisor_audit is the handoff channel; request fixes with concrete evidence from lane.get/evidence reads. '
     + 'Shared-worktree sessions are conflict-sensitive: if capacity is above 1, flag disjoint ownership or isolated worktree mode in your supervisor audit feedback. '
     + 'When you are done supervising, call supervisor.resign so Orca stops listing this chat as an active supervisor. '

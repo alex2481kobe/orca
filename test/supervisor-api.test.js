@@ -159,6 +159,18 @@ test('supervisor overview respects scoped supervisor tool leases', async () => {
     assert.deepEqual(sessionOverview.body.projects.map((project) => project.id), [projectA.body.id]);
     assert.deepEqual(sessionOverview.body.projects[0].sessions.map((session) => session.id), [sessionA1.body.id]);
     assert.deepEqual(sessionOverview.body.activeSupervisors.map((lease) => lease.actor), ['session-supervisor']);
+
+    const scopedThread = await requestJson(`/api/sessions/${sessionA1.body.id}/orchestrator`, {
+      headers: { 'x-orca-tool-lease': sessionLease.body.leaseToken },
+    });
+    assert.equal(scopedThread.status, 200);
+    assert.equal(scopedThread.body.sessionId, sessionA1.body.id);
+
+    const hiddenThread = await requestJson(`/api/sessions/${sessionA2.body.id}/orchestrator`, {
+      headers: { 'x-orca-tool-lease': sessionLease.body.leaseToken },
+    });
+    assert.equal(hiddenThread.status, 403);
+    assert.match(hiddenThread.body.error, /Tool lease session mismatch/);
   });
 });
 
@@ -500,6 +512,7 @@ test('MCP tool leases can update worktree policy and supervisor state with scope
     assert.equal(supervisorLease.body.lease.allowedTools.includes('lane.terminal.tail'), true);
     assert.equal(supervisorLease.body.lease.allowedTools.includes('approval.list'), true);
     assert.equal(supervisorLease.body.lease.allowedTools.includes('evidence.latest'), true);
+    assert.equal(supervisorLease.body.lease.allowedTools.includes('orchestrator.thread.get'), true);
     assert.equal(supervisorLease.body.lease.allowedTools.includes('orchestrator.enroll'), false);
     assert.equal(supervisorLease.body.lease.allowedTools.includes('lane.create'), false);
     for (const deniedTool of [
