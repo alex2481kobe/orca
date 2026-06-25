@@ -213,6 +213,73 @@ async function clearCachedLease(options = {}) {
   try { await writeLeaseCache(cache); } catch { /* cache is best-effort */ }
 }
 
+function parseLeaseCacheKey(key) {
+  const text = String(key || '');
+  const prefix = `${BASE}|`;
+  if (!text.startsWith(prefix)) return null;
+  const parts = text.slice(prefix.length).split('|');
+  const values = {};
+  for (const part of parts) {
+    const index = part.indexOf('=');
+    if (index < 0) continue;
+    values[part.slice(0, index)] = part.slice(index + 1);
+  }
+  if (!values.role) return null;
+  return normalizeLeaseOptions({
+    role: values.role,
+    projectId: values.project && values.project !== '*' ? values.project : null,
+    sessionId: values.session && values.session !== '*' ? values.session : null,
+  });
+}
+
+async function cachedLeaseMatchesForRole(role) {
+  if (ENV_LEASE) return [];
+  const normalizedRole = normalizeLeaseRole(role);
+  const cache = await readLeaseCache();
+  return Object.entries(cache)
+    .map(([key, entry]) => ({ key, entry, options: parseLeaseCacheKey(key) }))
+    .filter((item) => item.options?.role === normalizedRole && cacheEntryIsFresh(item.entry))
+    .map((item) => ({
+      options: item.options,
+      leaseToken: item.entry.leaseToken,
+      expiresAt: item.entry.expiresAt || null,
+    }));
+}
+
+async function resolveExistingLease(options = {}, { inferUniqueRole = null, command = 'command' } = {}) {
+  const normalized = normalizeLeaseOptions(options);
+  if (ENV_LEASE) return { options: normalized, leaseToken: ENV_LEASE, source: 'env' };
+  const cache = await readLeaseCache();
+  const exactKeys = [leaseCacheKey(normalized), ...legacyLeaseCacheKeys(normalized)];
+  for (const key of exactKeys) {
+    const entry = cache[key];
+    if (cacheEntryIsFresh(entry)) {
+      PROCESS_LEASES.set(leaseCacheKey(normalized), entry.leaseToken);
+      return { options: normalized, leaseToken: entry.leaseToken, source: 'cache' };
+    }
+  }
+  if (inferUniqueRole && !normalized.projectId && !normalized.sessionId) {
+    const matches = await cachedLeaseMatchesForRole(inferUniqueRole);
+    if (matches.length === 1) {
+      PROCESS_LEASES.set(leaseCacheKey(matches[0].options), matches[0].leaseToken);
+      return { ...matches[0], source: 'unique-cache' };
+    }
+    if (matches.length > 1) {
+      die(`${command} found multiple cached ${inferUniqueRole} leases. Pass --project and/or --session to choose the chat to detach.`, 2);
+    }
+  }
+  die(`${command} needs an existing ${normalized.role} lease. Run ${normalized.role === 'supervisor' ? 'supervisor-bootstrap' : 'bootstrap'} first, pass --project/--session for the cached scope, or set ORCA_TOOL_LEASE_TOKEN.`, 2);
+}
+
+async function apiWithLeaseToken(method, path, body, leaseToken) {
+  const headers = { accept: 'application/json', 'x-orca-tool-lease': leaseToken };
+  if (body !== undefined) headers['content-type'] = 'application/json';
+  const res = await fetch(`${BASE}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  const text = await res.text();
+  let data = null; try { data = text ? JSON.parse(text) : null; } catch { /* non-json */ }
+  return { status: res.status, ok: res.ok, data, text };
+}
+
 async function ensureLease(options = {}) {
   if (ENV_LEASE) return ENV_LEASE;
   const normalized = normalizeLeaseOptions(options);
@@ -744,9 +811,13 @@ switch (cmd) {
   }
   case 'supervisor-resign': {
     const leaseOptions = commandLeaseOptions('supervisor');
-    const r = await api('POST', '/api/supervisor/resign', {}, leaseOptions);
+    const resolved = await resolveExistingLease(leaseOptions, {
+      inferUniqueRole: 'supervisor',
+      command: 'supervisor-resign',
+    });
+    const r = await apiWithLeaseToken('POST', '/api/supervisor/resign', {}, resolved.leaseToken);
     if (!r.ok) die(`${r.status} ${r.data?.error || r.text}`, 2);
-    await clearCachedLease(leaseOptions);
+    await clearCachedLease(resolved.options);
     out(r.data ?? r.text);
     break;
   }

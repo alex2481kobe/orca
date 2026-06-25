@@ -990,18 +990,17 @@ test('orca-agent supervisor commands attach with role-scoped leases and resign c
 
     const resign = await runOrcaAgent([
       'supervisor-resign',
-      '--project',
-      project.body.id,
-      '--session',
-      session.body.id,
     ], env);
     assert.equal(resign.code, 0, resign.stderr);
     const resignBody = JSON.parse(resign.stdout);
     assert.equal(resignBody.resigned, true);
     assert.equal(resignBody.lease.active, false);
+    assert.equal(resignBody.lease.projectId, project.body.id);
+    assert.equal(resignBody.lease.sessionId, session.body.id);
 
     const cacheAfterResign = JSON.parse(await fs.readFile(cachePath, 'utf8'));
     assert.equal(Object.keys(cacheAfterResign).some((key) => key.includes('role=supervisor') && key.includes(`session=${session.body.id}`)), false);
+    assert.equal(Object.keys(cacheAfterResign).some((key) => key.includes('role=supervisor') && key.includes('project=*') && key.includes('session=*')), false);
 
     const afterResign = await requestJson(`/api/supervisor/overview?projectId=${project.body.id}&sessionId=${session.body.id}`);
     assert.equal(afterResign.status, 200);
