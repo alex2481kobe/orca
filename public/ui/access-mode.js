@@ -44,6 +44,16 @@ export function effectiveProjectQuickLinkUrl(quick, mode = 'auto') {
   return quick.localUrl || quick.url || quick.tailnetHttpUrl || quick.httpsServeUrl || '';
 }
 
+export function effectiveProjectQuickLinkCheckPreference(quick, mode = 'auto') {
+  if (!quick) return 'auto';
+  const url = effectiveProjectQuickLinkUrl(quick, mode);
+  if (!url || String(url).startsWith('/')) return 'auto';
+  if (quick.httpsServeUrl && url === quick.httpsServeUrl) return 'https';
+  if (quick.tailnetHttpUrl && url === quick.tailnetHttpUrl) return 'tailnet';
+  if (quick.localUrl && url === quick.localUrl) return 'local';
+  return 'auto';
+}
+
 export function quickLinkHealthLabel(status) {
   if (status === 'reachable') return 'Reachable';
   if (status === 'unreachable') return 'Unreachable';

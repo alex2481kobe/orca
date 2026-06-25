@@ -503,11 +503,13 @@ export async function handleSystemActions(event) {
     const projectId = event.currentTarget.dataset.projectId;
     const linkId = event.currentTarget.dataset.linkId;
     if (!projectId || !linkId) return;
+    const requestedPrefer = event.currentTarget.dataset.prefer || 'auto';
+    const prefer = ['auto', 'local', 'tailnet', 'https'].includes(requestedPrefer) ? requestedPrefer : 'auto';
     const response = await api(`/api/projects/${projectId}/quick-links/${encodeURIComponent(linkId)}/check`, {
       method: 'POST',
       body: {
         actor: 'dashboard',
-        prefer: 'auto',
+        prefer,
       },
     });
     if (response.ok) {

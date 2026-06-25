@@ -1,7 +1,13 @@
 // Home/setup view renderer (phone+laptop setup, providers, executors, MCP
 // tools, private access, etc.). The largest dashboard view. Extracted from app.js.
 
-import { effectiveAccessMode, effectiveProjectQuickLinkUrl, fallbackUrlForAccessMode, preferredPhoneUrl } from './access-mode.js';
+import {
+  effectiveAccessMode,
+  effectiveProjectQuickLinkCheckPreference,
+  effectiveProjectQuickLinkUrl,
+  fallbackUrlForAccessMode,
+  preferredPhoneUrl,
+} from './access-mode.js';
 import { api } from './api.js';
 import { clientUrl, isWorkstation, safeHref, writeHtml } from './dom.js';
 import { formatRelative, latestTimestamp, safeAttr, safeText } from './format.js';
@@ -350,12 +356,13 @@ export function renderHome() {
       .filter((quick) => !quick.hidden)
       .map((quick) => {
         const url = clientUrl(effectiveProjectQuickLinkUrl(quick));
+        const checkPreference = effectiveProjectQuickLinkCheckPreference(quick);
         const health = quick.healthStatus ? `<span class="tiny muted quick-link-health">${safeText(quick.healthStatus)}</span>` : '';
         return `<div class="quick-link-row">
           <a class="quick-link-name" href="${safeHref(url)}" target="_blank" rel="noopener noreferrer">${safeText(quick.label)}</a>
           ${health}
           <button class="quick-link-btn" data-action="copyPhoneUrl" data-url="${safeAttr(url)}" type="button" title="Copy this link" aria-label="Copy link">Copy</button>
-          <button class="quick-link-btn" data-action="checkProjectQuickLink" data-project-id="${safeAttr(project.id)}" data-link-id="${safeAttr(quick.id)}" type="button" title="Check this link" aria-label="Check link">Check</button>
+          <button class="quick-link-btn" data-action="checkProjectQuickLink" data-project-id="${safeAttr(project.id)}" data-link-id="${safeAttr(quick.id)}" data-prefer="${safeAttr(checkPreference)}" type="button" title="Check this link" aria-label="Check link">Check</button>
           <button class="quick-link-btn" data-action="deleteProjectQuickLink" data-project-id="${safeAttr(project.id)}" data-link-id="${safeAttr(quick.id)}" type="button" title="Remove this link" aria-label="Remove link">Remove</button>
         </div>`;
       }).join('');
