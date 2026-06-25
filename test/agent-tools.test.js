@@ -368,6 +368,46 @@ test('tool leases are scoped, hashed at rest, and enforce allowed tools', async 
 
     assert.throws(() => registry.createToolLease({
       role: 'executor',
+      sessionId: session.id,
+      allowedTools: ['lane.get'],
+    }), (error) => error.status === 422 && /scoped to a lane/.test(error.message));
+
+    assert.throws(() => registry.createToolLease({
+      role: 'critique',
+      sessionId: session.id,
+      allowedTools: ['critique.bundle.create'],
+    }), (error) => error.status === 422 && /scoped to a lane/.test(error.message));
+
+    assert.throws(() => registry.createToolLease({
+      role: 'auditor',
+      allowedTools: ['audit.queue_all_ready'],
+    }), (error) => error.status === 422 && /scoped to a session or lane/.test(error.message));
+
+    const sessionAuditor = registry.createToolLease({
+      role: 'auditor',
+      sessionId: session.id,
+      allowedTools: ['audit.queue_all_ready'],
+      actor: 'auditor-test',
+    });
+    assert.equal(sessionAuditor.lease.projectId, project.id);
+    assert.equal(sessionAuditor.lease.sessionId, session.id);
+
+    const sessionOnlyLease = registry.createToolLease({
+      role: 'orchestrator',
+      sessionId: session.id,
+      allowedTools: ['project.describe', 'session.next_action'],
+      actor: 'session-only-test',
+    });
+    assert.equal(sessionOnlyLease.lease.projectId, project.id);
+    assert.equal(sessionOnlyLease.lease.sessionId, session.id);
+    assert.equal(registry.validateToolLease(sessionOnlyLease.leaseToken, {
+      role: 'orchestrator',
+      toolId: 'project.describe',
+      projectId: project.id,
+    }).projectId, project.id);
+
+    assert.throws(() => registry.createToolLease({
+      role: 'executor',
       projectId: project.id,
       sessionId: session.id,
       laneId: lane.id,
@@ -375,6 +415,12 @@ test('tool leases are scoped, hashed at rest, and enforce allowed tools', async 
     }), (error) => error.status === 422 && /cannot grant/i.test(error.message));
 
     const otherProject = registry.createProject({ name: 'Other Lease Project' }, { actor: 'test', approved: true });
+    assert.throws(() => registry.validateToolLease(sessionOnlyLease.leaseToken, {
+      role: 'orchestrator',
+      toolId: 'project.describe',
+      projectId: otherProject.id,
+    }), (error) => error.status === 403 && /project mismatch/.test(error.message));
+
     assert.throws(() => registry.createToolLease({
       role: 'executor',
       projectId: otherProject.id,

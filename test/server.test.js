@@ -555,11 +555,38 @@ test('paired devices get operator access but are denied host administration', as
       assert.equal(res.status, 403, `${method} ${route} must be admin-only for paired devices (got ${res.status})`);
     }
 
-    // But a worker-lane lease stays an operator-level action.
-    const execLease = await server.requestJson('/api/agent-tools/leases', {
+    const operatorSession = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: { cookie },
+      body: { name: 'Operator Worker Session', approved: true },
+    });
+    assert.equal(operatorSession.status, 201);
+    const operatorLane = await server.requestJson(`/api/sessions/${operatorSession.body.id}/lanes`, {
+      method: 'POST',
+      headers: { cookie },
+      body: { title: 'Operator Worker Lane', executorType: 'mock', approved: true },
+    });
+    assert.equal(operatorLane.status, 201);
+
+    const unscopedExecLease = await server.requestJson('/api/agent-tools/leases', {
       method: 'POST', headers: { cookie }, body: { actor: 'dashboard', role: 'executor' },
     });
-    assert.notEqual(execLease.status, 403, 'operator may still mint a non-orchestrator lease');
+    assert.equal(unscopedExecLease.status, 422);
+    assert.match(unscopedExecLease.body?.error || '', /scoped to a lane/);
+
+    // But a worker-lane lease stays an operator-level action when bound to a lane.
+    const execLease = await server.requestJson('/api/agent-tools/leases', {
+      method: 'POST',
+      headers: { cookie },
+      body: {
+        actor: 'dashboard',
+        role: 'executor',
+        projectId: project.body.id,
+        sessionId: operatorSession.body.id,
+        laneId: operatorLane.body.id,
+      },
+    });
+    assert.equal(execLease.status, 201, 'operator may still mint a lane-scoped worker lease');
 
     // The same routes are reachable for the workstation (API token = admin):
     // they pass the auth gate and fail later on policy/validation, never 401/403.
@@ -3343,6 +3370,19 @@ test('lane heartbeat endpoint can be gated by ORCA_WORKER_TOKEN', async () => {
     });
     assert.equal(lease.status, 201);
     assert.equal(lease.body?.lease?.allowedTools.includes('lane.heartbeat'), true);
+
+    const otherLane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { title: 'Worker Token Sibling Lane', executorType: 'mock', approved: true },
+    });
+    assert.equal(otherLane.status, 201);
+    const deniedOtherLane = await server.requestJson(`/api/lanes/${otherLane.body.id}`, {
+      method: 'GET',
+      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
+    });
+    assert.equal(deniedOtherLane.status, 403);
+    assert.match(deniedOtherLane.body?.error || '', /lane mismatch/);
 
     const leaseHeartbeat = await server.requestJson(`/api/lanes/${lane.body.id}/heartbeat`, {
       method: 'POST',

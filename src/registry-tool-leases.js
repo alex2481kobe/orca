@@ -11,6 +11,9 @@ import { availableToolIdsForRole, buildNextActionEnvelope } from './agent-tools.
 import { ROLES } from './agent-tools/contract.js';
 import { buildOrchestratorMcpConfigs } from './mcp-orchestrator-bootstrap.js';
 
+const LANE_SCOPED_LEASE_ROLES = new Set(['executor', 'critique']);
+const SESSION_SCOPED_LEASE_ROLES = new Set(['auditor']);
+
 // Authoritative workflow gates: lane states in which each agent tool is legal.
 // Enforced only on the agent (tool-lease) path so out-of-order/skipped/stale
 // calls are refused with a nextAction envelope. Only the core lifecycle is gated;
@@ -27,6 +30,54 @@ export const LANE_TOOL_STATE_GATES = {
 };
 
 export const toolLeaseMethods = {
+  _resolveToolLeaseScope({ projectId = null, sessionId = null, laneId = null } = {}, { allowMissing = false } = {}) {
+    const requestedProjectId = projectId ? String(projectId) : null;
+    const requestedSessionId = sessionId ? String(sessionId) : null;
+    const requestedLaneId = laneId ? String(laneId) : null;
+    const project = requestedProjectId ? this.getProject(requestedProjectId) : null;
+    if (requestedProjectId && !project && !allowMissing) {
+      throw { status: 404, message: 'Project not found for tool lease.' };
+    }
+    const requestedSession = requestedSessionId ? this.getSession(requestedSessionId) : null;
+    if (requestedSessionId && !requestedSession && !allowMissing) {
+      throw { status: 404, message: 'Session not found for tool lease.' };
+    }
+    const lane = requestedLaneId ? this.getLane(requestedLaneId) : null;
+    if (requestedLaneId && !lane && !allowMissing) {
+      throw { status: 404, message: 'Lane not found for tool lease.' };
+    }
+    const laneSession = lane ? this.getSession(lane.sessionId) : null;
+    if (lane && !laneSession && !allowMissing) {
+      throw { status: 422, message: 'Tool lease lane session is missing.' };
+    }
+    const effectiveSession = laneSession || requestedSession || null;
+    const effectiveProjectId = project?.id || lane?.projectId || effectiveSession?.projectId || requestedProjectId || null;
+    const effectiveProject = effectiveProjectId ? this.getProject(effectiveProjectId) : null;
+    if (effectiveProjectId && !effectiveProject && !allowMissing) {
+      throw { status: 422, message: 'Tool lease project is missing.' };
+    }
+    if (requestedSession && project && requestedSession.projectId !== project.id) {
+      throw { status: 422, message: 'Tool lease session does not belong to the requested project.' };
+    }
+    if (lane && requestedSession && lane.sessionId !== requestedSession.id) {
+      throw { status: 422, message: 'Tool lease lane does not belong to the requested session.' };
+    }
+    if (lane && project && lane.projectId !== project.id) {
+      throw { status: 422, message: 'Tool lease lane does not belong to the requested project.' };
+    }
+    if (lane && laneSession && lane.projectId !== laneSession.projectId) {
+      throw { status: 422, message: 'Tool lease lane project does not match its session project.' };
+    }
+    return {
+      project: effectiveProject || project || null,
+      session: effectiveSession,
+      lane,
+      projectId: effectiveProjectId,
+      sessionId: effectiveSession?.id || requestedSessionId || null,
+      laneId: lane?.id || requestedLaneId || null,
+    };
+  },
+
   createToolLease({
     role = 'orchestrator',
     projectId = null,
@@ -41,30 +92,12 @@ export const toolLeaseMethods = {
     if (!ROLES.has(normalizedRole)) {
       throw { status: 422, message: 'Tool lease role must be supervisor, orchestrator, executor, auditor, critique, or dashboard.' };
     }
-    const project = projectId ? this.getProject(projectId) : null;
-    if (projectId && !project) {
-      throw { status: 404, message: 'Project not found for tool lease.' };
+    const scope = this._resolveToolLeaseScope({ projectId, sessionId, laneId });
+    if (LANE_SCOPED_LEASE_ROLES.has(normalizedRole) && !scope.laneId) {
+      throw { status: 422, message: `${normalizedRole} tool leases must be scoped to a lane.` };
     }
-    const session = sessionId ? this.getSession(sessionId) : null;
-    if (sessionId && !session) {
-      throw { status: 404, message: 'Session not found for tool lease.' };
-    }
-    const lane = laneId ? this.getLane(laneId) : null;
-    if (laneId && !lane) {
-      throw { status: 404, message: 'Lane not found for tool lease.' };
-    }
-    const laneSession = lane ? this.getSession(lane.sessionId) : null;
-    if (session && project && session.projectId !== project.id) {
-      throw { status: 422, message: 'Tool lease session does not belong to the requested project.' };
-    }
-    if (lane && session && lane.sessionId !== session.id) {
-      throw { status: 422, message: 'Tool lease lane does not belong to the requested session.' };
-    }
-    if (lane && project && lane.projectId !== project.id) {
-      throw { status: 422, message: 'Tool lease lane does not belong to the requested project.' };
-    }
-    if (lane && !laneSession) {
-      throw { status: 422, message: 'Tool lease lane session is missing.' };
+    if (SESSION_SCOPED_LEASE_ROLES.has(normalizedRole) && !scope.sessionId) {
+      throw { status: 422, message: `${normalizedRole} tool leases must be scoped to a session or lane.` };
     }
     const roleTools = new Set(availableToolIdsForRole(normalizedRole));
     const normalizedAllowedTools = safeArray(allowedTools)
@@ -91,9 +124,10 @@ export const toolLeaseMethods = {
         if (Date.parse(existing.expiresAt) <= now) continue;
         if (existing.role !== normalizedRole) continue;
         if (existing.actor !== normalizedActor) continue;
-        if ((existing.projectId || null) !== (project?.id || null)) continue;
-        if ((existing.sessionId || null) !== (session?.id || null)) continue;
-        if ((existing.laneId || null) !== (lane?.id || null)) continue;
+        const existingScope = this._resolveToolLeaseScope(existing, { allowMissing: true });
+        if ((existingScope.projectId || null) !== (scope.projectId || null)) continue;
+        if ((existingScope.sessionId || null) !== (scope.sessionId || null)) continue;
+        if ((existingScope.laneId || null) !== (scope.laneId || null)) continue;
         existing.revokedAt = revokedAt;
         this.recordAudit({
           type: 'agent_tool_lease_revoked',
@@ -117,9 +151,9 @@ export const toolLeaseMethods = {
       tokenHash,
       role: normalizedRole,
       actor: normalizedActor,
-      projectId: project?.id || null,
-      sessionId: session?.id || null,
-      laneId: lane?.id || null,
+      projectId: scope.projectId || null,
+      sessionId: scope.sessionId || null,
+      laneId: scope.laneId || null,
       allowedTools: normalizedAllowedTools,
       createdAt: new Date(now).toISOString(),
       lastUsedAt: null,
@@ -159,13 +193,14 @@ export const toolLeaseMethods = {
 
   publicToolLease(lease) {
     if (!lease) return null;
+    const scope = this._resolveToolLeaseScope(lease, { allowMissing: true });
     return {
       id: lease.id,
       role: lease.role,
       actor: lease.actor,
-      projectId: lease.projectId,
-      sessionId: lease.sessionId,
-      laneId: lease.laneId,
+      projectId: scope.projectId,
+      sessionId: scope.sessionId,
+      laneId: scope.laneId,
       allowedTools: safeArray(lease.allowedTools),
       createdAt: lease.createdAt,
       lastUsedAt: lease.lastUsedAt || null,
@@ -277,16 +312,18 @@ export const toolLeaseMethods = {
     if (toolId && !safeArray(lease.allowedTools).includes(toolId)) {
       throw { status: 403, message: 'Tool lease does not grant this tool.' };
     }
-    if (toolId === 'project.create' && (lease.projectId || lease.sessionId || lease.laneId)) {
+    const leaseScope = this._resolveToolLeaseScope(lease, { allowMissing: true });
+    const requestedScope = this._resolveToolLeaseScope({ projectId, sessionId, laneId }, { allowMissing: true });
+    if (toolId === 'project.create' && (leaseScope.projectId || leaseScope.sessionId || leaseScope.laneId)) {
       throw { status: 403, message: 'Project creation requires an unscoped tool lease.' };
     }
-    if (projectId && lease.projectId && lease.projectId !== projectId) {
+    if (requestedScope.projectId && leaseScope.projectId && leaseScope.projectId !== requestedScope.projectId) {
       throw { status: 403, message: 'Tool lease project mismatch.' };
     }
-    if (sessionId && lease.sessionId && lease.sessionId !== sessionId) {
+    if (requestedScope.sessionId && leaseScope.sessionId && leaseScope.sessionId !== requestedScope.sessionId) {
       throw { status: 403, message: 'Tool lease session mismatch.' };
     }
-    if (laneId && lease.laneId && lease.laneId !== laneId) {
+    if (requestedScope.laneId && leaseScope.laneId && leaseScope.laneId !== requestedScope.laneId) {
       throw { status: 403, message: 'Tool lease lane mismatch.' };
     }
     lease.lastUsedAt = new Date().toISOString();

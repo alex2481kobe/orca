@@ -88,7 +88,7 @@ export const part2 = [
     auth: 'api_token_or_paired_browser_session',
     mutationRisk: 'high',
     approval: 'authorized dashboard/session context; dashboard/orchestrator/supervisor leases require admin',
-    validation: 'actor spoofing rejected; role allowlisted; allowedTools must belong to role; project/session/lane scopes must agree; lease binds ttl',
+    validation: 'actor spoofing rejected; role allowlisted; allowedTools must belong to role; project/session/lane scopes are canonicalized and must agree; executor/critique leases require lane scope; auditor leases require session or lane scope; lease binds ttl',
     auditEvent: 'tool_lease_created',
     uiSurface: 'MCP/tools',
     smokeCoverage: ['test/agent-tools.test.js', 'test/server.test.js'],

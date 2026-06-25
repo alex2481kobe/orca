@@ -188,10 +188,23 @@ test('orchestrator enroll rejects non-orchestrator tool leases at the route boun
       body: { name: 'Wrong Role Orchestrator Session', approved: true },
     });
     assert.equal(session.status, 201);
+    const lane = await requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { title: 'Wrong role executor lane', executorType: 'mock', approved: true },
+    });
+    assert.equal(lane.status, 201);
     const executorLease = await requestJson('/api/agent-tools/leases', {
       method: 'POST',
       headers: { 'x-orca-token': token },
-      body: { actor: 'executor-not-orchestrator', role: 'executor', projectId: project.body.id, sessionId: session.body.id, ttlMs: 60_000 },
+      body: {
+        actor: 'executor-not-orchestrator',
+        role: 'executor',
+        projectId: project.body.id,
+        sessionId: session.body.id,
+        laneId: lane.body.id,
+        ttlMs: 60_000,
+      },
     });
     assert.equal(executorLease.status, 201);
     assert.equal(executorLease.body.lease.role, 'executor');

@@ -251,6 +251,33 @@ test('registry replaces duplicate external MCP bootstrap leases for the same cha
     const activeOrchestrators = registry.listToolLeases({ activeOnly: true })
       .filter((lease) => lease.role === 'orchestrator' && lease.actor === 'same-orchestrator-chat');
     assert.deepEqual(activeOrchestrators.map((lease) => lease.id), [secondOrchestrator.lease.id]);
+
+    const sessionOnly = registry.createOrchestratorMcpBootstrap({
+      role: 'supervisor',
+      actor: 'same-effective-scope-chat',
+      sessionId: session.id,
+    });
+    assert.equal(sessionOnly.lease.projectId, project.id);
+    assert.equal(sessionOnly.lease.sessionId, session.id);
+    const fullScopeReconnect = registry.createOrchestratorMcpBootstrap({
+      role: 'supervisor',
+      actor: 'same-effective-scope-chat',
+      projectId: project.id,
+      sessionId: session.id,
+    });
+    assert.notEqual(sessionOnly.lease.id, fullScopeReconnect.lease.id);
+    assert.throws(
+      () => registry.validateToolLease(sessionOnly.leaseToken, {
+        role: 'supervisor',
+        toolId: 'supervisor.overview',
+        projectId: project.id,
+        sessionId: session.id,
+      }),
+      (error) => error.status === 401 && /revoked/i.test(error.message),
+    );
+    const effectiveScopeActive = registry.listToolLeases({ activeOnly: true })
+      .filter((lease) => lease.role === 'supervisor' && lease.actor === 'same-effective-scope-chat');
+    assert.deepEqual(effectiveScopeActive.map((lease) => lease.id), [fullScopeReconnect.lease.id]);
     assert.equal(registry.auditEvents.some((event) =>
       event.type === 'agent_tool_lease_revoked'
       && event.evidence?.reason === 'replace_active_for_actor'), true);
