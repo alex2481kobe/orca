@@ -473,6 +473,16 @@ export const TOOL_DEFINITIONS = [
     summary: 'List projects.',
   },
   {
+    id: 'project.create',
+    group: 'projects',
+    roles: ['orchestrator', 'dashboard'],
+    method: 'POST',
+    route: '/api/projects',
+    implemented: true,
+    mutating: true,
+    summary: 'Create a project container for an agent-first cold start with an unscoped lease. Body: name, slug, repoRoot, approved.',
+  },
+  {
     id: 'project.describe',
     group: 'projects',
     roles: ['supervisor', 'orchestrator', 'dashboard'],

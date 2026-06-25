@@ -1448,7 +1448,237 @@ test('dashboard orchestrator messages create server-owned turns and scoped tool 
         approved: true,
       },
     });
-    assert.equal(forbidden.status, 401);
+    assert.equal(forbidden.status, 403);
+    assert.match(forbidden.body?.error || '', /unscoped tool lease/i);
+  } finally {
+    await server.stop();
+  }
+});
+
+test('orchestrator messages reject attachment URLs outside the current session', async () => {
+  const token = 'route-token-orchestrator-attachments';
+  const server = await startServer({ token });
+
+  try {
+    const project = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Attachment Boundary Project', approved: true },
+    });
+    assert.equal(project.status, 201);
+
+    const sessionA = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Attachment Session A', leader: 'mock', approved: true },
+    });
+    const sessionB = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Attachment Session B', leader: 'mock', approved: true },
+    });
+    assert.equal(sessionA.status, 201);
+    assert.equal(sessionB.status, 201);
+
+    const lease = await server.requestJson('/api/agent-tools/leases', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        actor: 'attachment-orchestrator',
+        role: 'orchestrator',
+        projectId: project.body.id,
+        sessionId: sessionA.body.id,
+      },
+    });
+    assert.equal(lease.status, 201);
+    const leaseHeaders = { 'x-orca-tool-lease': lease.body.leaseToken };
+    const enrolled = await server.requestJson(`/api/sessions/${sessionA.body.id}/orchestrator/enroll`, {
+      method: 'POST',
+      headers: leaseHeaders,
+      body: {},
+    });
+    assert.equal(enrolled.status, 200);
+
+    const foreignDir = path.join(process.cwd(), 'artifacts', sessionB.body.id, 'attachments');
+    await fs.mkdir(foreignDir, { recursive: true });
+    await fs.writeFile(path.join(foreignDir, 'foreign.txt'), 'foreign session data');
+
+    const rejected = await server.requestJson(`/api/sessions/${sessionA.body.id}/orchestrator/messages`, {
+      method: 'POST',
+      headers: leaseHeaders,
+      body: {
+        approved: true,
+        message: 'Use the foreign attachment.',
+        executorType: 'mock',
+        attachments: [{ name: 'foreign.txt', url: `/artifacts/${sessionB.body.id}/attachments/foreign.txt` }],
+      },
+    });
+    assert.equal(rejected.status, 422);
+    assert.match(rejected.body?.error || '', /current session/);
+
+    const lanesAfterReject = await server.requestJson(`/api/sessions/${sessionA.body.id}/lanes`, {
+      method: 'GET',
+      headers: { 'x-orca-token': token },
+    });
+    assert.deepEqual(lanesAfterReject.body, []);
+    const threadAfterReject = await server.requestJson(`/api/sessions/${sessionA.body.id}/orchestrator`, {
+      method: 'GET',
+      headers: { 'x-orca-token': token },
+    });
+    assert.equal(threadAfterReject.body.messages.length, 0);
+
+    const ownDir = path.join(process.cwd(), 'artifacts', sessionA.body.id, 'attachments');
+    await fs.mkdir(ownDir, { recursive: true });
+    await fs.writeFile(path.join(ownDir, 'own.txt'), 'own session data');
+    const accepted = await server.requestJson(`/api/sessions/${sessionA.body.id}/orchestrator/messages`, {
+      method: 'POST',
+      headers: leaseHeaders,
+      body: {
+        approved: true,
+        message: 'Use the current-session attachment.',
+        executorType: 'mock',
+        attachments: [{ name: 'own.txt', url: `/artifacts/${sessionA.body.id}/attachments/own.txt` }],
+      },
+    });
+    assert.equal(accepted.status, 201);
+    assert.equal(accepted.body?.lane?.sessionId, sessionA.body.id);
+    assert.match(accepted.body?.lane?.taskPrompt || '', new RegExp(`/artifacts/${sessionA.body.id}/attachments/own\\.txt`));
+    assert.equal(String(accepted.body?.lane?.taskPrompt || '').includes(sessionB.body.id), false);
+  } finally {
+    await server.stop();
+  }
+});
+
+test('scoped orchestrator leases bind plan and task actors to the lease identity', async () => {
+  const token = 'route-token-lease-actor-binding';
+  const server = await startServer({ token });
+
+  try {
+    const project = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Lease Actor Project', approved: true },
+    });
+    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Lease Actor Session', leader: 'mock', approved: true },
+    });
+    assert.equal(project.status, 201);
+    assert.equal(session.status, 201);
+
+    const lease = await server.requestJson('/api/agent-tools/leases', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        actor: 'lease-bound-orchestrator',
+        role: 'orchestrator',
+        projectId: project.body.id,
+        sessionId: session.body.id,
+      },
+    });
+    assert.equal(lease.status, 201);
+    const leaseHeaders = { 'x-orca-tool-lease': lease.body.leaseToken };
+    const enrolled = await server.requestJson(`/api/sessions/${session.body.id}/orchestrator/enroll`, {
+      method: 'POST',
+      headers: leaseHeaders,
+      body: {},
+    });
+    assert.equal(enrolled.status, 200);
+
+    const plan = await server.requestJson(`/api/sessions/${session.body.id}/plan`, {
+      method: 'POST',
+      headers: leaseHeaders,
+      body: {
+        actor: 'body-spoofed-plan',
+        goal: 'Prove actor binding',
+        plan: '1. Add tasks\n2. Verify actors',
+      },
+    });
+    assert.equal(plan.status, 200);
+
+    const task = await server.requestJson(`/api/sessions/${session.body.id}/tasks`, {
+      method: 'POST',
+      headers: leaseHeaders,
+      body: {
+        actor: 'body-spoofed-task',
+        title: 'Lease-bound task',
+      },
+    });
+    assert.equal(task.status, 201);
+    assert.equal(task.body.source, 'lease-bound-orchestrator');
+
+    const bulk = await server.requestJson(`/api/sessions/${session.body.id}/tasks/bulk`, {
+      method: 'POST',
+      headers: leaseHeaders,
+      body: {
+        actor: 'body-spoofed-bulk',
+        tasks: [{ title: 'Lease-bound bulk task', actor: 'entry-spoofed' }],
+      },
+    });
+    assert.equal(bulk.status, 201);
+    assert.equal(bulk.body.tasks[0].source, 'lease-bound-orchestrator');
+
+    const blocked = await server.requestJson(`/api/tasks/${task.body.id}`, {
+      method: 'PATCH',
+      headers: leaseHeaders,
+      body: {
+        actor: 'body-spoofed-update',
+        state: 'blocked',
+        reason: 'Checking actor binding',
+      },
+    });
+    assert.equal(blocked.status, 200);
+
+    const deleted = await server.requestJson(`/api/tasks/${task.body.id}`, {
+      method: 'DELETE',
+      headers: leaseHeaders,
+      body: { actor: 'body-spoofed-delete' },
+    });
+    assert.equal(deleted.status, 200);
+
+    const lane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      headers: leaseHeaders,
+      body: {
+        actor: 'body-spoofed-lane',
+        approved: true,
+        title: 'Lease-bound audit queue lane',
+        executorType: 'mock',
+        taskPrompt: 'Complete a tiny mock task for actor-binding audit coverage.',
+        autoCompleteMs: 10,
+      },
+    });
+    assert.equal(lane.status, 201);
+    const completedLane = await waitForServerLane(server, lane.body.id, token);
+    assert.equal(completedLane.status, 200);
+    assert.equal(['done', 'ready_for_audit'].includes(completedLane.body?.state), true);
+
+    const queuedAudit = await server.requestJson(`/api/sessions/${session.body.id}/audit-done-lanes`, {
+      method: 'POST',
+      headers: leaseHeaders,
+      body: {
+        actor: 'body-spoofed-audit-queue',
+        approved: true,
+      },
+    });
+    assert.equal(queuedAudit.status, 200);
+    assert.equal(queuedAudit.body.enqueued >= 1, true);
+
+    const audits = await server.requestJson('/api/audit/events', {
+      method: 'GET',
+      headers: { 'x-orca-token': token },
+    });
+    assert.equal(audits.status, 200);
+    const actorFor = (type) => audits.body.find((event) =>
+      event.type === type && event.sessionId === session.body.id)?.actor;
+    assert.equal(actorFor('session_plan_updated'), 'lease-bound-orchestrator');
+    assert.equal(actorFor('task_added'), 'lease-bound-orchestrator');
+    assert.equal(actorFor('task_state_changed'), 'lease-bound-orchestrator');
+    assert.equal(actorFor('task_deleted'), 'lease-bound-orchestrator');
+    assert.equal(actorFor('session_audit_batch_queued'), 'lease-bound-orchestrator');
+    assert.equal(JSON.stringify(audits.body).includes('body-spoofed'), false);
+    assert.equal(JSON.stringify(audits.body).includes('entry-spoofed'), false);
   } finally {
     await server.stop();
   }

@@ -59,7 +59,9 @@ function evidenceFreshForLane(registry, lane) {
 function chooseNextTool({ registry, role, project, session, lane, auditQueued, flow }) {
   const normalizedRole = normalizeRole(role);
   if (normalizedRole === 'supervisor') return 'supervisor.overview';
-  if (!project) return 'project.list';
+  if (!project) return normalizedRole === 'orchestrator' || normalizedRole === 'dashboard'
+    ? 'project.create'
+    : 'project.list';
   if (!session) return 'project.describe';
   if (normalizedRole === 'orchestrator') {
     let activeOrchestrator = null;

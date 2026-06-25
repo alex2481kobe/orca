@@ -20,10 +20,11 @@ export async function handleTaskRoutes(ctx, req, res, method, parts) {
     try {
       const lease = registry.validateToolLease(token, { toolId, sessionId: task.sessionId, projectId: task.projectId });
       registry.assertOrchestratorOwnership({ toolId, sessionId: task.sessionId, lease });
+      req._toolLease = lease;
     } catch (error) {
       return { error: { status: error.status || 403, message: error.message || 'Not authorized for this task.', nextAction: error.nextAction || null } };
     }
-    return { task };
+    return { task, lease: req._toolLease || null };
   }
 
   if (parts.length === 3 && parts[2]) {
@@ -35,7 +36,7 @@ export async function handleTaskRoutes(ctx, req, res, method, parts) {
       const auth = authorizeTaskMutation(taskId);
       if (auth.error) return sendJson(res, auth.error.status, { error: auth.error.message, nextAction: auth.error.nextAction || null });
       try {
-        const updated = registry.updateTask(taskId, body, { actor: body.actor || 'orchestrator' });
+        const updated = registry.updateTask(taskId, body, { actor: auth.lease?.actor || body.actor || 'orchestrator' });
         return sendJson(res, 200, updated);
       } catch (error) {
         return sendJson(res, error.status || 500, { error: error.message || 'Could not update task.' });
@@ -47,7 +48,7 @@ export async function handleTaskRoutes(ctx, req, res, method, parts) {
       const auth = authorizeTaskMutation(taskId);
       if (auth.error) return sendJson(res, auth.error.status, { error: auth.error.message, nextAction: auth.error.nextAction || null });
       try {
-        const result = registry.deleteTask(taskId, { actor: (body && body.actor) || 'orchestrator' });
+        const result = registry.deleteTask(taskId, { actor: auth.lease?.actor || (body && body.actor) || 'orchestrator' });
         return sendJson(res, 200, result);
       } catch (error) {
         return sendJson(res, error.status || 500, { error: error.message || 'Could not delete task.' });

@@ -31,7 +31,7 @@ export async function handleProjectRoutes(ctx, req, res, method, parts) {
     if (rejectSpoofedActor(body, res)) return;
       try {
         const project = registry.createProject(body, {
-          actor: body.actor || 'dashboard',
+          actor: req._toolLease?.actor || body.actor || 'dashboard',
           approved: body.approved,
         });
         return sendJson(res, 201, project);
@@ -56,7 +56,7 @@ export async function handleProjectRoutes(ctx, req, res, method, parts) {
       const nextState = parts[3] === 'archive' ? 'archived' : 'active';
       try {
         const updated = registry.updateProject(project.id, { state: nextState }, {
-          actor: body.actor || 'dashboard',
+          actor: req._toolLease?.actor || body.actor || 'dashboard',
           approved: body.approved,
         });
         return sendJson(res, 200, updated);
@@ -110,7 +110,7 @@ export async function handleProjectRoutes(ctx, req, res, method, parts) {
     if (rejectSpoofedActor(body, res)) return;
         try {
           const session = registry.createSession(project.id, body, {
-            actor: body.actor || 'dashboard',
+            actor: req._toolLease?.actor || body.actor || 'dashboard',
             approved: body.approved,
           });
           return sendJson(res, 201, session);
@@ -132,7 +132,7 @@ export async function handleProjectRoutes(ctx, req, res, method, parts) {
         if (rejectSpoofedActor(body, res)) return;
         try {
           const result = registry.upsertProjectQuickLink(project.id, body, {
-            actor: body.actor || 'dashboard',
+            actor: req._toolLease?.actor || body.actor || 'dashboard',
             approved: body.approved,
           });
           return sendJson(res, 201, result);
@@ -159,7 +159,7 @@ export async function handleProjectRoutes(ctx, req, res, method, parts) {
         if (rejectSpoofedActor(body, res)) return;
         try {
           const result = registry.upsertProjectQuickLink(project.id, { ...body, id: linkId }, {
-            actor: body.actor || 'dashboard',
+            actor: req._toolLease?.actor || body.actor || 'dashboard',
             approved: body.approved,
           });
           return sendJson(res, 200, result);
@@ -178,7 +178,7 @@ export async function handleProjectRoutes(ctx, req, res, method, parts) {
         if (rejectSpoofedActor(body, res)) return;
         try {
           const result = registry.deleteProjectQuickLink(project.id, linkId, {
-            actor: body.actor || 'dashboard',
+            actor: req._toolLease?.actor || body.actor || 'dashboard',
             approved: body.approved,
           });
           return sendJson(res, 200, result);
@@ -197,7 +197,7 @@ export async function handleProjectRoutes(ctx, req, res, method, parts) {
         if (rejectSpoofedActor(body, res)) return;
         try {
           const result = await registry.checkProjectQuickLink(project.id, linkId, {
-            actor: body.actor || 'dashboard',
+            actor: req._toolLease?.actor || body.actor || 'dashboard',
             prefer: body.prefer || 'auto',
           });
           return sendJson(res, 200, result);

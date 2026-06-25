@@ -71,6 +71,7 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
     'provider.secret.set',
     'provider.secret.delete',
     'project.list',
+    'project.create',
     'project.describe',
     'project.quick_link.upsert',
     'project.quick_link.delete',
@@ -94,6 +95,10 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
   assert.match(discovery.leasePolicy, /Scoped tool leases authenticate MCP and CLI agent calls/);
   assert.equal(discovery.leasePolicy.includes('future guarded'), false);
   assert.equal(discovery.leasePolicy.includes('normal dashboard auth today'), false);
+  assert.equal(findTool('project.create')?.method, 'POST');
+  assert.equal(findTool('project.create')?.route, '/api/projects');
+  assert.equal(availableToolIdsForRole('orchestrator').includes('project.create'), true);
+  assert.equal(availableToolIdsForRole('supervisor').includes('project.create'), false);
   assert.equal(findTool('project.quick_link.upsert')?.method, 'POST');
   assert.equal(findTool('project.quick_link.upsert')?.route, '/api/projects/{projectId}/quick-links');
   assert.equal(findTool('project.quick_link.delete')?.route, '/api/projects/{projectId}/quick-links/{linkId}');

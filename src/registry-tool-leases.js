@@ -212,6 +212,9 @@ export const toolLeaseMethods = {
     if (toolId && !safeArray(lease.allowedTools).includes(toolId)) {
       throw { status: 403, message: 'Tool lease does not grant this tool.' };
     }
+    if (toolId === 'project.create' && (lease.projectId || lease.sessionId || lease.laneId)) {
+      throw { status: 403, message: 'Project creation requires an unscoped tool lease.' };
+    }
     if (projectId && lease.projectId && lease.projectId !== projectId) {
       throw { status: 403, message: 'Tool lease project mismatch.' };
     }

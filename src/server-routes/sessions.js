@@ -84,7 +84,7 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
       try {
         const result = registry.requestCapacity(session.id, {
           ...body,
-          actor: body.actor || 'dashboard',
+          actor: req._toolLease?.actor || body.actor || 'dashboard',
         });
         return sendJson(res, 201, result);
       } catch (error) {
@@ -103,7 +103,7 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
       try {
         const result = registry.setCapacityPolicy(session.id, {
           ...body,
-          actor: body.actor || 'dashboard',
+          actor: req._toolLease?.actor || body.actor || 'dashboard',
         });
         return sendJson(res, 200, result);
       } catch (error) {
@@ -122,7 +122,7 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
       try {
         const result = registry.setSessionWorktreePolicy(session.id, {
           ...body,
-          actor: body.actor || 'dashboard',
+          actor: req._toolLease?.actor || body.actor || 'dashboard',
         });
         return sendJson(res, 200, result);
       } catch (error) {
@@ -142,7 +142,7 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
         const result = registry.updateSessionPlan(session.id, {
           goal: body.goal,
           plan: body.plan,
-          actor: String(body.actor || 'orchestrator').trim() || 'orchestrator',
+          actor: req._toolLease?.actor || String(body.actor || 'orchestrator').trim() || 'orchestrator',
         });
         return sendJson(res, 200, result);
       } catch (error) {
@@ -355,7 +355,7 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
         if (body === null) return sendBodyError(req, res);
         if (rejectSpoofedActor(body, res)) return;
         try {
-          const task = registry.addTask(session.id, body, { actor: body.actor || 'orchestrator', approved: body.approved });
+          const task = registry.addTask(session.id, body, { actor: req._toolLease?.actor || body.actor || 'orchestrator', approved: body.approved });
           return sendJson(res, 201, task);
         } catch (error) {
           return sendJson(res, error.status || 500, { error: error.message || 'Could not add task.' });
@@ -369,7 +369,7 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
       if (body === null) return sendBodyError(req, res);
       if (rejectSpoofedActor(body, res)) return;
       try {
-        const result = registry.bulkAddTasks(session.id, body, { actor: body.actor || 'orchestrator' });
+        const result = registry.bulkAddTasks(session.id, body, { actor: req._toolLease?.actor || body.actor || 'orchestrator' });
         // If nothing was added but there were per-task errors, that's a failure —
         // don't report 201 success with the errors buried in the body.
         if (result.added === 0 && Array.isArray(result.errors) && result.errors.length) {
@@ -394,7 +394,10 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
       if (body === null) return sendBodyError(req, res);
     if (rejectSpoofedActor(body, res)) return;
       try {
-        const result = await registry.queueDoneLanesAudit(session.id, { ...body, actor: body.actor || 'dashboard' });
+        const result = await registry.queueDoneLanesAudit(session.id, {
+          ...body,
+          actor: req._toolLease?.actor || body.actor || 'dashboard',
+        });
         return sendJson(res, 200, result);
       } catch (error) {
         return sendJson(res, error.status || 500, {

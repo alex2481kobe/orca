@@ -330,6 +330,9 @@ function toolLeaseRequirementForRoute(method, parts) {
   if (parts[1] === 'projects' && parts.length === 2 && method === 'GET') {
     return { toolId: 'project.list' };
   }
+  if (parts[1] === 'projects' && parts.length === 2 && method === 'POST') {
+    return { toolId: 'project.create' };
+  }
   if (parts[1] === 'projects' && parts[2] && parts.length === 3 && method === 'GET') {
     return { toolId: 'project.describe', projectId: parts[2] };
   }

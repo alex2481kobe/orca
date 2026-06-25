@@ -85,6 +85,9 @@ orca-agent bootstrap --project <projectId>
 orca-agent bootstrap --role supervisor --project <projectId>
 ```
 
+On a fresh Orca state with no projects yet, `start` creates a default
+`Companion Runs` project first, then creates and enrolls the session there.
+
 With `--auto` (spawnPolicy `auto`), Orca fans the backlog out across executor lanes
 up to capacity and refills as they finish; each lane runs the
 executor → critique → audit flow. **Unattended completion is automatic:** when no
@@ -117,6 +120,7 @@ To make the current chat a supervisor instead, use the supervisor commands:
 ```bash
 node scripts/orca-agent.mjs supervisor-overview --project <projectId> --session <sessionId> --summary
 node scripts/orca-agent.mjs supervisor-status <sessionId> --project <projectId>
+node scripts/orca-agent.mjs supervisor-thread <sessionId> --project <projectId>
 node scripts/orca-agent.mjs supervisor-watch <laneId> --project <projectId> --session <sessionId> --idle-ms 5000
 node scripts/orca-agent.mjs supervisor-watch-all --project <projectId> --session <sessionId> --idle-ms 5000 --json
 node scripts/orca-agent.mjs supervisor-watch-all --project <projectId> --session <sessionId> --done --idle-ms 5000 --json
@@ -127,7 +131,10 @@ node scripts/orca-agent.mjs supervisor-resign --project <projectId> --session <s
 
 When a supervisor requests a fix, the normal orchestrator view carries it too:
 `node scripts/orca-agent.mjs status <sessionId> --project <projectId>` prints the
-current supervisor review and next task below the lane tree.
+current supervisor review and next task below the lane tree. Use
+`supervisor-thread` when the reviewing chat needs the raw server-owned
+orchestrator conversation that the MCP supervisor reads through
+`orchestrator.thread.get`.
 Use `supervisor-overview --summary` for the compact attention queue; omit
 `--summary` when another tool needs the full JSON contract.
 

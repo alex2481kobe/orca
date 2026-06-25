@@ -32,6 +32,7 @@
  *   orca-agent supervisor-bootstrap [--project <id>] [--session <id>]
  *   orca-agent supervisor-overview [--project <id>] [--session <id>] [--summary]
  *   orca-agent supervisor-status <sessionId> [--project <id>]
+ *   orca-agent supervisor-thread <sessionId> [--project <id>]
  *   orca-agent supervisor-watch <laneId> [--project <id>] [--session <id>] [--idle-ms N] [--max-events N] [--json]
  *   orca-agent supervisor-watch-all [--project <id>] [--session <id>] [--idle-ms N] [--max-events N] [--json] [--done]
  *   orca-agent supervisor-audit <sessionId> accept|request_fix|block <summary...> [--finding text] [--next-task text]
@@ -597,7 +598,15 @@ switch (cmd) {
       const list = await api('GET', '/api/projects', undefined, startLease);
       if (!list.ok) die(`${list.status} ${list.data?.error || list.text}`, 2);
       projectId = list.data?.[0]?.id;
-      if (!projectId) die('no projects yet — create one in the dashboard, or pass --project <id>.');
+      if (!projectId) {
+        const createdProject = await api('POST', '/api/projects', {
+          approved: true,
+          name: flags['project-name'] || flags.projectName || 'Companion Runs',
+        }, startLease);
+        if (!createdProject.ok) die(`create-project: ${createdProject.status} ${createdProject.data?.error || createdProject.text}`, 2);
+        projectId = createdProject.data?.id;
+      }
+      if (!projectId) die('could not create or select a project.');
     }
     const name = _.join(' ') || `Run ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`;
     const body = { approved: true, name, leader: flags.leader || 'codex', spawnPolicy: 'auto' };
@@ -666,6 +675,15 @@ switch (cmd) {
     });
     if (!r.ok) die(`${r.status} ${r.data?.error || r.text}`, 2);
     printSessionStatus(r.data);
+    break;
+  }
+  case 'supervisor-thread': {
+    const sessionId = _[0] || die('usage: orca-agent supervisor-thread <sessionId> [--project <id>]');
+    show(await api('GET', `/api/sessions/${encodeURIComponent(sessionId)}/orchestrator`, undefined, {
+      role: 'supervisor',
+      projectId: flags.project || flags.projectId,
+      sessionId,
+    }));
     break;
   }
   case 'supervisor-watch': {
@@ -941,6 +959,6 @@ switch (cmd) {
     break;
   }
   default:
-    out('orca-agent — drive Orca from any agent. Commands: start, projects, links, link-upsert, link-tailnet, link-check, tailscale-status, tailscale-setup, tailscale-serve, rules, bootstrap, supervisor-bootstrap, supervisor-overview, supervisor-status, supervisor-watch, supervisor-watch-all, supervisor-audit, supervisor-resign, next, status, tail, watch, watch-session, enroll, resign, create-session, add-task, bulk-add, backlog, call. See header for usage.');
+    out('orca-agent — drive Orca from any agent. Commands: start, projects, links, link-upsert, link-tailnet, link-check, tailscale-status, tailscale-setup, tailscale-serve, rules, bootstrap, supervisor-bootstrap, supervisor-overview, supervisor-status, supervisor-thread, supervisor-watch, supervisor-watch-all, supervisor-audit, supervisor-resign, next, status, tail, watch, watch-session, enroll, resign, create-session, add-task, bulk-add, backlog, call. See header for usage.');
     if (cmd && cmd !== 'help') process.exit(1);
 }

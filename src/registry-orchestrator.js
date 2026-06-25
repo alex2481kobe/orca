@@ -2,8 +2,9 @@
 // OrcaRegistry. Extracted from registry.js.
 
 import path from 'node:path';
+import fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { nowIso, clonePayload, normalizeExecutorType } from './registry-utils.js';
+import { nowIso, clonePayload, normalizeExecutorType, isPathWithinBoundary } from './registry-utils.js';
 import { FIRST_CLASS_CLI_EXECUTOR_TYPES } from './executor-factory.js';
 import { buildNextActionEnvelope, findTool } from './agent-tools.js';
 import { renderLaneTree } from './render-lane-tree.js';
@@ -16,7 +17,12 @@ const ORCHESTRATOR_STALE_MS = 15 * 60 * 1000;
 // Mutating orchestrator tools that must stay callable regardless of ownership:
 // you call enroll/resign to change ownership, and create a session before one
 // can have an owner.
-const OWNERSHIP_EXEMPT_TOOLS = new Set(['orchestrator.enroll', 'orchestrator.resign', 'session.create']);
+const OWNERSHIP_EXEMPT_TOOLS = new Set([
+  'orchestrator.enroll',
+  'orchestrator.resign',
+  'project.create',
+  'session.create',
+]);
 
 function safeChatText(value, max = 12000) {
   return String(value || '').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, ' ').trim().slice(0, max);
@@ -407,6 +413,55 @@ export const orchestratorMethods = {
       .slice(0, 20);
     if (!text && !attachmentList.length) throw { status: 422, message: 'Message or attachment is required.' };
 
+    // Resolve each attachment's server-side absolute path from its /artifacts URL
+    // (never trust a client-supplied path), contained under this session only.
+    const sessionArtifactsRoot = path.join(process.cwd(), 'artifacts', String(session.id));
+    const resolveAttachmentPath = async (entry) => {
+      const url = String(entry.url || '');
+      if (!url.startsWith('/artifacts/')) {
+        throw { status: 422, message: 'Attachment URL must reference a session artifact.' };
+      }
+      let pathname;
+      try {
+        pathname = new URL(url, 'http://orca.local').pathname;
+      } catch {
+        throw { status: 422, message: 'Attachment URL is invalid.' };
+      }
+      let decoded;
+      try {
+        decoded = decodeURIComponent(pathname);
+      } catch {
+        throw { status: 422, message: 'Attachment URL encoding is invalid.' };
+      }
+      const abs = path.join(process.cwd(), decoded.replace(/^\/+/, ''));
+      if (!isPathWithinBoundary(abs, sessionArtifactsRoot)) {
+        throw { status: 422, message: 'Attachment URL must belong to the current session.' };
+      }
+      let stats;
+      try {
+        stats = await fs.lstat(abs);
+      } catch {
+        throw { status: 422, message: 'Attachment file does not exist.' };
+      }
+      if (stats.isSymbolicLink() || !stats.isFile()) {
+        throw { status: 422, message: 'Attachment file is not a regular file.' };
+      }
+      try {
+        const realPath = await fs.realpath(abs);
+        const realSessionRoot = await fs.realpath(sessionArtifactsRoot);
+        if (!isPathWithinBoundary(realPath, realSessionRoot)) {
+          throw { status: 422, message: 'Attachment path escapes the current session.' };
+        }
+      } catch (error) {
+        if (error?.status) throw error;
+        throw { status: 422, message: 'Attachment path could not be resolved.' };
+      }
+      return abs;
+    };
+    const resolvedAttachmentPaths = attachmentList.length
+      ? await Promise.all(attachmentList.map(resolveAttachmentPath))
+      : [];
+
     const project = this.getProject(session.projectId);
     const thread = this.ensureOrchestratorThread(session);
     const now = nowIso();
@@ -422,18 +477,9 @@ export const orchestratorMethods = {
       createdAt: now,
     };
     this.appendOrchestratorThreadMessage(thread, userMessage);
-    // Resolve each attachment's server-side absolute path from its /artifacts URL
-    // (never trust a client-supplied path), contained under artifacts/.
-    const artifactsRoot = path.join(process.cwd(), 'artifacts');
-    const resolveAttachmentPath = (entry) => {
-      const url = String(entry.url || '');
-      if (!url.startsWith('/artifacts/')) return null;
-      const abs = path.join(process.cwd(), url.replace(/^\/+/, ''));
-      return abs.startsWith(artifactsRoot + path.sep) ? abs : null;
-    };
     const branchHint = String(branch || '').trim().slice(0, 200);
     const baseText = attachmentList.length
-      ? `${text}\n\nAttached files (absolute paths you can read):\n${attachmentList.map(resolveAttachmentPath).filter(Boolean).map((p) => `- ${p}`).join('\n')}`
+      ? `${text}\n\nAttached files (absolute paths you can read):\n${resolvedAttachmentPaths.map((p) => `- ${p}`).join('\n')}`
       : text;
     // The composer branch picker is an instruction for the agent: local branch
     // hints can be switched/created directly; remote refs are base refs for a

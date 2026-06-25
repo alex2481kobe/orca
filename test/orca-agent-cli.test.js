@@ -94,6 +94,42 @@ function runGit(args, cwd) {
   return result;
 }
 
+test('orca-agent start cold-starts a companion project, session, and orchestrator owner', async () => {
+  await withRealOrcaServer(async ({ baseUrl, requestJson, token, tempDir }) => {
+    const env = {
+      HOME: tempDir,
+      ORCA_AGENT_TOOLS_BASE_URL: baseUrl,
+      ORCA_API_TOKEN: token,
+      ORCA_TOOL_LEASE_TOKEN: '',
+    };
+
+    const started = await runOrcaAgent(['start', 'Cold start run', '--leader', 'mock', '--cap', '2'], env);
+    assert.equal(started.code, 0, started.stderr);
+    const body = JSON.parse(started.stdout);
+    assert.ok(body.sessionId);
+    assert.ok(body.project);
+    assert.match(body.next, new RegExp(`orca-agent bulk-add ${body.sessionId}`));
+
+    const projects = await requestJson('/api/projects');
+    assert.equal(projects.status, 200);
+    assert.equal(projects.body.length, 1);
+    assert.equal(projects.body[0].id, body.project);
+    assert.equal(projects.body[0].name, 'Companion Runs');
+
+    const sessions = await requestJson(`/api/projects/${body.project}/sessions`);
+    assert.equal(sessions.status, 200);
+    assert.equal(sessions.body.length, 1);
+    assert.equal(sessions.body[0].id, body.sessionId);
+    assert.equal(sessions.body[0].name, 'Cold start run');
+    assert.equal(sessions.body[0].spawnPolicy, 'auto');
+    assert.equal(sessions.body[0].approvedCapacity, 2);
+
+    const status = await requestJson(`/api/sessions/${body.sessionId}/orchestrator/status`);
+    assert.equal(status.status, 200);
+    assert.equal(status.body.activeOrchestrator.actor, 'orca-agent-orchestrator');
+  });
+});
+
 test('orca-agent tail reads bounded lane output and enforces session-scoped leases', async () => {
   await withRealOrcaServer(async ({ baseUrl, requestJson, token, tempDir }) => {
     const project = await requestJson('/api/projects', {
@@ -915,6 +951,19 @@ test('orca-agent supervisor commands attach with role-scoped leases and resign c
     assert.equal(audit.code, 0, audit.stderr);
     const auditBody = JSON.parse(audit.stdout);
     assert.equal(auditBody.supervisorReview.status, 'fix_requested');
+
+    const supervisorThread = await runOrcaAgent([
+      'supervisor-thread',
+      session.body.id,
+      '--project',
+      project.body.id,
+    ], env);
+    assert.equal(supervisorThread.code, 0, supervisorThread.stderr);
+    const threadBody = JSON.parse(supervisorThread.stdout);
+    assert.equal(threadBody.sessionId, session.body.id);
+    assert.equal(threadBody.messages.some((message) =>
+      String(message.content || '').includes('CLI supervisor requested one more check.')), true);
+    assert.equal(JSON.stringify(threadBody).includes(hiddenSession.body.id), false);
 
     const orchestratorStatusAfterAudit = await runOrcaAgent([
       'status',
