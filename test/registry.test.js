@@ -1303,6 +1303,86 @@ test('lane lifecycle log appends remain capped', async () => {
   }
 });
 
+test('lane-scoped tool leases are revoked when Orca-authored lanes stop being live', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+
+  const assertRevoked = (token, laneId, reason) => {
+    assert.throws(
+      () => registry.validateToolLease(token, { toolId: 'lane.get', laneId }),
+      (error) => error.status === 401 && /revoked/i.test(error.message),
+    );
+    assert.equal(
+      registry.listToolLeases({ activeOnly: true }).some((lease) => lease.laneId === laneId),
+      false,
+    );
+    assert.equal(
+      registry.auditEvents.some((event) =>
+        event.type === 'agent_tool_lease_revoked'
+        && event.laneId === laneId
+        && event.evidence?.reason === reason),
+      true,
+    );
+  };
+
+  try {
+    const project = registry.createProject({ name: 'Lane Lease Cleanup' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Lane Lease Cleanup Session' }, { actor: 'test', approved: true });
+
+    const completed = registry.createLane(session.id, {
+      title: 'completed lane',
+      executorType: 'mock',
+    }, { actor: 'test', approved: true });
+    const completedToken = registry.ensureLaneToolLease(registry.getLane(completed.id)).ORCA_TOOL_LEASE_TOKEN;
+    assert.ok(completedToken);
+    assert.equal(registry.validateToolLease(completedToken, { toolId: 'lane.get', laneId: completed.id }).active, true);
+    registry.markLaneCompleted(registry.getLane(completed.id));
+    assert.equal(registry.laneRuntimeEnv.has(completed.id), false);
+    assertRevoked(completedToken, completed.id, 'lane_completed');
+
+    const failed = registry.createLane(session.id, {
+      title: 'failed lane',
+      executorType: 'mock',
+    }, { actor: 'test', approved: true });
+    const failedToken = registry.ensureLaneToolLease(registry.getLane(failed.id)).ORCA_TOOL_LEASE_TOKEN;
+    registry.markLaneFailed(registry.getLane(failed.id), 'boom', 'test');
+    assert.equal(registry.laneRuntimeEnv.has(failed.id), false);
+    assertRevoked(failedToken, failed.id, 'lane_failed');
+
+    const stopped = registry.createLane(session.id, {
+      title: 'stopped lane',
+      executorType: 'mock',
+    }, { actor: 'test', approved: true });
+    const stoppedToken = registry.ensureLaneToolLease(registry.getLane(stopped.id)).ORCA_TOOL_LEASE_TOKEN;
+    registry.getLane(stopped.id).state = 'running';
+    await registry.stopLane(stopped.id, { actor: 'test', approved: true });
+    assert.equal(registry.laneRuntimeEnv.has(stopped.id), false);
+    assertRevoked(stoppedToken, stopped.id, 'lane_stopped');
+
+    const retried = registry.retryLane(failed.id, { actor: 'test', approved: true });
+    assert.equal(retried.state, 'queued');
+    const freshToken = registry.ensureLaneToolLease(registry.getLane(failed.id)).ORCA_TOOL_LEASE_TOKEN;
+    assert.ok(freshToken);
+    assert.notEqual(freshToken, failedToken);
+    assert.equal(registry.validateToolLease(freshToken, { toolId: 'lane.get', laneId: failed.id }).active, true);
+
+    const stale = registry.createLane(session.id, {
+      title: 'stale env lane',
+      executorType: 'mock',
+    }, { actor: 'test', approved: true });
+    const staleEnv = registry.ensureLaneToolLease(registry.getLane(stale.id));
+    registry.revokeToolLeasesForLane(stale.id, { actor: 'test', reason: 'manual_stale', persist: false });
+    assert.equal(registry.laneRuntimeEnv.has(stale.id), true);
+    const refreshedEnv = registry.ensureLaneToolLease(registry.getLane(stale.id));
+    assert.notEqual(refreshedEnv.ORCA_TOOL_LEASE_TOKEN, staleEnv.ORCA_TOOL_LEASE_TOKEN);
+    assert.equal(
+      registry.validateToolLease(refreshedEnv.ORCA_TOOL_LEASE_TOKEN, { toolId: 'lane.get', laneId: stale.id }).active,
+      true,
+    );
+  } finally {
+    await cleanup();
+  }
+});
+
 test('orchestrator thread messages are capped when restored or appended', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
 

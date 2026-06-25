@@ -180,6 +180,41 @@ export const toolLeaseMethods = {
     return activeOnly ? leases.filter((lease) => lease.active) : leases;
   },
 
+  revokeToolLeasesForLane(laneLocator, {
+    actor = 'system',
+    reason = 'lane_terminal',
+    persist = true,
+  } = {}) {
+    const laneId = String(typeof laneLocator === 'object' ? laneLocator?.id || '' : laneLocator || '').trim();
+    if (!laneId) return [];
+    const revokedAt = new Date().toISOString();
+    const revoked = [];
+    for (const lease of this.toolLeases || []) {
+      if (lease.laneId !== laneId) continue;
+      if (lease.revokedAt) continue;
+      if (Date.parse(lease.expiresAt) <= Date.now()) continue;
+      lease.revokedAt = revokedAt;
+      revoked.push(lease);
+      this.recordAudit({
+        type: 'agent_tool_lease_revoked',
+        actor: String(actor || 'system').slice(0, 120),
+        projectId: lease.projectId,
+        sessionId: lease.sessionId,
+        laneId: lease.laneId,
+        summary: `Revoked lane-scoped ${lease.role} tool lease`,
+        status: 'passed',
+        evidence: {
+          leaseId: lease.id,
+          role: lease.role,
+          reason: String(reason || 'lane_terminal').slice(0, 120),
+          tokenHashPrefix: String(lease.tokenHash || '').slice(0, 12),
+        },
+      });
+    }
+    if (revoked.length && persist) this.persistState();
+    return revoked.map((lease) => this.publicToolLease(lease));
+  },
+
   // Admin-only revocation by lease id (the operator lists leases and revokes one;
   // they never hold the raw token). Idempotent on an already-revoked lease; the
   // hashed token is left in place so any in-flight agent call fails closed at
@@ -291,10 +326,22 @@ export const toolLeaseMethods = {
   ensureLaneToolLease(lane) {
     const key = String(lane.id);
     const existing = this.laneRuntimeEnv.get(key) || {};
-    if (existing.ORCA_TOOL_LEASE_TOKEN) return existing;
     const role = lane.owner === 'orchestrator' ? 'orchestrator'
       : lane.owner === 'auditor' ? 'auditor'
         : 'executor';
+    if (existing.ORCA_TOOL_LEASE_TOKEN) {
+      try {
+        this.validateToolLease(existing.ORCA_TOOL_LEASE_TOKEN, {
+          role,
+          projectId: lane.projectId,
+          sessionId: lane.sessionId,
+          laneId: lane.id,
+        });
+        return existing;
+      } catch {
+        this.laneRuntimeEnv.delete(key);
+      }
+    }
     const allowedTools = availableToolIdsForRole(role);
     if (!allowedTools.length) return existing;
     const lease = this.createToolLease({

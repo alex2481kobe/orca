@@ -74,6 +74,13 @@ export const laneTerminalMethods = {
     );
     this._trackAsync(this.writeLaneArtifacts(lane, lane.state).catch(() => {}));
     this.clearLaneExecutor(lane.id);
+    if (typeof this.revokeToolLeasesForLane === 'function') {
+      this.revokeToolLeasesForLane(lane.id, {
+        actor: `${executorLabel}-worker`,
+        reason: needsCritique ? 'lane_needs_critique' : 'lane_completed',
+        persist: false,
+      });
+    }
     this.laneRuntimeEnv.delete(String(lane.id));
     this.persistState();
   },
@@ -113,6 +120,9 @@ export const laneTerminalMethods = {
     );
     this._trackAsync(this.writeLaneArtifacts(lane, 'failed').catch(() => {}));
     this.clearLaneExecutor(lane.id);
+    if (typeof this.revokeToolLeasesForLane === 'function') {
+      this.revokeToolLeasesForLane(lane.id, { actor, reason: 'lane_failed', persist: false });
+    }
     this.laneRuntimeEnv.delete(String(lane.id));
     if (persist) this.persistState();
   },
@@ -155,6 +165,9 @@ export const laneTerminalMethods = {
     );
     this._trackAsync(this.writeLaneArtifacts(lane, 'stopped').catch(() => {}));
     this.clearLaneExecutor(lane.id);
+    if (typeof this.revokeToolLeasesForLane === 'function') {
+      this.revokeToolLeasesForLane(lane.id, { actor, reason: 'lane_stopped', persist: false });
+    }
     this.laneRuntimeEnv.delete(String(lane.id));
     this.persistState();
   },

@@ -35,6 +35,9 @@ export const laneOpsMethods = {
       throw { status: 422, message: 'Stop the lane before deleting it.' };
     }
     if (typeof this.clearLaneExecutor === 'function') this.clearLaneExecutor(lane.id);
+    if (typeof this.revokeToolLeasesForLane === 'function') {
+      this.revokeToolLeasesForLane(lane.id, { actor, reason: 'lane_deleted', persist: false });
+    }
     this.laneRuntimeEnv?.delete(String(lane.id));
     if (typeof this.removeLaneWorktree === 'function') {
       try { await this.removeLaneWorktree(lane.id, { actor, approved: true, removeBranch: false }); } catch { /* best effort */ }
@@ -311,6 +314,15 @@ export const laneOpsMethods = {
 
     if ([DONE_STATE, FAILED_STATE, STOPPED_STATE].includes(lane.state)) {
       this.clearLaneExecutor(lane.id);
+      if (typeof this.revokeToolLeasesForLane === 'function') {
+        this.revokeToolLeasesForLane(lane.id, {
+          actor: context.actor || 'dashboard',
+          reason: 'lane_stop_terminal_cleanup',
+          persist: false,
+        });
+      }
+      this.laneRuntimeEnv?.delete(String(lane.id));
+      this.persistState();
       return clonePayload(lane);
     }
 
@@ -351,6 +363,14 @@ export const laneOpsMethods = {
       );
     }
     this.clearLaneExecutor(lane.id);
+    if (typeof this.revokeToolLeasesForLane === 'function') {
+      this.revokeToolLeasesForLane(lane.id, {
+        actor: context.actor || 'dashboard',
+        reason: 'lane_stopped',
+        persist: false,
+      });
+    }
+    this.laneRuntimeEnv?.delete(String(lane.id));
     this.persistState();
     return clonePayload(lane);
   },
@@ -378,6 +398,14 @@ export const laneOpsMethods = {
       throw { status: 409, message: `Lane state "${lane.state}" is not retryable.` };
     }
     this.clearLaneExecutor(lane.id);
+    if (typeof this.revokeToolLeasesForLane === 'function') {
+      this.revokeToolLeasesForLane(lane.id, {
+        actor: context.actor || 'dashboard',
+        reason: 'lane_retry',
+        persist: false,
+      });
+    }
+    this.laneRuntimeEnv?.delete(String(lane.id));
 
     lane.state = QUEUED_STATE;
     lane.updatedAt = nowIso();
