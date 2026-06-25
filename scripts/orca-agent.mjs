@@ -155,6 +155,10 @@ function bootstrapPathForRole(role) {
     : '/api/mcp/orchestrator-bootstrap';
 }
 
+function bootstrapActorForRole(role) {
+  return `orca-agent-${normalizeLeaseRole(role)}`;
+}
+
 function cacheEntryIsFresh(entry) {
   return entry?.leaseToken && (!entry.expiresAt || Date.parse(entry.expiresAt) > Date.now() + 30000);
 }
@@ -184,6 +188,18 @@ async function writeLeaseCache(cache) {
   const tmp = `${LEASE_CACHE}.tmp-${process.pid}`;
   await fs.writeFile(tmp, JSON.stringify(cache), { mode: 0o600 });
   await fs.rename(tmp, LEASE_CACHE);
+}
+
+async function cacheLeaseResult(options = {}, data = {}) {
+  if (ENV_LEASE || !data?.leaseToken) return;
+  const normalized = normalizeLeaseOptions(options);
+  const key = leaseCacheKey(normalized);
+  const cache = await readLeaseCache();
+  cache[key] = { leaseToken: data.leaseToken, expiresAt: data.lease?.expiresAt || null };
+  PROCESS_LEASES.set(key, data.leaseToken);
+  try {
+    await writeLeaseCache(cache);
+  } catch { /* cache is best-effort */ }
 }
 
 async function clearCachedLease(options = {}) {
@@ -216,18 +232,13 @@ async function ensureLease(options = {}) {
     ttlMs: AUTO_BOOTSTRAP_TTL_MS,
     projectId: normalized.projectId || undefined,
     sessionId: normalized.sessionId || undefined,
-    actor: `orca-agent-${normalized.role}`,
+    actor: bootstrapActorForRole(normalized.role),
   });
   if (!r.ok || !r.data?.leaseToken) {
     die(`could not auto-provision a ${normalized.role} lease (${r.status}). On a hardened or remote Orca, set ORCA_TOOL_LEASE_TOKEN, or ORCA_API_TOKEN to bootstrap. ${r.data?.error || ''}`.trim(), 2);
   }
   const leaseToken = r.data.leaseToken;
-  PROCESS_LEASES.set(key, leaseToken);
-  // Update the per-baseUrl entry and write atomically (temp + rename, 0600).
-  cache[key] = { leaseToken, expiresAt: r.data.lease?.expiresAt || null };
-  try {
-    await writeLeaseCache(cache);
-  } catch { /* cache is best-effort */ }
+  await cacheLeaseResult(normalized, r.data);
   return leaseToken;
 }
 
@@ -622,15 +633,22 @@ switch (cmd) {
   }
   case 'bootstrap': {
     const role = normalizeLeaseRole(flags.role || 'orchestrator');
+    const leaseOptions = normalizeLeaseOptions({
+      role,
+      projectId: flags.project || null,
+      sessionId: flags.session || null,
+    });
     const body = {};
-    if (flags.project) body.projectId = flags.project;
-    if (flags.session) body.sessionId = flags.session;
-    if (flags.actor) body.actor = flags.actor;
+    if (leaseOptions.projectId) body.projectId = leaseOptions.projectId;
+    if (leaseOptions.sessionId) body.sessionId = leaseOptions.sessionId;
+    body.actor = flags.actor || bootstrapActorForRole(role);
     const r = await adminPost(bootstrapPathForRole(role), body);
     if (!r.ok) die(`${r.status} ${r.data?.error || r.text}`, 2);
+    await cacheLeaseResult(leaseOptions, r.data);
     // Print the lease token + the ready-to-use export line + the claude/codex commands.
     out({
       role,
+      actor: r.data.lease?.actor || body.actor,
       leaseToken: r.data.leaseToken,
       export: `export ORCA_TOOL_LEASE_TOKEN=${r.data.leaseToken}`,
       claudeCli: r.data.bootstrap?.clients?.claudeCli?.command || null,
@@ -640,14 +658,21 @@ switch (cmd) {
     break;
   }
   case 'supervisor-bootstrap': {
+    const leaseOptions = normalizeLeaseOptions({
+      role: 'supervisor',
+      projectId: flags.project || null,
+      sessionId: flags.session || null,
+    });
     const body = {};
-    if (flags.project) body.projectId = flags.project;
-    if (flags.session) body.sessionId = flags.session;
-    if (flags.actor) body.actor = flags.actor;
+    if (leaseOptions.projectId) body.projectId = leaseOptions.projectId;
+    if (leaseOptions.sessionId) body.sessionId = leaseOptions.sessionId;
+    body.actor = flags.actor || bootstrapActorForRole('supervisor');
     const r = await adminPost('/api/mcp/supervisor-bootstrap', body);
     if (!r.ok) die(`${r.status} ${r.data?.error || r.text}`, 2);
+    await cacheLeaseResult(leaseOptions, r.data);
     out({
       role: 'supervisor',
+      actor: r.data.lease?.actor || body.actor,
       leaseToken: r.data.leaseToken,
       export: `export ORCA_TOOL_LEASE_TOKEN=${r.data.leaseToken}`,
       claudeCli: r.data.bootstrap?.clients?.claudeCli?.command || null,

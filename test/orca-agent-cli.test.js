@@ -832,8 +832,19 @@ test('orca-agent supervisor commands attach with role-scoped leases and resign c
     assert.equal(bootstrap.code, 0, bootstrap.stderr);
     const bootstrapBody = JSON.parse(bootstrap.stdout);
     assert.equal(bootstrapBody.role, 'supervisor');
+    assert.equal(bootstrapBody.actor, 'orca-agent-supervisor');
     assert.equal(String(bootstrapBody.export).includes(bootstrapBody.leaseToken), true);
     assert.equal(JSON.stringify(bootstrapBody).includes(token), false);
+
+    const cachePath = path.join(tempDir, '.orca', 'agent-leases.json');
+    const cacheAfterBootstrap = JSON.parse(await fs.readFile(cachePath, 'utf8'));
+    const bootstrapSupervisorKey = Object.keys(cacheAfterBootstrap).find((key) =>
+      key.includes('role=supervisor') &&
+      key.includes(`project=${project.body.id}`) &&
+      key.includes(`session=${session.body.id}`));
+    assert.ok(bootstrapSupervisorKey, `expected bootstrapped supervisor cache key, got ${Object.keys(cacheAfterBootstrap).join(', ')}`);
+    assert.equal(cacheAfterBootstrap[bootstrapSupervisorKey].leaseToken, bootstrapBody.leaseToken);
+    assert.equal(JSON.stringify(cacheAfterBootstrap).includes(token), false);
 
     const status = await runOrcaAgent(['status', session.body.id, '--project', project.body.id], env);
     assert.equal(status.code, 0, status.stderr);
@@ -852,7 +863,9 @@ test('orca-agent supervisor commands attach with role-scoped leases and resign c
     assert.deepEqual(overview.projects[0].sessions.map((item) => item.id), [session.body.id]);
     assert.equal(JSON.stringify(overview).includes(hiddenProject.body.id), false);
     assert.equal(JSON.stringify(overview).includes(hiddenSession.body.id), false);
-    assert.equal(overview.activeSupervisors.some((lease) => lease.actor === 'orca-agent-supervisor'), true);
+    const matchingSupervisors = overview.activeSupervisors.filter((lease) => lease.actor === 'orca-agent-supervisor');
+    assert.equal(matchingSupervisors.length, 1);
+    assert.equal(overview.activeSupervisors.some((lease) => lease.actor === 'desktop-app'), false);
     assert.deepEqual(await counts(), beforeAttach);
 
     const overviewSummary = await runOrcaAgent([
@@ -870,13 +883,13 @@ test('orca-agent supervisor commands attach with role-scoped leases and resign c
     assert.equal(overviewSummary.stdout.includes(hiddenProject.body.id), false);
     assert.equal(overviewSummary.stdout.includes(hiddenSession.body.id), false);
 
-    const cachePath = path.join(tempDir, '.orca', 'agent-leases.json');
     const cache = JSON.parse(await fs.readFile(cachePath, 'utf8'));
     const keys = Object.keys(cache);
     const orchestratorKey = keys.find((key) => key.includes('role=orchestrator') && key.includes(`project=${project.body.id}`) && key.includes(`session=${session.body.id}`));
     const supervisorKey = keys.find((key) => key.includes('role=supervisor') && key.includes(`project=${project.body.id}`) && key.includes(`session=${session.body.id}`));
     assert.ok(orchestratorKey, `expected orchestrator cache key, got ${keys.join(', ')}`);
     assert.ok(supervisorKey, `expected supervisor cache key, got ${keys.join(', ')}`);
+    assert.equal(cache[supervisorKey].leaseToken, bootstrapBody.leaseToken);
     assert.notEqual(cache[orchestratorKey].leaseToken, cache[supervisorKey].leaseToken);
     assert.equal(JSON.stringify(cache).includes(token), false);
 

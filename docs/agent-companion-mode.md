@@ -81,8 +81,8 @@ orca-agent rules orchestrator
 orca-agent call POST /api/lanes/<laneId>/audit/accept '{"findings":["ok"]}'
 orca-agent next --session <sessionId>   # ask the server what's legal next
 
-# Need the lease/config for an MCP client instead? bootstrap prints it + a
-# ready-to-run `claude mcp add` command.
+# Need the lease/config for an MCP client instead? bootstrap prints it, caches it
+# for the same scoped CLI chat, and emits a ready-to-run `claude mcp add` command.
 orca-agent bootstrap --project <projectId>
 orca-agent bootstrap --role supervisor --project <projectId>
 ```
