@@ -638,10 +638,16 @@ test('MCP tool leases can update worktree policy and supervisor state with scope
     const leaseAudit = await requestJson(`/api/sessions/${session.body.id}/supervisor/audit`, {
       method: 'POST',
       headers: { 'x-orca-tool-lease': supervisorLease.body.leaseToken },
-      body: { verdict: 'request_fix', summary: 'Needs one more check.', findings: ['Route-level lease audit.'] },
+      body: {
+        actor: 'body-spoofed-supervisor',
+        verdict: 'request_fix',
+        summary: 'Needs one more check.',
+        findings: ['Route-level lease audit.'],
+      },
     });
     assert.equal(leaseAudit.status, 200);
     assert.equal(leaseAudit.body.supervisorReview.status, 'fix_requested');
+    assert.equal(leaseAudit.body.supervisorReview.actor, 'attached-supervisor');
 
     const overviewAfterAudit = await requestJson('/api/supervisor/overview', {
       headers: { 'x-orca-tool-lease': supervisorLease.body.leaseToken },
@@ -650,6 +656,7 @@ test('MCP tool leases can update worktree policy and supervisor state with scope
     const auditedSession = overviewAfterAudit.body.projects[0].sessions
       .find((item) => item.id === session.body.id);
     assert.equal(auditedSession.supervisorReview.status, 'fix_requested');
+    assert.equal(auditedSession.supervisorReview.actor, 'attached-supervisor');
 
     const wrongRoleAudit = await requestJson(`/api/sessions/${session.body.id}/supervisor/audit`, {
       method: 'POST',

@@ -277,7 +277,7 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
       try {
         const result = registry.recordSupervisorSessionAudit(session.id, {
           ...body,
-          actor: body.actor || 'supervisor',
+          actor: req._toolLease?.actor || body.actor || 'supervisor',
         });
         return sendJson(res, 200, result);
       } catch (error) {
