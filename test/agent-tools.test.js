@@ -99,6 +99,8 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
   assert.equal(findTool('project.create')?.route, '/api/projects');
   assert.equal(availableToolIdsForRole('orchestrator').includes('project.create'), true);
   assert.equal(availableToolIdsForRole('supervisor').includes('project.create'), false);
+  assert.equal(availableToolIdsForRole('orchestrator').includes('orchestrator.message.send'), false);
+  assert.equal(availableToolIdsForRole('dashboard').includes('orchestrator.message.send'), true);
   assert.equal(findTool('project.quick_link.upsert')?.method, 'POST');
   assert.equal(findTool('project.quick_link.upsert')?.route, '/api/projects/{projectId}/quick-links');
   assert.equal(findTool('project.quick_link.delete')?.route, '/api/projects/{projectId}/quick-links/{linkId}');

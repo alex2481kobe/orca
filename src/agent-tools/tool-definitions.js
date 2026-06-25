@@ -635,12 +635,12 @@ export const TOOL_DEFINITIONS = [
   {
     id: 'orchestrator.message.send',
     group: 'orchestrator',
-    roles: ['orchestrator', 'dashboard'],
+    roles: ['dashboard'],
     method: 'POST',
     route: '/api/sessions/{sessionId}/orchestrator/messages',
     implemented: true,
     mutating: true,
-    summary: 'Queue a server-owned orchestrator turn/message for this session. Lease callers must be the active orchestrator.',
+    summary: 'Queue a server-owned orchestrator turn/message for this session from the dashboard/mobile console. External orchestrator agents should act directly with lane/task/session tools instead of spawning another orchestrator.',
   },
   {
     id: 'session.supervisor_audit',

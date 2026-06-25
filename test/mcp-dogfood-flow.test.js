@@ -262,7 +262,7 @@ test('real MCP dogfood flow drives orchestrator ownership, live links, backlog, 
 
       const listed = await mcp.request('tools/list');
       const toolNames = listed.result.tools.map((tool) => tool.name);
-      assert.ok(toolNames.includes('orchestrator__message__send'));
+      assert.equal(toolNames.includes('orchestrator__message__send'), false);
       assert.ok(toolNames.includes('lane__terminal__tail'));
       assert.ok(toolNames.includes('project__quick_link__upsert'));
       assert.ok(toolNames.includes('task__bulk_add'));

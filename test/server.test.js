@@ -1418,41 +1418,17 @@ test('dashboard orchestrator messages create server-owned turns and scoped tool 
     assert.equal(enrolled.status, 200);
     assert.equal(enrolled.body?.activeOrchestrator?.active, true);
 
-    const competingLease = await server.requestJson('/api/agent-tools/leases', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        role: 'orchestrator',
-        projectId: project.body.id,
-        sessionId: session.body.id,
-        actor: 'competing-orchestrator',
-      },
-    });
-    assert.equal(competingLease.status, 201);
-
-    const refusedMessage = await server.requestJson(`/api/sessions/${session.body.id}/orchestrator/messages`, {
-      method: 'POST',
-      headers: { 'x-orca-tool-lease': competingLease.body.leaseToken },
-      body: {
-        approved: true,
-        executorType: 'mock',
-        message: 'This should not queue because another orchestrator owns the session.',
-      },
-    });
-    assert.equal(refusedMessage.status, 409);
-    assert.match(refusedMessage.body?.error || '', /not the active orchestrator/i);
-
-    const ownerMessage = await server.requestJson(`/api/sessions/${session.body.id}/orchestrator/messages`, {
+    const leaseMessage = await server.requestJson(`/api/sessions/${session.body.id}/orchestrator/messages`, {
       method: 'POST',
       headers: { 'x-orca-tool-lease': lease.body.leaseToken },
       body: {
         approved: true,
         executorType: 'mock',
-        message: 'Owner lease queues a follow-up orchestrator turn.',
+        message: 'An external orchestrator lease must not spawn another orchestrator turn.',
       },
     });
-    assert.equal(ownerMessage.status, 201);
-    assert.equal(ownerMessage.body?.lane?.owner, 'orchestrator');
+    assert.equal(leaseMessage.status, 401);
+    assert.match(leaseMessage.body?.error || '', /Unauthorized/i);
 
     const leaseLane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
       method: 'POST',
@@ -1507,24 +1483,7 @@ test('orchestrator messages reject attachment URLs outside the current session',
     assert.equal(sessionA.status, 201);
     assert.equal(sessionB.status, 201);
 
-    const lease = await server.requestJson('/api/agent-tools/leases', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'attachment-orchestrator',
-        role: 'orchestrator',
-        projectId: project.body.id,
-        sessionId: sessionA.body.id,
-      },
-    });
-    assert.equal(lease.status, 201);
-    const leaseHeaders = { 'x-orca-tool-lease': lease.body.leaseToken };
-    const enrolled = await server.requestJson(`/api/sessions/${sessionA.body.id}/orchestrator/enroll`, {
-      method: 'POST',
-      headers: leaseHeaders,
-      body: {},
-    });
-    assert.equal(enrolled.status, 200);
+    const operatorHeaders = { 'x-orca-token': token };
 
     const foreignDir = path.join(process.cwd(), 'artifacts', sessionB.body.id, 'attachments');
     await fs.mkdir(foreignDir, { recursive: true });
@@ -1532,7 +1491,7 @@ test('orchestrator messages reject attachment URLs outside the current session',
 
     const rejected = await server.requestJson(`/api/sessions/${sessionA.body.id}/orchestrator/messages`, {
       method: 'POST',
-      headers: leaseHeaders,
+      headers: operatorHeaders,
       body: {
         approved: true,
         message: 'Use the foreign attachment.',
@@ -1559,7 +1518,7 @@ test('orchestrator messages reject attachment URLs outside the current session',
     await fs.writeFile(path.join(ownDir, 'own.txt'), 'own session data');
     const accepted = await server.requestJson(`/api/sessions/${sessionA.body.id}/orchestrator/messages`, {
       method: 'POST',
-      headers: leaseHeaders,
+      headers: operatorHeaders,
       body: {
         approved: true,
         message: 'Use the current-session attachment.',
