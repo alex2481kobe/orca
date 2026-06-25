@@ -3414,6 +3414,14 @@ test('private access API exposes mocked tailnet state, dry-run setup plans, and 
     assert.equal(plan.body.commands.some((command) => String(command.copyText || '').includes('tailscale serve')), true);
     assert.equal(plan.body.commands.some((command) => String(command.copyText || '').toLowerCase().includes('funnel')), false);
 
+    const funnelPlan = await server.requestJson('/api/private-access/setup-plan?localUrl=https%3A%2F%2Forca.funnel.ts.net', { method: 'GET', headers: { 'x-orca-token': token } });
+    assert.equal(funnelPlan.status, 422);
+    assert.match(funnelPlan.body?.error || '', /Funnel/);
+
+    const metadataPlan = await server.requestJson('/api/private-access/setup-plan?localUrl=http%3A%2F%2F169.254.169.254%2Flatest%2Fmeta-data', { method: 'GET', headers: { 'x-orca-token': token } });
+    assert.equal(metadataPlan.status, 422);
+    assert.match(metadataPlan.body?.error || '', /blocked private/);
+
     const target = await server.requestJson('/api/private-access/targets', {
       method: 'POST',
       headers: { 'x-orca-token': token },

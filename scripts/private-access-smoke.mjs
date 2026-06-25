@@ -106,6 +106,8 @@ if ((plan.data.commands || []).some((command) => command.id !== 'local' && comma
   fail('setup commands must be dry-run/read-only');
 }
 if (!JSON.stringify(plan.data.commands).includes('tailscale serve')) fail('setup plan missing tailscale serve command');
+const badPlan = await req('GET', '/api/private-access/setup-plan?localUrl=https%3A%2F%2Forca.funnel.ts.net');
+if (badPlan.status !== 422) fail('setup plan should reject supplied Funnel URL', JSON.stringify(badPlan.data));
 log('setup plan', 'dry-run only');
 
 const target = await req('POST', '/api/private-access/targets', {

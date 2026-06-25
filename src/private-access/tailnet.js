@@ -14,18 +14,16 @@ import {
 export function buildSetupPlan(input = {}) {
   rejectPrototypeKeys(input, 'setupPlan');
   const localPort = normalizePort(input.localPort || input.port || process.env.PORT || 3000, 3000);
-  let localUrl;
-  try {
-    localUrl = validateAccessUrl(input.localUrl || `http://127.0.0.1:${localPort}`, {
+  const suppliedLocalUrl = input.localUrl !== undefined
+    && input.localUrl !== null
+    && String(input.localUrl).trim() !== '';
+  const localUrl = validateAccessUrl(
+    suppliedLocalUrl ? input.localUrl : `http://127.0.0.1:${localPort}`,
+    {
       mode: 'local',
       field: 'localUrl',
-    });
-  } catch {
-    localUrl = validateAccessUrl(`http://127.0.0.1:${localPort}`, {
-      mode: 'local',
-      field: 'localUrl',
-    });
-  }
+    },
+  );
   const httpsPort = normalizePort(input.httpsPort || 443, 443);
   const httpPort = normalizePort(input.httpPort || 80, 80);
 

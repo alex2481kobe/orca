@@ -27,6 +27,17 @@ test('private access setup plan is dry-run/read-only and never emits Funnel comm
   assert.equal(plan.commands.some((command) => String(command.copyText || '').includes('tailscale serve')), true);
   assert.equal(plan.commands.some((command) => String(command.copyText || '').toLowerCase().includes('funnel')), false);
   assert.equal(plan.commands.every((command) => command.mutatesMachine === false || command.status === 'dry_run_only'), true);
+
+  const fallbackPlan = buildSetupPlan({ localPort: 3042 });
+  assert.equal(fallbackPlan.localUrl, 'http://127.0.0.1:3042/');
+  assert.throws(
+    () => buildSetupPlan({ localUrl: 'https://orca.funnel.ts.net' }),
+    (error) => /Funnel/.test(error.message),
+  );
+  assert.throws(
+    () => buildSetupPlan({ localUrl: 'http://169.254.169.254/latest/meta-data' }),
+    (error) => /blocked private/.test(error.message),
+  );
 });
 
 test('fake tailnet provider covers setup states without real Tailscale', () => {
@@ -45,6 +56,11 @@ test('private access settings default to auto while targets require explicit mod
   try {
     const state = await store.describe({ fakeTailnetState: 'serve-https' });
     assert.equal(state.settings.preferredMode, 'auto');
+    const remoteOriginState = await store.describe({
+      origin: 'https://orca.funnel.ts.net',
+      fakeTailnetState: 'serve-https',
+    });
+    assert.match(remoteOriginState.setupPlan.localUrl, /^http:\/\/127\.0\.0\.1:/);
 
     const settings = await store.updateSettings({ preferredMode: 'tailnet-https-serve' });
     assert.equal(settings.preferredMode, 'tailnet-https-serve');

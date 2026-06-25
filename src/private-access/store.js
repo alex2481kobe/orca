@@ -110,7 +110,14 @@ export class PrivateAccessStore {
 
   async describe({ origin = '', fakeTailnetState: fakeState = null } = {}) {
     await this.ensureLoaded();
-    const setupPlan = buildSetupPlan({ localUrl: origin ? `${origin}` : undefined });
+    let setupPlan;
+    try {
+      setupPlan = buildSetupPlan({ localUrl: origin ? `${origin}` : undefined });
+    } catch {
+      // A remote/tailnet request origin is not the local service target. Keep the
+      // status route readable and fall back to the localhost setup target.
+      setupPlan = buildSetupPlan();
+    }
     const tailnet = detectTailnetState({ fakeState, runner: this.runner });
     return {
       version: this.state.version,
