@@ -35,6 +35,7 @@ export const toolLeaseMethods = {
     allowedTools = [],
     ttlMs = 15 * 60 * 1000,
     actor = 'dashboard',
+    replaceActiveForActor = false,
   } = {}) {
     const normalizedRole = String(role || 'orchestrator').trim().toLowerCase() || 'orchestrator';
     if (!ROLES.has(normalizedRole)) {
@@ -82,11 +83,40 @@ export const toolLeaseMethods = {
     const leaseToken = `${randomUUID()}-${randomUUID()}`;
     const tokenHash = createHash('sha256').update(leaseToken).digest('hex');
     const now = Date.now();
+    const normalizedActor = String(actor || 'dashboard').slice(0, 120);
+    if (replaceActiveForActor) {
+      const revokedAt = new Date(now).toISOString();
+      for (const existing of this.toolLeases || []) {
+        if (existing.revokedAt) continue;
+        if (Date.parse(existing.expiresAt) <= now) continue;
+        if (existing.role !== normalizedRole) continue;
+        if (existing.actor !== normalizedActor) continue;
+        if ((existing.projectId || null) !== (project?.id || null)) continue;
+        if ((existing.sessionId || null) !== (session?.id || null)) continue;
+        if ((existing.laneId || null) !== (lane?.id || null)) continue;
+        existing.revokedAt = revokedAt;
+        this.recordAudit({
+          type: 'agent_tool_lease_revoked',
+          actor: normalizedActor,
+          projectId: existing.projectId,
+          sessionId: existing.sessionId,
+          laneId: existing.laneId,
+          summary: `Replaced duplicate active ${existing.role} tool lease`,
+          status: 'passed',
+          evidence: {
+            leaseId: existing.id,
+            role: existing.role,
+            reason: 'replace_active_for_actor',
+            tokenHashPrefix: String(existing.tokenHash || '').slice(0, 12),
+          },
+        });
+      }
+    }
     const lease = {
       id: randomUUID(),
       tokenHash,
       role: normalizedRole,
-      actor: String(actor || 'dashboard').slice(0, 120),
+      actor: normalizedActor,
       projectId: project?.id || null,
       sessionId: session?.id || null,
       laneId: lane?.id || null,
@@ -316,6 +346,7 @@ export const toolLeaseMethods = {
       allowedTools,
       ttlMs,
       actor,
+      replaceActiveForActor: true,
     });
     const baseUrl = this.serverBaseUrl();
     const bootstrap = buildOrchestratorMcpConfigs({

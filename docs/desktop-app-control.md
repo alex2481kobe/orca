@@ -18,6 +18,9 @@ For an even higher-level controller, generate a supervisor lease with
 `ORCA_ROLE=supervisor`, starts from `supervisor__overview`, and coordinates many
 project orchestrators from one conversation. When the conversation is done, it
 calls `supervisor__resign` so Orca stops listing that MCP client as active.
+If the same chat reconnects with the same `actor` and project/session scope, Orca
+replaces that prior active supervisor/orchestrator lease instead of listing a
+duplicate; use a unique actor only for a genuinely separate chat.
 
 ## Way A — in-app browser (visual)
 

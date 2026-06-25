@@ -43,6 +43,12 @@ The dashboard's Settings -> Supervisor page reads from the same overview. If you
 are attached correctly, your supervisor actor appears there as a registered
 supervisor agent with its scope, last-seen time, and expiry.
 
+When reconnecting the same chat, keep the same actor name and project/session
+scope. Orca replaces the previous active supervisor lease for that exact
+actor+scope, so reconnects do not create duplicate active supervisor entries. Use
+a distinct actor name only when you intentionally want a second supervisor chat
+to appear separately.
+
 ## Audit Flow
 
 When an orchestrator reports that a session objective is done:

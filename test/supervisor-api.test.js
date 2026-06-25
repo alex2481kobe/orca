@@ -684,6 +684,19 @@ test('MCP tool leases can update worktree policy and supervisor state with scope
       body: { actor: 'desktop-app' },
     });
     assert.equal(deniedBootstrap.status, 401);
+    const counts = async () => {
+      const projects = await requestJson('/api/projects', { headers: { 'x-orca-token': token } });
+      const sessions = await requestJson(`/api/projects/${project.body.id}/sessions`, { headers: { 'x-orca-token': token } });
+      const lanes = await requestJson(`/api/sessions/${session.body.id}/lanes`, { headers: { 'x-orca-token': token } });
+      assert.equal(projects.status, 200);
+      assert.equal(sessions.status, 200);
+      assert.equal(lanes.status, 200);
+      return {
+        projects: projects.body.length,
+        sessions: sessions.body.length,
+        lanes: lanes.body.length,
+      };
+    };
 
     const bootstrap = await requestJson('/api/mcp/supervisor-bootstrap', {
       method: 'POST',
@@ -702,5 +715,31 @@ test('MCP tool leases can update worktree policy and supervisor state with scope
     assert.equal(bootstrapOverview.body.activeSupervisors.some((lease) => lease.actor === 'desktop-app'), true);
     assert.equal(bootstrapOverview.body.projects[0].sessions.length, 2);
     assert.equal(bootstrapOverview.body.projects[0].sessions[0].lanes.length, 1);
+    const beforeDuplicateBootstrap = await counts();
+
+    const duplicateBootstrap = await requestJson('/api/mcp/supervisor-bootstrap', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'desktop-app', ttlMs: 10 * 60 * 1000 },
+    });
+    assert.equal(duplicateBootstrap.status, 201);
+    assert.notEqual(duplicateBootstrap.body.lease.id, bootstrap.body.lease.id);
+    assert.deepEqual(await counts(), beforeDuplicateBootstrap);
+
+    const oldTokenDenied = await requestJson('/api/supervisor/overview', {
+      headers: { 'x-orca-tool-lease': bootstrap.body.leaseToken },
+    });
+    assert.equal(oldTokenDenied.status, 401);
+    assert.match(oldTokenDenied.body.error, /revoked/i);
+
+    const duplicateOverview = await requestJson('/api/supervisor/overview', {
+      headers: { 'x-orca-tool-lease': duplicateBootstrap.body.leaseToken },
+    });
+    assert.equal(duplicateOverview.status, 200);
+    assert.equal(
+      duplicateOverview.body.activeSupervisors
+        .filter((lease) => lease.actor === 'desktop-app').length,
+      1,
+    );
   });
 });

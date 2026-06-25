@@ -39,9 +39,11 @@ A thin authenticated tool-runner (`scripts/orca-agent.mjs`, bin `orca-agent`).
 need **nothing** — the first command auto-provisions and caches a scoped lease
 (`~/.orca/agent-leases.json`, 0600). Leases are cached by base URL, role, project,
 and session so an orchestrator chat and a supervisor chat do not accidentally
-reuse each other's authority. A token is only required when you've hardened Orca
-(`ORCA_API_TOKEN` set) or are driving it remotely (then set
-`ORCA_TOOL_LEASE_TOKEN`).
+reuse each other's authority. Re-running MCP bootstrap with the same actor and
+scope replaces the previous active external chat lease on the server, which keeps
+reconnects from showing as duplicate active supervisors/orchestrators. A token is
+only required when you've hardened Orca (`ORCA_API_TOKEN` set) or are driving it
+remotely (then set `ORCA_TOOL_LEASE_TOKEN`).
 
 ```bash
 # One shot: provision a lease, create an auto-fan-out session, and enroll as orchestrator.

@@ -196,6 +196,69 @@ test('registry scopes the lease to a project/session when provided', async () =>
   }
 });
 
+test('registry replaces duplicate external MCP bootstrap leases for the same chat scope', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const project = registry.createProject({ name: 'Replacement Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Replacement Session' }, { actor: 'test', approved: true });
+    const firstOrchestrator = registry.createOrchestratorMcpBootstrap({
+      role: 'orchestrator',
+      actor: 'same-orchestrator-chat',
+      projectId: project.id,
+      sessionId: session.id,
+    });
+    const secondOrchestrator = registry.createOrchestratorMcpBootstrap({
+      role: 'orchestrator',
+      actor: 'same-orchestrator-chat',
+      projectId: project.id,
+      sessionId: session.id,
+    });
+    assert.notEqual(firstOrchestrator.lease.id, secondOrchestrator.lease.id);
+    assert.throws(
+      () => registry.validateToolLease(firstOrchestrator.leaseToken, {
+        role: 'orchestrator',
+        toolId: 'orchestrator.enroll',
+        projectId: project.id,
+        sessionId: session.id,
+      }),
+      (error) => error.status === 401 && /revoked/i.test(error.message),
+    );
+    const first = registry.createOrchestratorMcpBootstrap({
+      role: 'supervisor',
+      actor: 'same-supervisor-chat',
+      projectId: project.id,
+      sessionId: session.id,
+    });
+    const second = registry.createOrchestratorMcpBootstrap({
+      role: 'supervisor',
+      actor: 'same-supervisor-chat',
+      projectId: project.id,
+      sessionId: session.id,
+    });
+    assert.notEqual(first.lease.id, second.lease.id);
+    assert.throws(
+      () => registry.validateToolLease(first.leaseToken, {
+        role: 'supervisor',
+        toolId: 'supervisor.overview',
+        projectId: project.id,
+        sessionId: session.id,
+      }),
+      (error) => error.status === 401 && /revoked/i.test(error.message),
+    );
+    const active = registry.listToolLeases({ activeOnly: true })
+      .filter((lease) => lease.role === 'supervisor' && lease.actor === 'same-supervisor-chat');
+    assert.deepEqual(active.map((lease) => lease.id), [second.lease.id]);
+    const activeOrchestrators = registry.listToolLeases({ activeOnly: true })
+      .filter((lease) => lease.role === 'orchestrator' && lease.actor === 'same-orchestrator-chat');
+    assert.deepEqual(activeOrchestrators.map((lease) => lease.id), [secondOrchestrator.lease.id]);
+    assert.equal(registry.auditEvents.some((event) =>
+      event.type === 'agent_tool_lease_revoked'
+      && event.evidence?.reason === 'replace_active_for_actor'), true);
+  } finally {
+    await cleanup();
+  }
+});
+
 test('registry mints a supervisor MCP bootstrap with supervisor tool scope', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
