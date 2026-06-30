@@ -418,6 +418,12 @@ function toolLeaseRequirementForRoute(method, parts) {
   if (parts[1] === 'sessions' && parts[2] && parts[3] === 'backlog' && method === 'GET') {
     return { toolId: 'backlog.status', sessionId: parts[2] };
   }
+  if (parts[1] === 'sessions' && parts[2] && parts[3] === 'loops') {
+    if (parts.length === 4 && method === 'GET') return { toolId: 'loop.list', sessionId: parts[2] };
+    if (parts.length === 4 && method === 'POST') return { toolId: 'loop.create', sessionId: parts[2] };
+    if (parts.length === 5 && method === 'GET') return { toolId: 'loop.describe', sessionId: parts[2] };
+    if (parts.length === 5 && method === 'PATCH') return { toolId: 'loop.update', sessionId: parts[2] };
+  }
   if (parts[1] === 'sessions' && parts[2] && parts[3] === 'orchestrator' && parts[4] === 'enroll' && method === 'POST') {
     return { toolId: 'orchestrator.enroll', sessionId: parts[2] };
   }

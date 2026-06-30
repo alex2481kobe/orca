@@ -83,6 +83,7 @@ export const laneCreateMethods = {
     sharedWorktree,
     auditTargetLaneId,
     metadataTaskId,
+    metadataLoopId,
   }, context = {}) {
     const session = this.getSession(sessionLocator);
     if (!session) {
@@ -303,6 +304,8 @@ export const laneCreateMethods = {
       // relink an 'assigned' task to its already-live lane after a restart instead
       // of blindly requeuing it (which would double-spawn).
       metadataTaskId: metadataTaskId ? String(metadataTaskId).slice(0, 80) : null,
+      // Set when a durable loop queues the task that spawned this lane.
+      metadataLoopId: metadataLoopId ? String(metadataLoopId).slice(0, 80) : null,
       route: buildLaneRoute(project.slug, session.id, laneId),
       runProfile: {
         autoCompleteMs: Number.parseInt(autoCompleteMs, 10) || this.autoCompleteMs,

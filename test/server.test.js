@@ -2328,6 +2328,77 @@ test('agent tool routes expose discovery, nextAction, and token-gated leases', a
     });
     assert.equal(retriedByLease.status, 200);
     assert.equal(retriedByLease.body?.state, 'queued');
+
+    const dashboardLoopNeedsApproval = await server.requestJson(`/api/sessions/${session.body.id}/loops`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        actor: 'dashboard',
+        goal: 'Keep refining the implementation loop.',
+        executorTypes: ['mock'],
+      },
+    });
+    assert.equal(dashboardLoopNeedsApproval.status, 409);
+    assert.equal(dashboardLoopNeedsApproval.body?.requiresApproval, true);
+
+    const loop = await server.requestJson(`/api/sessions/${session.body.id}/loops`, {
+      method: 'POST',
+      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
+      body: {
+        approved: true,
+        name: 'Dogfood loop',
+        goal: 'Keep checking executor output and add the next bounded task.',
+        executorTypes: ['codex', 'claude'],
+        cadenceMs: 1000,
+        maxIterations: 2,
+      },
+    });
+    assert.equal(loop.status, 201);
+    assert.equal(loop.body?.state, 'running');
+    assert.deepEqual(loop.body?.executorTypes, ['codex', 'claude']);
+
+    const listedLoops = await server.requestJson(`/api/sessions/${session.body.id}/loops`, {
+      method: 'GET',
+      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
+    });
+    assert.equal(listedLoops.status, 200);
+    assert.equal(listedLoops.body.some((entry) => entry.id === loop.body.id), true);
+
+    const pausedLoop = await server.requestJson(`/api/sessions/${session.body.id}/loops/${loop.body.id}`, {
+      method: 'PATCH',
+      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
+      body: {
+        state: 'paused',
+        pauseReason: 'manual',
+        pauseMessage: 'Pausing after test setup.',
+      },
+    });
+    assert.equal(pausedLoop.status, 200);
+    assert.equal(pausedLoop.body?.state, 'paused');
+
+    const supervisorLease = await server.requestJson('/api/agent-tools/leases', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        actor: 'supervisor-test',
+        role: 'supervisor',
+        projectId: project.body.id,
+        sessionId: session.body.id,
+        ttlMs: 60000,
+      },
+    });
+    assert.equal(supervisorLease.status, 201);
+    const supervisorLoopRead = await server.requestJson(`/api/sessions/${session.body.id}/loops/${loop.body.id}`, {
+      method: 'GET',
+      headers: { 'x-orca-tool-lease': supervisorLease.body.leaseToken },
+    });
+    assert.equal(supervisorLoopRead.status, 200);
+    const supervisorLoopWrite = await server.requestJson(`/api/sessions/${session.body.id}/loops/${loop.body.id}`, {
+      method: 'PATCH',
+      headers: { 'x-orca-tool-lease': supervisorLease.body.leaseToken },
+      body: { state: 'running', approved: true },
+    });
+    assert.equal(supervisorLoopWrite.status, 403);
   } finally {
     await server.stop();
   }

@@ -230,6 +230,9 @@ export const schedulerMethods = {
     // pending tasks up to capacity, refilling as tasks finish. Runs before audit
     // dispatch so newly spawned lanes are picked up next tick.
     if (typeof this.dispatchPendingTasks === 'function') {
+      if (typeof this.advanceLoops === 'function') {
+        await this.advanceLoops().catch(() => {});
+      }
       await this.dispatchPendingTasks().catch(() => {});
     }
 

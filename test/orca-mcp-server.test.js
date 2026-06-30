@@ -227,6 +227,8 @@ test('Orca MCP server: supervisor role exposes inspection tools but no takeover 
       'evidence__list',
       'evidence__latest',
       'session__supervisor_audit',
+      'loop__list',
+      'loop__describe',
       'tailscale__status',
       'orca__setup_guide',
     ]) {
@@ -245,6 +247,8 @@ test('Orca MCP server: supervisor role exposes inspection tools but no takeover 
       'task__bulk_add',
       'task__update',
       'task__delete',
+      'loop__create',
+      'loop__update',
       'lane__heartbeat',
       'lane__submit',
       'approval__request',

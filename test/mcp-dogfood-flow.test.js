@@ -266,6 +266,8 @@ test('real MCP dogfood flow drives orchestrator ownership, live links, backlog, 
       assert.ok(toolNames.includes('lane__terminal__tail'));
       assert.ok(toolNames.includes('project__quick_link__upsert'));
       assert.ok(toolNames.includes('task__bulk_add'));
+      assert.ok(toolNames.includes('loop__create'));
+      assert.ok(toolNames.includes('loop__list'));
 
       const before = parseMcpJson(await mcp.callTool('session__next_action'));
       assert.equal(before.projectId, project.body.id);

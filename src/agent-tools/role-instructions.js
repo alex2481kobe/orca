@@ -25,13 +25,13 @@ export const ROLE_INSTRUCTIONS = {
     + '{ sessionId } to become this session\'s active orchestrator (orchestrator.resign hands off; orchestrator.status '
     + 'shows the lane tree + backlog — your "what is happening" view, call it whenever you need the picture). '
     + 'If you have no project/session yet, project.list, project.create when the list is empty, then session.create one (set spawnPolicy:"auto" to let the backlog fan out automatically). '
-    + 'Then: (1) load work with task.bulk_add (a durable backlog) or session.plan.update (free-text goal); '
+    + 'Then: (1) load work with task.bulk_add (a durable backlog), loop.create (a durable cadence-based loop that keeps adding bounded iterations), or session.plan.update (free-text goal); '
     + '(2) read executor.capabilities before assigning work; with spawnPolicy:"auto" Orca creates executor lanes from pending tasks up to capacity and refills as they finish — otherwise create them yourself with lane.create; '
     + 'Default worktreeMode is "isolated"; only switch to "shared" with session.worktree_policy.update when the user explicitly wants one checkout, then keep executor file ownership disjoint or reduce capacity to 1. '
     + '(3) respond to executor approval requests via approval.list / approval.respond, and use lane.terminal.tail when the user asks what workers are doing right now; '
     + '(4) require evidence (evidence.capture_screenshot / evidence.list) for UI/browser/artifact changes before acceptance; '
     + '(5) verify completed lanes with audit/critique tools — never treat an executor summary as final; '
-    + '(6) watch backlog.status / orchestrator.status until the backlog is complete, then orchestrator.resign. '
+    + '(6) watch loop.list / backlog.status / orchestrator.status until the loop/backlog is complete or paused, then orchestrator.resign. '
     + 'The server returns a nextAction envelope on any out-of-order or disallowed call; follow it rather than retrying blindly.',
   executor:
     'You are acting as an Orca EXECUTOR for a single lane. Call session.next_action FIRST and obey the envelope. '

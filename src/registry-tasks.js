@@ -62,6 +62,7 @@ export const taskMethods = {
     targetUrl = null,
     verificationCommand = null,
     expectedArtifacts = [],
+    loopId = null,
     priority = 0,
     maxAttempts = 1,
     actor = 'orchestrator',
@@ -96,6 +97,7 @@ export const taskMethods = {
       targetUrl: targetUrl ? sanitizeStr(targetUrl, 500) : null,
       verificationCommand: verificationCommand ? sanitizeStr(verificationCommand, 1000) : null,
       expectedArtifacts: safeArray(expectedArtifacts).map((v) => sanitizeStr(v, 200)).filter(Boolean).slice(0, 32),
+      loopId: loopId ? sanitizeStr(loopId, 80) : null,
       state: 'pending',
       laneId: null,
       attempts: 0,
@@ -396,6 +398,7 @@ export const taskMethods = {
             expectedArtifacts: task.expectedArtifacts || [],
             owner: 'executor',
             metadataTaskId: task.id,
+            metadataLoopId: task.loopId || null,
           }, { actor: 'scheduler', approved: true });
           this.linkTaskToLane(task.id, lane.id);
         } catch (error) {

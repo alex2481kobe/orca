@@ -86,6 +86,10 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
     'orchestrator.thread.get',
     'orchestrator.message.send',
     'session.supervisor_audit',
+    'loop.list',
+    'loop.create',
+    'loop.describe',
+    'loop.update',
   ]) {
     assert.equal(ids.has(id), true, `missing ${id}`);
   }
@@ -101,6 +105,9 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
   assert.equal(availableToolIdsForRole('supervisor').includes('project.create'), false);
   assert.equal(availableToolIdsForRole('orchestrator').includes('orchestrator.message.send'), false);
   assert.equal(availableToolIdsForRole('dashboard').includes('orchestrator.message.send'), true);
+  assert.equal(availableToolIdsForRole('orchestrator').includes('loop.create'), true);
+  assert.equal(availableToolIdsForRole('supervisor').includes('loop.list'), true);
+  assert.equal(availableToolIdsForRole('supervisor').includes('loop.create'), false);
   assert.equal(findTool('project.quick_link.upsert')?.method, 'POST');
   assert.equal(findTool('project.quick_link.upsert')?.route, '/api/projects/{projectId}/quick-links');
   assert.equal(findTool('project.quick_link.delete')?.route, '/api/projects/{projectId}/quick-links/{linkId}');
@@ -129,6 +136,8 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
     'session.supervisor_audit',
     'tailscale.status',
     'orca.setup_guide',
+    'loop.list',
+    'loop.describe',
   ]) {
     assert.equal(supervisorTools.has(id), true, `supervisor missing ${id}`);
   }
@@ -142,6 +151,8 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
     'task.bulk_add',
     'task.update',
     'task.delete',
+    'loop.create',
+    'loop.update',
     'lane.create',
     'orchestrator.enroll',
   ]) {

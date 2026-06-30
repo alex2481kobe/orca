@@ -389,6 +389,57 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
       }
     }
 
+    if (parts.length >= 4 && parts[3] === 'loops') {
+      if (parts.length === 4 && method === 'GET') {
+        const sp = getSearchParams(req.url || '/');
+        return sendJson(res, 200, registry.listLoops(session.id, { state: sp ? sp.get('state') : null }));
+      }
+      if (parts.length === 4 && method === 'POST') {
+        const body = await parseJsonBody(req);
+        if (body === null) return sendBodyError(req, res);
+        if (rejectSpoofedActor(body, res)) return;
+        try {
+          const loop = registry.createLoop(session.id, body, {
+            actor: req._toolLease?.actor || body.actor || 'orchestrator',
+            approved: body.approved,
+          });
+          return sendJson(res, 201, loop);
+        } catch (error) {
+          return sendJson(res, error.status || 500, {
+            error: error.message || 'Could not create loop.',
+            requiresApproval: error.requiresApproval || false,
+            risk: error.risk || null,
+          });
+        }
+      }
+      if (parts.length === 5 && method === 'GET') {
+        const loop = registry.getLoop(parts[4]);
+        if (!loop || loop.sessionId !== session.id) return sendJson(res, 404, { error: 'Loop not found.' });
+        return sendJson(res, 200, registry.publicLoop(loop));
+      }
+      if (parts.length === 5 && method === 'PATCH') {
+        const body = await parseJsonBody(req);
+        if (body === null) return sendBodyError(req, res);
+        if (rejectSpoofedActor(body, res)) return;
+        const loop = registry.getLoop(parts[4]);
+        if (!loop || loop.sessionId !== session.id) return sendJson(res, 404, { error: 'Loop not found.' });
+        try {
+          const updated = registry.updateLoop(loop.id, body, {
+            actor: req._toolLease?.actor || body.actor || 'orchestrator',
+            approved: body.approved,
+          });
+          return sendJson(res, 200, updated);
+        } catch (error) {
+          return sendJson(res, error.status || 500, {
+            error: error.message || 'Could not update loop.',
+            requiresApproval: error.requiresApproval || false,
+            risk: error.risk || null,
+          });
+        }
+      }
+      return sendJson(res, 405, { error: 'Method not allowed.' });
+    }
+
     if (parts.length === 4 && parts[3] === 'audit-done-lanes' && method === 'POST') {
       const body = await parseJsonBody(req);
       if (body === null) return sendBodyError(req, res);
