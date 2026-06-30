@@ -103,16 +103,78 @@ test('loops pause and notify when a loop-owned lane reports a rate limit', async
     await registry.dispatchPendingTasks();
     const lane = registry.lanes.find((entry) => entry.metadataLoopId === loop.id);
     assert.ok(lane, 'loop task should spawn a tagged lane');
-    await registry.markLaneFailed(lane, '429 rate limit from executor', 'test');
+    await registry.markLaneFailed(lane, '429 rate limit from executor; Retry-After: 120 seconds', 'test');
 
     await registry.advanceLoops({ now: now + 2000 });
     const paused = registry.getLoop(loop.id);
     assert.equal(paused.state, 'paused');
     assert.equal(paused.pauseReason, 'rate_limited');
+    assert.equal(Date.parse(paused.resumeAt) > now + 100_000, true);
     assert.ok(registry.notifications.some((item) =>
       item.type === 'loop_paused'
       && item.metadata?.loopId === loop.id
       && item.metadata?.reason === 'rate_limited'));
+  });
+});
+
+test('rate-limited loops wait until resumeAt, then continue without replaying the old pause signal', async () => {
+  await withRegistry(async (registry) => {
+    const { session } = makeSession(registry);
+    const loop = registry.createLoop(session.id, {
+      name: 'Resume after rate limit',
+      goal: 'Pause on rate limits and then keep going.',
+      executorTypes: ['mock'],
+      cadenceMs: 1000,
+      maxIterations: 2,
+    }, { approved: true });
+
+    const now = Date.now() + 10;
+    await registry.advanceLoops({ now });
+    await registry.dispatchPendingTasks();
+    const lane = registry.lanes.find((entry) => entry.metadataLoopId === loop.id);
+    await registry.markLaneFailed(lane, 'Usage limit reached. Retry-After: 2 seconds', 'test');
+    await registry.advanceLoops({ now: now + 1000 });
+
+    const paused = registry.getLoop(loop.id);
+    assert.equal(paused.state, 'paused');
+    assert.equal(paused.iteration, 1);
+    assert.equal(registry.listTasks(session.id).length, 1);
+
+    assert.equal(await registry.advanceLoops({ now: now + 1500 }), false, 'not yet due: no churn and no duplicate prompt');
+    assert.equal(registry.listTasks(session.id).length, 1);
+
+    assert.equal(await registry.advanceLoops({ now: now + 3000 }), true);
+    const resumed = registry.getLoop(loop.id);
+    assert.equal(resumed.state, 'running');
+    assert.equal(resumed.pauseReason, null);
+    assert.equal(resumed.resumeAt, null);
+    assert.equal(resumed.iteration, 2);
+    assert.equal(registry.listTasks(session.id).length, 2);
+    assert.ok(registry.notifications.some((item) =>
+      item.type === 'loop_resumed'
+      && item.metadata?.loopId === loop.id
+      && item.metadata?.previousReason === 'rate_limited'));
+  });
+});
+
+test('running loops do not churn while nextRunAt is in the future', async () => {
+  await withRegistry(async (registry) => {
+    const { session } = makeSession(registry);
+    registry.createLoop(session.id, {
+      name: 'Quiet loop',
+      goal: 'Stay idle until the cadence says to run.',
+      executorTypes: ['mock'],
+      cadenceMs: 60_000,
+    }, { approved: true });
+
+    const now = Date.now() + 10;
+    assert.equal(await registry.advanceLoops({ now }), true);
+    const revisionAfterQueue = registry.getStreamRevision();
+    const taskCountAfterQueue = registry.listTasks(session.id).length;
+
+    assert.equal(await registry.advanceLoops({ now: now + 1000 }), false);
+    assert.equal(registry.getStreamRevision(), revisionAfterQueue);
+    assert.equal(registry.listTasks(session.id).length, taskCountAfterQueue);
   });
 });
 

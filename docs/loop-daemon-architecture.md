@@ -24,6 +24,7 @@ An Orca loop is not a chat transcript. It is a persisted control record:
 - `executorTypes`: the lane mix to queue per iteration, such as `codex` and `claude`.
 - `maxIterations`: optional hard stop.
 - `pauseReason`: why the daemon stopped itself, such as `auth_required` or `rate_limited`.
+- `resumeAt`: optional retry window for self-paused loops, used today for rate limits.
 - `lastTaskIds` and `iteration`: progress anchors for supervision and recovery.
 
 Loop iterations create ordinary backlog tasks. Backlog tasks create ordinary lanes. That keeps all existing Orca protections in force: scoped tool leases, active-orchestrator ownership, capacity, worktree isolation, audits, terminal tails, streams, and supervisor overview.
@@ -34,6 +35,7 @@ Loop iterations create ordinary backlog tasks. Backlog tasks create ordinary lan
 - A loop does not queue another iteration while any loop-owned task is still pending, assigned, or in-lane.
 - Loop-created tasks and lanes are tagged with `loopId` / `metadataLoopId`.
 - If a loop-owned lane reports auth or rate-limit failure text, the loop pauses and notifies the user instead of retrying blindly.
+- If a rate-limit failure includes a retry window, the loop waits until `resumeAt`, emits a resume notification, and continues without reprocessing the old failed lane as a fresh pause signal.
 - Supervisors can list and inspect loops, but cannot create or update them.
 - Orchestrator MCP callers must be the active orchestrator before mutating loop state.
 

@@ -19,6 +19,7 @@ export const LOOP_PAUSE_REASONS = [
 const LOOP_TERMINAL_TASK_STATES = new Set(['accepted', 'failed']);
 const AUTH_PATTERN = /\b(401|403|auth(?:entication|orization)?|unauthorized|forbidden|login|\/login|api key|token expired|credentials?)\b/i;
 const RATE_LIMIT_PATTERN = /\b(429|rate.?limit|too many requests|quota|usage limit|try again later|retry-after)\b/i;
+const RETRY_AFTER_PATTERN = /\b(?:retry-after|retry after|try again in)\s*:?\s*(\d{1,6})\s*(ms|millisecond|milliseconds|s|sec|secs|second|seconds|m|min|mins|minute|minutes)?\b/i;
 
 function cleanText(value, max, fallback = '') {
   const text = String(value || '')
@@ -35,6 +36,33 @@ function normalizeLoopState(value, fallback = 'paused') {
 function normalizePauseReason(value, fallback = 'manual') {
   const reason = String(value || '').trim().toLowerCase();
   return LOOP_PAUSE_REASONS.includes(reason) ? reason : fallback;
+}
+
+function normalizeResumeAt(value) {
+  const parsed = Date.parse(value || '');
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+}
+
+function retryAfterMsFromText(text) {
+  const match = String(text || '').match(RETRY_AFTER_PATTERN);
+  if (!match) return null;
+  const amount = Number.parseInt(match[1], 10);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  const unit = String(match[2] || 'seconds').toLowerCase();
+  const multiplier = unit.startsWith('ms') || unit.startsWith('millisecond') ? 1
+    : unit === 'm' || unit.startsWith('min') || unit.startsWith('minute') ? 60 * 1000
+      : 1000;
+  return Math.max(1000, Math.min(24 * 60 * 60 * 1000, amount * multiplier));
+}
+
+function resumeAtFromPause({ resumeAt = null, retryAfterMs = null } = {}, now = Date.now()) {
+  const explicit = normalizeResumeAt(resumeAt);
+  if (explicit) return explicit;
+  const retryMs = Number.parseInt(retryAfterMs, 10);
+  if (Number.isFinite(retryMs) && retryMs > 0) {
+    return new Date(now + Math.max(1000, Math.min(24 * 60 * 60 * 1000, retryMs))).toISOString();
+  }
+  return null;
 }
 
 function normalizeExecutorTypes(registry, value) {
@@ -151,6 +179,8 @@ export const loopMethods = {
       state: initialState,
       pauseReason: initialState === 'paused' ? 'manual' : null,
       pauseMessage: initialState === 'paused' ? 'Loop created paused.' : null,
+      resumeAt: null,
+      pauseSignalLaneIds: [],
       cadenceMs: Math.max(1_000, Math.min(24 * 60 * 60 * 1000, Number.parseInt(cadenceMs, 10) || 60_000)),
       maxIterations: Math.max(0, Math.min(10_000, Number.parseInt(maxIterations, 10) || 0)),
       iteration: 0,
@@ -209,10 +239,12 @@ export const loopMethods = {
       if (next === 'running') {
         loop.pauseReason = null;
         loop.pauseMessage = null;
+        loop.resumeAt = null;
         loop.nextRunAt = nowIso();
       } else if (next === 'paused') {
         loop.pauseReason = normalizePauseReason(patch.pauseReason, 'manual');
         loop.pauseMessage = cleanText(patch.pauseMessage || 'Loop paused.', 500);
+        loop.resumeAt = resumeAtFromPause(patch);
         loop.nextRunAt = null;
       }
     }
@@ -224,17 +256,25 @@ export const loopMethods = {
       sessionId: loop.sessionId,
       summary: `Loop "${loop.name}" updated`,
       status: 'passed',
-      evidence: { loopId: loop.id, state: loop.state, pauseReason: loop.pauseReason || null },
+      evidence: { loopId: loop.id, state: loop.state, pauseReason: loop.pauseReason || null, resumeAt: loop.resumeAt || null },
     });
     this.persistState();
     return this.publicLoop(loop);
   },
 
-  pauseLoop(loopLocator, { reason = 'manual', message = 'Loop paused.', actor = 'orchestrator' } = {}) {
+  pauseLoop(loopLocator, { reason = 'manual', message = 'Loop paused.', actor = 'orchestrator', resumeAt = null, retryAfterMs = null, signalLaneId = null } = {}) {
+    const loop = this.getLoop(loopLocator);
+    if (loop && signalLaneId) {
+      loop.pauseSignalLaneIds = [
+        ...new Set([...safeArray(loop.pauseSignalLaneIds, []), String(signalLaneId)]),
+      ].slice(-100);
+    }
     return this.updateLoop(loopLocator, {
       state: 'paused',
       pauseReason: normalizePauseReason(reason, 'manual'),
       pauseMessage: cleanText(message, 500, 'Loop paused.'),
+      resumeAt,
+      retryAfterMs,
     }, { actor });
   },
 
@@ -250,18 +290,30 @@ export const loopMethods = {
     return this._loopTasks(loop).some((task) => !LOOP_TERMINAL_TASK_STATES.has(task.state));
   },
 
-  _detectLoopPauseSignal(loop) {
+  _detectLoopPauseSignal(loop, now = Date.now()) {
     const tasks = this._loopTasks(loop);
     const laneIds = new Set(tasks.map((task) => task.laneId).filter(Boolean));
+    const handledLaneIds = new Set(safeArray(loop.pauseSignalLaneIds, []).map((id) => String(id)));
     const lanes = (this.lanes || []).filter((lane) =>
       laneIds.has(lane.id) || (lane.metadataLoopId && lane.metadataLoopId === loop.id));
     for (const lane of lanes.slice(-20)) {
+      if (handledLaneIds.has(String(lane.id))) continue;
       const text = loopLaneText(lane);
       if (RATE_LIMIT_PATTERN.test(text)) {
-        return { reason: 'rate_limited', message: `Loop paused after ${lane.executorType} reported a rate/usage limit.` };
+        const retryAfterMs = retryAfterMsFromText(text);
+        return {
+          reason: 'rate_limited',
+          message: `Loop paused after ${lane.executorType} reported a rate/usage limit.${retryAfterMs ? ' Orca will resume automatically after the retry window.' : ''}`,
+          resumeAt: retryAfterMs ? new Date(now + retryAfterMs).toISOString() : null,
+          signalLaneId: lane.id,
+        };
       }
       if (AUTH_PATTERN.test(text)) {
-        return { reason: 'auth_required', message: `Loop paused after ${lane.executorType} reported an authentication issue. Re-authenticate the CLI, then resume the loop.` };
+        return {
+          reason: 'auth_required',
+          message: `Loop paused after ${lane.executorType} reported an authentication issue. Re-authenticate the CLI, then resume the loop.`,
+          signalLaneId: lane.id,
+        };
       }
     }
     return null;
@@ -270,6 +322,42 @@ export const loopMethods = {
   async advanceLoops({ now = Date.now() } = {}) {
     let changed = false;
     for (const loop of this.loops || []) {
+      if (loop.state === 'paused') {
+        const resumeAt = Date.parse(loop.resumeAt || 0);
+        if (loop.pauseReason === 'rate_limited' && Number.isFinite(resumeAt) && resumeAt <= now) {
+          const previousReason = loop.pauseReason;
+          loop.state = 'running';
+          loop.pauseReason = null;
+          loop.pauseMessage = null;
+          loop.resumeAt = null;
+          loop.nextRunAt = new Date(now).toISOString();
+          loop.updatedAt = nowIso();
+          this.recordAudit({
+            type: 'loop_resumed',
+            actor: 'scheduler',
+            projectId: loop.projectId,
+            sessionId: loop.sessionId,
+            summary: `Loop "${loop.name}" resumed after ${previousReason}`,
+            status: 'passed',
+            evidence: { loopId: loop.id, previousReason },
+          });
+          if (typeof this.enqueueNotification === 'function') {
+            this.enqueueNotification({
+              type: 'loop_resumed',
+              severity: 'info',
+              title: 'Loop resumed',
+              body: `Resuming "${loop.name}" after ${previousReason}.`,
+              actor: 'scheduler',
+              projectId: loop.projectId,
+              sessionId: loop.sessionId,
+              metadata: { loopId: loop.id, previousReason },
+            });
+          }
+          changed = true;
+        } else {
+          continue;
+        }
+      }
       if (loop.state !== 'running') continue;
       const session = this.getSession(loop.sessionId);
       if (!session || session.state === 'archived') {
@@ -284,7 +372,7 @@ export const loopMethods = {
       const next = Date.parse(loop.nextRunAt || 0);
       if (Number.isFinite(next) && next > now) continue;
 
-      const pause = this._detectLoopPauseSignal(loop);
+      const pause = this._detectLoopPauseSignal(loop, now);
       if (pause) {
         this.pauseLoop(loop.id, { ...pause, actor: 'scheduler' });
         if (typeof this.enqueueNotification === 'function') {
