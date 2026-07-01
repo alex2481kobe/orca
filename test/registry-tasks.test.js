@@ -209,6 +209,60 @@ test('tasks: lane accept syncs the linked task to accepted', async () => {
   });
 });
 
+test('tasks: completed no-audit lanes sync linked tasks to accepted', async () => {
+  await withRegistry(async (registry) => {
+    const { session } = makeSession(registry, {
+      settingsOverrides: { flow: { requireAuditPass: false } },
+    });
+    const task = registry.addTask(session.id, { title: 'do no-audit work' });
+    const lane = makeLane(registry, session.id, { owner: 'executor' });
+    registry.claimNextPendingTask(session.id);
+    registry.linkTaskToLane(task.id, lane.id);
+
+    registry.markLaneCompleted(registry.getLane(lane.id));
+
+    assert.equal(registry.getTask(task.id).state, 'accepted');
+    assert.ok(registry.getTask(task.id).terminatedAt);
+    assert.ok(registry.getSession(session.id).backlogCompletedAt);
+  });
+});
+
+test('tasks: backlog completion does not spawn an orchestrator lane when an external orchestrator is active', async () => {
+  await withRegistry(async (registry) => {
+    const { project, session } = makeSession(registry, {
+      settingsOverrides: { flow: { requireAuditPass: false } },
+    });
+    const bootstrap = registry.createOrchestratorMcpBootstrap({
+      actor: 'fable-active-orchestrator',
+      projectId: project.id,
+      sessionId: session.id,
+    });
+    const lease = registry.validateToolLease(bootstrap.leaseToken, {
+      role: 'orchestrator',
+      toolId: 'orchestrator.enroll',
+      projectId: project.id,
+      sessionId: session.id,
+    });
+    registry.enrollOrchestrator(session.id, {
+      leaseId: lease.id,
+      actor: lease.actor,
+      source: 'mcp',
+    });
+    const task = registry.addTask(session.id, { title: 'complete quietly' });
+    const lane = makeLane(registry, session.id, { owner: 'executor' });
+    registry.claimNextPendingTask(session.id);
+    registry.linkTaskToLane(task.id, lane.id);
+
+    registry.markLaneCompleted(registry.getLane(lane.id));
+
+    assert.equal(registry.getTask(task.id).state, 'accepted');
+    assert.equal(registry.lanes.filter((entry) => entry.sessionId === session.id).length, 1);
+    const thread = registry.getOrchestratorThread(session.id);
+    assert.equal(thread.messages.at(-1).role, 'system');
+    assert.match(thread.messages.at(-1).content, /backlog tasks have been accepted/i);
+  });
+});
+
 test('tasks: lane failure requeues within budget, then fails', async () => {
   await withRegistry(async (registry) => {
     const { session } = makeSession(registry);

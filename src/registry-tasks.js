@@ -532,12 +532,23 @@ export const taskMethods = {
         sessionId: session.id,
       });
     }
-    if (typeof this.sendOrchestratorMessage === 'function') {
-      this.sendOrchestratorMessage(session.id, {
-        message: allAccepted
-          ? `All ${tasks.length} backlog tasks have been accepted. The session backlog is complete — review the results or add more tasks.`
-          : `The session backlog finished: ${accepted} accepted, ${failed} failed. Review the failed tasks (retry or remove them).`,
-      }, { actor: 'scheduler', approved: true }).catch(() => {});
+    const completionMessage = allAccepted
+      ? `All ${tasks.length} backlog tasks have been accepted. The session backlog is complete — review the results or add more tasks.`
+      : `The session backlog finished: ${accepted} accepted, ${failed} failed. Review the failed tasks (retry or remove them).`;
+    if (typeof this._orchestratorCanAudit === 'function'
+      && this._orchestratorCanAudit(session)
+      && typeof this.ensureOrchestratorThread === 'function'
+      && typeof this.appendOrchestratorThreadMessage === 'function') {
+      const thread = this.ensureOrchestratorThread(session);
+      this.appendOrchestratorThreadMessage(thread, {
+        id: randomUUID(),
+        role: 'system',
+        content: completionMessage,
+        createdAt: nowIso(),
+      });
+      thread.updatedAt = nowIso();
+    } else if (typeof this.sendOrchestratorMessage === 'function') {
+      this.sendOrchestratorMessage(session.id, { message: completionMessage }, { actor: 'scheduler', approved: true }).catch(() => {});
     }
     this.persistState();
   },

@@ -338,3 +338,90 @@ test('registry mints a supervisor MCP bootstrap with supervisor tool scope', asy
     await cleanup();
   }
 });
+
+test('same external agent can register as supervisor or orchestrator with scoped authority', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const project = registry.createProject({ name: 'Fable Beta Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, {
+      name: 'Fable Beta Session',
+      leader: 'mock',
+      spawnPolicy: 'auto',
+      approvedCapacity: 2,
+    }, { actor: 'test', approved: true });
+
+    const orchestrator = registry.createOrchestratorMcpBootstrap({
+      role: 'orchestrator',
+      actor: 'fable-agent',
+      projectId: project.id,
+      sessionId: session.id,
+    });
+    const supervisor = registry.createOrchestratorMcpBootstrap({
+      role: 'supervisor',
+      actor: 'fable-agent',
+      projectId: project.id,
+      sessionId: session.id,
+    });
+
+    assert.equal(orchestrator.lease.role, 'orchestrator');
+    assert.equal(supervisor.lease.role, 'supervisor');
+    assert.notEqual(orchestrator.lease.id, supervisor.lease.id);
+    assert.deepEqual(
+      registry.listToolLeases({ activeOnly: true })
+        .filter((lease) => lease.actor === 'fable-agent')
+        .map((lease) => lease.role)
+        .sort(),
+      ['orchestrator', 'supervisor'],
+    );
+
+    const orchestratorLease = registry.validateToolLease(orchestrator.leaseToken, {
+      role: 'orchestrator',
+      toolId: 'orchestrator.enroll',
+      projectId: project.id,
+      sessionId: session.id,
+    });
+    assert.equal(orchestratorLease.active, true);
+    registry.enrollOrchestrator(session.id, {
+      leaseId: orchestratorLease.id,
+      actor: orchestratorLease.actor,
+      source: 'mcp',
+    });
+
+    assert.throws(
+      () => registry.validateToolLease(supervisor.leaseToken, {
+        role: 'supervisor',
+        toolId: 'orchestrator.enroll',
+        projectId: project.id,
+        sessionId: session.id,
+      }),
+      (error) => error.status === 403,
+    );
+    assert.throws(
+      () => registry.validateToolLease(supervisor.leaseToken, {
+        role: 'supervisor',
+        toolId: 'loop.create',
+        projectId: project.id,
+        sessionId: session.id,
+      }),
+      (error) => error.status === 403,
+    );
+
+    const loop = registry.createLoop(session.id, {
+      name: 'Fable executor choice proof',
+      goal: 'Prove an external orchestrator can choose executor agents for a loop.',
+      executorTypes: ['mock'],
+      cadenceMs: 1000,
+      maxIterations: 1,
+    }, { actor: orchestratorLease.actor, approved: true });
+    assert.equal(loop.createdBy, 'fable-agent');
+    assert.deepEqual(loop.executorTypes, ['mock']);
+
+    const overview = registry.supervisorOverview({ projectId: project.id, sessionId: session.id });
+    assert.ok(overview.activeSupervisors.some((entry) => entry.actor === 'fable-agent'));
+    const overviewSession = overview.projects[0].sessions[0];
+    assert.equal(overviewSession.activeOrchestrator.actor, 'fable-agent');
+    assert.equal(overviewSession.activeOrchestrator.active, true);
+  } finally {
+    await cleanup();
+  }
+});

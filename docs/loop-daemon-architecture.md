@@ -36,6 +36,8 @@ Loop iterations create ordinary backlog tasks. Backlog tasks create ordinary lan
 - Loop-created tasks and lanes are tagged with `loopId` / `metadataLoopId`.
 - If a loop-owned lane reports auth or rate-limit failure text, the loop pauses and notifies the user instead of retrying blindly.
 - If a rate-limit failure includes a retry window, the loop waits until `resumeAt`, emits a resume notification, and continues without reprocessing the old failed lane as a fresh pause signal.
+- If a session explicitly disables audit pass requirements, completed lanes sync their linked backlog tasks to accepted so low-token mock/daemon loops can keep moving.
+- When an external/dashboard orchestrator is already active, backlog-completion nudges are appended to the existing orchestrator thread instead of spawning a fresh CLI orchestrator lane.
 - Supervisors can list and inspect loops, but cannot create or update them.
 - Orchestrator MCP callers must be the active orchestrator before mutating loop state.
 

@@ -40,6 +40,15 @@ export const laneTerminalMethods = {
       && !['queued', 'auditing', 'accepted'].includes(String(lane.auditState || ''))) {
       lane.auditState = 'queued';
     }
+    if (!needsCritique
+      && typeof this.auditRequiredForLane === 'function'
+      && !this.auditRequiredForLane(lane)
+      && typeof this.markTaskAcceptedFromLane === 'function') {
+      const syncedTask = this.markTaskAcceptedFromLane(lane.id);
+      if (syncedTask && typeof this.evaluateBacklogCompletion === 'function') {
+        this.evaluateBacklogCompletion(lane.sessionId);
+      }
+    }
     lane.completedAt = now;
     const executorLabel = String(lane.executorType || 'mock');
     lane.exitReason = needsCritique
