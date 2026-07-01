@@ -280,3 +280,20 @@ test('branch picked in chat is threaded into the orchestrator prompt', async () 
     await cleanup();
   }
 });
+
+test('lightweight chat turns do not receive the full orchestration tool contract', async () => {
+  const { registry, cleanup } = await withRegistry();
+  try {
+    const project = registry.createProject({ name: 'Flow Greeting' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'chat', leader: 'codex' }, { actor: 'test', approved: true });
+    await send(registry, session.id, { executorType: 'codex', message: 'HI' });
+    const lane = latestOrchestratorLane(registry, session.id);
+
+    assert.match(lane.taskPrompt, /conversational, not an actionable project objective/i);
+    assert.doesNotMatch(lane.taskPrompt, /ORCA_TOOL_LEASE_TOKEN/);
+    assert.doesNotMatch(lane.taskPrompt, /Executor capability matrix/);
+    assert.doesNotMatch(lane.taskPrompt, /Next-action URL/);
+  } finally {
+    await cleanup();
+  }
+});

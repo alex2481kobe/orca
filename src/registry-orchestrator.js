@@ -28,6 +28,16 @@ function safeChatText(value, max = 12000) {
   return String(value || '').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, ' ').trim().slice(0, max);
 }
 
+function isLightweightConversation(value) {
+  const text = safeChatText(value, 1000).toLowerCase();
+  if (!text) return false;
+  const compact = text.replace(/[^a-z0-9\s'?]/g, ' ').replace(/\s+/g, ' ').trim();
+  const action = /\b(build|fix|test|audit|review|implement|create|run|start|launch|setup|set up|deploy|commit|push|update|change|delete|merge|rebase|install|debug|investigate|clean|refactor|write|read|summarize|plan)\b/;
+  if (action.test(compact)) return false;
+  if (/^(hi|hello|hey|yo|sup|gm|good morning|good afternoon|good evening|thanks|thank you)\b/.test(compact)) return true;
+  return /^(are you there|what can you do|who are you|how are you|you there)\??$/.test(compact);
+}
+
 function buildOrchestratorPrompt({
   project,
   session,
@@ -46,10 +56,28 @@ function buildOrchestratorPrompt({
     .map((entry) => `${String(entry.role || 'user').toUpperCase()}: ${safeChatText(entry.content, 3000)}`)
     .join('\n\n');
   const apiBase = String(baseUrl || '').replace(/\/+$/, '');
+  const conversational = isLightweightConversation(message);
+  if (conversational) {
+    return [
+      'You are the Orca chat and orchestration agent for this project/session.',
+      'The current user message is conversational, not an actionable project objective.',
+      'Reply like a normal capable agent: brief, direct, and useful. Do not ask the user to approve Orca MCP tool names. Do not create executor lanes, backlog items, or tool calls unless the user gives an actual objective.',
+      'If helpful, offer one simple next step they can ask Orca to do.',
+      `Project: ${project?.name || project?.id || 'unknown'}`,
+      `Session: ${session?.name || session?.id || 'unknown'}`,
+      model ? `Requested model: ${safeChatText(model, 120)}` : '',
+      permissionsProfile ? `Run mode / permissions: ${safeChatText(permissionsProfile, 120)}` : '',
+      intelligenceProfile ? `Requested intelligence level: ${safeChatText(intelligenceProfile, 80)}` : '',
+      transcript ? `Recent conversation:\n${transcript}` : '',
+      `Current user message:\n${safeChatText(message)}`,
+    ].filter(Boolean).join('\n\n');
+  }
   return [
     'You are the Orca orchestration agent for this project/session.',
+    'Read the current user request before acting. If a future message is only a greeting or check-in, answer conversationally instead of forcing orchestration.',
     'Own decomposition, planning, lane creation, executor assignment, and audit handoff.',
     'Do not ask the human to manually create executor lanes when you can create them through Orca tools.',
+    'Do not ask the human to approve internal Orca MCP tool names in chat. Use available tools when needed; if a tool is unavailable, state the plain blocker and continue with the useful next step.',
     'Use the scoped tool lease from ORCA_TOOL_LEASE_TOKEN, never the full API token.',
     apiBase ? `Orca base URL: ${apiBase}` : '',
     discoveryUrl ? `Tool discovery URL: ${discoveryUrl}` : '',

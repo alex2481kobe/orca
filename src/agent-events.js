@@ -13,6 +13,15 @@ function event(type, fields = {}) {
   };
 }
 
+function usageFrom(...candidates) {
+  for (const candidate of candidates) {
+    if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
 function contentText(content) {
   if (typeof content === 'string') return cleanText(content);
   if (!Array.isArray(content)) return '';
@@ -92,6 +101,7 @@ function normalizeCursorEvent(data, source) {
         content: cleanText(data.result || data.error || ''),
         externalSessionId: data.session_id,
         durationMs: data.duration_ms,
+        usage: usageFrom(data.usage, data.usage_metrics, data.usageMetadata, data.stats),
       }),
       event(data.is_error ? 'agent.failed' : 'agent.done', {
         source,
@@ -140,6 +150,7 @@ function normalizeClaudeEvent(data, source) {
         content: cleanText(data.result || data.error || ''),
         externalSessionId: data.session_id,
         durationMs: data.duration_ms,
+        usage: usageFrom(data.usage, data.usage_metrics, data.usageMetadata, data.stats),
       }),
       event(data.is_error ? 'agent.failed' : 'agent.done', {
         source,
@@ -176,13 +187,15 @@ function normalizeCodexEvent(data, source) {
   }
   if (type === 'turn_complete' || type === 'agent-turn-complete') {
     const finalContent = cleanText(msg.content || data.result || '');
+    const usage = usageFrom(msg.usage, msg.usage_metrics, msg.usageMetadata, msg.stats, data.usage, data.usage_metrics, data.usageMetadata, data.stats);
     const done = event('agent.done', {
       source,
       title: 'Codex completed',
       content: finalContent,
+      usage,
     });
     return finalContent
-      ? [event('message.assistant.final', { source, content: finalContent }), done]
+      ? [event('message.assistant.final', { source, content: finalContent, usage }), done]
       : [done];
   }
   if (type === 'error') {
@@ -200,7 +213,7 @@ function normalizeGeminiEvent(data, source) {
       event('message.assistant.final', {
         source,
         content: cleanText(data.response || ''),
-        stats: data.stats || undefined,
+        usage: usageFrom(data.usage, data.usageMetadata, data.stats),
       }),
       event('agent.done', {
         source,

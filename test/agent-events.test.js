@@ -21,10 +21,12 @@ test('Codex turn completion content is promoted to a final assistant event', () 
     msg: {
       type: 'turn_complete',
       content: 'Final answer from Codex.',
+      usage: { input_tokens: 9, output_tokens: 3 },
     },
   })}\n`);
   assert.deepEqual(events.map((event) => event.type), ['message.assistant.final', 'agent.done']);
   assert.equal(events[0].content, 'Final answer from Codex.');
+  assert.deepEqual(events[0].usage, { input_tokens: 9, output_tokens: 3 });
 });
 
 test('Claude stream-json text deltas normalize into assistant events', () => {
@@ -75,4 +77,5 @@ test('Gemini JSON response normalizes into final assistant event', () => {
   })}\n`);
   assert.deepEqual(events.map((event) => event.type), ['message.assistant.final', 'agent.done']);
   assert.equal(events[0].content, 'The build is healthy.');
+  assert.deepEqual(events[0].usage, { tools: { totalCalls: 2 } });
 });

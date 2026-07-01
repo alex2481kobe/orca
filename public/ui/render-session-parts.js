@@ -1,7 +1,7 @@
 // Render view module (split from render-views.js).
 
 import { formatRelative, safeAttr, safeText, stateBadge } from './format.js';
-import { isLaneStoppable, isLiveLaneState, isRestartableLaneState, pendingAuditsForSession } from './render-helpers.js';
+import { agentEventLabel, isLaneStoppable, isLiveLaneState, isRestartableLaneState, pendingAuditsForSession } from './render-helpers.js';
 import { activeOrchestratorLaneForSession, assistantEventTranscriptText, intelligenceOptionsFor, renderAgentEventTimeline, runModeOptionsFor } from './render-fragments.js';
 import { shell } from './state.js';
 import { renderAlert, writeHtml } from './dom.js';
@@ -60,6 +60,137 @@ export function refreshComposerAttachments(sessionId) {
   if (el) writeHtml(el, renderComposerAttachmentChips(sessionId));
 }
 
+function parseTime(value) {
+  const time = Date.parse(value || '');
+  return Number.isFinite(time) ? time : 0;
+}
+
+function formatDuration(ms) {
+  const totalSeconds = Math.max(0, Math.round(Number(ms || 0) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const parts = [];
+  if (hours) parts.push(`${hours}h`);
+  if (minutes || hours) parts.push(`${minutes}m`);
+  parts.push(`${seconds}s`);
+  return parts.join(' ');
+}
+
+function laneElapsedMs(lane) {
+  const explicit = (Array.isArray(lane?.agentEvents) ? lane.agentEvents : [])
+    .map((event) => Number(event.durationMs))
+    .filter((value) => Number.isFinite(value) && value > 0)
+    .at(-1);
+  if (explicit) return explicit;
+  const started = parseTime(lane?.startedAt) || parseTime(lane?.createdAt);
+  if (!started) return 0;
+  const ended = parseTime(lane?.completedAt) || parseTime(lane?.updatedAt) || Date.now();
+  return Math.max(0, ended - started);
+}
+
+function numericUsage(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : 0;
+}
+
+function tokenTotalFromUsage(usage) {
+  if (!usage || typeof usage !== 'object') return 0;
+  const direct = numericUsage(usage.total_tokens)
+    || numericUsage(usage.totalTokens)
+    || numericUsage(usage.token_count)
+    || numericUsage(usage.tokenCount);
+  if (direct) return direct;
+  const input = numericUsage(usage.prompt_tokens)
+    || numericUsage(usage.input_tokens)
+    || numericUsage(usage.promptTokenCount)
+    || numericUsage(usage.inputTokens);
+  const output = numericUsage(usage.completion_tokens)
+    || numericUsage(usage.output_tokens)
+    || numericUsage(usage.candidatesTokenCount)
+    || numericUsage(usage.outputTokens);
+  return input + output;
+}
+
+function tokenSummary(lane) {
+  const candidates = [
+    lane?.tokenUsage,
+    lane?.apiProviderResult?.usage,
+    ...(Array.isArray(lane?.agentEvents) ? lane.agentEvents.map((event) => event.usage || event.stats || event.tokens) : []),
+  ];
+  const total = candidates.reduce((sum, usage) => sum || tokenTotalFromUsage(usage), 0);
+  if (!total) return '';
+  return `${new Intl.NumberFormat().format(total)} tokens`;
+}
+
+const CHAT_ACTIVITY_TYPES = new Set([
+  'command.started',
+  'tool.started',
+  'tool.completed',
+  'file.changed',
+  'error',
+  'agent.failed',
+  'agent.stopped',
+]);
+
+function shortActivityText(event) {
+  const raw = event?.command || event?.toolName || event?.title || event?.content || agentEventLabel(event?.type || 'event');
+  const text = String(raw || '').replace(/\s+/g, ' ').trim();
+  return text.length > 160 ? `${text.slice(0, 157)}...` : text;
+}
+
+function chatActivityItems(lane) {
+  const events = Array.isArray(lane?.agentEvents) ? lane.agentEvents : [];
+  return events
+    .filter((event) => CHAT_ACTIVITY_TYPES.has(String(event?.type || '')))
+    .map((event) => ({
+      type: String(event.type || 'event'),
+      label: agentEventLabel(event.type || 'event'),
+      text: shortActivityText(event),
+    }))
+    .filter((item) => item.text)
+    .slice(-12);
+}
+
+function renderChatRunMeta(lane, working) {
+  if (!lane) return '';
+  const duration = laneElapsedMs(lane);
+  const bits = [];
+  if (duration > 0 || !working) bits.push(formatDuration(duration));
+  const tokens = tokenSummary(lane);
+  if (tokens) bits.push(tokens);
+  const label = working ? 'Thinking...' : (lane.state === 'failed' ? 'Stopped after' : 'Worked for');
+  return `
+    <div class="chat-run-meta">
+      ${working ? '<span class="chat-spinner" aria-hidden="true"></span>' : ''}
+      <span>${safeText(label)}</span>
+      ${bits.length ? `<span class="chat-run-bits">${safeText(bits.join(' · '))}</span>` : ''}
+    </div>
+  `;
+}
+
+function renderChatRunDetails(lane, working = false) {
+  const items = chatActivityItems(lane);
+  if (!items.length) return '';
+  const latest = items.at(-1);
+  const summary = working && latest
+    ? `${latest.label}: ${latest.text}`
+    : (items.length === 1 ? '1 activity item' : `${items.length} activity items`);
+  return `
+    <details class="chat-run-details">
+      <summary>${safeText(summary)}</summary>
+      <div class="chat-run-detail-list">
+        ${items.map((item) => `
+          <div class="chat-run-detail">
+            <span>${safeText(item.label)}</span>
+            <code>${safeText(item.text)}</code>
+          </div>
+        `).join('')}
+      </div>
+    </details>
+  `;
+}
+
 export function readFileAsBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -115,14 +246,14 @@ export function renderChatThreadInner(session) {
     const working = Boolean(lane && isLiveLaneState(lane.state));
     if (lane) renderedLaneIds.add(lane.id);
     const fallback = lane
-      ? `${safeText(lane.executorType || 'Agent')} orchestrator turn ${safeText(lane.state || 'queued')}.`
+      ? (lane.state === 'failed' ? 'No assistant response was captured.' : '')
       : safeText(message.content || '');
     return `
       <div class="msg msg-assistant">
         <div class="msg-body">
-          ${visibleText ? `<div class="chat-agent-transcript">${safeText(visibleText)}</div>` : `<div class="muted">${fallback}</div>`}
-          ${hasEvents ? `<div class="chat-activity">${renderAgentEventTimeline(lane, { limit: 80 })}</div>` : ''}
-          ${working ? '<div class="chat-activity-status"><span class="chat-spinner" aria-hidden="true"></span>Working…</div>' : ''}
+          ${renderChatRunMeta(lane, working)}
+          ${visibleText ? `<div class="chat-agent-transcript">${safeText(visibleText)}</div>` : (fallback ? `<div class="muted">${fallback}</div>` : '')}
+          ${hasEvents ? renderChatRunDetails(lane, working) : ''}
         </div>
       </div>
     `;

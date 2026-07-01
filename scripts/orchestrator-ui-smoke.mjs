@@ -96,7 +96,8 @@ try {
     'if (args.includes("--version") || args.includes("-V")) { console.log("codex-cli 0.0.0-smoke"); process.exit(0); }',
     'if (args.includes("--help") || args.includes("-h")) { console.log("--model gpt-5\\n--effort (low|medium|high|xhigh)"); process.exit(0); }',
     'console.log(JSON.stringify({ msg: { type: "text", content: "I can help with that." } }));',
-    'console.log(JSON.stringify({ msg: { type: "turn_complete", content: "I can help with that." } }));',
+    'console.log(JSON.stringify({ msg: { type: "exec_approval_request", command: "npm test" } }));',
+    'console.log(JSON.stringify({ msg: { type: "turn_complete", content: "I can help with that.", usage: { input_tokens: 8, output_tokens: 4 } } }));',
     '',
   ].join('\n'));
   await fs.chmod(fakeCodex, 0o755);
@@ -176,6 +177,14 @@ try {
     const chatText = await page.locator('.chat-thread').innerText();
     if (chatText.includes('Started codex executor')) fail('chat leaked executor lifecycle copy', chatText);
     if (chatText.includes('Started codex orchestrator lane')) fail('chat leaked orchestrator stub instead of assistant reply', chatText);
+    if (/\b(Queued|Started|Output|Done)\b/.test(chatText)) fail('chat leaked raw lifecycle/event labels', chatText);
+    if (!chatText.includes('Worked for')) fail('chat missing compact run receipt', chatText);
+    if (!chatText.includes('12 tokens')) fail('chat missing reported token usage', chatText);
+    const visibleTimelineCount = await page.locator('.chat-thread .agent-event-list').count();
+    if (visibleTimelineCount !== 0) fail('chat rendered full agent event timeline', String(visibleTimelineCount));
+    const detailState = await page.locator('.chat-thread .chat-run-details').evaluateAll((items) => items.map((item) => item.open));
+    if (!detailState.length) fail('chat missing collapsible activity receipt');
+    if (detailState.some(Boolean)) fail('chat activity receipt should be collapsed after completion', JSON.stringify(detailState));
     log('dashboard', 'message submitted and assistant reply rendered');
 
     const thread = await req('GET', `/api/sessions/${session.body.id}/orchestrator`);

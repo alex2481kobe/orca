@@ -25,6 +25,7 @@ export class ApiExecutorAdapter {
     this.credentialStore = options.credentialStore || new CredentialStore();
     this.providerProfileStore = options.providerProfileStore || null;
     this.onLog = options.onLog || noopAsync;
+    this.onAgentEvent = options.onAgentEvent || noopAsync;
     this.onComplete = options.onComplete || noopAsync;
     this.onFail = options.onFail || noopAsync;
     this.onStop = options.onStop || noopAsync;
@@ -233,6 +234,12 @@ export class ApiExecutorAdapter {
         usage: parsed?.usage || parsed?.usageMetadata || null,
       };
       lane.apiResponse = lane.apiProviderResult;
+      await safeFire(this.onAgentEvent, lane, {
+        type: 'message.assistant.final',
+        source: this.label,
+        content: trimForLog(redactedText(content, [secret]), 12000),
+        usage: lane.apiProviderResult.usage || undefined,
+      });
       if (lane.processMeta) {
         lane.processMeta.endedAt = new Date().toISOString();
         lane.processMeta.exitCode = 0;

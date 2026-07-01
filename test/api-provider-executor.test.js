@@ -115,6 +115,9 @@ test('OpenAI-compatible API provider lane executes through dummy server and reda
     assert.equal(completed.processMeta.httpStatus, 200);
     assert.equal(completed.apiProviderResult.providerId, 'openai-compatible');
     assert.match(completed.apiProviderResult.outputPreview, /\[REDACTED\]/);
+    const assistantEvent = completed.agentEvents.find((event) => event.type === 'message.assistant.final');
+    assert.ok(assistantEvent, 'API provider output is also recorded as assistant chat output');
+    assert.deepEqual(assistantEvent.usage, { prompt_tokens: 12, completion_tokens: 4 });
 
     const serializedLane = JSON.stringify(completed);
     const serializedAudit = JSON.stringify(registry.auditEvents);

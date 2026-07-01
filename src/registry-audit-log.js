@@ -21,6 +21,17 @@ function isGenericCompletionText(value, lane) {
     || text.includes('self-verification required before audit');
 }
 
+function boundedObject(value, maxBytes = 2000) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  try {
+    const text = JSON.stringify(value);
+    if (!text || text.length > maxBytes) return null;
+    return clonePayload(value);
+  } catch {
+    return null;
+  }
+}
+
 function promoteOrchestratorThreadOutput(registry, lane, agentEvent, now) {
   if (String(lane?.owner || '') !== 'orchestrator') return;
   const session = typeof registry.getSession === 'function' ? registry.getSession(lane.sessionId) : null;
@@ -90,6 +101,7 @@ export const auditLogMethods = {
       lane.agentEvents = [];
     }
     const now = nowIso();
+    const usage = boundedObject(agentEvent.usage || agentEvent.stats || agentEvent.tokens);
     lane.agentEvents.push({
       id: randomUUID(),
       at: now,
@@ -103,6 +115,7 @@ export const auditLogMethods = {
       callId: agentEvent.callId ? String(agentEvent.callId).slice(0, 160) : '',
       externalSessionId: agentEvent.externalSessionId ? String(agentEvent.externalSessionId).slice(0, 200) : '',
       durationMs: Number.isFinite(agentEvent.durationMs) ? agentEvent.durationMs : null,
+      ...(usage ? { usage } : {}),
     });
     if (lane.agentEvents.length > MAX_AGENT_EVENT_ENTRIES) {
       lane.agentEvents = lane.agentEvents.slice(-MAX_AGENT_EVENT_ENTRIES);
@@ -114,6 +127,7 @@ export const auditLogMethods = {
     if (agentEvent.type === 'message.assistant.final' && agentEvent.content) {
       lane.resultText = String(agentEvent.content).slice(0, 12000);
       lane.resultAt = now;
+      if (usage) lane.tokenUsage = usage;
     }
     promoteOrchestratorThreadOutput(this, lane, agentEvent, now);
     lane.updatedAt = now;
