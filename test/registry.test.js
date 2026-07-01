@@ -1424,6 +1424,45 @@ test('orchestrator thread messages are capped when restored or appended', async 
   }
 });
 
+test('orchestrator lane output is promoted into the chat thread assistant turn', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+
+  try {
+    const project = registry.createProject({ name: 'Thread Output Project' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Thread Output Session' }, { actor: 'test', approved: true });
+    const result = await registry.sendOrchestratorMessage(session.id, {
+      message: 'Say hello back.',
+      executorType: 'mock',
+      baseUrl: 'http://127.0.0.1:1',
+    }, { actor: 'dashboard', approved: true });
+    const lane = registry.getLane(result.lane.id);
+
+    let thread = registry.getOrchestratorThread(session.id);
+    let assistantTurn = thread.messages.find((message) => message.role === 'assistant' && message.laneId === lane.id);
+    assert.match(assistantTurn.content, /Started mock orchestrator lane/);
+
+    registry.appendLaneAgentEvent(lane, {
+      type: 'message.assistant.delta',
+      source: 'mock',
+      content: 'Hello',
+    });
+    thread = registry.getOrchestratorThread(session.id);
+    assistantTurn = thread.messages.find((message) => message.role === 'assistant' && message.laneId === lane.id);
+    assert.equal(assistantTurn.content, 'Hello');
+
+    registry.appendLaneAgentEvent(lane, {
+      type: 'message.assistant.final',
+      source: 'mock',
+      content: 'Hello back.',
+    });
+    thread = registry.getOrchestratorThread(session.id);
+    assistantTurn = thread.messages.find((message) => message.role === 'assistant' && message.laneId === lane.id);
+    assert.equal(assistantTurn.content, 'Hello back.');
+  } finally {
+    await cleanup();
+  }
+});
+
 test('executor CLI reinstall execute mode requires confirmation', async () => {
   const restore = restoreEnv({
     ORCA_CODEX_BINARY: process.env.ORCA_CODEX_BINARY,
@@ -1971,6 +2010,7 @@ test('CLI executor writes raw terminal stdout and stderr artifacts', async () =>
     const { createExecutorAdapter } = await import('../src/executor-factory.js');
     const adapter = createExecutorAdapter('cli', {
       onLog: (lane, message) => registry.appendLaneLog(lane, message),
+      onAgentEvent: (lane, agentEvent) => registry.appendLaneAgentEvent(lane, agentEvent),
       onComplete: () => {},
       onFail: () => {},
       onStop: () => {},
@@ -2007,6 +2047,7 @@ test('CLI executor writes raw terminal stdout and stderr artifacts', async () =>
     assert.equal(terminal.includes('stdout-line\n'), true);
     assert.equal(terminal.includes('stderr-line\n'), true);
     assert.equal(terminal.includes('process exited code=0'), true);
+    assert.equal(target.agentEvents.some((event) => event.type === 'command.output' && event.content === 'stdout-line'), true);
   } finally {
     restore();
     await cleanup();
@@ -2732,6 +2773,10 @@ test('Real Claude CLI launches through the executor adapter and reports PID + ex
     }
     if (proc && typeof proc.pid === 'number') target.processMeta.pid = proc.pid;
     await new Promise((resolve) => { if (!proc) return resolve(); proc.once('exit', resolve); });
+    const deadline = Date.now() + 1000;
+    while (target.processMeta.exitCode === null && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
     assert.equal(target.processMeta.exitCode, 0, 'claude --version should exit 0');
     assert.equal(typeof target.processMeta.startedAt, 'string');
     assert.equal(typeof target.processMeta.endedAt, 'string');

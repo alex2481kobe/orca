@@ -2,7 +2,7 @@
 
 import { formatRelative, safeAttr, safeText, stateBadge } from './format.js';
 import { isLaneStoppable, isLiveLaneState, isRestartableLaneState, pendingAuditsForSession } from './render-helpers.js';
-import { activeOrchestratorLaneForSession, intelligenceOptionsFor, renderAgentEventTimeline, renderAssistantEventTranscript, runModeOptionsFor } from './render-fragments.js';
+import { activeOrchestratorLaneForSession, assistantEventTranscriptText, intelligenceOptionsFor, renderAgentEventTimeline, runModeOptionsFor } from './render-fragments.js';
 import { shell } from './state.js';
 import { renderAlert, writeHtml } from './dom.js';
 import { api } from './api.js';
@@ -102,37 +102,45 @@ export async function uploadComposerFiles(sessionId, fileList) {
 export function renderChatThreadInner(session) {
   const thread = session.orchestratorThread || {};
   const messages = Array.isArray(thread.messages) ? thread.messages : [];
-  const lane = activeOrchestratorLaneForSession(session);
-  const hasActivity = Boolean(lane && ((Array.isArray(lane.agentEvents) && lane.agentEvents.length) || lane.agentEventCount));
+  const laneById = new Map((shell.lanes || [])
+    .filter((lane) => lane.sessionId === session.id)
+    .map((lane) => [lane.id, lane]));
+  const renderedLaneIds = new Set();
+  const renderAssistantTurn = (message) => {
+    const lane = message.laneId ? laneById.get(message.laneId) : null;
+    const isStartStub = /^Started\s+.+\s+orchestrator lane\s+"/i.test(String(message.content || '').trim());
+    const transcriptText = lane ? assistantEventTranscriptText(lane, { limit: 120 }) : '';
+    const visibleText = isStartStub ? transcriptText : (String(message.content || '').trim() || transcriptText);
+    const hasEvents = Boolean(lane && ((Array.isArray(lane.agentEvents) && lane.agentEvents.length) || lane.agentEventCount));
+    const working = Boolean(lane && isLiveLaneState(lane.state));
+    if (lane) renderedLaneIds.add(lane.id);
+    const fallback = lane
+      ? `${safeText(lane.executorType || 'Agent')} orchestrator turn ${safeText(lane.state || 'queued')}.`
+      : safeText(message.content || '');
+    return `
+      <div class="msg msg-assistant">
+        <div class="msg-body">
+          ${visibleText ? `<div class="chat-agent-transcript">${safeText(visibleText)}</div>` : `<div class="muted">${fallback}</div>`}
+          ${hasEvents ? `<div class="chat-activity">${renderAgentEventTimeline(lane, { limit: 80 })}</div>` : ''}
+          ${working ? '<div class="chat-activity-status"><span class="chat-spinner" aria-hidden="true"></span>Working…</div>' : ''}
+        </div>
+      </div>
+    `;
+  };
   const messageRows = messages.slice(-50).map((message) => {
     const role = String(message.role || 'system').toLowerCase();
     const isUser = role === 'user';
-    // The canned "Started … orchestrator lane" stub is superseded by the live
-    // transcript rendered below, so hide it once real activity exists.
-    if (!isUser && hasActivity && /orchestrator lane/i.test(message.content || '')) return '';
+    if (!isUser && message.laneId) return renderAssistantTurn(message);
     return `
       <div class="msg msg-${isUser ? 'user' : 'assistant'}">
         <div class="msg-body">${safeText(message.content || '')}</div>
       </div>
     `;
   }).join('');
-  // Live transcript: the orchestrator agent's actual work — the tools it runs and
-  // its streamed output — updating in place as agentEvents arrive (poll/SSE), so
-  // the chat shows thinking/tool-use/output like the Codex app instead of a stub.
-  let activity = '';
-  if (hasActivity) {
-    const working = isLiveLaneState(lane.state);
-    activity = `
-      <div class="msg msg-assistant">
-        <div class="msg-body">
-          <div class="chat-activity">
-            ${working ? '<div class="chat-activity-status"><span class="chat-spinner" aria-hidden="true"></span>Working…</div>' : ''}
-            ${renderAssistantEventTranscript(lane, { limit: 80 })}
-            ${renderAgentEventTimeline(lane, { limit: 80 })}
-          </div>
-        </div>
-      </div>`;
-  }
+  const activeLane = activeOrchestratorLaneForSession(session);
+  const orphanActivity = activeLane && !renderedLaneIds.has(activeLane.id)
+    ? renderAssistantTurn({ role: 'assistant', laneId: activeLane.id, content: '' })
+    : '';
   // Codex-style hero for a fresh chat: "What should we build in {project}?"
   const project = (shell.projects || []).find((p) => p.id === session.projectId);
   const heroName = project?.name || session.name || 'this project';
@@ -140,7 +148,7 @@ export function renderChatThreadInner(session) {
     <div class="chat-empty">
       <h2>What should we build in ${safeText(heroName)}?</h2>
     </div>`;
-  return `${messageRows || emptyState}${activity}${renderSessionApprovals(session)}`;
+  return `${messageRows || emptyState}${orphanActivity}${renderSessionApprovals(session)}`;
 }
 
 // Stable chat-column skeleton: an EMPTY thread mount + the composer. The thread is

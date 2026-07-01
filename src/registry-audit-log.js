@@ -7,6 +7,61 @@ import { nowIso, clonePayload } from './registry-utils.js';
 const MAX_LANE_LOG_ENTRIES = 2000;
 const MAX_AGENT_EVENT_ENTRIES = 3000;
 
+function isOrchestratorStartStub(value) {
+  return /^Started\s+.+\s+orchestrator lane\s+"/i.test(String(value || '').trim());
+}
+
+function isGenericCompletionText(value, lane) {
+  const text = String(value || '').trim().toLowerCase();
+  const executor = String(lane?.executorType || '').trim().toLowerCase();
+  return !text
+    || text === 'agent completed'
+    || text === `${executor} execution completed`
+    || text.endsWith(' execution completed')
+    || text.includes('self-verification required before audit');
+}
+
+function promoteOrchestratorThreadOutput(registry, lane, agentEvent, now) {
+  if (String(lane?.owner || '') !== 'orchestrator') return;
+  const session = typeof registry.getSession === 'function' ? registry.getSession(lane.sessionId) : null;
+  const thread = session?.orchestratorThread;
+  if (!thread || !Array.isArray(thread.messages)) return;
+
+  let message = [...thread.messages].reverse()
+    .find((entry) => entry && entry.role === 'assistant' && entry.laneId === lane.id);
+  if (!message) {
+    message = {
+      id: randomUUID(),
+      role: 'assistant',
+      content: '',
+      laneId: lane.id,
+      createdAt: now,
+    };
+    thread.messages.push(message);
+  }
+
+  const type = String(agentEvent.type || '');
+  const content = String(agentEvent.content || '').trim();
+  const current = String(message.content || '');
+  const currentIsStub = isOrchestratorStartStub(current);
+  let nextContent = '';
+
+  if ((type === 'message.assistant.final' || type === 'message.assistant.delta') && content) {
+    nextContent = type === 'message.assistant.final'
+      ? content
+      : `${currentIsStub ? '' : current}${content}`;
+  } else if (type === 'agent.done' && content && (currentIsStub || !current) && !isGenericCompletionText(content, lane)) {
+    nextContent = content;
+  } else if (type === 'error' && content) {
+    nextContent = currentIsStub || !current ? `Error: ${content}` : `${current}\n\nError: ${content}`;
+  }
+
+  if (!nextContent || nextContent === current) return;
+  message.content = nextContent.slice(0, 12000);
+  message.updatedAt = now;
+  thread.updatedAt = now;
+}
+
 export const auditLogMethods = {
   appendLaneLog(lane, message, { persist = false } = {}) {
     if (!lane || !message) return;
@@ -60,6 +115,7 @@ export const auditLogMethods = {
       lane.resultText = String(agentEvent.content).slice(0, 12000);
       lane.resultAt = now;
     }
+    promoteOrchestratorThreadOutput(this, lane, agentEvent, now);
     lane.updatedAt = now;
     this._streamRevision = (this._streamRevision || 0) + 1;
     if (!this._starting && persist) {

@@ -175,11 +175,15 @@ function normalizeCodexEvent(data, source) {
     })];
   }
   if (type === 'turn_complete' || type === 'agent-turn-complete') {
-    return [event('agent.done', {
+    const finalContent = cleanText(msg.content || data.result || '');
+    const done = event('agent.done', {
       source,
       title: 'Codex completed',
-      content: cleanText(msg.content || data.result || ''),
-    })];
+      content: finalContent,
+    });
+    return finalContent
+      ? [event('message.assistant.final', { source, content: finalContent }), done]
+      : [done];
   }
   if (type === 'error') {
     return [event('error', {

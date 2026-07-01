@@ -272,20 +272,52 @@ export function renderAgentEventTimeline(lane, { limit = 80, compact = false } =
   `;
 }
 
-export function renderAssistantEventTranscript(lane, { limit = 80 } = {}) {
+function isGenericCompletionText(value, lane) {
+  const text = String(value || '').trim().toLowerCase();
+  const executor = String(lane?.executorType || '').trim().toLowerCase();
+  return !text
+    || text === 'agent completed'
+    || text === `${executor} execution completed`
+    || text.endsWith(' execution completed')
+    || text.includes('self-verification required before audit');
+}
+
+function readableCommandOutput(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  if (/^[{[]/.test(text)) return '';
+  return text;
+}
+
+export function assistantEventTranscriptText(lane, { limit = 80 } = {}) {
   const events = Array.isArray(lane?.agentEvents) ? lane.agentEvents.slice(-limit) : [];
-  const finalText = events
+  const finalText = String(lane?.resultText || '').trim() || events
     .filter((item) => String(item.type || '') === 'message.assistant.final')
     .map((item) => String(item.content || '').trim())
     .filter(Boolean)
     .at(-1);
-  const assistantText = finalText || events
+  const deltaText = events
     .filter((item) => String(item.type || '') === 'message.assistant.delta')
     .map((item) => String(item.content || '').trim())
     .filter(Boolean)
     .join('');
-  if (!assistantText) return '';
-  return `<div class="chat-agent-transcript">${safeText(assistantText)}</div>`;
+  const doneText = events
+    .filter((item) => String(item.type || '') === 'agent.done')
+    .map((item) => String(item.content || '').trim())
+    .filter((content) => content && !isGenericCompletionText(content, lane))
+    .at(-1);
+  const stdoutText = events
+    .filter((item) => String(item.type || '') === 'command.output' && String(item.stream || 'stdout') !== 'stderr')
+    .map((item) => readableCommandOutput(item.content))
+    .filter(Boolean)
+    .slice(-3)
+    .join('\n');
+  const errorText = events
+    .filter((item) => String(item.type || '') === 'error')
+    .map((item) => String(item.content || '').trim())
+    .filter(Boolean)
+    .at(-1);
+  return finalText || deltaText || doneText || stdoutText || (lane?.state === 'failed' ? errorText : '') || '';
 }
 
 export function modelPresetOptions(selected = '') {

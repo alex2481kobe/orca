@@ -2688,7 +2688,7 @@ body.sidebar-collapsed .pill {
 .msg-assistant { justify-content: flex-start; }
 .msg-body { font-size: 0.93rem; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
 .msg-user .msg-body { background: var(--panel-soft); border: 0; border-radius: var(--radius-xl); max-width: 82%; padding: 0.6rem 0.95rem; }
-.msg-assistant .msg-body { color: var(--text); line-height: 1.6; max-width: 100%; }
+.msg-assistant .msg-body { color: var(--text); display: grid; gap: var(--space-3); line-height: 1.6; max-width: 100%; }
 /* Live agent transcript (tools + streamed output) inside an assistant turn. */
 .chat-activity { display: flex; flex-direction: column; gap: var(--space-3); width: 100%; }
 .chat-activity-status { align-items: center; color: var(--text); display: flex; font-size: 0.88rem; gap: 0.5rem; }

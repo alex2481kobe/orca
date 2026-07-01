@@ -15,6 +15,18 @@ test('Codex JSONL output normalizes into assistant and command events', () => {
   assert.equal(events[1].command, 'npm test');
 });
 
+test('Codex turn completion content is promoted to a final assistant event', () => {
+  const normalizer = createAgentEventNormalizer('codex');
+  const events = normalizer.consume('stdout', `${JSON.stringify({
+    msg: {
+      type: 'turn_complete',
+      content: 'Final answer from Codex.',
+    },
+  })}\n`);
+  assert.deepEqual(events.map((event) => event.type), ['message.assistant.final', 'agent.done']);
+  assert.equal(events[0].content, 'Final answer from Codex.');
+});
+
 test('Claude stream-json text deltas normalize into assistant events', () => {
   const normalizer = createAgentEventNormalizer('claude');
   const events = normalizer.consume('stdout', `${JSON.stringify({
@@ -64,4 +76,3 @@ test('Gemini JSON response normalizes into final assistant event', () => {
   assert.deepEqual(events.map((event) => event.type), ['message.assistant.final', 'agent.done']);
   assert.equal(events[0].content, 'The build is healthy.');
 });
-

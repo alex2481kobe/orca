@@ -33,6 +33,7 @@ export class CliExecutorAdapter {
   constructor(label, options = {}) {
     this.label = label;
     this.onLog = options.onLog || noopAsync;
+    this.onAgentEvent = options.onAgentEvent || noopAsync;
     this.onComplete = options.onComplete || noopAsync;
     this.onFail = options.onFail || noopAsync;
     this.onStop = options.onStop || noopAsync;
@@ -317,6 +318,12 @@ export class CliExecutorAdapter {
         args,
         process: null,
         eventNormalizer: createAgentEventNormalizer(this.label),
+        exitSeen: false,
+        finalized: false,
+        stdoutClosed: true,
+        stderrClosed: true,
+        exitCode: null,
+        signal: null,
       };
       lane.artifactPath = `/artifacts/${lane.sessionId || 'orphan'}/${lane.id}`;
       const safeWorkdir = await this._resolveWorkdir(lane.workdir || this.defaultWorkingDir);
@@ -364,6 +371,8 @@ export class CliExecutorAdapter {
 
       child.stdout?.setEncoding('utf8');
       child.stderr?.setEncoding('utf8');
+      runtime.stdoutClosed = !child.stdout;
+      runtime.stderrClosed = !child.stderr;
       // Bound total forwarded output so a runaway executor cannot exhaust memory
       // through queued data events feeding an async onLog callback.
       runtime.outputBytes = 0;
@@ -408,6 +417,40 @@ export class CliExecutorAdapter {
       child.stdout?.on('data', (chunk) => forward(`[${this.label}]`, chunk, runtime.stdoutLogPath, 'stdout'));
       child.stderr?.on('data', (chunk) => forward(`[${this.label} err]`, chunk, runtime.stderrLogPath, 'stderr'));
 
+      const maybeFinalizeExit = () => {
+        if (runtime.finalized || !runtime.exitSeen || !runtime.stdoutClosed || !runtime.stderrClosed) return;
+        runtime.finalized = true;
+        for (const agentEvent of runtime.eventNormalizer.flush()) {
+          safeFire(this.onAgentEvent, lane, agentEvent);
+        }
+        if (lane.processMeta) {
+          lane.processMeta.endedAt = new Date().toISOString();
+          lane.processMeta.exitCode = runtime.exitCode;
+          lane.processMeta.signal = runtime.signal || null;
+        }
+        if (runtime.status !== 'active') return;
+        runtime.status = runtime.exitCode === 0 ? 'done' : 'failed';
+        this.runtimes.delete(String(lane.id));
+        if (runtime.status === 'done') {
+          safeFire(this.onComplete, lane, `${this.label} exited with code ${runtime.exitCode}`);
+          return;
+        }
+        if (runtime.signal) {
+          safeFire(this.onFail, lane, `${this.label} terminated by ${runtime.signal}`, 'scheduler');
+        } else {
+          safeFire(this.onFail, lane, `${this.label} exited with status ${runtime.exitCode}`, 'scheduler');
+        }
+      };
+
+      child.stdout?.on('close', () => {
+        runtime.stdoutClosed = true;
+        maybeFinalizeExit();
+      });
+      child.stderr?.on('close', () => {
+        runtime.stderrClosed = true;
+        maybeFinalizeExit();
+      });
+
       child.on('error', (error) => {
         if (runtime.status !== 'active') return;
         runtime.status = 'failed';
@@ -422,26 +465,10 @@ export class CliExecutorAdapter {
 
       child.on('exit', (code, signal) => {
         fs.appendFile(runtime.terminalLogPath, `\n[orca] process exited code=${code} signal=${signal || ''}\n`).catch(() => {});
-        for (const agentEvent of runtime.eventNormalizer.flush()) {
-          safeFire(this.onAgentEvent, lane, agentEvent);
-        }
-        if (lane.processMeta) {
-          lane.processMeta.endedAt = new Date().toISOString();
-          lane.processMeta.exitCode = code;
-          lane.processMeta.signal = signal || null;
-        }
-        if (runtime.status !== 'active') return;
-        runtime.status = code === 0 ? 'done' : 'failed';
-        this.runtimes.delete(String(lane.id));
-        if (runtime.status === 'done') {
-          safeFire(this.onComplete, lane, `${this.label} exited with code ${code}`);
-          return;
-        }
-        if (signal) {
-          safeFire(this.onFail, lane, `${this.label} terminated by ${signal}`, 'scheduler');
-        } else {
-          safeFire(this.onFail, lane, `${this.label} exited with status ${code}`, 'scheduler');
-        }
+        runtime.exitSeen = true;
+        runtime.exitCode = code;
+        runtime.signal = signal || null;
+        maybeFinalizeExit();
       });
 
       await safeFire(this.onLog, lane, `${this.label} adapter started (runtime ${runtime.runtimeId})`);
@@ -459,7 +486,9 @@ export class CliExecutorAdapter {
         if (proc) {
           proc.removeAllListeners('exit');
           proc.stdout?.removeAllListeners('data');
+          proc.stdout?.removeAllListeners('close');
           proc.stderr?.removeAllListeners('data');
+          proc.stderr?.removeAllListeners('close');
           proc.removeAllListeners('error');
           const pid = proc.pid;
           if (pid) {
@@ -498,7 +527,9 @@ export class CliExecutorAdapter {
     // child, a late buffered chunk would otherwise call forward() → onLog on a
     // lane the registry has already terminalized, and keep the streams referenced.
     proc.stdout?.removeAllListeners('data');
+    proc.stdout?.removeAllListeners('close');
     proc.stderr?.removeAllListeners('data');
+    proc.stderr?.removeAllListeners('close');
     proc.removeAllListeners('error');
     const pid = proc.pid;
     this.runtimes.delete(laneKey);

@@ -190,12 +190,13 @@ export const schedulerMethods = {
         lane.completedAt = null;
         lane.exitReason = null;
         lane.heartbeatAt = now;
-        this.appendLaneLog(lane, `Lane started by scheduler using ${lane.executorType} executor`, { persist: false });
+        const laneAgentRole = String(lane.owner || '') === 'orchestrator' ? 'orchestrator' : 'executor';
+        this.appendLaneLog(lane, `Lane started by scheduler using ${lane.executorType} ${laneAgentRole}`, { persist: false });
         this.appendLaneAgentEvent(lane, {
           type: 'agent.started',
           source: lane.executorType,
           title: 'Agent process started',
-          content: `Started ${lane.executorType} executor.`,
+          content: `Started ${lane.executorType} ${laneAgentRole}.`,
         });
 
         this.recordAudit({

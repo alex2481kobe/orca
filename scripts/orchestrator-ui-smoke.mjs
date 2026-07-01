@@ -162,21 +162,30 @@ try {
       fail('orchestrator message response', `${turnResponse.status()} ${await turnResponse.text()}`);
     }
     try {
-      // Codex-style chat: the turn renders user + assistant message bubbles.
+      // Codex-style chat: the turn renders user + assistant message bubbles with
+      // real assistant text, not merely process lifecycle events.
       await page.waitForFunction(() =>
         document.querySelectorAll('.chat-thread .msg').length >= 2
+        && (document.querySelector('.chat-thread')?.textContent || '').includes('I can help with that.')
         && document.querySelector('.orchestrator-item')?.textContent.includes('codex'),
       { timeout: 15000 });
     } catch (error) {
       const text = await page.evaluate(() => (document.body.textContent || '').slice(0, 4000));
       fail('orchestrator chat/activity did not render', text);
     }
-    log('dashboard', 'message submitted and activity rendered');
+    const chatText = await page.locator('.chat-thread').innerText();
+    if (chatText.includes('Started codex executor')) fail('chat leaked executor lifecycle copy', chatText);
+    if (chatText.includes('Started codex orchestrator lane')) fail('chat leaked orchestrator stub instead of assistant reply', chatText);
+    log('dashboard', 'message submitted and assistant reply rendered');
 
     const thread = await req('GET', `/api/sessions/${session.body.id}/orchestrator`);
     if (thread.status !== 200) fail('thread fetch', JSON.stringify(thread.body));
     const laneId = thread.body?.activeLaneId;
     if (!laneId) fail('missing active orchestrator lane', JSON.stringify(thread.body));
+    const assistantTurn = (thread.body?.messages || []).find((message) => message.role === 'assistant' && message.laneId === laneId);
+    if (!assistantTurn?.content?.includes('I can help with that.')) {
+      fail('orchestrator thread missing promoted assistant reply', JSON.stringify(thread.body?.messages || []));
+    }
     const lane = await req('GET', `/api/lanes/${laneId}`);
     if (lane.status !== 200) fail('lane fetch', JSON.stringify(lane.body));
     if (lane.body.owner !== 'orchestrator') fail('lane owner', JSON.stringify(lane.body));
@@ -186,6 +195,9 @@ try {
     if (lane.body.intelligenceProfile !== 'high') fail('lane intelligence', JSON.stringify(lane.body));
     if (!Array.isArray(lane.body.agentEvents) || !lane.body.agentEvents.some((event) => event.type === 'agent.queued')) {
       fail('lane agent events', JSON.stringify(lane.body.agentEvents || []));
+    }
+    if (!lane.body.agentEvents.some((event) => event.type === 'message.assistant.final' || event.type === 'message.assistant.delta')) {
+      fail('lane assistant output events', JSON.stringify(lane.body.agentEvents || []));
     }
     log('lane', `${laneId} ${lane.body.state} model=${lane.body.model} mode=${lane.body.permissionsProfile}`);
     await context.close();
