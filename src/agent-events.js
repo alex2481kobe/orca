@@ -165,6 +165,38 @@ function normalizeClaudeEvent(data, source) {
 function normalizeCodexEvent(data, source) {
   const msg = data.msg && typeof data.msg === 'object' ? data.msg : data;
   const type = String(msg.type || data.type || '').toLowerCase();
+  if (type === 'item.completed' && msg.item && typeof msg.item === 'object') {
+    const itemType = String(msg.item.type || '').toLowerCase();
+    if (itemType === 'agent_message' || itemType === 'assistant_message') {
+      const content = cleanText(msg.item.text || msg.item.content || '');
+      if (!content) return [];
+      return [event('message.assistant.final', {
+        source,
+        content,
+      })];
+    }
+    if (itemType === 'mcp_tool_call' || itemType === 'tool_call') {
+      const result = typeof msg.item.result === 'string'
+        ? msg.item.result
+        : JSON.stringify(msg.item.result || {});
+      return [event('tool.completed', {
+        source,
+        toolName: msg.item.tool || msg.item.name,
+        callId: msg.item.id,
+        content: cleanText(msg.item.error?.message || result || '', 2000),
+      })];
+    }
+  }
+  if ((type === 'item.started' || type === 'item.start') && msg.item && typeof msg.item === 'object') {
+    const itemType = String(msg.item.type || '').toLowerCase();
+    if (itemType === 'mcp_tool_call' || itemType === 'tool_call') {
+      return [event('tool.started', {
+        source,
+        toolName: msg.item.tool || msg.item.name,
+        callId: msg.item.id,
+      })];
+    }
+  }
   if (type === 'text' || type === 'message') {
     return [event('message.assistant.delta', {
       source,
@@ -185,7 +217,7 @@ function normalizeCodexEvent(data, source) {
       content: cleanText(msg.content || msg.patch || '', 4000),
     })];
   }
-  if (type === 'turn_complete' || type === 'agent-turn-complete') {
+  if (type === 'turn_complete' || type === 'agent-turn-complete' || type === 'turn.completed') {
     const finalContent = cleanText(msg.content || data.result || '');
     const usage = usageFrom(msg.usage, msg.usage_metrics, msg.usageMetadata, msg.stats, data.usage, data.usage_metrics, data.usageMetadata, data.stats);
     const done = event('agent.done', {

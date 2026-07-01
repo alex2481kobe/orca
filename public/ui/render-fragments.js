@@ -285,7 +285,17 @@ function isGenericCompletionText(value, lane) {
 function readableCommandOutput(value) {
   const text = String(value || '').trim();
   if (!text) return '';
-  if (/^[{[]/.test(text)) return '';
+  if (/^[{[]/.test(text)) {
+    try {
+      const parsed = JSON.parse(text);
+      const item = parsed?.item && typeof parsed.item === 'object' ? parsed.item : null;
+      const itemType = String(item?.type || '').toLowerCase();
+      if ((itemType === 'agent_message' || itemType === 'assistant_message') && (item.text || item.content)) {
+        return String(item.text || item.content || '').trim();
+      }
+    } catch { /* raw JSON remains hidden */ }
+    return '';
+  }
   return text;
 }
 

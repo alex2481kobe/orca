@@ -128,6 +128,8 @@ export const auditLogMethods = {
       lane.resultText = String(agentEvent.content).slice(0, 12000);
       lane.resultAt = now;
       if (usage) lane.tokenUsage = usage;
+    } else if (agentEvent.type === 'agent.done' && usage) {
+      lane.tokenUsage = usage;
     }
     promoteOrchestratorThreadOutput(this, lane, agentEvent, now);
     lane.updatedAt = now;
