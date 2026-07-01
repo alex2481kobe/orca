@@ -84,9 +84,25 @@ try {
   process.env.ORCA_API_TOKEN = token;
   process.env.ORCA_CREDENTIAL_BACKEND = 'memory';
   process.env.ORCA_RATE_LIMIT_DISABLED = 'true';
-  // Run without real CLIs detected so the mock executor stays available in the UI
-  // (mock is hidden once a real first-class CLI is installed).
-  for (const v of ['ORCA_CODEX_BINARY', 'ORCA_CLAUDE_BINARY', 'ORCA_GEMINI_CLI_BINARY', 'ORCA_COMPOSER_CLI_BINARY']) process.env[v] = 'orca-absent-cli';
+  // Product UI should only offer agents that resolve on disk. Use a tiny fake
+  // Codex binary for the browser smoke instead of exposing the internal mock
+  // adapter in the operator dropdown.
+  const fakeBinDir = path.join(tempDir, 'bin');
+  await fs.mkdir(fakeBinDir, { recursive: true });
+  const fakeCodex = path.join(fakeBinDir, 'codex');
+  await fs.writeFile(fakeCodex, [
+    '#!/usr/bin/env node',
+    'const args = process.argv.slice(2);',
+    'if (args.includes("--version") || args.includes("-V")) { console.log("codex-cli 0.0.0-smoke"); process.exit(0); }',
+    'if (args.includes("--help") || args.includes("-h")) { console.log("--model gpt-5\\n--effort (low|medium|high|xhigh)"); process.exit(0); }',
+    'console.log(JSON.stringify({ msg: { type: "text", content: "I can help with that." } }));',
+    'console.log(JSON.stringify({ msg: { type: "turn_complete", content: "I can help with that." } }));',
+    '',
+  ].join('\n'));
+  await fs.chmod(fakeCodex, 0o755);
+  process.env.ORCA_CODEX_BINARY = fakeCodex;
+  process.env.ORCA_CODEX_ALLOWED_BINARIES = fakeCodex;
+  for (const v of ['ORCA_CLAUDE_BINARY', 'ORCA_GEMINI_CLI_BINARY', 'ORCA_COMPOSER_CLI_BINARY']) process.env[v] = 'orca-absent-cli';
 
   const [{ chromium }, serverModule] = await Promise.all([
     import('playwright'),
@@ -132,7 +148,7 @@ try {
       await dd.locator('.dd-trigger').click();
       await dd.locator(`.dd-opt[data-v="${value}"]`).click();
     };
-    await pick('executorType', 'mock');
+    await pick('executorType', 'codex');
     await pick('permissionsProfile', 'plan');
     // Model is carried on a hidden field (chosen per-agent); set it directly.
     await page.$eval('#orchestrator-message-form input[name="model"]', (el, v) => { el.value = v; }, 'gpt-5');
@@ -148,7 +164,8 @@ try {
     try {
       // Codex-style chat: the turn renders user + assistant message bubbles.
       await page.waitForFunction(() =>
-        document.querySelectorAll('.chat-thread .msg').length >= 2,
+        document.querySelectorAll('.chat-thread .msg').length >= 2
+        && document.querySelector('.orchestrator-item')?.textContent.includes('codex'),
       { timeout: 15000 });
     } catch (error) {
       const text = await page.evaluate(() => (document.body.textContent || '').slice(0, 4000));
@@ -163,7 +180,7 @@ try {
     const lane = await req('GET', `/api/lanes/${laneId}`);
     if (lane.status !== 200) fail('lane fetch', JSON.stringify(lane.body));
     if (lane.body.owner !== 'orchestrator') fail('lane owner', JSON.stringify(lane.body));
-    if (lane.body.executorType !== 'mock') fail('lane executor', JSON.stringify(lane.body));
+    if (lane.body.executorType !== 'codex') fail('lane executor', JSON.stringify(lane.body));
     if (lane.body.model !== 'gpt-5') fail('lane model', JSON.stringify(lane.body));
     if (lane.body.permissionsProfile !== 'plan') fail('lane mode', JSON.stringify(lane.body));
     if (lane.body.intelligenceProfile !== 'high') fail('lane intelligence', JSON.stringify(lane.body));

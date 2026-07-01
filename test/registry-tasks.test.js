@@ -423,7 +423,7 @@ test('tasks: deleting a session removes its backlog tasks (no orphans)', async (
     registry.addTask(session.id, { title: 't1' });
     registry.addTask(session.id, { title: 't2' });
     registry.updateSession(session.id, { state: 'archived' }, { actor: 'test', approved: true });
-    await registry.deleteSession(session.id, { actor: 'test' });
+    await registry.deleteSession(session.id, { actor: 'test', approved: true });
     assert.equal(registry.tasks.filter((t) => t.sessionId === session.id).length, 0);
   });
 });

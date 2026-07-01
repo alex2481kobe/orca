@@ -252,7 +252,7 @@ test('deleteSession stops a running lane and clears its runtime maps (no orphan)
     assert.equal(registry.getRunningCountForSession(session.id), 1);
 
     registry.updateSession(session.id, { state: 'archived' }, { actor: 'test', approved: true });
-    await registry.deleteSession(session.id, { actor: 'test' });
+    await registry.deleteSession(session.id, { actor: 'test', approved: true });
 
     assert.equal(registry.getRunningCountForSession(session.id), 0);
     assert.equal(registry.laneRuntimeEnv.has(String(lane.id)), false);

@@ -267,7 +267,7 @@ export function renderAccessGate() {
           <div class="card-kicker">Workstation admin</div>
           <h3>Unlock setup and pairing</h3>
           <p>Enter the server API token only on a trusted workstation/admin browser. After unlock, Settings shows QR setup, HTTP/HTTPS preference, paired devices, revocation, and one-time pairing codes for phone or laptop browsers.</p>
-          <div class="gate-form">
+          <form class="gate-form" autocomplete="off">
             <label>API token
               <input id="api-token-input" type="password" autocomplete="off" placeholder="Paste token" />
             </label>
@@ -275,7 +275,7 @@ export function renderAccessGate() {
               <button data-action="setApiToken" type="button">Connect</button>
               <button class="secondary" data-action="clearApiToken" type="button">Clear</button>
             </div>
-          </div>
+          </form>
         </section>
         <section class="gate-section">
           <div class="card-kicker">Already have a code?</div>

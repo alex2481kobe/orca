@@ -306,6 +306,11 @@ document.addEventListener('change', (event) => {
     // and refreshes the "{model} {reasoning}" label next to send.
     const modelField = form.querySelector('input[name="model"]');
     if (modelField) modelField.value = defaultModelFor(event.target.value) || '';
+    const laneAgent = document.querySelector('#create-lane-form select[name="executorType"]');
+    if (laneAgent && laneAgent.value !== event.target.value) {
+      laneAgent.value = event.target.value;
+      renderLaneExecutorGuidance(laneAgent.form);
+    }
     refreshConfigLabel(form);
   }
   if (event.target && event.target.id === 'composer-file-input') {

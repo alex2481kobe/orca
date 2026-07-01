@@ -90,13 +90,21 @@ export async function handleProjectRoutes(ctx, req, res, method, parts) {
         }
       }
       if (method === 'DELETE') {
-        const body = await parseJsonBody(req).catch(() => ({}));
-        if (rejectSpoofedActor(body || {}, res)) return;
+        const body = await parseJsonBody(req);
+        if (!body || typeof body !== 'object' || Array.isArray(body)) return sendBodyError(req, res);
+        if (rejectSpoofedActor(body, res)) return;
         try {
-          const result = await registry.deleteProject(project.id, { actor: (body && body.actor) || 'dashboard' });
+          const result = await registry.deleteProject(project.id, {
+            actor: req._toolLease?.actor || body.actor || 'dashboard',
+            approved: body.approved,
+          });
           return sendJson(res, 200, result);
         } catch (error) {
-          return sendJson(res, error.status || 500, { error: error.message || 'Could not delete project.' });
+          return sendJson(res, error.status || 500, {
+            error: error.message || 'Could not delete project.',
+            requiresApproval: error.requiresApproval || false,
+            risk: error.risk || null,
+          });
         }
       }
       return sendJson(res, 405, { error: 'Method not allowed.' });

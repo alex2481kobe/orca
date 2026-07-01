@@ -426,9 +426,18 @@ export const sessionMethods = {
   // Permanently delete an ARCHIVED session: drop its lanes (best-effort worktree
   // cleanup), remove its on-disk workspace, and erase the record. Refuses to touch
   // a non-archived session so an active chat can't be nuked by accident.
-  async deleteSession(sessionLocator, { actor = 'dashboard' } = {}) {
+  async deleteSession(sessionLocator, { actor = 'dashboard', approved = false } = {}) {
     const session = this.getSession(sessionLocator);
     if (!session) throw { status: 404, message: 'Session not found.' };
+    const policyCheck = this.evaluateActionPolicy('deleteSession', { approved });
+    if (!policyCheck.allowed) {
+      throw {
+        status: 409,
+        message: policyCheck.message,
+        requiresApproval: true,
+        risk: policyCheck.policy.risk,
+      };
+    }
     if (session.state !== 'archived') {
       throw { status: 422, message: 'Archive the session before permanently deleting it.' };
     }
@@ -467,9 +476,18 @@ export const sessionMethods = {
   },
 
   // Permanently delete an ARCHIVED project and everything under it.
-  async deleteProject(projectLocator, { actor = 'dashboard' } = {}) {
+  async deleteProject(projectLocator, { actor = 'dashboard', approved = false } = {}) {
     const project = this.projects.find((entry) => entry.id === projectLocator || entry.slug === projectLocator);
     if (!project) throw { status: 404, message: 'Project not found.' };
+    const policyCheck = this.evaluateActionPolicy('deleteProject', { approved });
+    if (!policyCheck.allowed) {
+      throw {
+        status: 409,
+        message: policyCheck.message,
+        requiresApproval: true,
+        risk: policyCheck.policy.risk,
+      };
+    }
     if (project.state !== 'archived') {
       throw { status: 422, message: 'Archive the project before permanently deleting it.' };
     }
@@ -477,7 +495,7 @@ export const sessionMethods = {
     for (const sessionId of sessionIds) {
       const session = this.getSession(sessionId);
       if (session && session.state !== 'archived') session.state = 'archived';
-      try { await this.deleteSession(sessionId, { actor }); } catch { /* best effort per session */ }
+      try { await this.deleteSession(sessionId, { actor, approved: true }); } catch { /* best effort per session */ }
     }
     this.projects = this.projects.filter((entry) => entry.id !== project.id);
     this.recordAudit({

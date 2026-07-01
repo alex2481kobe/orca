@@ -38,6 +38,12 @@ export const notificationMethods = {
       return null;
     }
 
+    const safeHref = typeof href === 'string' && href.startsWith('/') && !href.startsWith('//')
+      ? href
+      : null;
+    const safeMetadata = metadata && typeof metadata === 'object'
+      ? JSON.parse(JSON.stringify(metadata))
+      : {};
     const normalizedDedupeKey = dedupeKey ? sanitizeNotificationText(dedupeKey, '', 180) : null;
     if (normalizedDedupeKey) {
       const existing = (this.notifications || []).find((notification) =>
@@ -46,16 +52,39 @@ export const notificationMethods = {
         && notification.sessionId === (sessionId || null)
         && notification.laneId === (laneId || null));
       if (existing) {
-        existing.updatedAt = nowIso();
+        const now = nowIso();
+        existing.updatedAt = now;
         existing.occurrences = Math.min(10_000, (Number.parseInt(existing.occurrences, 10) || 1) + 1);
+        existing.readAt = null;
+        delete existing.readBy;
+        existing.type = sanitizeNotificationText(type, 'system', 80);
+        existing.severity = normalizedSeverity;
+        existing.title = sanitizeNotificationText(title, 'Orca update', 120);
+        existing.body = sanitizeNotificationText(body, '', 220);
+        existing.actor = sanitizeNotificationText(actor, 'system', 80);
         existing.lastActor = sanitizeNotificationText(actor, 'system', 80);
+        existing.href = safeHref;
+        existing.metadata = safeMetadata;
+        this.recordAudit({
+          type: 'notification_deduped',
+          actor: existing.actor,
+          projectId: existing.projectId,
+          sessionId: existing.sessionId,
+          laneId: existing.laneId,
+          summary: `${existing.severity} notification recurred: ${existing.title}`,
+          evidence: {
+            notificationId: existing.id,
+            notificationType: existing.type,
+            severity: existing.severity,
+            occurrences: existing.occurrences,
+            href: existing.href,
+          },
+          status: 'passed',
+        });
         return clonePayload(existing);
       }
     }
 
-    const safeHref = typeof href === 'string' && href.startsWith('/') && !href.startsWith('//')
-      ? href
-      : null;
     const notification = {
       id: randomUUID(),
       createdAt: nowIso(),
@@ -71,9 +100,7 @@ export const notificationMethods = {
       href: safeHref,
       dedupeKey: normalizedDedupeKey,
       occurrences: 1,
-      metadata: metadata && typeof metadata === 'object'
-        ? JSON.parse(JSON.stringify(metadata))
-        : {},
+      metadata: safeMetadata,
     };
 
     this.notifications.unshift(notification);

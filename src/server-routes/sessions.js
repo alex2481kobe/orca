@@ -59,13 +59,21 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
     }
 
     if (parts.length === 3 && method === 'DELETE') {
-      const body = await parseJsonBody(req).catch(() => ({}));
-      if (rejectSpoofedActor(body || {}, res)) return;
+      const body = await parseJsonBody(req);
+      if (!body || typeof body !== 'object' || Array.isArray(body)) return sendBodyError(req, res);
+      if (rejectSpoofedActor(body, res)) return;
       try {
-        const result = await registry.deleteSession(session.id, { actor: (body && body.actor) || 'dashboard' });
+        const result = await registry.deleteSession(session.id, {
+          actor: req._toolLease?.actor || body.actor || 'dashboard',
+          approved: body.approved,
+        });
         return sendJson(res, 200, result);
       } catch (error) {
-        return sendJson(res, error.status || 500, { error: error.message || 'Could not delete session.' });
+        return sendJson(res, error.status || 500, {
+          error: error.message || 'Could not delete session.',
+          requiresApproval: error.requiresApproval || false,
+          risk: error.risk || null,
+        });
       }
     }
 

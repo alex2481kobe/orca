@@ -27,6 +27,16 @@ export const defaultPolicy = {
     risk: 'medium',
     message: 'Project updates can alter routes, quick links, and routing state.',
   },
+  deleteSession: {
+    requiresApproval: true,
+    risk: 'high',
+    message: 'Permanently deletes an archived session, lanes, backlog tasks, and workspace data.',
+  },
+  deleteProject: {
+    requiresApproval: true,
+    risk: 'high',
+    message: 'Permanently deletes an archived project and all of its sessions.',
+  },
   stopLane: {
     requiresApproval: true,
     risk: 'high',

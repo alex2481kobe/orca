@@ -272,6 +272,22 @@ export function renderAgentEventTimeline(lane, { limit = 80, compact = false } =
   `;
 }
 
+export function renderAssistantEventTranscript(lane, { limit = 80 } = {}) {
+  const events = Array.isArray(lane?.agentEvents) ? lane.agentEvents.slice(-limit) : [];
+  const finalText = events
+    .filter((item) => String(item.type || '') === 'message.assistant.final')
+    .map((item) => String(item.content || '').trim())
+    .filter(Boolean)
+    .at(-1);
+  const assistantText = finalText || events
+    .filter((item) => String(item.type || '') === 'message.assistant.delta')
+    .map((item) => String(item.content || '').trim())
+    .filter(Boolean)
+    .join('');
+  if (!assistantText) return '';
+  return `<div class="chat-agent-transcript">${safeText(assistantText)}</div>`;
+}
+
 export function modelPresetOptions(selected = '') {
   const normalized = String(selected || '').trim();
   // No hardcoded model version numbers — they go stale (e.g. Opus 4.7 -> 4.8).

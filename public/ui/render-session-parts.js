@@ -2,7 +2,7 @@
 
 import { formatRelative, safeAttr, safeText, stateBadge } from './format.js';
 import { isLaneStoppable, isLiveLaneState, isRestartableLaneState, pendingAuditsForSession } from './render-helpers.js';
-import { activeOrchestratorLaneForSession, intelligenceOptionsFor, renderAgentEventTimeline, runModeOptionsFor } from './render-fragments.js';
+import { activeOrchestratorLaneForSession, intelligenceOptionsFor, renderAgentEventTimeline, renderAssistantEventTranscript, runModeOptionsFor } from './render-fragments.js';
 import { shell } from './state.js';
 import { renderAlert, writeHtml } from './dom.js';
 import { api } from './api.js';
@@ -127,6 +127,7 @@ export function renderChatThreadInner(session) {
         <div class="msg-body">
           <div class="chat-activity">
             ${working ? '<div class="chat-activity-status"><span class="chat-spinner" aria-hidden="true"></span>Working…</div>' : ''}
+            ${renderAssistantEventTranscript(lane, { limit: 80 })}
             ${renderAgentEventTimeline(lane, { limit: 80 })}
           </div>
         </div>
@@ -273,6 +274,21 @@ export function renderExecutorListInner(session) {
   return executorLanes.map(renderExecutorLanePanelItem).join('') || '<div class="muted tiny">No executor lanes yet.</div>';
 }
 
+export function renderOrchestratorPanelInner(session) {
+  const orchestratorLane = activeOrchestratorLaneForSession(session);
+  const orchestratorEventCount = orchestratorLane
+    ? (orchestratorLane.agentEventCount ?? (orchestratorLane.agentEvents || []).length ?? 0)
+    : 0;
+  return orchestratorLane ? `
+    <article class="executor-item orchestrator-item">
+      <div>
+        <strong>${safeText(orchestratorLane.executorType || 'agent')}</strong>
+        <div class="tiny muted">${safeText(orchestratorLane.title || 'Chat turn')} · ${safeText(orchestratorLane.state || 'queued')} · ${safeText(String(orchestratorEventCount))} events</div>
+      </div>
+    </article>
+  ` : '<div class="muted tiny">No active chat turn.</div>';
+}
+
 export function renderExecutorSidePanel(session) {
   const executorLanes = executorLanesForSession(session);
   const auditorLanes = auditorLanesForSession(session);
@@ -284,7 +300,8 @@ export function renderExecutorSidePanel(session) {
   const hasAuditable = pendingAudits.length > 0
     || auditorLanes.length > 0
     || executorLanes.some((lane) => AUDITABLE_STATES.includes(String(lane.state || '').toLowerCase()));
-  const agentOptions = `${cliExecutorOptions()}${shell.executorProfiles?.cli ? '<option value="cli">cli</option>' : ''}${apiProviderOptions()}`;
+  const selectedLaneExecutor = defaultExecutorType(session.orchestratorThread?.executorType || session.leader);
+  const agentOptions = `${cliExecutorOptions(selectedLaneExecutor)}${shell.executorProfiles?.cli ? '<option value="cli">cli</option>' : ''}${apiProviderOptions()}`;
   const backlog = shell.backlogs?.[session.id] || null;
   const hasBacklog = backlog && backlog.counts && backlog.counts.total > 0;
   const c = hasBacklog ? backlog.counts : null;
@@ -303,6 +320,10 @@ export function renderExecutorSidePanel(session) {
         </div>
       </div>
       <div class="info-panel-body">
+        <section class="info-section">
+          <h4 class="info-title">Orchestrator</h4>
+          <div id="orchestrator-panel-${safeAttr(session.id)}">${renderOrchestratorPanelInner(session)}</div>
+        </section>
         <section class="info-section">
           <h4 class="info-title">Executor lanes <span class="info-count">${safeText(executorLanes.length)}</span></h4>
           <div class="executor-panel-list" id="executor-list-${safeAttr(session.id)}"></div>

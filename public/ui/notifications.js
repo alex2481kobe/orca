@@ -49,11 +49,14 @@ export function maybeShowBrowserNotifications() {
   const seen = readSeenBrowserNotifications();
   const items = Array.isArray(notificationState.notifications) ? notificationState.notifications : [];
   for (const item of items.filter((notification) => !notification.readAt).slice(0, 5)) {
-    if (!item.id || seen.has(item.id)) continue;
-    seen.add(item.id);
+    const seenKey = item.id
+      ? `${item.id}:${item.occurrences || 1}:${item.updatedAt || item.createdAt || ''}`
+      : '';
+    if (!seenKey || seen.has(seenKey)) continue;
+    seen.add(seenKey);
     const notice = new window.Notification(item.title || 'Orca update', {
       body: item.body || item.severity || 'Status changed',
-      tag: item.id,
+      tag: seenKey,
       renotify: false,
     });
     if (item.href) {

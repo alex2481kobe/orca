@@ -135,14 +135,17 @@ function isEditingContent() {
 export async function refresh(options = {}) {
   if (refreshInFlight) return;
   // A background poll/stream refresh must not yank focus or re-render the form a
-  // user is actively editing. Values are preserved on explicit renders anyway.
-  if (options.background && isEditingContent()) return;
+  // user is actively editing. Session chat views are the exception: they have
+  // targeted thread/lane mounts and composer rehydration, so live agent output can
+  // update while the operator keeps typing.
+  const routeAtStart = parseRoute();
+  if (options.background && isEditingContent() && !routeAtStart.sessionId) return;
   refreshInFlight = true;
   lastRefreshAt = Date.now();
   const requestId = ++refreshRequestId;
   const uiState = captureContentUiState();
   try {
-    shell.route = parseRoute();
+    shell.route = routeAtStart;
     const abortFromAuth = (response) => abortRefreshFromUnauthorized(response, requestId, uiState);
     const authResp = await api('/api/auth/status');
     // status 0 = the fetch itself failed (connection refused / DNS) — the Orca
@@ -254,7 +257,10 @@ export async function refresh(options = {}) {
         }
         // Backlog roll-up for the OPEN session only (one cheap fetch) — powers the
         // session backlog panel without scanning tasks for every session each poll.
-        if (shell.route.sessionId) {
+        const openSession = shell.route.sessionId
+          ? allSessions.find((session) => session.id === shell.route.sessionId)
+          : null;
+        if (openSession && !openSession.isDraft) {
           const backlogResp = await api(`/api/sessions/${encodeURIComponent(shell.route.sessionId)}/backlog`);
           if (requestId !== refreshRequestId) return;
           if (backlogResp.ok && backlogResp.data) {

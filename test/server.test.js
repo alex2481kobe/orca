@@ -91,13 +91,15 @@ async function startServer({ token, env = {} }) {
   const moduleUrl = `${pathToFileURL(entrypoint).href}?server-test-harness=${Date.now()}-${++harnessCounter}`;
   const { routeRequest, stopServer } = await import(moduleUrl);
 
-  const requestJson = async (requestPath, options = {}) => {
-  const headers = {
-    'content-type': 'application/json',
-    ...(options.headers || {}),
-  };
+  const requestRaw = async (requestPath, options = {}) => {
+    const headers = {
+      'content-type': 'application/json',
+      ...(options.headers || {}),
+    };
 
-    const body = options.body !== undefined ? JSON.stringify(options.body) : undefined;
+    const body = options.rawBody !== undefined
+      ? String(options.rawBody)
+      : (options.body !== undefined ? JSON.stringify(options.body) : undefined);
     const { res, bodyText } = createResponseState();
     const req = new PassThrough();
     req.method = options.method || 'GET';
@@ -123,8 +125,11 @@ async function startServer({ token, env = {} }) {
     };
   };
 
+  const requestJson = requestRaw;
+
   return {
     requestJson,
+    requestRaw,
     stop: async () => {
       if (typeof stopServer === 'function') {
         await stopServer();
@@ -934,6 +939,102 @@ test('session updates require explicit approval', async () => {
       },
     });
     assert.equal(badState.status, 422);
+  } finally {
+    await server.stop();
+  }
+});
+
+test('permanent project and session delete require valid JSON, approval, and archived state', async () => {
+  const token = 'route-token-permanent-delete';
+  const server = await startServer({ token });
+
+  try {
+    const project = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        name: 'Permanent Delete Project',
+        approved: true,
+      },
+    });
+    assert.equal(project.status, 201);
+
+    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        name: 'Permanent Delete Session',
+        approved: true,
+      },
+    });
+    assert.equal(session.status, 201);
+
+    const malformed = await server.requestRaw(`/api/sessions/${session.body.id}`, {
+      method: 'DELETE',
+      headers: { 'x-orca-token': token },
+      rawBody: '{not-json',
+    });
+    assert.equal(malformed.status, 400);
+
+    const missingApproval = await server.requestJson(`/api/sessions/${session.body.id}`, {
+      method: 'DELETE',
+      headers: { 'x-orca-token': token },
+      body: {},
+    });
+    assert.equal(missingApproval.status, 409);
+    assert.equal(Boolean(missingApproval.body?.requiresApproval), true);
+
+    const activeDelete = await server.requestJson(`/api/sessions/${session.body.id}`, {
+      method: 'DELETE',
+      headers: { 'x-orca-token': token },
+      body: { approved: true },
+    });
+    assert.equal(activeDelete.status, 422);
+
+    const archivedSession = await server.requestJson(`/api/sessions/${session.body.id}`, {
+      method: 'PATCH',
+      headers: { 'x-orca-token': token },
+      body: { state: 'archived', approved: true },
+    });
+    assert.equal(archivedSession.status, 200);
+
+    const deletedSession = await server.requestJson(`/api/sessions/${session.body.id}`, {
+      method: 'DELETE',
+      headers: { 'x-orca-token': token },
+      body: { approved: true },
+    });
+    assert.equal(deletedSession.status, 200);
+    assert.equal(deletedSession.body?.deleted, true);
+
+    const projectMissingApproval = await server.requestJson(`/api/projects/${project.body.id}`, {
+      method: 'DELETE',
+      headers: { 'x-orca-token': token },
+      body: {},
+    });
+    assert.equal(projectMissingApproval.status, 409);
+    assert.equal(Boolean(projectMissingApproval.body?.requiresApproval), true);
+
+    const activeProjectDelete = await server.requestJson(`/api/projects/${project.body.id}`, {
+      method: 'DELETE',
+      headers: { 'x-orca-token': token },
+      body: { approved: true },
+    });
+    assert.equal(activeProjectDelete.status, 422);
+
+    const archivedProject = await server.requestJson(`/api/projects/${project.body.id}/archive`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { approved: true },
+    });
+    assert.equal(archivedProject.status, 200);
+
+    const deletedProject = await server.requestJson(`/api/projects/${project.body.id}`, {
+      method: 'DELETE',
+      headers: { 'x-orca-token': token },
+      body: { approved: true },
+    });
+    assert.equal(deletedProject.status, 200);
+    assert.equal(deletedProject.body?.deleted, true);
   } finally {
     await server.stop();
   }

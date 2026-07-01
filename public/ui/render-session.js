@@ -5,7 +5,7 @@ import { writeHtml } from './dom.js';
 import { activeOrchestratorLaneForSession, renderLaneExecutorGuidance } from './render-fragments.js';
 import { safeText, safeAttr } from './format.js';
 import { icon } from './icons.js';
-import { renderExecutorSidePanel, renderOrchestratorConsole, renderChatThreadInner, renderExecutorListInner } from './render-session-parts.js';
+import { renderExecutorSidePanel, renderOrchestratorConsole, renderChatThreadInner, renderExecutorListInner, renderOrchestratorPanelInner } from './render-session-parts.js';
 import { hydrateComposerContext } from './composer-context.js';
 import { isForeignModel, defaultModelFor } from './executor.js';
 import { refreshConfigLabel } from './composer-config.js';
@@ -84,6 +84,8 @@ export function renderSession(project, session) {
   }
   const listEl = document.getElementById(`executor-list-${sid}`);
   if (listEl) writeHtml(listEl, renderExecutorListInner(session));
+  const orchestratorPanelEl = document.getElementById(`orchestrator-panel-${sid}`);
+  if (orchestratorPanelEl) writeHtml(orchestratorPanelEl, renderOrchestratorPanelInner(session));
   // Rehydrate the composer from the draft store (source of truth). Only when the
   // box is not focused, so we never disturb the caret of someone mid-type.
   const composer = document.querySelector('#orchestrator-message-form textarea[name="message"]');

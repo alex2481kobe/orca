@@ -2692,6 +2692,16 @@ body.sidebar-collapsed .pill {
 /* Live agent transcript (tools + streamed output) inside an assistant turn. */
 .chat-activity { display: flex; flex-direction: column; gap: var(--space-3); width: 100%; }
 .chat-activity-status { align-items: center; color: var(--text); display: flex; font-size: 0.88rem; gap: 0.5rem; }
+.chat-agent-transcript {
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  font-size: 0.93rem;
+  line-height: 1.6;
+  padding: var(--space-4);
+  white-space: pre-wrap;
+}
 .chat-spinner { animation: chat-spin 0.7s linear infinite; border: 2px solid var(--line); border-radius: 50%; border-top-color: var(--text); display: inline-block; height: 14px; width: 14px; }
 @keyframes chat-spin { to { transform: rotate(360deg); } }
 

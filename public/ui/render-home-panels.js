@@ -416,15 +416,17 @@ export function renderTokenPanel(ctx) {
               { label: 'Browser session', value: browserPaired ? 'Paired' : 'Not paired' },
               { label: 'Preferred access', value: 'Pairing code' },
             ])}
-            <label>Token
-          <input id="api-token-input" type="password" placeholder="Enter token" autocomplete="off" />
-            </label>
-            <div class="lane-row">
-          <button class="secondary" data-action="setApiToken" type="button">Save token</button>
-          <button class="secondary" data-action="clearApiToken" type="button">Clear token</button>
-          ${pairingCodeButton('Create pairing code')}
-          ${browserPaired ? '<button class="secondary" data-action="logoutBrowserSession" type="button">Log out paired browser</button>' : ''}
-            </div>
+            <form class="gate-form" autocomplete="off">
+              <label>Token
+                <input id="api-token-input" type="password" placeholder="Enter token" autocomplete="off" />
+              </label>
+              <div class="lane-row">
+                <button class="secondary" data-action="setApiToken" type="button">Save token</button>
+                <button class="secondary" data-action="clearApiToken" type="button">Clear token</button>
+                ${pairingCodeButton('Create pairing code')}
+                ${browserPaired ? '<button class="secondary" data-action="logoutBrowserSession" type="button">Log out paired browser</button>' : ''}
+              </div>
+            </form>
             ${pairedDevicesDisclosure({ uikey: 'token-paired-devices', summary: pairedDeviceSummary('session'), rows: authSessionRows, emptyText: 'No paired browser sessions yet.' })}
             <details class="disclosure compact-disclosure">
           <summary><span>Packaged app credential storage</span><small>Tauri scope</small></summary>

@@ -2924,6 +2924,46 @@ test('notification redaction scrubs secret formats and the orca token name', asy
   }
 });
 
+test('deduped notifications recur as unread with updated visible fields', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const first = registry.enqueueNotification({
+      type: 'loop',
+      severity: 'warning',
+      title: 'Loop paused',
+      body: 'First pause',
+      dedupeKey: 'loop-paused:test',
+      href: '/projects/a',
+    });
+    assert.ok(first?.id);
+    registry.markNotificationRead(first.id, { actor: 'test' });
+    const read = registry.getNotifications({ limit: 5 }).notifications.find((n) => n.id === first.id);
+    assert.ok(read.readAt);
+
+    const second = registry.enqueueNotification({
+      type: 'loop',
+      severity: 'error',
+      title: 'Loop paused again',
+      body: 'Second pause',
+      actor: 'loop-daemon',
+      dedupeKey: 'loop-paused:test',
+      href: '/projects/b',
+      metadata: { reason: 'rate_limit' },
+    });
+    assert.equal(second.id, first.id);
+    assert.equal(second.occurrences, 2);
+    assert.equal(second.readAt, null);
+    assert.equal(second.title, 'Loop paused again');
+    assert.equal(second.severity, 'error');
+    assert.equal(second.href, '/projects/b');
+    const state = registry.getNotifications({ limit: 5 });
+    assert.equal(state.unreadCount, 1);
+    assert.ok(registry.auditEvents.some((event) => event.type === 'notification_deduped' && event.evidence?.occurrences === 2));
+  } finally {
+    await cleanup();
+  }
+});
+
 test('reinstall override rejects alternate registries, alias packages, and bare URLs', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
@@ -2979,13 +3019,30 @@ test('deleteSession permanently removes an archived session and refuses active o
   try {
     const project = registry.createProject({ name: 'Del' }, { actor: 'test', approved: true });
     const session = registry.createSession(project.id, { name: 'Chat' }, { actor: 'test', approved: true });
-    // Refuses while active.
-    await assert.rejects(() => registry.deleteSession(session.id, { actor: 'test' }), (e) => e.status === 422);
-    // Archive, then permanently delete.
+    await assert.rejects(() => registry.deleteSession(session.id, { actor: 'test' }), (e) => e.status === 409 && e.requiresApproval);
+    await assert.rejects(() => registry.deleteSession(session.id, { actor: 'test', approved: true }), (e) => e.status === 422);
     await registry.updateSession(session.id, { state: 'archived' }, { actor: 'test', approved: true });
-    const result = await registry.deleteSession(session.id, { actor: 'test' });
+    await assert.rejects(() => registry.deleteSession(session.id, { actor: 'test' }), (e) => e.status === 409 && e.requiresApproval);
+    const result = await registry.deleteSession(session.id, { actor: 'test', approved: true });
     assert.equal(result.deleted, true);
     assert.equal(registry.getSession(session.id), undefined, 'session record is gone');
+  } finally {
+    await cleanup();
+  }
+});
+
+test('deleteProject requires approval and archived state before permanent removal', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const project = registry.createProject({ name: 'Delete Project' }, { actor: 'test', approved: true });
+    registry.createSession(project.id, { name: 'Nested' }, { actor: 'test', approved: true });
+    await assert.rejects(() => registry.deleteProject(project.id, { actor: 'test' }), (e) => e.status === 409 && e.requiresApproval);
+    await assert.rejects(() => registry.deleteProject(project.id, { actor: 'test', approved: true }), (e) => e.status === 422);
+    registry.updateProject(project.id, { state: 'archived' }, { actor: 'test', approved: true });
+    const result = await registry.deleteProject(project.id, { actor: 'test', approved: true });
+    assert.equal(result.deleted, true);
+    assert.equal(registry.getProject(project.id), undefined);
+    assert.equal(registry.listArchived().projects.length, 0);
   } finally {
     await cleanup();
   }
