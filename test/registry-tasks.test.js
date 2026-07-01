@@ -263,6 +263,50 @@ test('tasks: backlog completion does not spawn an orchestrator lane when an exte
   });
 });
 
+test('tasks: expired external orchestrator lease does not spawn fallback orchestrator lane', async () => {
+  await withRegistry(async (registry) => {
+    const { project, session } = makeSession(registry, {
+      settingsOverrides: { flow: { requireAuditPass: false } },
+    });
+    const bootstrap = registry.createOrchestratorMcpBootstrap({
+      actor: 'fable-stale-orchestrator',
+      projectId: project.id,
+      sessionId: session.id,
+      ttlMs: 60_000,
+    });
+    const lease = registry.validateToolLease(bootstrap.leaseToken, {
+      role: 'orchestrator',
+      toolId: 'orchestrator.enroll',
+      projectId: project.id,
+      sessionId: session.id,
+    });
+    registry.enrollOrchestrator(session.id, {
+      leaseId: lease.id,
+      actor: lease.actor,
+      source: 'mcp',
+    });
+    registry.toolLeases.find((entry) => entry.id === lease.id).expiresAt = new Date(Date.now() - 1000).toISOString();
+    let fallbackMessages = 0;
+    registry.sendOrchestratorMessage = async () => { fallbackMessages += 1; };
+
+    const task = registry.addTask(session.id, { title: 'complete after lease expiry' });
+    const lane = makeLane(registry, session.id, { owner: 'executor' });
+    registry.claimNextPendingTask(session.id);
+    registry.linkTaskToLane(task.id, lane.id);
+
+    registry.markLaneCompleted(registry.getLane(lane.id));
+
+    assert.equal(registry.getTask(task.id).state, 'accepted');
+    assert.equal(fallbackMessages, 0);
+    assert.equal(registry.lanes.filter((entry) => entry.sessionId === session.id).length, 1);
+    const thread = registry.getOrchestratorThread(session.id);
+    assert.match(thread.messages.at(-1).content, /MCP lease expired/i);
+    assert.ok(registry.notifications.some((entry) =>
+      entry.type === 'orchestrator_reconnect_required'
+      && entry.sessionId === session.id));
+  });
+});
+
 test('tasks: lane failure requeues within budget, then fails', async () => {
   await withRegistry(async (registry) => {
     const { session } = makeSession(registry);

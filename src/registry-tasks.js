@@ -535,6 +535,14 @@ export const taskMethods = {
     const completionMessage = allAccepted
       ? `All ${tasks.length} backlog tasks have been accepted. The session backlog is complete — review the results or add more tasks.`
       : `The session backlog finished: ${accepted} accepted, ${failed} failed. Review the failed tasks (retry or remove them).`;
+    const activeOrchestrator = session.orchestratorThread?.activeOrchestrator || null;
+    const staleExternalOrchestrator = Boolean(
+      activeOrchestrator
+      && activeOrchestrator.leaseId
+      && activeOrchestrator.leaseId !== 'dashboard'
+      && typeof this._activeOrchestratorStale === 'function'
+      && this._activeOrchestratorStale(activeOrchestrator, session),
+    );
     if (typeof this._orchestratorCanAudit === 'function'
       && this._orchestratorCanAudit(session)
       && typeof this.ensureOrchestratorThread === 'function'
@@ -547,6 +555,27 @@ export const taskMethods = {
         createdAt: nowIso(),
       });
       thread.updatedAt = nowIso();
+    } else if (staleExternalOrchestrator
+      && typeof this.ensureOrchestratorThread === 'function'
+      && typeof this.appendOrchestratorThreadMessage === 'function') {
+      const thread = this.ensureOrchestratorThread(session);
+      this.appendOrchestratorThreadMessage(thread, {
+        id: randomUUID(),
+        role: 'system',
+        content: `${completionMessage}\n\nExternal orchestrator "${activeOrchestrator.actor || activeOrchestrator.leaseId}" is stale or its MCP lease expired. Reconnect or enroll an orchestrator to continue.`,
+        createdAt: nowIso(),
+      });
+      thread.updatedAt = nowIso();
+      if (typeof this.enqueueNotification === 'function') {
+        this.enqueueNotification({
+          type: 'orchestrator_reconnect_required',
+          severity: 'warning',
+          title: 'Orchestrator reconnect required',
+          body: `Reconnect "${activeOrchestrator.actor || 'external orchestrator'}" to review completed backlog work.`,
+          projectId: session.projectId,
+          sessionId: session.id,
+        });
+      }
     } else if (typeof this.sendOrchestratorMessage === 'function') {
       this.sendOrchestratorMessage(session.id, { message: completionMessage }, { actor: 'scheduler', approved: true }).catch(() => {});
     }
