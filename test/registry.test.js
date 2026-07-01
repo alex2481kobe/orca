@@ -2030,7 +2030,11 @@ test('CLI executor writes raw terminal stdout and stderr artifacts', async () =>
     const target = registry.getLane(lane.id);
     target.workdir = process.cwd();
     target.executorBinary = process.execPath;
-    target.commandArgs = ['-e', 'process.stdout.write("stdout-line\\n");process.stderr.write("stderr-line\\n")'];
+    target.commandArgs = [
+      '-e',
+      'process.stdout.write("stdout-line\\n");process.stderr.write("stderr-line\\n")',
+      'mcp_servers.orca.env.ORCA_TOOL_LEASE_TOKEN="secret-token"',
+    ];
 
     const result = await adapter.start(target);
     assert.equal(result.accepted, true, `start rejected: ${result.reason}`);
@@ -2047,6 +2051,8 @@ test('CLI executor writes raw terminal stdout and stderr artifacts', async () =>
     assert.equal(terminal.includes('stdout-line\n'), true);
     assert.equal(terminal.includes('stderr-line\n'), true);
     assert.equal(terminal.includes('process exited code=0'), true);
+    assert.equal(terminal.includes('secret-token'), false, 'terminal header redacts token-shaped command args');
+    assert.equal(JSON.stringify(target.processMeta).includes('secret-token'), false, 'process metadata stores redacted launch args');
     assert.equal(target.agentEvents.some((event) => event.type === 'command.output' && event.content === 'stdout-line'), true);
   } finally {
     restore();
@@ -2177,6 +2183,22 @@ test('buildExecutorCommandArgs derives safe argv from lane task prompt', async (
     permissionsProfile: 'plan',
   });
   assert.deepEqual(codexPlanArgs.slice(0, 4), ['exec', '--json', '--sandbox', 'read-only']);
+
+  const codexTerminalArgs = buildExecutorCommandArgs('codex', {
+    taskPrompt: 'Run in terminal mode',
+    permissionsProfile: 'plan',
+    presentationMode: 'terminal',
+  });
+  assert.deepEqual(codexTerminalArgs.slice(0, 3), ['exec', '--sandbox', 'read-only']);
+  assert.equal(codexTerminalArgs.includes('--json'), false);
+
+  const claudeTerminalArgs = buildExecutorCommandArgs('claude', {
+    taskPrompt: 'Run in terminal mode',
+    permissionsProfile: 'plan',
+    presentationMode: 'terminal',
+  });
+  assert.equal(claudeTerminalArgs.includes('--output-format'), false);
+  assert.equal(claudeTerminalArgs.includes('stream-json'), false);
 });
 
 test('evidence capture resolves saved preview presets server-side', async () => {

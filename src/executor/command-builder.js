@@ -3,6 +3,8 @@
 
 export function buildExecutorCommandArgs(label, lane, options = {}) {
   const mcpServers = (options && options.mcpServers && typeof options.mcpServers === 'object') ? options.mcpServers : {};
+  const presentationMode = String(options.presentationMode || lane.presentationMode || 'chat').trim().toLowerCase();
+  const terminalPresentation = presentationMode === 'terminal';
   const taskPrompt = String(lane.taskPrompt || '').trim();
   if (!taskPrompt) return [];
   const safePrompt = taskPrompt.replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 4096);
@@ -46,7 +48,8 @@ export function buildExecutorCommandArgs(label, lane, options = {}) {
   const out = [];
   switch (String(label).toLowerCase()) {
     case 'codex': {
-      out.push('exec', '--json');
+      out.push('exec');
+      if (!terminalPresentation) out.push('--json');
       if (model) out.push('--model', model);
       // Reasoning effort (the "/reasoning" level) -> -c model_reasoning_effort.
       // Codex's real effort set is minimal/low/medium/high/xhigh — include
@@ -103,14 +106,14 @@ export function buildExecutorCommandArgs(label, lane, options = {}) {
       if (lane.mcpConfigPath && !isForceMode(permissions)) {
         out.push('--permission-prompt-tool', 'mcp__orca__permission_prompt');
       }
-      out.push('--output-format', 'stream-json', '--verbose', '--include-partial-messages');
+      if (!terminalPresentation) out.push('--output-format', 'stream-json', '--verbose', '--include-partial-messages');
       out.push(targetUrl ? `Target: ${targetUrl}\n${safePrompt}` : safePrompt);
       break;
     }
     case 'gemini-cli': {
       if (model) out.push('--model', model);
       if (permissions && !isPlanMode(permissions)) out.push('--approval-mode', geminiApprovalMode(permissions));
-      out.push('--output-format', 'json');
+      if (!terminalPresentation) out.push('--output-format', 'json');
       out.push('--prompt', targetUrl ? `Target: ${targetUrl}\n${safePrompt}` : safePrompt);
       break;
     }
@@ -119,7 +122,7 @@ export function buildExecutorCommandArgs(label, lane, options = {}) {
       if (isForceMode(permissions)) {
         out.push('--force');
       }
-      out.push('--output-format', 'stream-json');
+      if (!terminalPresentation) out.push('--output-format', 'stream-json');
       out.push('-p', targetUrl ? `Target: ${targetUrl}\n${safePrompt}` : safePrompt);
       break;
     }

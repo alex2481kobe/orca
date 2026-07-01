@@ -84,6 +84,8 @@ export const laneCreateMethods = {
     auditTargetLaneId,
     metadataTaskId,
     metadataLoopId,
+    presentationMode,
+    executionMode,
   }, context = {}) {
     const session = this.getSession(sessionLocator);
     if (!session) {
@@ -230,6 +232,8 @@ export const laneCreateMethods = {
     const sanitizedIntelligenceProfile = typeof intelligenceProfile === 'string'
       ? intelligenceProfile.trim().slice(0, 80) : '';
     const sanitizedSpeed = typeof speed === 'string' ? speed.trim().slice(0, 24) : '';
+    const rawPresentationMode = String(presentationMode || executionMode || '').trim().toLowerCase();
+    const sanitizedPresentationMode = rawPresentationMode === 'terminal' ? 'terminal' : 'chat';
     const executorCapabilities = this.getExecutorCapabilities(normalizedExecutorType);
     const sanitizedVerificationCommand = typeof verificationCommand === 'string'
       ? verificationCommand.trim().slice(0, 1000) : '';
@@ -269,6 +273,7 @@ export const laneCreateMethods = {
       permissionsProfile: sanitizedPermissionsProfile,
       intelligenceProfile: sanitizedIntelligenceProfile,
       speed: sanitizedSpeed,
+      presentationMode: sanitizedPresentationMode,
       executorCapabilities,
       verificationCommand: sanitizedVerificationCommand,
       expectedArtifacts: expectedArtifactsList,

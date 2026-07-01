@@ -14,6 +14,60 @@ function mountFor(laneId) {
   return typeof document !== 'undefined' ? document.getElementById(`lane-stream-${laneId}`) : null;
 }
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
+function applyBackspaces(value) {
+  const out = [];
+  for (const char of String(value || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n')) {
+    if (char === '\b') { out.pop(); continue; }
+    out.push(char);
+  }
+  return out.join('').replace(/[\x00-\x08\x0b\x0c\x0e-\x1a\x1c-\x1f\x7f]/g, '');
+}
+
+function ansiClass(codes) {
+  const classes = [];
+  for (const raw of codes) {
+    const code = Number.parseInt(raw || '0', 10);
+    if (code === 1) classes.push('ansi-bold');
+    if (code === 2) classes.push('ansi-dim');
+    if (code >= 30 && code <= 37) classes.push(`ansi-fg-${code - 30}`);
+    if (code >= 90 && code <= 97) classes.push(`ansi-fg-bright-${code - 90}`);
+  }
+  return [...new Set(classes)].join(' ');
+}
+
+function renderAnsi(value) {
+  const text = applyBackspaces(value);
+  let html = '';
+  let cursor = 0;
+  let open = false;
+  const sgr = /\x1b\[([0-9;]*)m/g;
+  let match;
+  while ((match = sgr.exec(text))) {
+    html += escapeHtml(text.slice(cursor, match.index));
+    cursor = match.index + match[0].length;
+    const codes = String(match[1] || '0').split(';');
+    if (open) { html += '</span>'; open = false; }
+    if (codes.includes('0')) continue;
+    const cls = ansiClass(codes);
+    if (cls) { html += `<span class="${cls}">`; open = true; }
+  }
+  html += escapeHtml(text.slice(cursor));
+  if (open) html += '</span>';
+  return html.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
+}
+
+function paintTerminal(el, value) {
+  const html = renderAnsi(value);
+  if (el.innerHTML !== html) el.innerHTML = html;
+}
+
 // Replace the "Connecting to live output…" placeholder with an explanation when
 // the stream can't run — otherwise the terminal sits on "Connecting…" forever
 // (EventSource missing, or SSE auth unavailable on token-in-page remote clients).
@@ -24,7 +78,7 @@ function writeStreamNotice(laneId, message) {
   if (_buffers.get(laneId)) return;
   _notices.set(laneId, message);
   const el = mountFor(laneId);
-  if (el) el.textContent = message;
+  if (el) paintTerminal(el, message);
 }
 
 function autoscroll(el) {
@@ -43,11 +97,11 @@ export function fillLaneStream(laneId) {
   if (!el) return;
   const buffered = _buffers.get(laneId);
   if (buffered) {
-    if (el.textContent !== buffered) { el.textContent = buffered; el.scrollTop = el.scrollHeight; }
+    if (el.textContent !== applyBackspaces(buffered)) { paintTerminal(el, buffered); el.scrollTop = el.scrollHeight; }
     return;
   }
   const notice = _notices.get(laneId);
-  if (notice && el.textContent !== notice) el.textContent = notice;
+  if (notice && el.textContent !== notice) paintTerminal(el, notice);
 }
 
 export function unsubscribeLaneStream() {
@@ -92,8 +146,7 @@ export function subscribeLaneStream(laneId) {
       _buffers.set(laneId, ((_buffers.get(laneId) || '') + chunk).slice(-MAX_CHARS));
       const el = mountFor(laneId);
       if (el) {
-        el.textContent += chunk;
-        if (el.textContent.length > MAX_CHARS) el.textContent = el.textContent.slice(-MAX_CHARS);
+        paintTerminal(el, _buffers.get(laneId) || '');
         autoscroll(el);
       }
     } catch { /* ignore */ }

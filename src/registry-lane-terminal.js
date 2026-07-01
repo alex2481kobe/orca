@@ -215,6 +215,7 @@ Executor: ${lane.executorType}
 Model: ${lane.model || ''}
 Permissions profile: ${lane.permissionsProfile || ''}
 Intelligence profile: ${lane.intelligenceProfile || ''}
+Presentation mode: ${lane.presentationMode || 'chat'}
 Branch: ${lane.branch || ''}
 Workdir: ${lane.workdir || ''}
 MCP config: ${lane.mcpConfigPath || ''}
@@ -242,6 +243,7 @@ Changed files: ${changedFiles.length}
       model: lane.model || null,
       permissionsProfile: lane.permissionsProfile || null,
       intelligenceProfile: lane.intelligenceProfile || null,
+      presentationMode: lane.presentationMode || 'chat',
       branch: lane.branch || null,
       repoRoot: lane.repoRoot || null,
       worktreePath: lane.worktreePath || lane.workdir || null,

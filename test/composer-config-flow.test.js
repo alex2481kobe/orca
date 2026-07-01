@@ -167,6 +167,37 @@ test('a known foreign CLI model is corrected for the selected orchestrator execu
   }
 });
 
+test('terminal presentation mode reaches the orchestrator lane and drops structured CLI output flags', async () => {
+  const { registry, cleanup } = await withRegistry();
+  try {
+    const project = registry.createProject({ name: 'Terminal Presentation' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'terminal chat', leader: 'codex' }, { actor: 'test', approved: true });
+    await send(registry, session.id, {
+      executorType: 'codex',
+      model: 'gpt-5.5',
+      intelligenceProfile: 'high',
+      executionMode: 'terminal',
+    });
+    const lane = latestOrchestratorLane(registry, session.id);
+    assert.equal(lane.presentationMode, 'terminal');
+    const cmd = buildExecutorCommandArgs('codex', lane);
+    assert.equal(cmd[0], 'exec');
+    assert.equal(cmd.includes('--json'), false, 'terminal mode keeps codex in native text presentation');
+
+    const claudeCmd = buildExecutorCommandArgs('claude', {
+      taskPrompt: 'hello',
+      presentationMode: 'terminal',
+      model: 'opus',
+      intelligenceProfile: 'high',
+      permissionsProfile: 'plan',
+    });
+    assert.equal(claudeCmd.includes('--output-format'), false, 'terminal mode keeps claude off stream-json');
+    assert.equal(claudeCmd.includes('stream-json'), false);
+  } finally {
+    await cleanup();
+  }
+});
+
 test('codex reasoning includes minimal but never max in the executed command', () => {
   const minimal = buildExecutorCommandArgs('codex', { taskPrompt: 'x', model: 'gpt-5.5', intelligenceProfile: 'minimal', permissionsProfile: 'auto-edit' });
   assert.ok(minimal.includes('model_reasoning_effort="minimal"'), 'codex honors minimal effort');

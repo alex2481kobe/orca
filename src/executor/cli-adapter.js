@@ -29,6 +29,54 @@ import {
 import { buildExecutorCommandArgs } from './command-builder.js';
 import { parseEnv } from './api-support.js';
 
+function presentationModeForLane(lane) {
+  return String(lane?.presentationMode || lane?.executionMode || 'chat').trim().toLowerCase() === 'terminal'
+    ? 'terminal'
+    : 'chat';
+}
+
+function redactArgForDisplay(value, index, total) {
+  const text = String(value ?? '');
+  if (!text) return text;
+  const secretish = /(token|secret|password|credential|authorization|cookie|api[-_]?key|bearer|private[-_]?key|client[-_]?secret)/i;
+  if (secretish.test(text)) {
+    return text.includes('=') ? text.replace(/=.*/, '=[redacted]') : '[redacted-secret-arg]';
+  }
+  if (index === total - 1 && text.length > 280) {
+    return `[prompt ${text.length} chars]`;
+  }
+  if (text.length > 180) {
+    return `${text.slice(0, 90)}...[${text.length} chars]`;
+  }
+  return text;
+}
+
+function commandLineForLog(binary, args, lane) {
+  const mode = presentationModeForLane(lane);
+  const safeArgs = (Array.isArray(args) ? args : []).map((arg, index, all) => redactArgForDisplay(arg, index, all.length));
+  if (mode === 'terminal') {
+    return [binary, ...safeArgs].map(displayArg).join(' ');
+  }
+  return [binary, ...safeArgs].map(displayArg).join(' ');
+}
+
+function buildProcessLaunch(safeBinary, args, lane) {
+  const mode = presentationModeForLane(lane);
+  const rawArgs = Array.isArray(args) ? args : [];
+  // macOS `script file command ...args` gives Codex/Claude a real PTY without
+  // adding a native dependency. Keep it scoped to terminal-presented lanes; chat
+  // lanes stay ordinary pipes so structured event parsing remains deterministic.
+  if (mode === 'terminal' && process.platform === 'darwin') {
+    return {
+      binary: 'script',
+      args: ['-q', '/dev/null', safeBinary, ...rawArgs],
+      wrapped: true,
+      wrapper: 'script',
+    };
+  }
+  return { binary: safeBinary, args: rawArgs, wrapped: false, wrapper: null };
+}
+
 export class CliExecutorAdapter {
   constructor(label, options = {}) {
     this.label = label;
@@ -185,6 +233,12 @@ export class CliExecutorAdapter {
     if (lane.mcpConfigPath) {
       baseEnv.ORCA_MCP_CONFIG = lane.mcpConfigPath;
     }
+    if (presentationModeForLane(lane) === 'terminal') {
+      baseEnv.TERM = baseEnv.TERM || 'xterm-256color';
+      baseEnv.COLORTERM = baseEnv.COLORTERM || 'truecolor';
+      baseEnv.CLICOLOR_FORCE = baseEnv.CLICOLOR_FORCE || '1';
+      baseEnv.FORCE_COLOR = baseEnv.FORCE_COLOR || '1';
+    }
     return baseEnv;
   }
 
@@ -328,7 +382,8 @@ export class CliExecutorAdapter {
       lane.artifactPath = `/artifacts/${lane.sessionId || 'orphan'}/${lane.id}`;
       const safeWorkdir = await this._resolveWorkdir(lane.workdir || this.defaultWorkingDir);
 
-      const child = spawn(safeBinary, args, {
+      const launch = buildProcessLaunch(safeBinary, args, lane);
+      const child = spawn(launch.binary, launch.args, {
         shell: false,
         cwd: safeWorkdir,
         env: this._buildEnv(lane),
@@ -346,8 +401,12 @@ export class CliExecutorAdapter {
         pid: child.pid || null,
         pgid: process.platform === 'win32' ? null : (child.pid || null),
         binary: safeBinary,
-        args: [...args],
+        args: args.map((arg, index) => redactArgForDisplay(arg, index, args.length)),
+        launchBinary: launch.binary,
+        launchArgs: launch.args.map((arg, index) => redactArgForDisplay(arg, index, launch.args.length)),
+        terminalWrapper: launch.wrapper,
         cwd: safeWorkdir,
+        presentationMode: presentationModeForLane(lane),
         envPolicy: this.envWhitelist?.length ? 'allowlist' : 'default',
         startedAt: new Date(runtime.startedAt).toISOString(),
         endedAt: null,
@@ -361,10 +420,10 @@ export class CliExecutorAdapter {
       runtime.terminalLogPath = path.join(runtimeDir, 'terminal.log');
       runtime.stdoutLogPath = path.join(runtimeDir, 'stdout.log');
       runtime.stderrLogPath = path.join(runtimeDir, 'stderr.log');
-      const commandLine = [safeBinary, ...args].map(displayArg).join(' ');
+      const commandLine = commandLineForLog(safeBinary, args, lane);
       await fs.writeFile(
         runtime.terminalLogPath,
-        `Command: ${commandLine}\nCwd: ${safeWorkdir}\nStarted: ${lane.processMeta.startedAt}\n\n`,
+        `Command: ${commandLine}\nPresentation: ${presentationModeForLane(lane)}${launch.wrapper ? ` (${launch.wrapper} PTY)` : ''}\nCwd: ${safeWorkdir}\nStarted: ${lane.processMeta.startedAt}\n\n`,
       );
       await fs.writeFile(runtime.stdoutLogPath, '');
       await fs.writeFile(runtime.stderrLogPath, '');
@@ -424,7 +483,7 @@ export class CliExecutorAdapter {
           safeFire(this.onAgentEvent, lane, agentEvent);
         }
         if (lane.processMeta) {
-          lane.processMeta.endedAt = new Date().toISOString();
+          lane.processMeta.endedAt = lane.processMeta.endedAt || new Date().toISOString();
           lane.processMeta.exitCode = runtime.exitCode;
           lane.processMeta.signal = runtime.signal || null;
         }
@@ -468,6 +527,11 @@ export class CliExecutorAdapter {
         runtime.exitSeen = true;
         runtime.exitCode = code;
         runtime.signal = signal || null;
+        if (lane.processMeta) {
+          lane.processMeta.endedAt = lane.processMeta.endedAt || new Date().toISOString();
+          lane.processMeta.exitCode = code;
+          lane.processMeta.signal = signal || null;
+        }
         maybeFinalizeExit();
       });
 

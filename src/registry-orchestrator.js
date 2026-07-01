@@ -637,6 +637,7 @@ export const orchestratorMethods = {
         permissionsProfile,
         intelligenceProfile,
         speed,
+        presentationMode: String(executionMode || '').trim().toLowerCase() === 'terminal' ? 'terminal' : 'chat',
         branch: branchHint,
         targetUrl,
       }, {

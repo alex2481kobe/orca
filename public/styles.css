@@ -1312,6 +1312,24 @@ body.sidebar-collapsed .sidebar-project-line {
   color: #8a948a;
   font-style: italic;
 }
+.lane-stream .ansi-bold { font-weight: 700; }
+.lane-stream .ansi-dim { opacity: 0.68; }
+.lane-stream .ansi-fg-0 { color: #1f241f; }
+.lane-stream .ansi-fg-1 { color: #ff6b6b; }
+.lane-stream .ansi-fg-2 { color: #7bd88f; }
+.lane-stream .ansi-fg-3 { color: #f7d774; }
+.lane-stream .ansi-fg-4 { color: #8cc7ff; }
+.lane-stream .ansi-fg-5 { color: #d7a4ff; }
+.lane-stream .ansi-fg-6 { color: #78e6d0; }
+.lane-stream .ansi-fg-7 { color: #e6f1df; }
+.lane-stream .ansi-fg-bright-0 { color: #7d887d; }
+.lane-stream .ansi-fg-bright-1 { color: #ff8b8b; }
+.lane-stream .ansi-fg-bright-2 { color: #9ff0ad; }
+.lane-stream .ansi-fg-bright-3 { color: #ffe58c; }
+.lane-stream .ansi-fg-bright-4 { color: #afd7ff; }
+.lane-stream .ansi-fg-bright-5 { color: #e7bdff; }
+.lane-stream .ansi-fg-bright-6 { color: #a2f4e6; }
+.lane-stream .ansi-fg-bright-7 { color: #ffffff; }
 
 .agent-event-list {
   display: grid;

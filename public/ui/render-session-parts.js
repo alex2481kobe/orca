@@ -246,7 +246,9 @@ export function renderChatThreadInner(session) {
     const working = Boolean(lane && isLiveLaneState(lane.state));
     if (lane) renderedLaneIds.add(lane.id);
     const fallback = lane
-      ? (lane.state === 'failed' ? 'No assistant response was captured.' : '')
+      ? (lane.presentationMode === 'terminal'
+        ? (working ? 'Terminal run is active. Open terminal view for the live CLI session.' : 'Terminal run finished. Open terminal view for the full CLI transcript.')
+        : (lane.state === 'failed' ? 'No assistant response was captured.' : ''))
       : safeText(message.content || '');
     return `
       <div class="msg msg-assistant">
@@ -297,7 +299,7 @@ export function renderChatTerminalInner(session) {
       <div>
         <strong>Terminal</strong>
         <div class="chat-terminal-meta">
-          <span>${safeText(lane.title || lane.id)} · ${safeText(lane.executorType || 'agent')}</span>
+          <span>${safeText(lane.title || lane.id)} · ${safeText(lane.executorType || 'agent')} · ${safeText(lane.presentationMode === 'terminal' ? 'native CLI' : 'structured chat')}</span>
           ${stateBadge(lane.state || 'unknown')}
         </div>
       </div>

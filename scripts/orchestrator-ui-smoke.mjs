@@ -223,6 +223,32 @@ try {
       fail('lane assistant output events', JSON.stringify(lane.body.agentEvents || []));
     }
     log('lane', `${laneId} ${lane.body.state} model=${lane.body.model} mode=${lane.body.permissionsProfile}`);
+
+    await page.click('[data-action="toggleChatTerminal"]');
+    await page.waitForSelector('.chat.chat-terminal-open .chat-terminal', { timeout: 10000 });
+    await page.fill('#orchestrator-message-form textarea[name="message"]', 'Run this one in terminal presentation mode.');
+    const terminalResponsePromise = page.waitForResponse((response) => response.url().includes('/orchestrator/messages'), { timeout: 15000 });
+    await page.click('#orchestrator-message-form button[type="submit"]');
+    const terminalTurnResponse = await terminalResponsePromise;
+    if (terminalTurnResponse.status() !== 201) {
+      fail('terminal mode message response', `${terminalTurnResponse.status()} ${await terminalTurnResponse.text()}`);
+    }
+    const terminalTurn = await terminalTurnResponse.json();
+    const terminalLaneId = terminalTurn?.lane?.id;
+    if (!terminalLaneId) fail('missing terminal-mode lane id', JSON.stringify(terminalTurn || null));
+    await page.waitForFunction(() =>
+      (document.querySelector('.chat-terminal-meta')?.textContent || '').includes('native CLI'),
+    { timeout: 10000 });
+    let terminalLane = null;
+    for (let i = 0; i < 30; i += 1) {
+      terminalLane = await req('GET', `/api/lanes/${terminalLaneId}`);
+      if (terminalLane.status === 200 && terminalLane.body?.processMeta) break;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    if (terminalLane?.status !== 200) fail('terminal lane fetch', JSON.stringify(terminalLane?.body || null));
+    if (terminalLane.body.presentationMode !== 'terminal') fail('terminal lane presentation mode', JSON.stringify(terminalLane.body));
+    if ((terminalLane.body.processMeta?.args || []).includes('--json')) fail('terminal lane should not use codex --json', JSON.stringify(terminalLane.body.processMeta?.args || []));
+    log('terminal lane', `${terminalLaneId} presentation=${terminalLane.body.presentationMode}`);
     await context.close();
   } finally {
     await browser.close();

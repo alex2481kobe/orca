@@ -23,11 +23,17 @@ export async function handleOrchestratorMessage(event) {
   // If this is a draft "New chat", create the real session now (first send) and
   // switch to it, so an untouched chat never persists but a sent one does.
   if (String(sessionId).startsWith('draft-')) {
+    const draftTerminalOpen = Boolean(shell.chatTerminalOpenBySession?.[sessionId]);
     // Stash the draft text under the (about-to-exist) real id so the migration in
     // ensureRealSession carries it across, then promote.
     shell.composerDrafts[sessionId] = message;
     const realId = await ensureRealSession(sessionId);
     if (!realId || realId === sessionId) return; // creation failed (alert already shown)
+    if (draftTerminalOpen) {
+      shell.chatTerminalOpenBySession = shell.chatTerminalOpenBySession || {};
+      shell.chatTerminalOpenBySession[realId] = true;
+      delete shell.chatTerminalOpenBySession[sessionId];
+    }
     sessionId = realId;
     const realSession = shell.sessions.find((s) => s.id === realId);
     if (realSession?.route) safeNavigate(realSession.route);
@@ -38,6 +44,7 @@ export async function handleOrchestratorMessage(event) {
   const permissionsProfile = String(payload.permissionsProfile || '').trim() || 'auto-edit';
   const speed = String(payload.speed || '').trim() || 'standard';
   const branch = String(payload.branch || '').trim();
+  const executionMode = shell.chatTerminalOpenBySession?.[sessionId] ? 'terminal' : 'chat';
   // Sending your own chat message IS the approval — a real chat doesn't pop a
   // confirm modal on every message. The composer already shows mode/model, so the
   // operator's send is the explicit, informed action.
@@ -64,6 +71,7 @@ export async function handleOrchestratorMessage(event) {
         intelligenceProfile,
         speed,
         branch,
+        executionMode,
         attachments,
         actor: 'dashboard',
         approved: true,
