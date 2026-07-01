@@ -1,0 +1,4 @@
+interface:
+  display_name: "Claude Fable"
+  short_description: "Prompt Claude Fable 5 well"
+  default_prompt: "Use $claude-fable to adapt this task prompt for Claude Fable 5."
