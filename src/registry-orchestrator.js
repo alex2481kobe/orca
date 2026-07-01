@@ -83,6 +83,36 @@ function buildOperatorIssueContext({ executorCapabilities = null, selectedExecut
   return issues.slice(0, 8).join('\n');
 }
 
+function modelValuesFromCapabilities(capabilities) {
+  const node = capabilities?.controls?.model || {};
+  const values = Array.isArray(node.values) ? node.values : [];
+  const catalog = Array.isArray(node.catalog) ? node.catalog.map((entry) => entry?.slug) : [];
+  return new Set([...values, ...catalog].map((value) => String(value || '').trim()).filter(Boolean));
+}
+
+function defaultModelFromCapabilities(capabilities) {
+  const node = capabilities?.controls?.model || {};
+  const explicit = String(node.defaultValue || '').trim();
+  if (explicit) return explicit;
+  const values = [...modelValuesFromCapabilities(capabilities)];
+  return values[0] || '';
+}
+
+function normalizeRequestedModelForExecutor({ executorCapabilities = {}, executorType = '', model = '' } = {}) {
+  const requested = safeChatText(model, 200);
+  if (!requested) return '';
+  const selected = normalizeExecutorType(executorType);
+  const selectedValues = modelValuesFromCapabilities(executorCapabilities?.[selected]);
+  if (selectedValues.has(requested)) return requested;
+  // Free-text models are allowed. Only correct a model when the selected runtime is
+  // one of the first-class CLIs and the requested slug is explicitly advertised by
+  // a different first-class CLI (e.g. claude/opus leaking into a codex turn).
+  if (!FIRST_CLASS_CLI_EXECUTOR_TYPES.includes(selected)) return requested;
+  const belongsToOtherCli = FIRST_CLASS_CLI_EXECUTOR_TYPES.some((other) =>
+    other !== selected && modelValuesFromCapabilities(executorCapabilities?.[other]).has(requested));
+  return belongsToOtherCli ? defaultModelFromCapabilities(executorCapabilities?.[selected]) : requested;
+}
+
 function buildOrchestratorPrompt({
   project,
   session,
@@ -567,6 +597,11 @@ export const orchestratorMethods = {
 
     const resolvedExecutorType = this.resolveOrchestratorExecutorType(session, executorType);
     const executorCapabilities = this.getExecutorCapabilitiesMatrix();
+    const effectiveModel = normalizeRequestedModelForExecutor({
+      executorCapabilities,
+      executorType: resolvedExecutorType,
+      model,
+    });
     const sessionLanes = this.lanes.filter((laneItem) => laneItem.sessionId === session.id);
     const operatorIssueContext = buildOperatorIssueContext({
       executorCapabilities,
@@ -589,7 +624,7 @@ export const orchestratorMethods = {
           session,
           message: promptText,
           messages: thread.messages,
-          model,
+          model: effectiveModel,
           permissionsProfile,
           intelligenceProfile,
           baseUrl,
@@ -598,7 +633,7 @@ export const orchestratorMethods = {
           executorCapabilities,
           operatorIssueContext,
         }),
-        model,
+        model: effectiveModel,
         permissionsProfile,
         intelligenceProfile,
         speed,

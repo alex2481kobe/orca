@@ -106,7 +106,7 @@ const SECURITY_HEADERS = {
   'X-Frame-Options': 'DENY',
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'no-referrer',
-  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), clipboard-read=(self), clipboard-write=(self)',
+  'Permissions-Policy': 'camera=(), microphone=(self), geolocation=(), payment=(), usb=(), serial=(), clipboard-read=(self), clipboard-write=(self)',
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Cross-Origin-Resource-Policy': 'same-origin',
 };

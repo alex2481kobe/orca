@@ -178,6 +178,7 @@ try {
     if (chatText.includes('Started codex executor')) fail('chat leaked executor lifecycle copy', chatText);
     if (chatText.includes('Started codex orchestrator lane')) fail('chat leaked orchestrator stub instead of assistant reply', chatText);
     if (/\b(Queued|Started|Output|Done)\b/.test(chatText)) fail('chat leaked raw lifecycle/event labels', chatText);
+    if (/activity items?/i.test(chatText)) fail('chat leaked vague activity-items copy', chatText);
     if (!chatText.includes('Worked for')) fail('chat missing compact run receipt', chatText);
     if (!chatText.includes('12 tokens')) fail('chat missing reported token usage', chatText);
     const visibleTimelineCount = await page.locator('.chat-thread .agent-event-list').count();
@@ -185,6 +186,19 @@ try {
     const detailState = await page.locator('.chat-thread .chat-run-details').evaluateAll((items) => items.map((item) => item.open));
     if (!detailState.length) fail('chat missing collapsible activity receipt');
     if (detailState.some(Boolean)) fail('chat activity receipt should be collapsed after completion', JSON.stringify(detailState));
+    await page.click('[data-action="toggleChatTerminal"]');
+    await page.waitForSelector('.chat.chat-terminal-open .chat-terminal .lane-stream', { timeout: 10000 });
+    const terminalMountCount = await page.locator('.chat.chat-terminal-open .chat-terminal .lane-stream').count();
+    if (terminalMountCount !== 1) fail('chat terminal should mount exactly one live stream', String(terminalMountCount));
+    await page.waitForFunction(() => {
+      const text = document.querySelector('.chat.chat-terminal-open .chat-terminal .lane-stream')?.textContent || '';
+      return text.trim() && !/Connecting to live output/i.test(text);
+    }, { timeout: 10000 });
+    const shotDir = path.join(previousCwd, 'artifacts', 'orchestrator-ui');
+    await fs.mkdir(shotDir, { recursive: true });
+    await page.screenshot({ path: path.join(shotDir, 'terminal-view.png'), fullPage: true });
+    await page.click('[data-action="toggleChatTerminal"]');
+    await page.waitForSelector('.chat:not(.chat-terminal-open) .chat-thread .msg-assistant', { timeout: 10000 });
     log('dashboard', 'message submitted and assistant reply rendered');
 
     const thread = await req('GET', `/api/sessions/${session.body.id}/orchestrator`);

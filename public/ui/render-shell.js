@@ -100,7 +100,7 @@ import { renderAppearancePanel, renderWorkstationList } from './render-home-pane
 import { renderWorkstationPickerPanel } from './render-project.js';
 import { loadEvidenceGallery, renderAuditLog, renderLane } from './render-lane.js';
 import { renderSession } from './render-session.js';
-import { restoreContentUiState } from './render-fragments.js';
+import { activeOrchestratorLaneForSession, restoreContentUiState } from './render-fragments.js';
 import { subscribeLaneStream, unsubscribeLaneStream, fillLaneStream } from './lane-stream.js';
 import { enhanceSelects } from './dropdown.js';
 import { FIRST_CLASS_CLI_EXECUTOR_TYPES } from './constants.js';
@@ -424,12 +424,16 @@ export function render(uiState = null) {
   updatePairLabel();
   restoreContentUiState(uiState);
   enhanceSelects(refs.content);
-  // Live terminal stream: subscribe ONLY for the open lane-detail view (the focused
-  // lane), and re-fill the mount from the buffer after this (re)render rebuilt it.
-  // Any other view tears the stream down so at most one lane streams at a time.
-  if (shell.route.laneId && lane) {
-    subscribeLaneStream(lane.id);
-    fillLaneStream(lane.id);
+  // Live terminal stream: subscribe ONLY for the focused lane detail OR the
+  // session's terminal-mode chat. One stream at a time keeps long-running agents
+  // cheap while still offering the familiar CLI view inside the chat.
+  const chatTerminalLane = (!shell.route.laneId && session && shell.chatTerminalOpenBySession?.[session.id])
+    ? activeOrchestratorLaneForSession(session)
+    : null;
+  const focusedStreamLane = (shell.route.laneId && lane) ? lane : chatTerminalLane;
+  if (focusedStreamLane) {
+    subscribeLaneStream(focusedStreamLane.id);
+    fillLaneStream(focusedStreamLane.id);
   } else {
     unsubscribeLaneStream();
   }

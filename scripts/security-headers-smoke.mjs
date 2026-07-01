@@ -108,7 +108,7 @@ function assertSecurityHeaders(label, headers) {
   if (headers['x-content-type-options'] !== 'nosniff') fail(`${label} missing nosniff`);
   if (headers['referrer-policy'] !== 'no-referrer') fail(`${label} missing no-referrer`);
   if (!String(headers['permissions-policy'] || '').includes('camera=()')) fail(`${label} missing Permissions-Policy camera block`);
-  if (!String(headers['permissions-policy'] || '').includes('microphone=()')) fail(`${label} missing Permissions-Policy microphone block`);
+  if (!String(headers['permissions-policy'] || '').includes('microphone=(self)')) fail(`${label} missing Permissions-Policy microphone self grant`);
   if (headers['cross-origin-opener-policy'] !== 'same-origin') fail(`${label} missing COOP same-origin`);
   if (headers['cross-origin-resource-policy'] !== 'same-origin') fail(`${label} missing CORP same-origin`);
   if ('access-control-allow-origin' in headers) fail(`${label} must not emit permissive CORS`);

@@ -41,6 +41,10 @@ export const shell = {
   // render, so NO re-render (poll, SSE, structural rebuild, modal, route change)
   // can ever clear what the operator is typing.
   composerDrafts: {},
+  // Per-session operator preference for a terminal-style view of the active
+  // orchestrator lane. This is intentionally client-only: it changes how this
+  // browser watches the run, not the session contract.
+  chatTerminalOpenBySession: {},
   // Client-only DRAFT chats, keyed by sentinel id `draft-<projectId>`. A "New chat"
   // is a draft until the first message is sent — only then is a real server session
   // created (see ensureRealSession). An untouched draft is never persisted, so it

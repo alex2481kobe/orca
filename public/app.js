@@ -14,7 +14,7 @@ import { initComposerContext } from './ui/composer-context.js';
 import { initSlashCommands } from './ui/slash-commands.js';
 import { initMobileShell } from './ui/mobile-shell.js';
 import { initTheme, setThemePref, appendThemeParam } from './ui/theme.js';
-import { defaultModelFor } from './ui/executor.js';
+import { defaultModelFor, isForeignModel } from './ui/executor.js';
 import { normalizeWorkstationUrl, rememberWorkstation, setPendingWorkstationUrl, activeWorkstationUrl } from './ui/workstations.js';
 import { openRowMenuFromTrigger, closeRowMenu, isRowMenuOpenFor } from './ui/row-menu.js';
 import { openScopedSettingsDialog } from './ui/settings-dialog.js';
@@ -305,7 +305,9 @@ document.addEventListener('change', (event) => {
     // Switching agent auto-picks that agent's default model (like the terminal)
     // and refreshes the "{model} {reasoning}" label next to send.
     const modelField = form.querySelector('input[name="model"]');
-    if (modelField) modelField.value = defaultModelFor(event.target.value) || '';
+    if (modelField && (!modelField.value || isForeignModel(modelField.value, event.target.value))) {
+      modelField.value = defaultModelFor(event.target.value) || '';
+    }
     const laneAgent = document.querySelector('#create-lane-form select[name="executorType"]');
     if (laneAgent && laneAgent.value !== event.target.value) {
       laneAgent.value = event.target.value;
@@ -627,6 +629,16 @@ document.addEventListener('click', async (event) => {
   if (action === 'toggleExecutorPanel') {
     shell.executorPanelOpen = !shell.executorPanelOpen;
     render(captureContentUiState());
+    return;
+  }
+
+  if (action === 'toggleChatTerminal') {
+    const sessionId = actionTarget.dataset.sessionId || shell.route.sessionId;
+    if (sessionId) {
+      shell.chatTerminalOpenBySession = shell.chatTerminalOpenBySession || {};
+      shell.chatTerminalOpenBySession[sessionId] = !shell.chatTerminalOpenBySession[sessionId];
+      render(captureContentUiState());
+    }
     return;
   }
 

@@ -6,7 +6,7 @@ import { activeOrchestratorLaneForSession, assistantEventTranscriptText, intelli
 import { shell } from './state.js';
 import { renderAlert, writeHtml } from './dom.js';
 import { api } from './api.js';
-import { apiProviderOptions, cliExecutorOptions, normalizeExecutorType, defaultExecutorType, anyCliInstalled, defaultModelFor } from './executor.js';
+import { apiProviderOptions, cliExecutorOptions, normalizeExecutorType, defaultExecutorType, anyCliInstalled, defaultModelFor, isForeignModel } from './executor.js';
 import { renderComposerConfig } from './composer-config.js';
 import { icon } from './icons.js';
 
@@ -175,7 +175,7 @@ function renderChatRunDetails(lane, working = false) {
   const latest = items.at(-1);
   const summary = working && latest
     ? `${latest.label}: ${latest.text}`
-    : (items.length === 1 ? '1 activity item' : `${items.length} activity items`);
+    : `Details · ${items.length} ${items.length === 1 ? 'item' : 'items'}`;
   return `
     <details class="chat-run-details">
       <summary>${safeText(summary)}</summary>
@@ -282,6 +282,30 @@ export function renderChatThreadInner(session) {
   return `${messageRows || emptyState}${orphanActivity}${renderSessionApprovals(session)}`;
 }
 
+export function renderChatTerminalInner(session) {
+  const lane = activeOrchestratorLaneForSession(session);
+  if (!lane) {
+    return `
+      <div class="chat-terminal-empty">
+        <strong>No agent terminal yet.</strong>
+        <span>Send a message to start an orchestrator lane, then this view will show its live terminal output.</span>
+      </div>
+    `;
+  }
+  return `
+    <div class="chat-terminal-head">
+      <div>
+        <strong>Terminal</strong>
+        <div class="chat-terminal-meta">
+          <span>${safeText(lane.title || lane.id)} · ${safeText(lane.executorType || 'agent')}</span>
+          ${stateBadge(lane.state || 'unknown')}
+        </div>
+      </div>
+    </div>
+    <pre id="lane-stream-${safeAttr(lane.id)}" class="lane-stream chat-terminal-stream" aria-live="polite" tabindex="0">Connecting to live output…</pre>
+  `;
+}
+
 // Stable chat-column skeleton: an EMPTY thread mount + the composer. The thread is
 // filled separately via writeHtml(#chat-thread-<id>) so this skeleton stays
 // byte-identical across chat updates and is skipped by skip-if-identical.
@@ -295,7 +319,7 @@ export function renderOrchestratorConsole(session) {
   // that, default to an installed agent.
   const locked = messages.length > 0;
   const selectedExecutor = locked
-    ? normalizeExecutorType(thread.executorType || session.leader || 'codex')
+    ? defaultExecutorType(session.leader || thread.executorType)
     : defaultExecutorType(thread.executorType || session.leader);
   // Reflect the active lane's settings ONLY when that lane is the same agent;
   // otherwise show the selected agent's own defaults (fixes e.g. codex showing
@@ -305,14 +329,21 @@ export function renderOrchestratorConsole(session) {
   // the per-project default → the executor's built-in default.
   const project = shell.projects.find((p) => p.id === session.projectId);
   const scopedDefaultModel = session.defaultModel || project?.defaultModel || '';
-  const selectedModel = (laneMatches && activeLane.model)
+  const laneModel = laneMatches && activeLane.model && !isForeignModel(activeLane.model, selectedExecutor)
     ? activeLane.model
-    : (scopedDefaultModel || defaultModelFor(selectedExecutor));
+    : '';
+  const scopedModel = scopedDefaultModel && !isForeignModel(scopedDefaultModel, selectedExecutor)
+    ? scopedDefaultModel
+    : '';
+  const selectedModel = laneModel
+    ? laneModel
+    : (scopedModel || defaultModelFor(selectedExecutor));
   const selectedRunMode = (laneMatches && activeLane.permissionsProfile) || 'auto-edit';
   const selectedIntelligence = (laneMatches && activeLane.intelligenceProfile) || 'high';
   return `
     <article class="chat${locked ? '' : ' chat--empty'}">
       <div class="chat-thread" id="chat-thread-${safeAttr(session.id)}"></div>
+      <div class="chat-terminal" id="chat-terminal-${safeAttr(session.id)}" aria-label="Agent terminal"></div>
       <form id="orchestrator-message-form" data-session-id="${safeAttr(session.id)}" class="composer composer-shell">
         <div id="composer-attachments-${safeAttr(session.id)}" class="composer-attachments">${renderComposerAttachmentChips(session.id)}</div>
         <textarea name="message" rows="1" placeholder="Do anything"></textarea>

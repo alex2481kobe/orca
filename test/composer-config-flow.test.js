@@ -145,6 +145,28 @@ test('a custom model entered in chat reaches the lane + command end-to-end', asy
   }
 });
 
+test('a known foreign CLI model is corrected for the selected orchestrator executor', async () => {
+  const { registry, cleanup } = await withRegistry();
+  try {
+    const project = registry.createProject({ name: 'Foreign Model Guard' }, { actor: 'test', approved: true });
+    const codexSession = registry.createSession(project.id, { name: 'codex chat', leader: 'codex' }, { actor: 'test', approved: true });
+
+    await send(registry, codexSession.id, { executorType: 'codex', model: 'opus', intelligenceProfile: 'high' });
+    const codexLane = latestOrchestratorLane(registry, codexSession.id);
+    assert.equal(codexLane.executorType, 'codex');
+    assert.notEqual(codexLane.model, 'opus', 'codex must not inherit claude opus from a stale hidden field');
+    assert.ok(!buildExecutorCommandArgs('codex', codexLane).includes('opus'), 'codex command must not pass opus');
+
+    const claudeSession = registry.createSession(project.id, { name: 'claude chat', leader: 'claude' }, { actor: 'test', approved: true });
+    await send(registry, claudeSession.id, { executorType: 'claude', model: 'opus', intelligenceProfile: 'high' });
+    const claudeLane = latestOrchestratorLane(registry, claudeSession.id);
+    assert.equal(claudeLane.executorType, 'claude');
+    assert.equal(claudeLane.model, 'opus', 'opus is still valid when claude is selected');
+  } finally {
+    await cleanup();
+  }
+});
+
 test('codex reasoning includes minimal but never max in the executed command', () => {
   const minimal = buildExecutorCommandArgs('codex', { taskPrompt: 'x', model: 'gpt-5.5', intelligenceProfile: 'minimal', permissionsProfile: 'auto-edit' });
   assert.ok(minimal.includes('model_reasoning_effort="minimal"'), 'codex honors minimal effort');

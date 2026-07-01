@@ -119,6 +119,7 @@ const WIRED_ACTIONS = new Set([
   'setProviderSecret',
   'showArtifacts',
   'stopLane',
+  'toggleChatTerminal',
   'toggleExecutorPanel',
   'toggleNav',
   'openSettings',

@@ -5,7 +5,7 @@ import { writeHtml } from './dom.js';
 import { activeOrchestratorLaneForSession, renderLaneExecutorGuidance } from './render-fragments.js';
 import { safeText, safeAttr } from './format.js';
 import { icon } from './icons.js';
-import { renderExecutorSidePanel, renderOrchestratorConsole, renderChatThreadInner, renderExecutorListInner, renderOrchestratorPanelInner } from './render-session-parts.js';
+import { renderExecutorSidePanel, renderOrchestratorConsole, renderChatThreadInner, renderChatTerminalInner, renderExecutorListInner, renderOrchestratorPanelInner } from './render-session-parts.js';
 import { hydrateComposerContext } from './composer-context.js';
 import { isForeignModel, defaultModelFor } from './executor.js';
 import { refreshConfigLabel } from './composer-config.js';
@@ -48,6 +48,9 @@ export function renderSession(project, session) {
             <span id="orchestrator-chip-${safeAttr(sid)}">${renderActiveOrchestratorChip(session)}</span>
           </div>
           <div class="session-topbar-side session-tools">
+            <button class="info-toggle terminal-toggle" data-action="toggleChatTerminal" data-session-id="${safeAttr(sid)}" type="button" aria-label="Toggle terminal view" aria-pressed="false" title="Terminal view">
+              ${icon('terminal', { size: 18 })}
+            </button>
             <button class="info-toggle" data-action="toggleExecutorPanel" type="button" aria-label="Toggle agents panel" title="Agents & tools">
               ${icon('panel-right', { size: 18 })}
             </button>
@@ -67,8 +70,17 @@ export function renderSession(project, session) {
   const shellEl = refs.content.querySelector('.session-shell');
   if (shellEl) {
     shellEl.classList.toggle('info-open', panelOpen);
-    const toggleBtn = shellEl.querySelector('.info-toggle');
+    const terminalOpen = Boolean(shell.chatTerminalOpenBySession?.[sid]);
+    shellEl.classList.toggle('chat-terminal-open', terminalOpen);
+    const chatEl = shellEl.querySelector('.chat');
+    if (chatEl) chatEl.classList.toggle('chat-terminal-open', terminalOpen);
+    const toggleBtn = shellEl.querySelector('[data-action="toggleExecutorPanel"]');
     if (toggleBtn) toggleBtn.classList.toggle('active', panelOpen);
+    const terminalBtn = shellEl.querySelector('[data-action="toggleChatTerminal"]');
+    if (terminalBtn) {
+      terminalBtn.classList.toggle('active', terminalOpen);
+      terminalBtn.setAttribute('aria-pressed', terminalOpen ? 'true' : 'false');
+    }
     const orchestratorChip = document.getElementById(`orchestrator-chip-${sid}`);
     if (orchestratorChip) writeHtml(orchestratorChip, renderActiveOrchestratorChip(session));
   }
@@ -81,6 +93,11 @@ export function renderSession(project, session) {
     const nearBottom = threadEl.scrollHeight - threadEl.scrollTop - threadEl.clientHeight < 80;
     const changed = writeHtml(threadEl, renderChatThreadInner(session));
     if (changed && nearBottom) threadEl.scrollTop = threadEl.scrollHeight;
+  }
+  const terminalEl = document.getElementById(`chat-terminal-${sid}`);
+  if (terminalEl) {
+    const terminalOpen = Boolean(shell.chatTerminalOpenBySession?.[sid]);
+    writeHtml(terminalEl, terminalOpen ? renderChatTerminalInner(session) : '');
   }
   const listEl = document.getElementById(`executor-list-${sid}`);
   if (listEl) writeHtml(listEl, renderExecutorListInner(session));
