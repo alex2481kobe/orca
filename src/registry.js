@@ -2,6 +2,7 @@ import fsSync from 'node:fs';
 import path from 'node:path';
 import { toolLeaseMethods } from './registry-tool-leases.js';
 import { notificationMethods } from './registry-notification-methods.js';
+import { agentQueueMethods } from './registry-agent-queue.js';
 import { defaultPolicy } from './registry-policy.js';
 import { capacityMethods } from './registry-capacity.js';
 import { executorCapabilityMethods } from './registry-executor-caps.js';
@@ -57,6 +58,7 @@ export class OrcaRegistry {
     this.mcpTools = [];
     this.toolLeases = [];
     this.notifications = [];
+    this.agentQueue = [];
     this.notificationSettings = { ...DEFAULT_NOTIFICATION_SETTINGS };
     this.artifactRoot = path.join(process.cwd(), 'artifacts');
     this.workspacesRoot = path.join(process.cwd(), '.orca', 'workspaces');
@@ -190,6 +192,7 @@ export class OrcaRegistry {
 // ToolLease(...), registry.validateToolLease(...), etc.).
 Object.assign(OrcaRegistry.prototype, toolLeaseMethods);
 Object.assign(OrcaRegistry.prototype, notificationMethods);
+Object.assign(OrcaRegistry.prototype, agentQueueMethods);
 Object.assign(OrcaRegistry.prototype, capacityMethods);
 Object.assign(OrcaRegistry.prototype, executorCapabilityMethods);
 Object.assign(OrcaRegistry.prototype, critiqueMethods);

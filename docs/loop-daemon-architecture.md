@@ -40,6 +40,16 @@ The long-running process is Orca, not an expensive coding-agent chat. Orca owns 
 
 This means a 24/7 loop should mostly be a cheap scheduler plus persisted state. Real agents should be summoned by events: task ready, backlog complete, auth required, rate-limit retry elapsed, failed verification, stale orchestrator, or human message.
 
+## Agent Event Queue
+
+The first event-queue slice is a durable, session-scoped queue for agent wakeups:
+
+- Producers enqueue loop iteration, loop pause/resume, backlog completion, and orchestrator reconnect events.
+- Consumers use `event.drain` for unacknowledged work, `event.ack` after handling it, and `event.replay` after reconnecting or resuming a chat.
+- Ack state is per role+actor consumer, so one supervisor/orchestrator cannot hide work from another.
+- Event payload metadata is sanitized and does not reuse user notification settings.
+- The queue is persisted with registry state and covered by the long-soak harness.
+
 ## Safety Rules
 
 - A running loop requires the same approval policy as lane creation.
@@ -71,15 +81,15 @@ The first backend slice adds:
 - Scheduler integration: loops advance before backlog dispatch.
 - Task/lane metadata propagation: `loopId` and `metadataLoopId`.
 - Session-scoped API and MCP tools: `loop.list`, `loop.describe`, `loop.create`, `loop.update`.
+- Session-scoped agent event API and MCP tools: `event.drain`, `event.ack`, `event.replay`.
 - Route inventory and security-matrix rows for the loop API.
-- Tests for Codex+Claude task fan-out, duplicate suppression, max-iteration completion, auth/rate-limit pauses, MCP exposure, and supervisor read-only boundaries.
+- Tests for Codex+Claude task fan-out, duplicate suppression, max-iteration completion, auth/rate-limit pauses, MCP exposure, supervisor read-only boundaries, and agent event drain/ack/replay.
 
 ## Next Slices
 
 - UI: add a session Loop panel with create/pause/resume/status controls.
 - Supervisor overview: surface active/paused loops directly in project/session summaries.
 - Learning pipeline: local prompt-history importer for Codex/Claude chats that produces loop templates, not raw prompt dumps.
-- Event queue: persist supervisor/orchestrator nudges so agents can drain work without polling chat turns.
 - Backoff: structured retry-after timestamps instead of text-pattern pause detection only.
 - Reconnect UX: show stale/expired orchestrator owners with one-click MCP/CLI re-enroll instructions.
 - Memory: loop notes and user preference extraction with redaction and explicit review before reuse.

@@ -86,6 +86,9 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
     'orchestrator.thread.get',
     'orchestrator.message.send',
     'session.supervisor_audit',
+    'event.drain',
+    'event.replay',
+    'event.ack',
     'loop.list',
     'loop.create',
     'loop.describe',
@@ -134,6 +137,9 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
     'evidence.list',
     'evidence.latest',
     'session.supervisor_audit',
+    'event.drain',
+    'event.replay',
+    'event.ack',
     'tailscale.status',
     'orca.setup_guide',
     'loop.list',
@@ -159,7 +165,7 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
     assert.equal(supervisorTools.has(id), false, `supervisor must not get ${id}`);
   }
   const supervisorMutatingTools = [...supervisorTools].filter((id) => findTool(id)?.mutating);
-  assert.deepEqual(supervisorMutatingTools, ['supervisor.resign', 'session.supervisor_audit']);
+  assert.deepEqual(supervisorMutatingTools, ['supervisor.resign', 'session.supervisor_audit', 'event.ack']);
 });
 
 test('supervisor docs match the bounded read/audit role contract', async () => {

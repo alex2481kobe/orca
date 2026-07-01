@@ -33,8 +33,10 @@ const sampleMs = readInt('ORCA_SOAK_SAMPLE_MS', Math.min(5_000, Math.max(1_000, 
   min: 1_000,
   max: 10 * 60 * 1000,
 });
+const restartMs = readInt('ORCA_SOAK_RESTART_MS', 0, { min: 0, max: 24 * 60 * 60 * 1000 });
 const injectRateLimit = process.env.ORCA_SOAK_INJECT_RATE_LIMIT !== 'false';
 const requireAudit = process.env.ORCA_SOAK_REQUIRE_AUDIT === 'true';
+const exerciseEventQueue = process.env.ORCA_SOAK_EVENT_QUEUE !== 'false';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const log = (label, payload = {}) => {
@@ -45,6 +47,15 @@ const log = (label, payload = {}) => {
 const previousCwd = process.cwd();
 const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-loop-soak-'));
 let registry = null;
+const eventStats = {
+  drained: 0,
+  acked: 0,
+  replayed: 0,
+  maxSeq: 0,
+  leftUnackedId: null,
+  leftUnackedSeenAgain: false,
+  restarts: 0,
+};
 
 function loopCounts(loopId) {
   const tasks = registry.tasks.filter((task) => task.loopId === loopId);
@@ -73,6 +84,76 @@ function acceptCompletedLoopLanes(loopId) {
     accepted += 1;
   }
   return accepted;
+}
+
+function exerciseAgentQueue(sessionId) {
+  if (!exerciseEventQueue) return;
+  const orchestratorDrain = registry.drainAgentEvents(sessionId, {
+    role: 'orchestrator',
+    actor: 'loop-soak-orchestrator',
+    limit: 200,
+  });
+  const ackIds = [];
+  for (const event of orchestratorDrain.events) {
+    eventStats.maxSeq = Math.max(eventStats.maxSeq, Number.parseInt(event.seq, 10) || 0);
+    if (!eventStats.leftUnackedId && !eventStats.leftUnackedSeenAgain) {
+      eventStats.leftUnackedId = event.id;
+      continue;
+    }
+    if (event.id === eventStats.leftUnackedId) {
+      eventStats.leftUnackedSeenAgain = true;
+      eventStats.leftUnackedId = null;
+    }
+    ackIds.push(event.id);
+  }
+  eventStats.drained += orchestratorDrain.events.length;
+  if (ackIds.length) {
+    eventStats.acked += registry.ackAgentEvents(sessionId, {
+      role: 'orchestrator',
+      actor: 'loop-soak-orchestrator',
+      eventIds: ackIds,
+    }).acked;
+  }
+
+  const supervisorDrain = registry.drainAgentEvents(sessionId, {
+    role: 'supervisor',
+    actor: 'loop-soak-supervisor',
+    limit: 200,
+  });
+  eventStats.drained += supervisorDrain.events.length;
+  if (supervisorDrain.events.length) {
+    eventStats.acked += registry.ackAgentEvents(sessionId, {
+      role: 'supervisor',
+      actor: 'loop-soak-supervisor',
+      eventIds: supervisorDrain.events.map((event) => event.id),
+    }).acked;
+  }
+
+  const replay = registry.replayAgentEvents(sessionId, {
+    role: 'orchestrator',
+    actor: 'loop-soak-orchestrator',
+    afterSeq: Math.max(0, eventStats.maxSeq - 5),
+    limit: 200,
+  });
+  eventStats.replayed += replay.events.length;
+}
+
+async function restartRegistryIfIdle(loopId, { now, lastRestartAt, startedAt }) {
+  if (!restartMs || now - lastRestartAt < restartMs) return lastRestartAt;
+  const counts = loopCounts(loopId);
+  if (counts.activeTasks || counts.runningLanes) return lastRestartAt;
+  registry.stopScheduler();
+  await registry.stopAllExecutors('loop soak registry restart').catch(() => {});
+  await registry.drainPendingWrites();
+  registry = new OrcaRegistry({
+    heartbeatIntervalMs: tickMs,
+    autoCompleteMs,
+    autoAudit: false,
+  });
+  registry.stopScheduler();
+  eventStats.restarts += 1;
+  log('registry-restarted', { elapsedMs: now - startedAt, restarts: eventStats.restarts });
+  return Date.now();
 }
 
 try {
@@ -132,8 +213,10 @@ try {
     capacity,
     maxIterations,
     sampleMs,
+    restartMs,
     injectRateLimit,
     requireAudit,
+    exerciseEventQueue,
     estimatedAgentTokens: 0,
     projectId: project.id,
     sessionId: session.id,
@@ -145,6 +228,7 @@ try {
   const startedAt = Date.now();
   const deadline = startedAt + durationMs;
   let lastSampleAt = 0;
+  let lastRestartAt = startedAt;
   let acceptedTotal = 0;
   let injected = false;
 
@@ -162,8 +246,10 @@ try {
     }
     if (requireAudit) acceptedTotal += acceptCompletedLoopLanes(loop.id);
     await registry.advanceLanes();
+    exerciseAgentQueue(session.id);
 
     const now = Date.now();
+    lastRestartAt = await restartRegistryIfIdle(loop.id, { now, lastRestartAt, startedAt });
     if (now - lastSampleAt >= sampleMs) {
       const current = registry.getLoop(loop.id);
       log('sample', {
@@ -174,6 +260,11 @@ try {
         iteration: current.iteration,
         streamRevision: registry.getStreamRevision(),
         rssMb: Math.round(process.memoryUsage().rss / 1024 / 1024),
+        agentQueue: registry.agentQueue.length,
+        agentEventsDrained: eventStats.drained,
+        agentEventsAcked: eventStats.acked,
+        agentEventsReplayed: eventStats.replayed,
+        registryRestarts: eventStats.restarts,
         ...loopCounts(loop.id),
       });
       lastSampleAt = now;
@@ -184,6 +275,7 @@ try {
   await registry.advanceLanes();
   if (requireAudit) acceptedTotal += acceptCompletedLoopLanes(loop.id);
   await registry.advanceLoops();
+  exerciseAgentQueue(session.id);
 
   const finalLoop = registry.getLoop(loop.id);
   const finalCounts = loopCounts(loop.id);
@@ -206,6 +298,31 @@ try {
     assert.equal(pausedNotification, true, 'pause notification should be emitted');
     assert.equal(resumedNotification, true, 'resume notification should be emitted');
   }
+  let replayAll = { events: [] };
+  if (exerciseEventQueue) {
+    const finalDrain = registry.drainAgentEvents(session.id, {
+      role: 'orchestrator',
+      actor: 'loop-soak-orchestrator',
+      limit: 500,
+    });
+    if (finalDrain.events.length) {
+      eventStats.acked += registry.ackAgentEvents(session.id, {
+        role: 'orchestrator',
+        actor: 'loop-soak-orchestrator',
+        eventIds: finalDrain.events.map((event) => event.id),
+      }).acked;
+    }
+    replayAll = registry.replayAgentEvents(session.id, {
+      role: 'orchestrator',
+      actor: 'loop-soak-orchestrator',
+      limit: 1000,
+    });
+    assert.equal(eventStats.drained > 0, true, 'event queue should be drained by mock consumers');
+    assert.equal(eventStats.acked > 0, true, 'event queue should acknowledge drained events');
+    assert.equal(eventStats.replayed > 0, true, 'event queue replay should return history');
+    assert.equal(eventStats.leftUnackedSeenAgain, true, 'unacked event should be redelivered on a later drain');
+    assert.equal(replayAll.events.some((event) => event.type === 'loop_iteration_queued'), true, 'loop iteration events should be replayable');
+  }
 
   log('done', {
     loopState: finalLoop.state,
@@ -214,6 +331,12 @@ try {
     acceptedTotal,
     pausedNotification,
     resumedNotification,
+    agentQueue: registry.agentQueue.length,
+    agentEventsDrained: eventStats.drained,
+    agentEventsAcked: eventStats.acked,
+    agentEventsReplayed: eventStats.replayed,
+    agentEventsReplayable: replayAll.events.length,
+    registryRestarts: eventStats.restarts,
     ...finalCounts,
     estimatedAgentTokens: 0,
   });

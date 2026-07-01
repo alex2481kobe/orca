@@ -535,6 +535,20 @@ export const taskMethods = {
     const completionMessage = allAccepted
       ? `All ${tasks.length} backlog tasks have been accepted. The session backlog is complete — review the results or add more tasks.`
       : `The session backlog finished: ${accepted} accepted, ${failed} failed. Review the failed tasks (retry or remove them).`;
+    if (typeof this.enqueueAgentEvent === 'function') {
+      this.enqueueAgentEvent({
+        type: 'backlog_completed',
+        targetRole: 'orchestrator',
+        severity: allAccepted ? 'success' : 'warning',
+        title: allAccepted ? 'Backlog complete' : 'Backlog finished with failures',
+        body: completionMessage,
+        actor: 'scheduler',
+        projectId: session.projectId,
+        sessionId: session.id,
+        dedupeKey: `backlog:${session.id}:${session.backlogCompletedAt}`,
+        metadata: { taskCount: tasks.length, accepted, failed },
+      });
+    }
     const activeOrchestrator = session.orchestratorThread?.activeOrchestrator || null;
     const staleExternalOrchestrator = Boolean(
       activeOrchestrator
@@ -574,6 +588,23 @@ export const taskMethods = {
           body: `Reconnect "${activeOrchestrator.actor || 'external orchestrator'}" to review completed backlog work.`,
           projectId: session.projectId,
           sessionId: session.id,
+        });
+      }
+      if (typeof this.enqueueAgentEvent === 'function') {
+        this.enqueueAgentEvent({
+          type: 'orchestrator_reconnect_required',
+          targetRole: 'supervisor',
+          severity: 'warning',
+          title: 'Orchestrator reconnect required',
+          body: `Reconnect "${activeOrchestrator.actor || 'external orchestrator'}" to review completed backlog work.`,
+          actor: 'scheduler',
+          projectId: session.projectId,
+          sessionId: session.id,
+          dedupeKey: `orchestrator-reconnect:${session.id}:${activeOrchestrator.leaseId || activeOrchestrator.actor}:${session.backlogCompletedAt}`,
+          metadata: {
+            activeOrchestratorActor: activeOrchestrator.actor || null,
+            activeOrchestratorLeaseId: activeOrchestrator.leaseId || null,
+          },
         });
       }
     } else if (typeof this.sendOrchestratorMessage === 'function') {

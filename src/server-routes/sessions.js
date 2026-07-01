@@ -389,6 +389,41 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
       }
     }
 
+    if (parts.length >= 4 && parts[3] === 'events') {
+      if (parts.length === 5 && ['drain', 'replay'].includes(parts[4]) && method === 'GET') {
+        const sp = getSearchParams(req.url || '/');
+        if (!sp) return sendJson(res, 400, { error: 'Invalid request query string.' });
+        try {
+          const reader = parts[4] === 'drain' ? registry.drainAgentEvents : registry.replayAgentEvents;
+          return sendJson(res, 200, reader.call(registry, session.id, {
+            role: req._toolLease?.role || sp.get('role') || 'dashboard',
+            actor: req._toolLease?.actor || sp.get('actor') || 'dashboard',
+            limit: sp.get('limit') || 50,
+            type: sp.get('type') || null,
+            afterSeq: sp.get('afterSeq') || null,
+          }));
+        } catch (error) {
+          return sendJson(res, error.status || 500, { error: error.message || 'Could not read agent events.' });
+        }
+      }
+      if (parts.length === 5 && parts[4] === 'ack' && method === 'POST') {
+        const body = await parseJsonBody(req);
+        if (body === null) return sendBodyError(req, res);
+        if (rejectSpoofedActor(body, res)) return;
+        try {
+          const result = registry.ackAgentEvents(session.id, {
+            eventIds: body.eventIds,
+            actor: req._toolLease?.actor || body.actor || 'dashboard',
+            role: req._toolLease?.role || body.role || 'dashboard',
+          });
+          return sendJson(res, 200, result);
+        } catch (error) {
+          return sendJson(res, error.status || 500, { error: error.message || 'Could not acknowledge agent event.' });
+        }
+      }
+      return sendJson(res, 405, { error: 'Method not allowed.' });
+    }
+
     if (parts.length >= 4 && parts[3] === 'loops') {
       if (parts.length === 4 && method === 'GET') {
         const sp = getSearchParams(req.url || '/');

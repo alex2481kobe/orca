@@ -23,6 +23,7 @@ export const persistenceMethods = {
       mcpTools: [],
       toolLeases: [],
       notifications: [],
+      agentQueue: [],
       notificationSettings: { ...DEFAULT_NOTIFICATION_SETTINGS },
       policies: {},
       cleanupSchedule: {},
@@ -74,6 +75,11 @@ export const persistenceMethods = {
         this.notifications = parsed.notifications
           .filter((item) => item && typeof item.id === 'string')
           .slice(0, 200);
+      }
+      if (Array.isArray(parsed.agentQueue)) {
+        this.agentQueue = parsed.agentQueue
+          .filter((item) => item && typeof item.id === 'string')
+          .slice(0, 1000);
       }
       this.notificationSettings = sanitizeNotificationSettings(
         parsed.notificationSettings || {},
@@ -167,6 +173,7 @@ export const persistenceMethods = {
       mcpTools: this.mcpTools,
       toolLeases: this.toolLeases,
       notifications: this.notifications,
+      agentQueue: this.agentQueue,
       notificationSettings: this.notificationSettings,
     };
   },

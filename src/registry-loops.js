@@ -353,6 +353,21 @@ export const loopMethods = {
               metadata: { loopId: loop.id, previousReason },
             });
           }
+          if (typeof this.enqueueAgentEvent === 'function') {
+            this.enqueueAgentEvent({
+              type: 'loop_resumed',
+              targetRole: 'orchestrator',
+              severity: 'info',
+              title: 'Loop resumed',
+              body: `Resuming "${loop.name}" after ${previousReason}.`,
+              actor: 'scheduler',
+              projectId: loop.projectId,
+              sessionId: loop.sessionId,
+              loopId: loop.id,
+              dedupeKey: `loop-resumed:${loop.id}:${loop.updatedAt}`,
+              metadata: { previousReason },
+            });
+          }
           changed = true;
         } else {
           continue;
@@ -385,6 +400,22 @@ export const loopMethods = {
             projectId: loop.projectId,
             sessionId: loop.sessionId,
             metadata: { loopId: loop.id, reason: pause.reason },
+          });
+        }
+        if (typeof this.enqueueAgentEvent === 'function') {
+          this.enqueueAgentEvent({
+            type: 'loop_paused',
+            targetRole: 'orchestrator',
+            severity: pause.reason === 'rate_limited' ? 'warning' : 'error',
+            title: pause.reason === 'rate_limited' ? 'Loop paused for rate limit' : 'Loop paused for login',
+            body: pause.message,
+            actor: 'scheduler',
+            projectId: loop.projectId,
+            sessionId: loop.sessionId,
+            loopId: loop.id,
+            laneId: pause.signalLaneId || null,
+            dedupeKey: `loop-paused:${loop.id}:${pause.reason}:${pause.signalLaneId || loop.updatedAt}`,
+            metadata: { reason: pause.reason, resumeAt: pause.resumeAt || null },
           });
         }
         changed = true;
@@ -443,6 +474,21 @@ export const loopMethods = {
         status: 'passed',
         evidence: { loopId: loop.id, iteration, taskIds, executorTypes: loop.executorTypes },
       });
+      if (typeof this.enqueueAgentEvent === 'function') {
+        this.enqueueAgentEvent({
+          type: 'loop_iteration_queued',
+          targetRole: 'orchestrator',
+          severity: 'info',
+          title: `Loop iteration ${iteration} queued`,
+          body: `Loop "${loop.name}" queued ${taskIds.length} task(s).`,
+          actor: 'scheduler',
+          projectId: loop.projectId,
+          sessionId: loop.sessionId,
+          loopId: loop.id,
+          dedupeKey: `loop-iteration:${loop.id}:${iteration}`,
+          metadata: { iteration, taskIds, executorTypes: loop.executorTypes },
+        });
+      }
       changed = true;
     }
     if (changed) this.persistState();
