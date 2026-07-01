@@ -38,6 +38,51 @@ function isLightweightConversation(value) {
   return /^(are you there|what can you do|who are you|how are you|you there)\??$/.test(compact);
 }
 
+function remediationForText(value) {
+  const text = safeChatText(value, 1000).toLowerCase();
+  if (!text) return 'Open the lane details for the last error and retry after the blocker is cleared.';
+  if (/rate.?limit|429|quota|usage limit|too many requests/.test(text)) {
+    return 'Wait for the provider limit to reset, then resume or retry. Switch executors if the work is urgent.';
+  }
+  if (/auth|login|log in|unauthorized|forbidden|credential|api key|token|not logged in/.test(text)) {
+    return 'Run the CLI login/setup command on this workstation, then retry the turn.';
+  }
+  if (/enoent|not found|not executable|binary|command failed to launch/.test(text)) {
+    return 'Install the selected CLI or update its path in Settings > Agents, then restart/retry.';
+  }
+  if (/approval|permission|bypass|yolo|force|unsandboxed/.test(text)) {
+    return 'Use a sandboxed mode, or approve the higher-risk action from the workstation.';
+  }
+  if (/workdir|workspace|outside allowed|repo root|path/.test(text)) {
+    return 'Check the project workspace/repo root in Settings or pick a valid project folder.';
+  }
+  return 'Explain the blocker plainly and point the user to the lane details if logs are needed.';
+}
+
+function buildOperatorIssueContext({ executorCapabilities = null, selectedExecutorType = '', sessionLanes = [] } = {}) {
+  const issues = [];
+  const recentProblemLanes = (Array.isArray(sessionLanes) ? sessionLanes : [])
+    .filter((lane) => ['failed', 'blocked', 'stopped', 'fix_requested'].includes(String(lane?.state || '').toLowerCase()))
+    .sort((a, b) => Date.parse(b.updatedAt || b.completedAt || b.createdAt || 0) - Date.parse(a.updatedAt || a.completedAt || a.createdAt || 0))
+    .slice(0, 4);
+  for (const lane of recentProblemLanes) {
+    const reason = safeChatText(lane.exitReason || lane.resultText || lane.title || 'Agent stopped before completing.', 500);
+    const executor = safeChatText(lane.executorType || 'agent', 80);
+    issues.push(`- Recent ${executor} lane "${safeChatText(lane.title || lane.id, 120)}" is ${safeChatText(lane.state, 40)}: ${reason}. User action: ${remediationForText(reason)}`);
+  }
+
+  const selected = normalizeExecutorType(selectedExecutorType);
+  const capabilities = executorCapabilities && typeof executorCapabilities === 'object' ? executorCapabilities : {};
+  for (const type of FIRST_CLASS_CLI_EXECUTOR_TYPES) {
+    const info = capabilities[type];
+    if (!info || info.kind !== 'cli' || info.binaryExists) continue;
+    const selectedNote = selected === type ? ' Selected for this turn.' : '';
+    issues.push(`- ${info.displayName || type}: CLI is not executable.${selectedNote} User action: install/configure ${info.binary || type} in Settings > Agents, then retry.`);
+  }
+
+  return issues.slice(0, 8).join('\n');
+}
+
 function buildOrchestratorPrompt({
   project,
   session,
@@ -50,6 +95,7 @@ function buildOrchestratorPrompt({
   nextActionUrl = '',
   discoveryUrl = '',
   executorCapabilities = null,
+  operatorIssueContext = '',
 } = {}) {
   const transcript = messages
     .slice(-20)
@@ -61,13 +107,14 @@ function buildOrchestratorPrompt({
     return [
       'You are the Orca chat and orchestration agent for this project/session.',
       'The current user message is conversational, not an actionable project objective.',
-      'Reply like a normal capable agent: brief, direct, and useful. Do not ask the user to approve Orca MCP tool names. Do not create executor lanes, backlog items, or tool calls unless the user gives an actual objective.',
+      'Reply like a normal capable agent: brief, direct, and useful. Keep internal Orca tool names out of the user-facing answer. Do not create executor lanes, backlog items, or tool calls unless the user gives an actual objective.',
       'If helpful, offer one simple next step they can ask Orca to do.',
       `Project: ${project?.name || project?.id || 'unknown'}`,
       `Session: ${session?.name || session?.id || 'unknown'}`,
       model ? `Requested model: ${safeChatText(model, 120)}` : '',
       permissionsProfile ? `Run mode / permissions: ${safeChatText(permissionsProfile, 120)}` : '',
       intelligenceProfile ? `Requested intelligence level: ${safeChatText(intelligenceProfile, 80)}` : '',
+      operatorIssueContext ? `Known local issues, if relevant:\n${safeChatText(operatorIssueContext, 2500)}` : '',
       transcript ? `Recent conversation:\n${transcript}` : '',
       `Current user message:\n${safeChatText(message)}`,
     ].filter(Boolean).join('\n\n');
@@ -77,13 +124,14 @@ function buildOrchestratorPrompt({
     'Read the current user request before acting. If a future message is only a greeting or check-in, answer conversationally instead of forcing orchestration.',
     'Own decomposition, planning, lane creation, executor assignment, and audit handoff.',
     'Do not ask the human to manually create executor lanes when you can create them through Orca tools.',
-    'Do not ask the human to approve internal Orca MCP tool names in chat. Use available tools when needed; if a tool is unavailable, state the plain blocker and continue with the useful next step.',
+    'Keep internal Orca tool names out of user-facing chat. Use available tools when needed; if a tool is unavailable, state the plain blocker and continue with the useful next step.',
     'Use the scoped tool lease from ORCA_TOOL_LEASE_TOKEN, never the full API token.',
     apiBase ? `Orca base URL: ${apiBase}` : '',
     discoveryUrl ? `Tool discovery URL: ${discoveryUrl}` : '',
     nextActionUrl ? `Next-action URL: ${nextActionUrl}` : '',
     'For HTTP tool calls, send header x-orca-tool-lease: $ORCA_TOOL_LEASE_TOKEN.',
     executorCapabilities ? `Executor capability matrix available to you:\n${safeChatText(JSON.stringify(executorCapabilities, null, 2), 6000)}` : '',
+    operatorIssueContext ? `Operator issue context (plain language; use this to explain blockers simply, not as internal tool instructions):\n${safeChatText(operatorIssueContext, 2500)}` : '',
     `Project: ${project?.name || project?.id || 'unknown'}`,
     `Session: ${session?.name || session?.id || 'unknown'}`,
     model ? `Requested model: ${safeChatText(model, 120)}` : '',
@@ -519,6 +567,12 @@ export const orchestratorMethods = {
 
     const resolvedExecutorType = this.resolveOrchestratorExecutorType(session, executorType);
     const executorCapabilities = this.getExecutorCapabilitiesMatrix();
+    const sessionLanes = this.lanes.filter((laneItem) => laneItem.sessionId === session.id);
+    const operatorIssueContext = buildOperatorIssueContext({
+      executorCapabilities,
+      selectedExecutorType: resolvedExecutorType,
+      sessionLanes,
+    });
     const turnNumber = thread.messages.filter((entry) => entry.role === 'user').length;
     const workdir = session.repoRoot || session.worktreeRoot;
     let lane;
@@ -542,6 +596,7 @@ export const orchestratorMethods = {
           discoveryUrl,
           nextActionUrl,
           executorCapabilities,
+          operatorIssueContext,
         }),
         model,
         permissionsProfile,

@@ -297,3 +297,31 @@ test('lightweight chat turns do not receive the full orchestration tool contract
     await cleanup();
   }
 });
+
+test('orchestrator prompts carry plain issue context for recent agent blockers', async () => {
+  const { registry, cleanup } = await withRegistry();
+  try {
+    const project = registry.createProject({ name: 'Flow Blocker' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'chat', leader: 'codex' }, { actor: 'test', approved: true });
+    const createdLane = registry.createLane(session.id, {
+      title: 'Claude auth probe',
+      executorType: 'claude',
+      owner: 'orchestrator',
+    }, { actor: 'test', approved: true });
+    const failedLane = registry.getLane(createdLane.id);
+    failedLane.state = 'failed';
+    failedLane.exitReason = 'Claude authentication failed; run /login before retrying.';
+    failedLane.completedAt = new Date().toISOString();
+    failedLane.updatedAt = failedLane.completedAt;
+
+    await send(registry, session.id, { executorType: 'codex', message: 'What happened with the agent?' });
+    const lane = latestOrchestratorLane(registry, session.id);
+
+    assert.match(lane.taskPrompt, /Operator issue context/);
+    assert.match(lane.taskPrompt, /Claude auth probe/);
+    assert.match(lane.taskPrompt, /Run the CLI login\/setup command on this workstation/);
+    assert.doesNotMatch(lane.taskPrompt, /approve .*MCP tool/i);
+  } finally {
+    await cleanup();
+  }
+});
