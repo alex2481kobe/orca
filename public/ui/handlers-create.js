@@ -29,15 +29,16 @@ export async function createEmptyChat(projectId) {
 // or attachment). Returns the real session id (the same id if already real, or null
 // on failure). Migrates the composer draft text, attachments, and git cache from the
 // sentinel id to the real id so nothing typed/attached is lost.
-export async function ensureRealSession(sessionId) {
+export async function ensureRealSession(sessionId, options = {}) {
   if (!sessionId || !String(sessionId).startsWith('draft-')) return sessionId;
   const draft = shell.draftSessions?.[sessionId];
   if (!draft) return sessionId;
+  const leader = normalizeExecutorType(options.leader || draft.leader || '');
   const response = await api(`/api/projects/${draft.projectId}/sessions`, {
     method: 'POST',
     body: {
       name: 'New chat',
-      leader: draft.leader || undefined,
+      leader: leader || undefined,
       ...(draft.repoRoot ? { repoRoot: draft.repoRoot } : {}),
       actor: 'dashboard',
       approved: true,

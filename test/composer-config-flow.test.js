@@ -346,6 +346,7 @@ test('lightweight chat turns do not receive the full orchestration tool contract
     assert.doesNotMatch(lane.taskPrompt, /ORCA_TOOL_LEASE_TOKEN/);
     assert.doesNotMatch(lane.taskPrompt, /Executor capability matrix/);
     assert.doesNotMatch(lane.taskPrompt, /Next-action URL/);
+    assert.match(lane.taskPrompt, /do not infer, use, or reveal the user's personal name/i);
   } finally {
     await cleanup();
   }

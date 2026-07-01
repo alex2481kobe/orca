@@ -10,16 +10,31 @@ import { shell } from './state.js';
 import { isLiveLaneState } from './render-helpers.js';
 import { ensureRealSession } from './handlers-create.js';
 
+export function resolveOrchestratorExecutorType({ payload = {}, form = null, sessionId = '', fallback = '' } = {}) {
+  const controlValue = form?.querySelector?.('select[name="executorType"]')?.value || '';
+  const session = shell.sessions.find((item) => String(item.id) === String(sessionId));
+  return normalizeExecutorType(
+    payload.executorType
+    || controlValue
+    || fallback
+    || session?.orchestratorThread?.executorType
+    || session?.leader
+    || 'codex',
+  );
+}
+
 export async function handleOrchestratorMessage(event) {
   event.preventDefault();
-  let sessionId = event.currentTarget.dataset.sessionId;
-  const payload = toObj(event.currentTarget);
+  const form = event.currentTarget;
+  let sessionId = form.dataset.sessionId;
+  const payload = toObj(form);
   const message = String(payload.message || '').trim();
   const attachments = composerAttachmentsFor(sessionId).map((entry) => ({ name: entry.name, url: entry.url }));
   if (!message && !attachments.length) {
     renderAlert('Message or attachment is required.', 'bad');
     return;
   }
+  const selectedExecutorBeforePromote = resolveOrchestratorExecutorType({ payload, form, sessionId });
   // If this is a draft "New chat", create the real session now (first send) and
   // switch to it, so an untouched chat never persists but a sent one does.
   if (String(sessionId).startsWith('draft-')) {
@@ -27,7 +42,7 @@ export async function handleOrchestratorMessage(event) {
     // Stash the draft text under the (about-to-exist) real id so the migration in
     // ensureRealSession carries it across, then promote.
     shell.composerDrafts[sessionId] = message;
-    const realId = await ensureRealSession(sessionId);
+    const realId = await ensureRealSession(sessionId, { leader: selectedExecutorBeforePromote });
     if (!realId || realId === sessionId) return; // creation failed (alert already shown)
     if (draftTerminalOpen) {
       shell.chatTerminalOpenBySession = shell.chatTerminalOpenBySession || {};
@@ -38,7 +53,7 @@ export async function handleOrchestratorMessage(event) {
     const realSession = shell.sessions.find((s) => s.id === realId);
     if (realSession?.route) safeNavigate(realSession.route);
   }
-  const executorType = normalizeExecutorType(payload.executorType || 'codex');
+  const executorType = resolveOrchestratorExecutorType({ payload, form, sessionId, fallback: selectedExecutorBeforePromote });
   const model = String(payload.model || '').trim() || String(payload.modelPreset || '').trim() || null;
   const intelligenceProfile = String(payload.intelligenceProfile || '').trim() || 'high';
   const permissionsProfile = String(payload.permissionsProfile || '').trim() || 'auto-edit';
@@ -48,7 +63,6 @@ export async function handleOrchestratorMessage(event) {
   // Sending your own chat message IS the approval — a real chat doesn't pop a
   // confirm modal on every message. The composer already shows mode/model, so the
   // operator's send is the explicit, informed action.
-  const form = event.currentTarget;
   // Optimistically clear the box immediately (and the draft store) so it feels
   // like a normal chat; restore on failure.
   const draft = message;

@@ -29,6 +29,19 @@ test('Codex turn completion content is promoted to a final assistant event', () 
   assert.deepEqual(events[0].usage, { input_tokens: 9, output_tokens: 3 });
 });
 
+test('Codex current item.completed agent_message output becomes a chat response', () => {
+  const normalizer = createAgentEventNormalizer('codex');
+  const events = normalizer.consume('stdout', [
+    JSON.stringify({ type: 'item.started', item: { id: 'call-1', type: 'mcp_tool_call', tool: 'orchestrator__status' } }),
+    JSON.stringify({ type: 'item.completed', item: { id: 'msg-1', type: 'agent_message', text: 'Final answer from current Codex JSONL.' } }),
+    JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 4 } }),
+    '',
+  ].join('\n'));
+  assert.deepEqual(events.map((event) => event.type), ['tool.started', 'message.assistant.final', 'agent.done']);
+  assert.equal(events[1].content, 'Final answer from current Codex JSONL.');
+  assert.deepEqual(events[2].usage, { input_tokens: 10, output_tokens: 4 });
+});
+
 test('Claude stream-json text deltas normalize into assistant events', () => {
   const normalizer = createAgentEventNormalizer('claude');
   const events = normalizer.consume('stdout', `${JSON.stringify({

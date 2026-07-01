@@ -317,12 +317,11 @@ export function renderOrchestratorConsole(session) {
   // Default to an INSTALLED agent (the chosen leader if installed, else the first
   // installed CLI). Uninstalled agents still appear in the dropdown, greyed out.
   const messages = Array.isArray(thread.messages) ? thread.messages : [];
-  // Once a session has traffic it's locked to the agent it started with; before
-  // that, default to an installed agent.
+  // Once a session has traffic it's locked to the agent that actually owns the
+  // orchestrator thread. `session.leader` can be only a draft/default value from
+  // before the first send, so the thread wins after any real turn exists.
   const locked = messages.length > 0;
-  const selectedExecutor = locked
-    ? defaultExecutorType(session.leader || thread.executorType)
-    : defaultExecutorType(thread.executorType || session.leader);
+  const selectedExecutor = defaultExecutorType(thread.executorType || session.leader);
   // Reflect the active lane's settings ONLY when that lane is the same agent;
   // otherwise show the selected agent's own defaults (fixes e.g. codex showing
   // claude's 'opus' because a prior lane used it).
