@@ -1,6 +1,6 @@
 ---
 name: model-agent-orchestration
-description: "Plan and prompt multi-agent work across supervisor, orchestrator, scoper, executor, verifier, reviewer, and handoff roles with model-specific routing for Claude Fable, Claude Sonnet, Codex GPT, Spark, or other frontier models. Use when deciding which model or agent should own a task, creating handoff packets, supervising subagents, controlling token and cost budgets, designing read-only scoping versus execution workflows, or adding a new model profile."
+description: "Plan and prompt multi-agent work across supervisor, orchestrator, scoper, executor, verifier, reviewer, and handoff roles with model-specific routing for Claude Fable, Claude Opus, Claude Sonnet, Codex GPT-5.5, Codex Spark 5.3, or other frontier models. Use when deciding which model or agent should own a task, creating handoff packets, supervising subagents, controlling token and cost budgets, designing read-only scoping versus execution workflows, or adding a new model profile."
 ---
 
 # Model Agent Orchestration
@@ -94,6 +94,7 @@ Load references selectively:
 - `references/role-contracts.md`: reusable role prompts and responsibilities.
 - `references/handoff-and-ledgers.md`: structured packet and ledger templates.
 - `references/models/claude-fable-5.md`: Fable-specific prompt adapter and role fit.
+- `references/models/claude-opus-4-8.md`: Opus-specific prompt adapter and role fit.
 - `references/models/claude-sonnet-5.md`: Sonnet-specific prompt adapter and role fit.
 - `references/models/codex-gpt.md`: GPT-5.5, GPT-5.4, and GPT-5.4-mini routing for Codex-style work.
 - `references/models/codex-spark.md`: Spark routing for near-instant text-only coding iteration.
