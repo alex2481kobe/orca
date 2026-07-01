@@ -7,7 +7,7 @@
  * task fan-out, lane lifecycle, audit acceptance, and pause/resume notifications.
  *
  * Defaults are short enough for CI. For a real overnight/local soak:
- *   ORCA_SOAK_DURATION_MS=14400000 ORCA_SOAK_CADENCE_MS=300000 npm run smoke:loop-soak
+ *   ORCA_SOAK_DURATION_MS=14400000 ORCA_SOAK_CADENCE_MS=300000 ORCA_SOAK_SAMPLE_MS=60000 npm run smoke:loop-soak
  */
 
 import assert from 'node:assert/strict';
@@ -29,6 +29,10 @@ const tickMs = readInt('ORCA_SOAK_TICK_MS', 250, { min: 50, max: 10_000 });
 const autoCompleteMs = readInt('ORCA_SOAK_AUTO_COMPLETE_MS', 500, { min: 50, max: 60_000 });
 const capacity = readInt('ORCA_SOAK_CAPACITY', 2, { min: 1, max: 8 });
 const maxIterations = readInt('ORCA_SOAK_MAX_ITERATIONS', 0, { min: 0, max: 10_000 });
+const sampleMs = readInt('ORCA_SOAK_SAMPLE_MS', Math.min(5_000, Math.max(1_000, cadenceMs)), {
+  min: 1_000,
+  max: 10 * 60 * 1000,
+});
 const injectRateLimit = process.env.ORCA_SOAK_INJECT_RATE_LIMIT !== 'false';
 const requireAudit = process.env.ORCA_SOAK_REQUIRE_AUDIT === 'true';
 
@@ -127,6 +131,7 @@ try {
     autoCompleteMs,
     capacity,
     maxIterations,
+    sampleMs,
     injectRateLimit,
     requireAudit,
     estimatedAgentTokens: 0,
@@ -159,7 +164,7 @@ try {
     await registry.advanceLanes();
 
     const now = Date.now();
-    if (now - lastSampleAt >= Math.min(5_000, Math.max(1_000, cadenceMs))) {
+    if (now - lastSampleAt >= sampleMs) {
       const current = registry.getLoop(loop.id);
       log('sample', {
         elapsedMs: now - startedAt,
