@@ -408,6 +408,10 @@ function toolLeaseRequirementForRoute(method, parts) {
   if (parts[1] === 'sessions' && parts[2] && parts[3] === 'plan' && method === 'POST') {
     return { toolId: 'session.plan.update', sessionId: parts[2] };
   }
+  if (parts[1] === 'sessions' && parts[2] && parts[3] === 'agent-memory' && parts.length === 4) {
+    if (method === 'GET') return { toolId: 'session.memory.get', sessionId: parts[2] };
+    if (method === 'PATCH') return { toolId: 'session.memory.update', sessionId: parts[2] };
+  }
   if (parts[1] === 'sessions' && parts[2] && parts[3] === 'tasks' && parts.length === 4) {
     if (method === 'GET') return { toolId: 'task.list', sessionId: parts[2] };
     if (method === 'POST') return { toolId: 'task.add', sessionId: parts[2] };

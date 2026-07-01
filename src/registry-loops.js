@@ -350,6 +350,7 @@ export const loopMethods = {
               actor: 'scheduler',
               projectId: loop.projectId,
               sessionId: loop.sessionId,
+              dedupeKey: `loop-resumed:${loop.id}:${loop.updatedAt}`,
               metadata: { loopId: loop.id, previousReason },
             });
           }
@@ -399,6 +400,7 @@ export const loopMethods = {
             actor: 'scheduler',
             projectId: loop.projectId,
             sessionId: loop.sessionId,
+            dedupeKey: `loop-paused:${loop.id}:${pause.reason}:${pause.signalLaneId || loop.updatedAt}`,
             metadata: { loopId: loop.id, reason: pause.reason },
           });
         }

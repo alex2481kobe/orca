@@ -1670,6 +1670,235 @@ test('scoped orchestrator leases bind plan and task actors to the lease identity
   }
 });
 
+test('scoped tool leases bind compact memory to role actor and lane identity', async () => {
+  const token = 'route-token-agent-memory-binding';
+  const server = await startServer({ token });
+
+  try {
+    const project = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Agent Memory Project', approved: true },
+    });
+    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Agent Memory Session', leader: 'mock', approved: true },
+    });
+    assert.equal(project.status, 201);
+    assert.equal(session.status, 201);
+
+    const orchestratorLease = await server.requestJson('/api/agent-tools/leases', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        actor: 'memory-orchestrator',
+        role: 'orchestrator',
+        projectId: project.body.id,
+        sessionId: session.body.id,
+      },
+    });
+    assert.equal(orchestratorLease.status, 201);
+    const orchestratorHeaders = { 'x-orca-tool-lease': orchestratorLease.body.leaseToken };
+    const enrolled = await server.requestJson(`/api/sessions/${session.body.id}/orchestrator/enroll`, {
+      method: 'POST',
+      headers: orchestratorHeaders,
+      body: {},
+    });
+    assert.equal(enrolled.status, 200);
+    const roleSpoof = await server.requestJson(`/api/sessions/${session.body.id}/agent-memory`, {
+      method: 'PATCH',
+      headers: orchestratorHeaders,
+      body: {
+        actor: 'body-spoofed-memory',
+        role: 'supervisor',
+        currentFocus: 'Bad role spoof',
+      },
+    });
+    assert.equal(roleSpoof.status, 422);
+    assert.match(roleSpoof.body?.error || '', /Unknown agent memory field/);
+
+    const orchestratorMemory = await server.requestJson(`/api/sessions/${session.body.id}/agent-memory`, {
+      method: 'PATCH',
+      headers: orchestratorHeaders,
+      body: {
+        actor: 'body-spoofed-memory',
+        currentFocus: 'Keep the loop alive with Bearer abc.def.ghi',
+        activeWork: ['Audit compact flow'],
+        nextActions: ['Run memory soak'],
+      },
+    });
+    assert.equal(orchestratorMemory.status, 200);
+    assert.equal(orchestratorMemory.body.entries[0].role, 'orchestrator');
+    assert.equal(orchestratorMemory.body.entries[0].actor, 'memory-orchestrator');
+    assert.equal(orchestratorMemory.body.entries[0].currentFocus.includes('[redacted]'), true);
+    const compactId = orchestratorMemory.body.entries[0].compactId;
+    const mergedMemory = await server.requestJson(`/api/sessions/${session.body.id}/agent-memory`, {
+      method: 'PATCH',
+      headers: orchestratorHeaders,
+      body: {
+        ifMatch: compactId,
+        replace: false,
+        nextActions: ['Run memory-profile soak'],
+      },
+    });
+    assert.equal(mergedMemory.status, 200);
+    assert.notEqual(mergedMemory.body.entries[0].compactId, compactId);
+    assert.equal(mergedMemory.body.entries[0].currentFocus.includes('Keep the loop alive'), true);
+    const staleMemory = await server.requestJson(`/api/sessions/${session.body.id}/agent-memory`, {
+      method: 'PATCH',
+      headers: orchestratorHeaders,
+      body: {
+        ifMatch: compactId,
+        currentFocus: 'stale overwrite',
+      },
+    });
+    assert.equal(staleMemory.status, 409);
+
+    const lane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        approved: true,
+        title: 'Memory executor lane',
+        executorType: 'mock',
+        owner: 'executor',
+        taskPrompt: 'Exercise lane-scoped compact memory.',
+      },
+    });
+    assert.equal(lane.status, 201);
+
+    const executorLease = await server.requestJson('/api/agent-tools/leases', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        actor: 'memory-executor',
+        role: 'executor',
+        projectId: project.body.id,
+        sessionId: session.body.id,
+        laneId: lane.body.id,
+      },
+    });
+    assert.equal(executorLease.status, 201);
+    const executorHeaders = { 'x-orca-tool-lease': executorLease.body.leaseToken };
+    const executorMemory = await server.requestJson(`/api/sessions/${session.body.id}/agent-memory`, {
+      method: 'PATCH',
+      headers: executorHeaders,
+      body: {
+        actor: 'body-spoofed-executor',
+        currentFocus: 'Working in my lane only',
+        nextActions: ['Submit lane result'],
+      },
+    });
+    assert.equal(executorMemory.status, 200);
+    assert.equal(executorMemory.body.entries[0].role, 'executor');
+    assert.equal(executorMemory.body.entries[0].actor, 'memory-executor');
+    assert.equal(executorMemory.body.entries[0].laneId, lane.body.id);
+
+    const executorRead = await server.requestJson(`/api/sessions/${session.body.id}/agent-memory`, {
+      method: 'GET',
+      headers: executorHeaders,
+    });
+    assert.equal(executorRead.status, 200);
+    assert.deepEqual(executorRead.body.entries.map((entry) => entry.role), ['executor']);
+
+    const orchestratorRead = await server.requestJson(`/api/sessions/${session.body.id}/agent-memory`, {
+      method: 'GET',
+      headers: orchestratorHeaders,
+    });
+    assert.equal(orchestratorRead.status, 200);
+    assert.deepEqual(orchestratorRead.body.entries.map((entry) => entry.role).sort(), ['executor', 'orchestrator']);
+
+    const audits = await server.requestJson('/api/audit/events', {
+      method: 'GET',
+      headers: { 'x-orca-token': token },
+    });
+    assert.equal(audits.status, 200);
+    const memoryActors = audits.body
+      .filter((event) => event.type === 'session_agent_memory_updated' && event.sessionId === session.body.id)
+      .map((event) => event.actor)
+      .sort();
+    assert.deepEqual(memoryActors, ['memory-executor', 'memory-orchestrator', 'memory-orchestrator']);
+    assert.equal(JSON.stringify(audits.body).includes('body-spoofed'), false);
+  } finally {
+    await server.stop();
+  }
+});
+
+test('dashboard event routes use canonical consumer identity despite role actor query/body values', async () => {
+  const token = 'route-token-event-consumer-identity';
+  const server = await startServer({ token });
+
+  try {
+    const project = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Event Identity Project', approved: true },
+    });
+    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        name: 'Event Identity Session',
+        leader: 'mock',
+        spawnPolicy: 'auto',
+        approvedCapacity: 1,
+        approved: true,
+      },
+    });
+    assert.equal(project.status, 201);
+    assert.equal(session.status, 201);
+
+    const loop = await server.requestJson(`/api/sessions/${session.body.id}/loops`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        approved: true,
+        name: 'Event identity loop',
+        goal: 'Queue one event for identity testing.',
+        executorTypes: ['mock'],
+        cadenceMs: 1000,
+        maxIterations: 1,
+      },
+    });
+    assert.equal(loop.status, 201);
+
+    let firstDrain = null;
+    for (let i = 0; i < 40; i += 1) {
+      firstDrain = await server.requestJson(`/api/sessions/${session.body.id}/events/drain?role=orchestrator&actor=evil-dashboard`, {
+        method: 'GET',
+        headers: { 'x-orca-token': token },
+      });
+      assert.equal(firstDrain.status, 200);
+      if (firstDrain.body.events.length) break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.equal(firstDrain.body.role, 'dashboard');
+    assert.equal(firstDrain.body.events.length > 0, true);
+    const eventId = firstDrain.body.events[0].id;
+
+    const ack = await server.requestJson(`/api/sessions/${session.body.id}/events/ack`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        role: 'orchestrator',
+        actor: 'evil-dashboard',
+        eventIds: [eventId],
+      },
+    });
+    assert.equal(ack.status, 200);
+
+    const dashboardDrain = await server.requestJson(`/api/sessions/${session.body.id}/events/drain`, {
+      method: 'GET',
+      headers: { 'x-orca-token': token },
+    });
+    assert.equal(dashboardDrain.status, 200);
+    assert.equal(dashboardDrain.body.events.some((event) => event.id === eventId), false);
+  } finally {
+    await server.stop();
+  }
+});
+
 test('executor CLI reinstall supports claude with source-mode and command validation', async () => {
   const token = 'route-token-03e';
   const server = await startServer({

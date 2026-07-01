@@ -313,6 +313,7 @@ export const sessionMethods = {
       worktreeRoot: path.join(this.workspacesRoot, sessionId),
       repoRoot: validatedRepoRoot,
       notes: [],
+      agentMemory: [],
       orchestratorThread: {
         id: randomUUID(),
         messages: [],

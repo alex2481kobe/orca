@@ -150,6 +150,40 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
       }
     }
 
+    if (parts.length === 4 && parts[3] === 'agent-memory') {
+      if (method === 'GET') {
+        const sp = getSearchParams(req.url || '/');
+        if (!sp) return sendJson(res, 400, { error: 'Invalid request query string.' });
+        try {
+          const result = registry.listSessionAgentMemory(session.id, {
+            role: req._toolLease?.role || 'dashboard',
+            actor: req._toolLease?.actor || 'dashboard',
+            laneId: req._toolLease?.laneId || null,
+            limit: sp.get('limit') || 20,
+          });
+          return sendJson(res, 200, result);
+        } catch (error) {
+          return sendJson(res, error.status || 500, { error: error.message || 'Could not read agent memory.' });
+        }
+      }
+      if (method === 'PATCH') {
+        const body = await parseJsonBody(req);
+        if (body === null) return sendBodyError(req, res);
+        if (rejectSpoofedActor(body, res)) return;
+        try {
+          const result = registry.updateSessionAgentMemory(session.id, body, {
+            role: req._toolLease?.role || 'dashboard',
+            actor: req._toolLease?.actor || 'dashboard',
+            laneId: req._toolLease?.laneId || null,
+          });
+          return sendJson(res, 200, result);
+        } catch (error) {
+          return sendJson(res, error.status || 500, { error: error.message || 'Could not update agent memory.' });
+        }
+      }
+      return sendJson(res, 405, { error: 'Method not allowed.' });
+    }
+
     if (parts.length === 4 && parts[3] === 'attachments' && method === 'POST') {
       // Larger cap than normal JSON: attachments (screenshots/docs) arrive base64-encoded.
       const body = await parseJsonBody(req, { maxBytes: 13 * 1024 * 1024 });
@@ -396,8 +430,8 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
         try {
           const reader = parts[4] === 'drain' ? registry.drainAgentEvents : registry.replayAgentEvents;
           return sendJson(res, 200, reader.call(registry, session.id, {
-            role: req._toolLease?.role || sp.get('role') || 'dashboard',
-            actor: req._toolLease?.actor || sp.get('actor') || 'dashboard',
+            role: req._toolLease?.role || 'dashboard',
+            actor: req._toolLease?.actor || 'dashboard',
             limit: sp.get('limit') || 50,
             type: sp.get('type') || null,
             afterSeq: sp.get('afterSeq') || null,
@@ -413,8 +447,8 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
         try {
           const result = registry.ackAgentEvents(session.id, {
             eventIds: body.eventIds,
-            actor: req._toolLease?.actor || body.actor || 'dashboard',
-            role: req._toolLease?.role || body.role || 'dashboard',
+            actor: req._toolLease?.actor || 'dashboard',
+            role: req._toolLease?.role || 'dashboard',
           });
           return sendJson(res, 200, result);
         } catch (error) {

@@ -11,6 +11,7 @@ export const ROLE_INSTRUCTIONS = {
     'You are acting as the Orca SUPERVISOR, a top-level coordinator for multiple projects/sessions. '
     + 'Use supervisor.overview first to see all active projects, sessions, orchestrator owners, backlog state, and next required tools. '
     + 'For each session you supervise, use event.drain to get durable wakeups, event.ack after you have handled them, and event.replay when you need history after reconnecting. '
+    + 'Use session.memory.get after reconnecting and session.memory.update with replace:false before compacting, pausing, or resigning; keep it concise: current focus, active work, decisions, blockers, next actions, risks, and future implementations only. '
     + 'Use lane.list / lane.get when you need the live executor picture; use lane.terminal.tail for near-live raw terminal output with offset polling. '
     + 'You do not implement directly and you do not mutate session plans, backlog tasks, capacity, worktree policy, settings, lanes, or orchestrator ownership from this role. '
     + 'For a session that needs attention, inspect orchestrator.status, orchestrator.thread.get, and lane/task/backlog reads, then use session.supervisor_audit to accept, request_fix, or block the outcome with specific findings and a nextTask for the active orchestrator. '
@@ -27,6 +28,7 @@ export const ROLE_INSTRUCTIONS = {
     + 'shows the lane tree + backlog — your "what is happening" view, call it whenever you need the picture). '
     + 'If you have no project/session yet, project.list, project.create when the list is empty, then session.create one (set spawnPolicy:"auto" to let the backlog fan out automatically). '
     + 'Use event.drain to handle durable loop/backlog wakeups, event.ack after acting on them, and event.replay after reconnecting or resuming a chat. '
+    + 'Use session.memory.get after reconnecting and session.memory.update with replace:false before compacting, handing off, pausing, or resigning; keep only current focus, active work, decisions, blockers, next actions, risks, and future implementations. '
     + 'Then: (1) load work with task.bulk_add (a durable backlog), loop.create (a durable cadence-based loop that keeps adding bounded iterations), or session.plan.update (free-text goal); '
     + '(2) read executor.capabilities before assigning work; with spawnPolicy:"auto" Orca creates executor lanes from pending tasks up to capacity and refills as they finish — otherwise create them yourself with lane.create; '
     + 'Default worktreeMode is "isolated"; only switch to "shared" with session.worktree_policy.update when the user explicitly wants one checkout, then keep executor file ownership disjoint or reduce capacity to 1. '
@@ -37,6 +39,7 @@ export const ROLE_INSTRUCTIONS = {
     + 'The server returns a nextAction envelope on any out-of-order or disallowed call; follow it rather than retrying blindly.',
   executor:
     'You are acting as an Orca EXECUTOR for a single lane. Call session.next_action FIRST and obey the envelope. '
+    + 'Use session.memory.get after reconnecting and session.memory.update with replace:false before compacting or submitting so the lane handoff survives context compaction. '
     + 'Do the scoped work, request approval (approval.request) before high-risk actions, capture evidence for UI/artifact changes, '
     + 'then lane.submit with a summary + files for review. Do not spawn or manage other lanes. Follow nextAction envelopes on refusal.',
   auditor:

@@ -50,6 +50,20 @@ The first event-queue slice is a durable, session-scoped queue for agent wakeups
 - Event payload metadata is sanitized and does not reuse user notification settings.
 - The queue is persisted with registry state and covered by the long-soak harness.
 
+## Agent Compact Memory
+
+Conversation compaction state lives in registry session metadata, not ad hoc markdown files. Agents use `session.memory.get` after reconnecting and `session.memory.update` before compacting, pausing, submitting, or resigning.
+
+The contract is intentionally narrow:
+
+- One entry per role+actor, with lane-scoped entries for executor and critique agents.
+- Bounded fields for current focus, active work, decisions, blockers, next actions, risks, future implementations, active implementation ids, open questions, and handoff notes.
+- Unknown fields are rejected so transcripts and bloated notes cannot drift into durable state.
+- `compactId` and `ifMatch` provide optimistic concurrency for compaction handoffs.
+- `replace:false` supports incremental compaction updates while preserving earlier active/future work.
+- Obvious secret values are redacted, and each compact entry has a global serialized size budget.
+- Supervisors, orchestrators, and the dashboard can read the session view; lane roles can read only their own compact memory entry.
+
 ## Safety Rules
 
 - A running loop requires the same approval policy as lane creation.
@@ -82,6 +96,7 @@ The first backend slice adds:
 - Task/lane metadata propagation: `loopId` and `metadataLoopId`.
 - Session-scoped API and MCP tools: `loop.list`, `loop.describe`, `loop.create`, `loop.update`.
 - Session-scoped agent event API and MCP tools: `event.drain`, `event.ack`, `event.replay`.
+- Session-scoped compact-memory API and MCP tools: `session.memory.get`, `session.memory.update`.
 - Route inventory and security-matrix rows for the loop API.
 - Tests for Codex+Claude task fan-out, duplicate suppression, max-iteration completion, auth/rate-limit pauses, MCP exposure, supervisor read-only boundaries, and agent event drain/ack/replay.
 
@@ -92,4 +107,4 @@ The first backend slice adds:
 - Learning pipeline: local prompt-history importer for Codex/Claude chats that produces loop templates, not raw prompt dumps.
 - Backoff: structured retry-after timestamps instead of text-pattern pause detection only.
 - Reconnect UX: show stale/expired orchestrator owners with one-click MCP/CLI re-enroll instructions.
-- Memory: loop notes and user preference extraction with redaction and explicit review before reuse.
+- Learning memory: user preference extraction with redaction and explicit review before reuse.

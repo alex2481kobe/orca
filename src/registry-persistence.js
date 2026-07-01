@@ -8,6 +8,7 @@ import { nowIso, safeArray } from './registry-utils.js';
 import { DEFAULT_NOTIFICATION_SETTINGS, sanitizeNotificationSettings } from './registry-notifications.js';
 import { normalizeQuickLinks } from './registry-quick-links.js';
 import { defaultPolicy } from './registry-policy.js';
+import { normalizeAgentQueueForRestore } from './registry-agent-queue.js';
 import { readJsonFileWithRecoverySync, writeJsonFileAtomic } from './state-store.js';
 
 export const persistenceMethods = {
@@ -77,9 +78,7 @@ export const persistenceMethods = {
           .slice(0, 200);
       }
       if (Array.isArray(parsed.agentQueue)) {
-        this.agentQueue = parsed.agentQueue
-          .filter((item) => item && typeof item.id === 'string')
-          .slice(0, 1000);
+        this.agentQueue = normalizeAgentQueueForRestore(parsed.agentQueue);
       }
       this.notificationSettings = sanitizeNotificationSettings(
         parsed.notificationSettings || {},
@@ -173,7 +172,7 @@ export const persistenceMethods = {
       mcpTools: this.mcpTools,
       toolLeases: this.toolLeases,
       notifications: this.notifications,
-      agentQueue: this.agentQueue,
+      agentQueue: normalizeAgentQueueForRestore(this.agentQueue),
       notificationSettings: this.notificationSettings,
     };
   },

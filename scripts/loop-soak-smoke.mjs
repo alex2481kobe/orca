@@ -52,6 +52,7 @@ const eventStats = {
   acked: 0,
   replayed: 0,
   maxSeq: 0,
+  lastReplaySeq: 0,
   leftUnackedId: null,
   leftUnackedSeenAgain: false,
   restarts: 0,
@@ -129,13 +130,18 @@ function exerciseAgentQueue(sessionId) {
     }).acked;
   }
 
-  const replay = registry.replayAgentEvents(sessionId, {
-    role: 'orchestrator',
-    actor: 'loop-soak-orchestrator',
-    afterSeq: Math.max(0, eventStats.maxSeq - 5),
-    limit: 200,
-  });
-  eventStats.replayed += replay.events.length;
+  if (eventStats.maxSeq > eventStats.lastReplaySeq) {
+    const replay = registry.replayAgentEvents(sessionId, {
+      role: 'orchestrator',
+      actor: 'loop-soak-orchestrator',
+      afterSeq: eventStats.lastReplaySeq,
+      limit: 200,
+    });
+    eventStats.replayed += replay.events.length;
+    for (const event of replay.events) {
+      eventStats.lastReplaySeq = Math.max(eventStats.lastReplaySeq, Number.parseInt(event.seq, 10) || 0);
+    }
+  }
 }
 
 async function restartRegistryIfIdle(loopId, { now, lastRestartAt, startedAt }) {
@@ -320,6 +326,7 @@ try {
     assert.equal(eventStats.drained > 0, true, 'event queue should be drained by mock consumers');
     assert.equal(eventStats.acked > 0, true, 'event queue should acknowledge drained events');
     assert.equal(eventStats.replayed > 0, true, 'event queue replay should return history');
+    assert.equal(eventStats.replayed <= Math.max(25, eventStats.drained * 4), true, 'event queue replay should remain bounded by new work');
     assert.equal(eventStats.leftUnackedSeenAgain, true, 'unacked event should be redelivered on a later drain');
     assert.equal(replayAll.events.some((event) => event.type === 'loop_iteration_queued'), true, 'loop iteration events should be replayable');
   }

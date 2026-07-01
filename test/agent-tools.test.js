@@ -36,6 +36,8 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
   for (const id of [
     'session.describe',
     'session.plan.update',
+    'session.memory.get',
+    'session.memory.update',
     'session.next_action',
     'executor.capabilities',
     'supervisor.overview',
@@ -111,6 +113,8 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
   assert.equal(availableToolIdsForRole('orchestrator').includes('loop.create'), true);
   assert.equal(availableToolIdsForRole('supervisor').includes('loop.list'), true);
   assert.equal(availableToolIdsForRole('supervisor').includes('loop.create'), false);
+  assert.match(findTool('session.memory.update')?.summary || '', /replace:false/);
+  assert.match(findTool('session.memory.update')?.summary || '', /ifMatch/);
   assert.equal(findTool('project.quick_link.upsert')?.method, 'POST');
   assert.equal(findTool('project.quick_link.upsert')?.route, '/api/projects/{projectId}/quick-links');
   assert.equal(findTool('project.quick_link.delete')?.route, '/api/projects/{projectId}/quick-links/{linkId}');
@@ -129,6 +133,8 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
     'supervisor.overview',
     'supervisor.resign',
     'orchestrator.thread.get',
+    'session.memory.get',
+    'session.memory.update',
     'orchestrator.status',
     'lane.list',
     'lane.get',
@@ -165,7 +171,7 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
     assert.equal(supervisorTools.has(id), false, `supervisor must not get ${id}`);
   }
   const supervisorMutatingTools = [...supervisorTools].filter((id) => findTool(id)?.mutating);
-  assert.deepEqual(supervisorMutatingTools, ['supervisor.resign', 'session.supervisor_audit', 'event.ack']);
+  assert.deepEqual(supervisorMutatingTools, ['session.memory.update', 'supervisor.resign', 'session.supervisor_audit', 'event.ack']);
 });
 
 test('supervisor docs match the bounded read/audit role contract', async () => {

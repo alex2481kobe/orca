@@ -8,6 +8,9 @@ import { nowIso, clonePayload, safeArray } from './registry-utils.js';
 const VALID_TARGET_ROLES = new Set(['supervisor', 'orchestrator', 'any']);
 const VALID_SEVERITIES = new Set(['info', 'success', 'warning', 'error']);
 const MAX_AGENT_QUEUE = 1000;
+const MAX_ACKS_PER_EVENT = 64;
+const SECRET_KEY_PATTERN = /(token|secret|password|credential|authorization|cookie|api[-_ ]?key|apikey|access[-_ ]?token|refresh[-_ ]?token|bearer|private[-_ ]?key|client[-_ ]?secret|session[-_ ]?token|jwt)/i;
+const SECRET_VALUE_PATTERN = /^(bearer\s+|sk[-_]|ghp_|github_pat_|xox[baprs]-|eyj[a-z0-9_-]*\.)/i;
 
 function cleanText(value, fallback = '', max = 500) {
   const text = String(value || fallback || '')
@@ -36,12 +39,15 @@ function sanitizeMetadata(value, depth = 0) {
     const output = {};
     for (const [key, entry] of Object.entries(value).slice(0, 100)) {
       const safeKey = cleanText(key, '', 80);
-      if (!safeKey || /(token|secret|password|credential|authorization|cookie)/i.test(safeKey)) continue;
+      if (!safeKey || SECRET_KEY_PATTERN.test(safeKey)) continue;
       output[safeKey] = sanitizeMetadata(entry, depth + 1);
     }
     return output;
   }
-  if (typeof value === 'string') return cleanText(value, '', 1000);
+  if (typeof value === 'string') {
+    const text = cleanText(value, '', 1000);
+    return SECRET_VALUE_PATTERN.test(text) ? '[redacted]' : text;
+  }
   if (typeof value === 'number') return Number.isFinite(value) ? value : null;
   if (typeof value === 'boolean') return value;
   return null;
@@ -68,6 +74,41 @@ function publicEventForConsumer(event, key) {
   clone.ackedBy = ack?.ackedBy || null;
   delete clone.acks;
   return clone;
+}
+
+function normalizeAcks(acks, keepKey = null) {
+  if (!acks || typeof acks !== 'object') return {};
+  const entries = Object.entries(acks)
+    .map(([key, value]) => {
+      const safeKey = cleanText(key, '', 140).toLowerCase();
+      if (!safeKey || !value || typeof value !== 'object') return null;
+      const ackedAt = cleanText(value.ackedAt, '', 40);
+      return [safeKey, {
+        ackedAt,
+        ackedBy: cleanText(value.ackedBy, 'dashboard', 80),
+      }];
+    })
+    .filter(Boolean)
+    .sort((a, b) => (Date.parse(b[1].ackedAt) || 0) - (Date.parse(a[1].ackedAt) || 0));
+  if (!entries.length) return {};
+  let selected = entries.slice(0, MAX_ACKS_PER_EVENT);
+  if (keepKey && !selected.some(([key]) => key === keepKey)) {
+    const kept = entries.find(([key]) => key === keepKey);
+    if (kept) selected = [kept, ...selected.slice(0, MAX_ACKS_PER_EVENT - 1)];
+  }
+  return Object.fromEntries(selected);
+}
+
+export function normalizeAgentQueueForRestore(queue = []) {
+  return safeArray(queue)
+    .filter((item) => item && typeof item.id === 'string')
+    .slice(0, MAX_AGENT_QUEUE)
+    .map((event) => ({
+      ...event,
+      seq: Number.parseInt(event.seq, 10) || 0,
+      acks: normalizeAcks(event.acks),
+      metadata: sanitizeMetadata(event.metadata) || {},
+    }));
 }
 
 export const agentQueueMethods = {
@@ -100,7 +141,7 @@ export const agentQueueMethods = {
         existing.updatedAt = now;
         existing.occurrences = Math.min(10_000, (Number.parseInt(existing.occurrences, 10) || 1) + 1);
         existing.lastActor = cleanText(actor, 'system', 80);
-        existing.acks = {};
+        existing.acks = normalizeAcks(existing.acks);
         this.persistState();
         return clonePayload(existing);
       }
@@ -219,6 +260,7 @@ export const agentQueueMethods = {
         ackedAt,
         ackedBy: cleanText(actor, 'dashboard', 80),
       };
+      event.acks = normalizeAcks(event.acks, key);
       event.updatedAt = ackedAt;
       this.recordAudit({
         type: 'agent_event_acked',

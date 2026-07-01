@@ -94,6 +94,59 @@ test('agent queue: drain, replay, and ack are ordered and per consumer', async (
   });
 });
 
+test('agent queue: dedupe preserves ack state and caps per-event consumers', async () => {
+  await withRegistry(async (registry) => {
+    const { session } = makeSession(registry);
+    const event = registry.enqueueAgentEvent({
+      type: 'loop_paused',
+      targetRole: 'orchestrator',
+      title: 'Pause once',
+      projectId: session.projectId,
+      sessionId: session.id,
+      dedupeKey: 'loop-paused:test',
+      metadata: {
+        apiKey: 'sk-should-not-persist',
+        api_key: 'sk-should-not-persist',
+        accessToken: 'Bearer should-not-persist',
+        bearer_token: 'ghp_should_not_persist',
+        safe: 'kept',
+      },
+    });
+    assert.deepEqual(event.metadata, { safe: 'kept' });
+
+    registry.ackAgentEvents(session.id, {
+      role: 'orchestrator',
+      actor: 'orch-a',
+      eventIds: [event.id],
+    });
+    const deduped = registry.enqueueAgentEvent({
+      type: 'loop_paused',
+      targetRole: 'orchestrator',
+      title: 'Pause again',
+      projectId: session.projectId,
+      sessionId: session.id,
+      dedupeKey: 'loop-paused:test',
+    });
+    assert.equal(deduped.id, event.id);
+    assert.equal(deduped.occurrences, 2);
+    assert.deepEqual(registry.drainAgentEvents(session.id, {
+      role: 'orchestrator',
+      actor: 'orch-a',
+    }).events, [], 'dedupe must not make already handled work unacked again');
+
+    for (let index = 0; index < 80; index += 1) {
+      registry.ackAgentEvents(session.id, {
+        role: 'orchestrator',
+        actor: `orch-${index}`,
+        eventIds: [event.id],
+      });
+    }
+    const stored = registry.agentQueue.find((entry) => entry.id === event.id);
+    assert.equal(Object.keys(stored.acks).length <= 64, true, 'ack map should be bounded per event');
+    assert.ok(stored.acks['orchestrator:orch-79'], 'newest ack should be preserved when trimming');
+  });
+});
+
 test('agent queue: ack state persists and remains scoped per consumer after reload', async () => {
   await withRegistry(async (registry, tempDir) => {
     const { session } = makeSession(registry);

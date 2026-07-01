@@ -30,11 +30,27 @@ export const notificationMethods = {
     sessionId = null,
     laneId = null,
     href = null,
+    dedupeKey = null,
     metadata = {},
   } = {}) {
     const normalizedSeverity = normalizeNotificationSeverity(severity, 'info');
     if (!this.notificationAllowedBySettings(normalizedSeverity)) {
       return null;
+    }
+
+    const normalizedDedupeKey = dedupeKey ? sanitizeNotificationText(dedupeKey, '', 180) : null;
+    if (normalizedDedupeKey) {
+      const existing = (this.notifications || []).find((notification) =>
+        notification.dedupeKey === normalizedDedupeKey
+        && notification.projectId === (projectId || null)
+        && notification.sessionId === (sessionId || null)
+        && notification.laneId === (laneId || null));
+      if (existing) {
+        existing.updatedAt = nowIso();
+        existing.occurrences = Math.min(10_000, (Number.parseInt(existing.occurrences, 10) || 1) + 1);
+        existing.lastActor = sanitizeNotificationText(actor, 'system', 80);
+        return clonePayload(existing);
+      }
     }
 
     const safeHref = typeof href === 'string' && href.startsWith('/') && !href.startsWith('//')
@@ -53,6 +69,8 @@ export const notificationMethods = {
       sessionId: sessionId || null,
       laneId: laneId || null,
       href: safeHref,
+      dedupeKey: normalizedDedupeKey,
+      occurrences: 1,
       metadata: metadata && typeof metadata === 'object'
         ? JSON.parse(JSON.stringify(metadata))
         : {},
