@@ -211,6 +211,7 @@ export function buildNextActionEnvelope(registry, {
   // that only need flow/nextRequiredTool (e.g. orchestrator.status, often polled)
   // pass lean:true. The flow/state fields are identical either way.
   lean = false,
+  allowedTools = null,
 } = {}) {
   const normalizedRole = normalizeRole(role);
   const projects = typeof registry?.listProjects === 'function' ? registry.listProjects() : [];
@@ -223,7 +224,14 @@ export function buildNextActionEnvelope(registry, {
   const lane = laneId
     ? (typeof registry?.getLane === 'function' ? registry.getLane(laneId) : null)
     : chooseSessionLane(registry, { role: normalizedRole, project, session });
-  const allowedTools = availableToolIdsForRole(normalizedRole);
+  const roleAllowedTools = availableToolIdsForRole(normalizedRole);
+  const allowedToolSet = new Set(roleAllowedTools);
+  const effectiveAllowedTools = Array.isArray(allowedTools)
+    ? allowedTools
+      .map((toolId) => String(toolId || '').trim())
+      .filter((toolId) => toolId && allowedToolSet.has(toolId))
+      .filter((toolId, index, all) => all.indexOf(toolId) === index)
+    : roleAllowedTools;
   const { auditQueued, flowConfig, nextRequiredTool } = nextToolForLane({
     registry,
     role: normalizedRole,
@@ -273,8 +281,8 @@ export function buildNextActionEnvelope(registry, {
     // Whether the current role may actually call nextRequiredTool. The server
     // enforces role on the real call, but surfacing this lets clients avoid
     // driving an action the role can't perform (e.g. executor on audit.queue_one).
-    nextToolPermitted: allowedTools.includes(nextRequiredTool),
-    allowedTools,
+    nextToolPermitted: effectiveAllowedTools.includes(nextRequiredTool),
+    allowedTools: effectiveAllowedTools,
     blockedTools: [],
     summary: lane
       ? `Lane "${lane.title}" is ${lane.state}.`
@@ -286,6 +294,7 @@ export function buildNextActionEnvelope(registry, {
     auditRequired,
     auditSatisfied: auditRequired ? auditSatisfied : true,
     flow,
+    turnPolicy: lane?.turnPolicy || null,
     capacity: buildCapacity(registry, session),
     executorCapabilities: (!lean && typeof registry?.getExecutorCapabilitiesMatrix === 'function')
       ? registry.getExecutorCapabilitiesMatrix()

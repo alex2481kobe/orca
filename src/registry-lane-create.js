@@ -17,6 +17,7 @@ import { createLaneWorktree, describeRepoRoot } from './worktree-manager.js';
 import { sanitizeSettingsOverrides } from './effective-settings.js';
 import { validateNetworkUrl } from './url-policy.js';
 import { normalizeCritiqueMode, normalizeWorktreeMode } from './registry-lane-config.js';
+import { sanitizeOrchestratorTurnPolicy } from './orchestrator-turn-policy.js';
 
 const { QUEUED: QUEUED_STATE } = LANE_STATES;
 const MAX_WORKDIR_BYTES = 2048;
@@ -86,6 +87,7 @@ export const laneCreateMethods = {
     metadataLoopId,
     presentationMode,
     executionMode,
+    turnPolicy,
   }, context = {}) {
     const session = this.getSession(sessionLocator);
     if (!session) {
@@ -251,6 +253,9 @@ export const laneCreateMethods = {
     const expectedArtifactsList = Array.isArray(expectedArtifacts)
       ? expectedArtifacts.map((value) => String(value || '').trim()).filter(Boolean).slice(0, 32)
       : [];
+    const sanitizedTurnPolicy = owner === 'orchestrator' && turnPolicy
+      ? sanitizeOrchestratorTurnPolicy(turnPolicy)
+      : null;
 
     const lane = {
       id: laneId,
@@ -311,6 +316,7 @@ export const laneCreateMethods = {
       metadataTaskId: metadataTaskId ? String(metadataTaskId).slice(0, 80) : null,
       // Set when a durable loop queues the task that spawned this lane.
       metadataLoopId: metadataLoopId ? String(metadataLoopId).slice(0, 80) : null,
+      turnPolicy: sanitizedTurnPolicy,
       route: buildLaneRoute(project.slug, session.id, laneId),
       runProfile: {
         autoCompleteMs: Number.parseInt(autoCompleteMs, 10) || this.autoCompleteMs,

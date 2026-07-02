@@ -1489,14 +1489,36 @@ test('dashboard orchestrator messages create server-owned turns and scoped tool 
     assert.equal(JSON.stringify(turn.body).includes(token), false);
     assert.equal(String(turn.body?.lane?.taskPrompt || '').includes('ORCA_TOOL_LEASE_TOKEN'), true);
     assert.equal(String(turn.body?.lane?.taskPrompt || '').includes('Build the project plan'), true);
+    assert.equal(turn.body?.turnPolicy?.executionStrategy, 'executor_lanes');
+    assert.equal(turn.body?.nextAction?.allowedTools?.includes('lane.create'), true);
+    assert.equal(turn.body?.nextAction?.allowedTools?.includes('loop.create'), false);
+
+    const statusTurn = await server.requestJson(`/api/sessions/${session.body.id}/orchestrator/messages`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        actor: 'dashboard',
+        approved: true,
+        executorType: 'mock',
+        permissionsProfile: 'plan',
+        intelligenceProfile: 'high',
+        message: 'What happened with the agent?',
+      },
+    });
+    assert.equal(statusTurn.status, 201);
+    assert.equal(statusTurn.body?.turnPolicy?.intent, 'status');
+    assert.equal(statusTurn.body?.nextAction?.allowedTools?.includes('orchestrator.status'), true);
+    assert.equal(statusTurn.body?.nextAction?.allowedTools?.includes('lane.create'), false);
+    assert.equal(statusTurn.body?.nextAction?.allowedTools?.includes('task.bulk_add'), false);
+    assert.match(String(statusTurn.body?.lane?.taskPrompt || ''), /Read-only Orca status tools/);
 
     const thread = await server.requestJson(`/api/sessions/${session.body.id}/orchestrator`, {
       method: 'GET',
       headers: { 'x-orca-token': token },
     });
     assert.equal(thread.status, 200);
-    assert.equal(thread.body?.activeLaneId, turn.body.lane.id);
-    assert.equal(thread.body?.activeLane?.id, turn.body.lane.id);
+    assert.equal(thread.body?.activeLaneId, statusTurn.body.lane.id);
+    assert.equal(thread.body?.activeLane?.id, statusTurn.body.lane.id);
 
     const lease = await server.requestJson('/api/agent-tools/leases', {
       method: 'POST',

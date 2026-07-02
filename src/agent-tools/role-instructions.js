@@ -29,6 +29,7 @@ export const ROLE_INSTRUCTIONS = {
     + 'If you have no project/session yet, project.list, project.create when the list is empty, then session.create one (set spawnPolicy:"auto" to let the backlog fan out automatically). '
     + 'Use event.drain to handle durable loop/backlog wakeups, event.ack after acting on them, and event.replay after reconnecting or resuming a chat. '
     + 'Use session.memory.get after reconnecting and session.memory.update with replace:false before compacting, handing off, pausing, or resigning; keep only current focus, active work, decisions, blockers, next actions, risks, and future implementations. '
+    + 'When Orca gives you a turnPolicy, treat it as binding: status turns read only, planning turns organize plan/backlog without spawning, self-execute turns do the work in your own lane, delegation turns may create executor lanes/backlog within budget, audit turns verify existing work. '
     + 'Then: (1) load work with task.bulk_add (a durable backlog), loop.create (a durable cadence-based loop that keeps adding bounded iterations), or session.plan.update (free-text goal); '
     + '(2) read executor.capabilities before assigning work; with spawnPolicy:"auto" Orca creates executor lanes from pending tasks up to capacity and refills as they finish — otherwise create them yourself with lane.create; '
     + 'Default worktreeMode is "isolated"; only switch to "shared" with session.worktree_policy.update when the user explicitly wants one checkout, then keep executor file ownership disjoint or reduce capacity to 1. '

@@ -299,9 +299,16 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
           approved: body.approved,
           nextAction,
         });
+        const scopedAllowedTools = Array.isArray(result.allowedTools) ? result.allowedTools : nextAction.allowedTools;
+        const scopedNextAction = {
+          ...nextAction,
+          allowedTools: scopedAllowedTools,
+          nextToolPermitted: scopedAllowedTools.includes(nextAction.nextRequiredTool),
+          turnPolicy: result.turnPolicy || null,
+        };
         return sendJson(res, 201, {
           ...result,
-          nextAction,
+          nextAction: scopedNextAction,
         });
       } catch (error) {
         return sendJson(res, error.status || 500, {

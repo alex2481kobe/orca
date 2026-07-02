@@ -9,6 +9,12 @@ import { FIRST_CLASS_CLI_EXECUTOR_TYPES } from './executor-factory.js';
 import { buildNextActionEnvelope, findTool } from './agent-tools.js';
 import { renderLaneTree } from './render-lane-tree.js';
 import { readRepoGitInfo } from './worktree-manager.js';
+import {
+  classifyOrchestratorTurn,
+  filterToolsForTurnPolicy,
+  renderTurnPolicyForPrompt,
+  sanitizeOrchestratorTurnPolicy,
+} from './orchestrator-turn-policy.js';
 
 const MAX_ORCHESTRATOR_THREAD_MESSAGES = 500;
 // An active orchestrator that hasn't called a tool in this long is considered
@@ -26,22 +32,6 @@ const OWNERSHIP_EXEMPT_TOOLS = new Set([
 
 function safeChatText(value, max = 12000) {
   return String(value || '').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, ' ').trim().slice(0, max);
-}
-
-function isLightweightConversation(value) {
-  const text = safeChatText(value, 1000).toLowerCase();
-  if (!text) return false;
-  const compact = text.replace(/[^a-z0-9\s'?]/g, ' ').replace(/\s+/g, ' ').trim();
-  const objective =
-    /\b(build|fix|test|audit|review|implement|create|run|start|launch|setup|set up|deploy|commit|push|update|change|delete|merge|rebase|install|debug|investigate|clean|refactor|write|read|summarize|plan)\b/;
-  if (objective.test(compact)) return false;
-
-  const words = compact.split(/\s+/).filter(Boolean);
-  if (words.length > 20) return false;
-
-  const projectScope = /\b(repo|repository|project|app|server|client|ui|dashboard|session|lane|agent|executor|orchestrator|supervisor|backlog|branch|commit|pr|test|bug|error|file|code|setting|settings|flow)\b/;
-  const requestShape = /\b(can you|could you|would you|should we|do we|i need|i want|please|let's|lets)\b/;
-  return !(projectScope.test(compact) && requestShape.test(compact));
 }
 
 function remediationForText(value) {
@@ -132,19 +122,27 @@ function buildOrchestratorPrompt({
   discoveryUrl = '',
   executorCapabilities = null,
   operatorIssueContext = '',
+  turnPolicy = null,
+  toolAccessEnabled = false,
 } = {}) {
   const transcript = messages
     .slice(-20)
     .map((entry) => `${String(entry.role || 'user').toUpperCase()}: ${safeChatText(entry.content, 3000)}`)
     .join('\n\n');
   const apiBase = String(baseUrl || '').replace(/\/+$/, '');
-  const conversational = isLightweightConversation(message);
-  if (conversational) {
+  const policy = sanitizeOrchestratorTurnPolicy(turnPolicy || {});
+  const policyText = renderTurnPolicyForPrompt(policy);
+  if (policy.promptMode !== 'orchestration') {
+    const canReadStatus = policy.toolMode === 'read_only' && toolAccessEnabled;
     return [
       'You are the Orca chat and orchestration agent for this project/session.',
-      'The current user message is conversational, not an actionable project objective.',
-      'Reply like a normal capable agent: brief, direct, and useful. Keep internal Orca tool names out of the user-facing answer. Do not create executor lanes, backlog items, or tool calls unless the user gives an actual objective.',
+      policy.intent === 'status'
+        ? 'The current user message is asking for status/blocker context, not new execution.'
+        : 'The current user message is conversational, not an actionable project objective.',
+      'Reply like a normal capable agent: brief, direct, and useful. Keep internal Orca tool names out of the user-facing answer. Do not create executor lanes, backlog items, loops, or broad tool calls unless the user gives an actual objective.',
       'Treat filesystem paths, account names, repository URLs, environment variables, and local metadata as operational context. Avoid surfacing that metadata unless it helps answer the user.',
+      policyText,
+      canReadStatus ? 'Read-only Orca status tools are available if needed. Do not mutate state, create lanes, add tasks, start loops, or change settings on this turn.' : '',
       'If helpful, offer one simple next step they can ask Orca to do.',
       `Project: ${project?.name || project?.id || 'unknown'}`,
       `Session: ${session?.name || session?.id || 'unknown'}`,
@@ -154,16 +152,28 @@ function buildOrchestratorPrompt({
       operatorIssueContext ? `Known local issues, if relevant:\n${safeChatText(operatorIssueContext, 2500)}` : '',
       transcript ? `Recent conversation:\n${transcript}` : '',
       `Current user message:\n${safeChatText(message)}`,
+      canReadStatus && apiBase ? `Orca base URL: ${apiBase}` : '',
+      canReadStatus && discoveryUrl ? `Tool discovery URL: ${discoveryUrl}` : '',
+      canReadStatus && nextActionUrl ? `Next-action URL: ${nextActionUrl}` : '',
+      canReadStatus ? 'For HTTP tool calls, send header x-orca-tool-lease: $ORCA_TOOL_LEASE_TOKEN.' : '',
     ].filter(Boolean).join('\n\n');
   }
   return [
     'You are the Orca orchestration agent for this project/session.',
     'Read the current user request before acting. If a future message has no actionable project objective, answer conversationally instead of forcing orchestration.',
     'Own decomposition, planning, lane creation, executor assignment, and audit handoff.',
-    'Do not ask the human to manually create executor lanes when you can create them through Orca tools.',
+    'Only create executor lanes, backlog tasks, or loops when the server turn policy below allows that action family.',
+    'Do not ask the human to manually create executor lanes when the policy allows you to create them through Orca tools.',
     'Keep internal Orca tool names out of user-facing chat. Use available tools when needed; if a tool is unavailable, state the plain blocker and continue with the useful next step.',
     'Treat filesystem paths, account names, repository URLs, environment variables, and local metadata as operational context. Avoid surfacing that metadata unless it helps answer the user.',
-    'Use the scoped tool lease from ORCA_TOOL_LEASE_TOKEN, never the full API token.',
+    toolAccessEnabled ? 'Use the scoped tool lease from ORCA_TOOL_LEASE_TOKEN, never the full API token.' : 'No Orca tool lease is available for this turn; answer from the conversation and provided context.',
+    policyText,
+    policy.executionStrategy === 'plan_only' ? 'This is a planning turn: update plan/backlog/memory only. Do not create executor lanes or loops.' : '',
+    policy.executionStrategy === 'audit_only' ? 'This is an audit turn: inspect existing lanes/evidence and record audit decisions. Do not create fresh executor lanes.' : '',
+    policy.executionStrategy === 'orchestrator_self' ? 'This is a self-execution turn: do the work in this orchestrator lane and submit your own handoff. Do not create executor lanes or backlog tasks.' : '',
+    policy.executionStrategy === 'executor_lanes' ? 'This is a delegation turn: create executor lanes or backlog tasks within the spawn budget, then audit their results.' : '',
+    policy.executionStrategy === 'auto' ? 'This is an auto execution turn: choose self-execution for tiny scoped work or executor lanes/backlog for separable work, staying within the spawn budget.' : '',
+    policy.executionStrategy === 'loop' ? 'This is a loop turn: create or update at most the budgeted loop/backlog and make pause/resume behavior explicit.' : '',
     `Project: ${project?.name || project?.id || 'unknown'}`,
     `Session: ${session?.name || session?.id || 'unknown'}`,
     model ? `Requested model: ${safeChatText(model, 120)}` : '',
@@ -172,11 +182,11 @@ function buildOrchestratorPrompt({
     session?.repoRoot ? `Repository root: ${session.repoRoot}` : `Session workspace: ${session?.worktreeRoot || ''}`,
     transcript ? `Recent conversation:\n${transcript}` : '',
     `Current user request:\n${safeChatText(message)}`,
-    apiBase ? `Orca base URL: ${apiBase}` : '',
-    discoveryUrl ? `Tool discovery URL: ${discoveryUrl}` : '',
-    nextActionUrl ? `Next-action URL: ${nextActionUrl}` : '',
-    'For HTTP tool calls, send header x-orca-tool-lease: $ORCA_TOOL_LEASE_TOKEN.',
-    executorCapabilities ? `Executor capability matrix available to you:\n${safeChatText(JSON.stringify(executorCapabilities, null, 2), 6000)}` : '',
+    toolAccessEnabled && apiBase ? `Orca base URL: ${apiBase}` : '',
+    toolAccessEnabled && discoveryUrl ? `Tool discovery URL: ${discoveryUrl}` : '',
+    toolAccessEnabled && nextActionUrl ? `Next-action URL: ${nextActionUrl}` : '',
+    toolAccessEnabled ? 'For HTTP tool calls, send header x-orca-tool-lease: $ORCA_TOOL_LEASE_TOKEN.' : '',
+    toolAccessEnabled && executorCapabilities ? `Executor capability matrix available to you:\n${safeChatText(JSON.stringify(executorCapabilities, null, 2), 6000)}` : '',
     operatorIssueContext ? `Operator issue context (plain language; use this to explain blockers simply, not as internal tool instructions):\n${safeChatText(operatorIssueContext, 2500)}` : '',
   ].filter(Boolean).join('\n\n');
 }
@@ -602,6 +612,14 @@ export const orchestratorMethods = {
     const promptText = branchInstruction
       ? `${baseText}\n\n${branchInstruction}`
       : baseText;
+    const turnPolicy = classifyOrchestratorTurn({
+      message: text,
+      attachments: attachmentList,
+    });
+    const nextAction = context.nextAction || null;
+    const turnAllowedTools = nextAction && Array.isArray(nextAction.allowedTools)
+      ? filterToolsForTurnPolicy(turnPolicy, nextAction.allowedTools)
+      : [];
 
     const resolvedExecutorType = this.resolveOrchestratorExecutorType(session, executorType);
     const executorCapabilities = this.getExecutorCapabilitiesMatrix();
@@ -640,6 +658,8 @@ export const orchestratorMethods = {
           nextActionUrl,
           executorCapabilities,
           operatorIssueContext,
+          turnPolicy,
+          toolAccessEnabled: turnAllowedTools.length > 0,
         }),
         model: effectiveModel,
         permissionsProfile,
@@ -648,6 +668,7 @@ export const orchestratorMethods = {
         presentationMode: String(executionMode || '').trim().toLowerCase() === 'terminal' ? 'terminal' : 'chat',
         branch: branchHint,
         targetUrl,
+        turnPolicy,
       }, {
         actor: context.actor || 'dashboard',
         approved: context.approved,
@@ -657,15 +678,14 @@ export const orchestratorMethods = {
       throw error;
     }
 
-    const nextAction = context.nextAction || null;
     let lease = null;
-    if (nextAction && Array.isArray(nextAction.allowedTools) && nextAction.allowedTools.length) {
+    if (turnAllowedTools.length) {
       lease = this.createToolLease({
         role: 'orchestrator',
         projectId: session.projectId,
         sessionId: session.id,
         laneId: lane.id,
-        allowedTools: nextAction.allowedTools,
+        allowedTools: turnAllowedTools,
         ttlMs: 24 * 60 * 60 * 1000,
         actor: 'orchestrator-bootstrap',
       });
@@ -707,6 +727,8 @@ export const orchestratorMethods = {
         executorType: resolvedExecutorType,
         executorCapabilities: lane.executorCapabilities || null,
         leaseId: lease?.lease?.id || null,
+        turnPolicy,
+        allowedTools: turnAllowedTools,
       },
     });
     this.persistState();
@@ -715,6 +737,8 @@ export const orchestratorMethods = {
       message: userMessage,
       lane,
       lease: lease ? lease.lease : null,
+      turnPolicy,
+      allowedTools: turnAllowedTools,
     });
   },
 };

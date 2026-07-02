@@ -58,6 +58,7 @@ export async function handleAgentToolRoutes(ctx, req, res, method, parts) {
           projectId: requestedProjectId || leaseProjectId,
           sessionId: requestedSessionId || lease.sessionId || leaseLane?.sessionId || null,
           laneId: requestedLaneId || lease.laneId || null,
+          allowedTools: lease.allowedTools || [],
         }));
       }
       return sendJson(res, 200, buildNextActionEnvelope(registry, {
