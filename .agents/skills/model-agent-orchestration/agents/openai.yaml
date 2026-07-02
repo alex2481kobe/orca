@@ -1,4 +1,0 @@
-interface:
-  display_name: "Model Agent Orchestration"
-  short_description: "Route models across agent roles"
-  default_prompt: "Use $model-agent-orchestration to design a supervisor, executor, and verifier plan for this task."
