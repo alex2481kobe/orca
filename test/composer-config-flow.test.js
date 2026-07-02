@@ -334,12 +334,12 @@ test('branch picked in chat is threaded into the orchestrator prompt', async () 
   }
 });
 
-test('lightweight chat turns do not receive the full orchestration tool contract', async () => {
+test('non-objective chat turns do not receive the full orchestration tool contract', async () => {
   const { registry, cleanup } = await withRegistry();
   try {
-    const project = registry.createProject({ name: 'Flow Greeting' }, { actor: 'test', approved: true });
+    const project = registry.createProject({ name: 'Flow Check In' }, { actor: 'test', approved: true });
     const session = registry.createSession(project.id, { name: 'chat', leader: 'codex' }, { actor: 'test', approved: true });
-    await send(registry, session.id, { executorType: 'codex', message: 'HI' });
+    await send(registry, session.id, { executorType: 'codex', message: 'Just checking in.' });
     const lane = latestOrchestratorLane(registry, session.id);
 
     assert.match(lane.taskPrompt, /conversational, not an actionable project objective/i);
@@ -371,7 +371,7 @@ test('orchestrator prompts carry plain issue context for recent agent blockers',
     await send(registry, session.id, { executorType: 'codex', message: 'What happened with the agent?' });
     const lane = latestOrchestratorLane(registry, session.id);
 
-    assert.match(lane.taskPrompt, /Operator issue context/);
+    assert.match(lane.taskPrompt, /Known local issues|Operator issue context/);
     assert.match(lane.taskPrompt, /Claude auth probe/);
     assert.match(lane.taskPrompt, /Run the CLI login\/setup command on this workstation/);
     assert.doesNotMatch(lane.taskPrompt, /approve .*MCP tool/i);

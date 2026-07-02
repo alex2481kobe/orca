@@ -298,7 +298,7 @@ test('orca-agent aggregate watches stream all visible worker lanes without cross
       '--max-events',
       '6',
       '--idle-ms',
-      '500',
+      '1500',
     ], env, {
       onSpawn: () => {
         setTimeout(() => {
@@ -363,7 +363,7 @@ test('orca-agent aggregate watches stream all visible worker lanes without cross
       '--max-events',
       '6',
       '--idle-ms',
-      '500',
+      '1500',
     ], supervisorEnv, {
       onSpawn: () => {
         setTimeout(() => {

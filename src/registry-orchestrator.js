@@ -32,10 +32,16 @@ function isLightweightConversation(value) {
   const text = safeChatText(value, 1000).toLowerCase();
   if (!text) return false;
   const compact = text.replace(/[^a-z0-9\s'?]/g, ' ').replace(/\s+/g, ' ').trim();
-  const action = /\b(build|fix|test|audit|review|implement|create|run|start|launch|setup|set up|deploy|commit|push|update|change|delete|merge|rebase|install|debug|investigate|clean|refactor|write|read|summarize|plan)\b/;
-  if (action.test(compact)) return false;
-  if (/^(hi|hello|hey|yo|sup|gm|good morning|good afternoon|good evening|thanks|thank you)\b/.test(compact)) return true;
-  return /^(are you there|what can you do|who are you|how are you|you there)\??$/.test(compact);
+  const objective =
+    /\b(build|fix|test|audit|review|implement|create|run|start|launch|setup|set up|deploy|commit|push|update|change|delete|merge|rebase|install|debug|investigate|clean|refactor|write|read|summarize|plan)\b/;
+  if (objective.test(compact)) return false;
+
+  const words = compact.split(/\s+/).filter(Boolean);
+  if (words.length > 20) return false;
+
+  const projectScope = /\b(repo|repository|project|app|server|client|ui|dashboard|session|lane|agent|executor|orchestrator|supervisor|backlog|branch|commit|pr|test|bug|error|file|code|setting|settings|flow)\b/;
+  const requestShape = /\b(can you|could you|would you|should we|do we|i need|i want|please|let's|lets)\b/;
+  return !(projectScope.test(compact) && requestShape.test(compact));
 }
 
 function remediationForText(value) {
@@ -152,7 +158,7 @@ function buildOrchestratorPrompt({
   }
   return [
     'You are the Orca orchestration agent for this project/session.',
-    'Read the current user request before acting. If a future message is conversational or a check-in, answer conversationally instead of forcing orchestration.',
+    'Read the current user request before acting. If a future message has no actionable project objective, answer conversationally instead of forcing orchestration.',
     'Own decomposition, planning, lane creation, executor assignment, and audit handoff.',
     'Do not ask the human to manually create executor lanes when you can create them through Orca tools.',
     'Keep internal Orca tool names out of user-facing chat. Use available tools when needed; if a tool is unavailable, state the plain blocker and continue with the useful next step.',
