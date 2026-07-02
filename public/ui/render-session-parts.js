@@ -9,6 +9,7 @@ import { api } from './api.js';
 import { apiProviderOptions, cliExecutorOptions, normalizeExecutorType, defaultExecutorType, anyCliInstalled, defaultModelFor, isForeignModel } from './executor.js';
 import { renderComposerConfig } from './composer-config.js';
 import { icon } from './icons.js';
+import { laneTerminalSnippet } from './lane-stream.js';
 
 export function renderApprovalRows(lane) {
   const pending = (lane.pendingApprovals || []).filter((entry) => entry.status === 'pending');
@@ -75,6 +76,14 @@ function formatDuration(ms) {
   if (minutes || hours) parts.push(`${minutes}m`);
   parts.push(`${seconds}s`);
   return parts.join(' ');
+}
+
+function compactPath(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  const parts = text.split(/[\\/]+/).filter(Boolean);
+  if (parts.length <= 3) return text;
+  return `.../${parts.slice(-3).join('/')}`;
 }
 
 function laneElapsedMs(lane) {
@@ -154,17 +163,42 @@ function chatActivityItems(lane) {
 
 function renderChatRunMeta(lane, working) {
   if (!lane) return '';
+  const terminalMode = lane.presentationMode === 'terminal';
   const duration = laneElapsedMs(lane);
   const bits = [];
   if (duration > 0 || !working) bits.push(formatDuration(duration));
   const tokens = tokenSummary(lane);
   if (tokens) bits.push(tokens);
-  const label = working ? 'Thinking...' : (lane.state === 'failed' ? 'Stopped after' : 'Worked for');
+  const label = working
+    ? (terminalMode ? 'Terminal active' : 'Thinking...')
+    : (lane.state === 'failed' || lane.state === 'stopped'
+      ? 'Stopped after'
+      : (terminalMode ? 'Terminal ran for' : 'Worked for'));
   return `
     <div class="chat-run-meta">
-      ${working ? '<span class="chat-spinner" aria-hidden="true"></span>' : ''}
+      ${working && !terminalMode ? '<span class="chat-spinner" aria-hidden="true"></span>' : ''}
       <span>${safeText(label)}</span>
       ${bits.length ? `<span class="chat-run-bits">${safeText(bits.join(' · '))}</span>` : ''}
+    </div>
+  `;
+}
+
+function renderTerminalChatSnippet(lane, working) {
+  if (!lane || lane.presentationMode !== 'terminal') return '';
+  const snippet = laneTerminalSnippet(lane.id);
+  if (snippet) {
+    return `
+      <div class="terminal-chat-receipt" aria-label="Latest terminal output">
+        <div class="terminal-chat-receipt-label">${working ? 'Live terminal' : 'Terminal output'}</div>
+        <pre>${safeText(snippet)}</pre>
+      </div>
+    `;
+  }
+  return `
+    <div class="terminal-chat-receipt muted">
+      ${safeText(working
+        ? 'Native CLI is open in Terminal view. Switch back there to interact with the session.'
+        : 'Terminal transcript is available in Terminal view.')}
     </div>
   `;
 }
@@ -244,10 +278,11 @@ export function renderChatThreadInner(session) {
     const visibleText = isStartStub ? transcriptText : (String(message.content || '').trim() || transcriptText);
     const hasEvents = Boolean(lane && ((Array.isArray(lane.agentEvents) && lane.agentEvents.length) || lane.agentEventCount));
     const working = Boolean(lane && isLiveLaneState(lane.state));
+    const terminalReceipt = renderTerminalChatSnippet(lane, working);
     if (lane) renderedLaneIds.add(lane.id);
     const fallback = lane
       ? (lane.presentationMode === 'terminal'
-        ? (working ? 'Terminal run is active. Open terminal view for the live CLI session.' : 'Terminal run finished. Open terminal view for the full CLI transcript.')
+        ? ''
         : (lane.state === 'failed' ? 'No assistant response was captured.' : ''))
       : safeText(message.content || '');
     return `
@@ -255,6 +290,7 @@ export function renderChatThreadInner(session) {
         <div class="msg-body">
           ${renderChatRunMeta(lane, working)}
           ${visibleText ? `<div class="chat-agent-transcript">${safeText(visibleText)}</div>` : (fallback ? `<div class="muted">${fallback}</div>` : '')}
+          ${terminalReceipt}
           ${hasEvents ? renderChatRunDetails(lane, working) : ''}
         </div>
       </div>
@@ -312,16 +348,18 @@ function renderAgentTerminalInner(session) {
     `;
   }
   return `
-    <div class="chat-terminal-head">
-      <div>
-        <strong>Terminal</strong>
-        <div class="chat-terminal-meta">
-          <span>${safeText(lane.title || lane.id)} · ${safeText(lane.executorType || 'agent')} · ${safeText(lane.presentationMode === 'terminal' ? 'native CLI' : 'structured chat')}</span>
-          ${stateBadge(lane.state || 'unknown')}
+    <div class="agent-terminal-shell">
+      <div class="chat-terminal-head">
+        <div>
+          <strong>Agent terminal</strong>
+          <div class="chat-terminal-meta">
+            <span>${safeText(lane.title || lane.id)} · ${safeText(lane.executorType || 'agent')} · ${safeText(lane.presentationMode === 'terminal' ? 'native CLI' : 'structured chat')}</span>
+            ${stateBadge(lane.state || 'unknown')}
+          </div>
         </div>
       </div>
+      <div id="lane-stream-${safeAttr(lane.id)}" class="lane-stream chat-terminal-stream" data-interactive-terminal="${lane.processMeta?.terminalWrapper === 'pty' && ['starting', 'running'].includes(lane.state) ? 'true' : 'false'}" aria-live="polite" tabindex="0">Connecting to live output…</div>
     </div>
-    <div id="lane-stream-${safeAttr(lane.id)}" class="lane-stream chat-terminal-stream" data-interactive-terminal="${lane.processMeta?.terminalWrapper === 'pty' && ['starting', 'running'].includes(lane.state) ? 'true' : 'false'}" aria-live="polite" tabindex="0">Connecting to live output…</div>
   `;
 }
 
@@ -347,7 +385,7 @@ function renderOperatorTerminalInner(session) {
       <div class="operator-terminal-shell">
         <div class="operator-terminal-toolbar">
           <div class="operator-terminal-tabs">${tabButtons}</div>
-          <button class="secondary" data-action="startOperatorTerminal" data-session-id="${safeAttr(session.id)}" type="button">${icon('plus', { size: 15 })}<span>New terminal</span></button>
+          <button class="secondary terminal-action-button" data-action="startOperatorTerminal" data-session-id="${safeAttr(session.id)}" type="button" title="New terminal">${icon('plus', { size: 15 })}<span>New terminal</span></button>
         </div>
         <div class="chat-terminal-empty">
           <strong>${accessError ? 'Command terminal unavailable.' : 'No command terminal yet.'}</strong>
@@ -361,23 +399,19 @@ function renderOperatorTerminalInner(session) {
     <div class="operator-terminal-shell">
       <div class="operator-terminal-toolbar">
         <div class="operator-terminal-tabs">${tabButtons}</div>
-        <button class="secondary" data-action="startOperatorTerminal" data-session-id="${safeAttr(session.id)}" type="button">${icon('plus', { size: 15 })}<span>New terminal</span></button>
+        <button class="secondary terminal-action-button" data-action="startOperatorTerminal" data-session-id="${safeAttr(session.id)}" type="button" title="New terminal">${icon('plus', { size: 15 })}<span>New terminal</span></button>
       </div>
       <div class="chat-terminal-head">
         <div>
           <strong>${safeText(active.title || 'Command tab')}</strong>
           <div class="chat-terminal-meta">
-            <span>${safeText(active.shell || 'shell')} · ${safeText(active.cwd || '')}</span>
+            <span title="${safeAttr(active.cwd || '')}">${safeText(active.shell || 'shell')}${active.cwd ? ` · ${safeText(compactPath(active.cwd))}` : ''}</span>
             ${stateBadge(active.state || 'unknown')}
           </div>
         </div>
-        ${stopped ? '' : `<button class="secondary" data-action="stopOperatorTerminal" data-terminal-id="${safeAttr(active.id)}" type="button">Stop</button>`}
+        ${stopped ? '' : `<button class="secondary terminal-action-button terminal-stop-button" data-action="stopOperatorTerminal" data-terminal-id="${safeAttr(active.id)}" type="button" title="Stop terminal">${icon('close', { size: 15 })}<span>Stop</span></button>`}
       </div>
-      <div id="operator-terminal-stream-${safeAttr(active.id)}" class="lane-stream chat-terminal-stream operator-terminal-stream" aria-live="polite" tabindex="0">Connecting to terminal…</div>
-      <form class="operator-terminal-input-form" data-terminal-id="${safeAttr(active.id)}">
-        <input name="input" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="${stopped ? 'Terminal stopped' : 'Run command'}" ${stopped ? 'disabled' : ''} />
-        <button type="submit" ${stopped ? 'disabled' : ''}>${icon('send', { size: 16 })}</button>
-      </form>
+      <div id="operator-terminal-stream-${safeAttr(active.id)}" class="lane-stream chat-terminal-stream operator-terminal-stream" data-terminal-state="${safeAttr(active.state || 'unknown')}" aria-live="polite" tabindex="0">Connecting to terminal…</div>
     </div>
   `;
 }

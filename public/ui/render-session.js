@@ -71,9 +71,14 @@ export function renderSession(project, session) {
   if (shellEl) {
     shellEl.classList.toggle('info-open', panelOpen);
     const terminalOpen = Boolean(shell.chatTerminalOpenBySession?.[sid]);
+    const commandTerminalOpen = terminalOpen && shell.chatTerminalTabBySession?.[sid] === 'command';
     shellEl.classList.toggle('chat-terminal-open', terminalOpen);
+    shellEl.classList.toggle('chat-command-terminal-open', commandTerminalOpen);
     const chatEl = shellEl.querySelector('.chat');
-    if (chatEl) chatEl.classList.toggle('chat-terminal-open', terminalOpen);
+    if (chatEl) {
+      chatEl.classList.toggle('chat-terminal-open', terminalOpen);
+      chatEl.classList.toggle('chat-command-terminal-open', commandTerminalOpen);
+    }
     const toggleBtn = shellEl.querySelector('[data-action="toggleExecutorPanel"]');
     if (toggleBtn) toggleBtn.classList.toggle('active', panelOpen);
     const terminalBtn = shellEl.querySelector('[data-action="toggleChatTerminal"]');

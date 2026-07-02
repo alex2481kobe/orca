@@ -2704,22 +2704,26 @@ body.sidebar-collapsed .pill {
   display: none;
   flex: 1;
   flex-direction: column;
-  gap: var(--space-3);
-  margin: 0 auto;
-  max-width: 900px;
+  gap: var(--space-2);
+  margin: 0;
+  max-width: none;
   min-height: 0;
-  padding: 1.25rem 0 1rem;
+  padding: var(--space-4) 0;
   width: 100%;
 }
-.chat.chat-terminal-open { justify-content: flex-start; }
+.chat.chat-terminal-open { justify-content: flex-start; padding-bottom: var(--space-4); }
 .chat.chat-terminal-open .chat-thread { display: none; }
 .chat.chat-terminal-open .chat-terminal { display: flex; }
+.chat.chat-command-terminal-open .composer-shell { display: none; }
 .chat-terminal-tabs {
   align-items: center;
-  border-bottom: 1px solid var(--line);
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
   display: flex;
   gap: var(--space-1);
-  min-height: 2.25rem;
+  min-height: 2.4rem;
+  padding: 0.25rem;
 }
 .chat-terminal-tabs button,
 .operator-terminal-tabs button {
@@ -2740,11 +2744,15 @@ body.sidebar-collapsed .pill {
 }
 .chat-terminal-head {
   align-items: center;
-  border-bottom: 1px solid var(--line);
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
   color: var(--muted);
   display: flex;
+  gap: var(--space-3);
   justify-content: space-between;
-  padding: 0 0.1rem var(--space-2);
+  min-height: 2.75rem;
+  padding: var(--space-3) var(--space-4);
 }
 .chat-terminal-head strong { color: var(--text); font-size: 0.92rem; }
 .chat-terminal-head span { display: block; font-size: 0.78rem; margin-top: 0.15rem; }
@@ -2752,9 +2760,10 @@ body.sidebar-collapsed .pill {
 .chat-terminal-meta span { margin-top: 0; }
 .chat-terminal-meta .tag { flex: 0 0 auto; }
 .chat-terminal-stream {
-  flex: 1;
+  flex: 1 1 auto;
+  height: auto;
   max-height: none;
-  min-height: 18rem;
+  min-height: 0;
 }
 .chat-terminal-empty {
   align-self: center;
@@ -2769,19 +2778,55 @@ body.sidebar-collapsed .pill {
   text-align: center;
 }
 .chat-terminal-empty strong { color: var(--text); }
+.terminal-chat-receipt {
+  background: var(--terminal-bg);
+  border: 1px solid var(--terminal-line);
+  border-radius: var(--radius-sm);
+  color: var(--terminal-text);
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  padding: var(--space-4);
+}
+.terminal-chat-receipt.muted {
+  background: var(--panel-soft);
+  color: var(--muted);
+}
+.terminal-chat-receipt-label {
+  color: var(--terminal-muted);
+  font-size: 0.72rem;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+.terminal-chat-receipt pre {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  margin: 0;
+  max-height: 11rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.agent-terminal-shell,
 .operator-terminal-shell {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--space-2);
+  height: 100%;
   min-height: 0;
 }
 .operator-terminal-toolbar {
   align-items: center;
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
   display: flex;
   gap: var(--space-2);
   justify-content: space-between;
-  min-height: 2.25rem;
+  min-height: 2.4rem;
+  padding: 0.25rem;
 }
 .operator-terminal-tabs {
   align-items: center;
@@ -2796,6 +2841,17 @@ body.sidebar-collapsed .pill {
   flex: 0 0 auto;
   max-width: 14rem;
 }
+.terminal-action-button {
+  align-items: center;
+  display: inline-flex;
+  gap: var(--space-1);
+  min-height: 2rem;
+  padding: 0.35rem 0.6rem;
+  white-space: nowrap;
+}
+.terminal-stop-button {
+  color: var(--text);
+}
 .operator-terminal-tabs button span:first-child {
   min-width: 0;
   overflow: hidden;
@@ -2806,7 +2862,7 @@ body.sidebar-collapsed .pill {
   background: var(--terminal-bg);
   border-color: var(--terminal-line);
   color: var(--terminal-text);
-  min-height: 22rem;
+  min-height: 0;
 }
 .operator-terminal-xterm-host,
 .terminal-xterm-host {
@@ -2827,40 +2883,6 @@ body.sidebar-collapsed .pill {
 .operator-terminal-xterm-host .xterm-screen,
 .terminal-xterm-host .xterm-screen {
   min-height: 100%;
-}
-.operator-terminal-input-form {
-  align-items: center;
-  background: var(--terminal-bg);
-  border: 1px solid var(--terminal-line);
-  border-radius: var(--radius-sm);
-  display: flex;
-  gap: var(--space-2);
-  min-height: 2.45rem;
-  padding: 0.25rem;
-}
-.operator-terminal-input-form::before {
-  color: var(--terminal-muted);
-  content: '$';
-  flex: 0 0 auto;
-  font-family: var(--mono);
-  padding-left: 0.45rem;
-}
-.operator-terminal-input-form input {
-  background: transparent;
-  border: 0;
-  color: var(--terminal-text);
-  flex: 1 1 auto;
-  font-family: var(--mono);
-  font-size: 0.86rem;
-  min-width: 0;
-  outline: none;
-  padding: 0.45rem 0.2rem;
-}
-.operator-terminal-input-form button {
-  flex: 0 0 auto;
-  min-height: 2rem;
-  min-width: 2rem;
-  padding: 0.35rem;
 }
 
 .chat-empty { color: var(--muted); margin: auto; padding: 3rem 1rem; text-align: center; }

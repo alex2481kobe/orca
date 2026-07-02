@@ -248,6 +248,32 @@ try {
     if (terminalLane?.status !== 200) fail('terminal lane fetch', JSON.stringify(terminalLane?.body || null));
     if (terminalLane.body.presentationMode !== 'terminal') fail('terminal lane presentation mode', JSON.stringify(terminalLane.body));
     if ((terminalLane.body.processMeta?.args || []).includes('--json')) fail('terminal lane should not use codex --json', JSON.stringify(terminalLane.body.processMeta?.args || []));
+    await page.waitForFunction(() => {
+      const text = document.querySelector('.chat.chat-terminal-open .chat-terminal .lane-stream')?.textContent || '';
+      return text.includes('turn_complete') || text.includes('I can help with that.');
+    }, { timeout: 12000 });
+    const terminalLayout = await page.evaluate(() => {
+      const terminal = document.querySelector('.chat-terminal');
+      const stream = document.querySelector('.chat-terminal .lane-stream');
+      const composer = document.querySelector('#orchestrator-message-form');
+      const tb = terminal?.getBoundingClientRect();
+      const sb = stream?.getBoundingClientRect();
+      return {
+        composerVisible: composer ? getComputedStyle(composer).display !== 'none' : false,
+        terminalHeight: tb?.height || 0,
+        streamHeight: sb?.height || 0,
+        bottomGap: tb && sb ? Math.round(tb.bottom - sb.bottom) : 999,
+      };
+    });
+    if (!terminalLayout.composerVisible) fail('agent terminal should keep the chat composer available', JSON.stringify(terminalLayout));
+    if (terminalLayout.streamHeight < Math.max(320, terminalLayout.terminalHeight * 0.58)) fail('agent terminal stream too short', JSON.stringify(terminalLayout));
+    if (terminalLayout.bottomGap > 18) fail('agent terminal leaves excessive bottom gap', JSON.stringify(terminalLayout));
+    await page.click('[data-action="toggleChatTerminal"]');
+    await page.waitForSelector('.chat:not(.chat-terminal-open) .terminal-chat-receipt', { timeout: 10000 });
+    const terminalChatText = await page.locator('.chat-thread').innerText();
+    if (terminalChatText.includes('Thinking...')) fail('terminal lane leaked stale thinking label after returning to chat', terminalChatText);
+    if (!terminalChatText.includes('Terminal ran for') && !terminalChatText.includes('Terminal active')) fail('terminal lane missing terminal-aware chat receipt label', terminalChatText);
+    if (!terminalChatText.includes('turn_complete') && !terminalChatText.includes('I can help with that.')) fail('terminal lane missing terminal transcript receipt', terminalChatText);
     log('terminal lane', `${terminalLaneId} presentation=${terminalLane.body.presentationMode}`);
     await context.close();
   } finally {

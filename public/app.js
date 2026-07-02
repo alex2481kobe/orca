@@ -20,7 +20,6 @@ import { openRowMenuFromTrigger, closeRowMenu, isRowMenuOpenFor } from './ui/row
 import { openScopedSettingsDialog } from './ui/settings-dialog.js';
 import { toggleComposerDictation, voiceSupported } from './ui/voice.js';
 import {
-  handleOperatorTerminalInput,
   handleStartOperatorTerminal,
   handleStopOperatorTerminal,
 } from './ui/operator-terminal.js';
@@ -265,10 +264,6 @@ document.addEventListener('submit', async (event) => {
   }
   if (event.target.id === 'orchestrator-message-form') {
     await handleOrchestratorMessage(formEvent);
-    return;
-  }
-  if (event.target.classList.contains('operator-terminal-input-form')) {
-    await handleOperatorTerminalInput(formEvent);
     return;
   }
   if (event.target.classList.contains('lane-controls-form')) {

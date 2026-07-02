@@ -74,6 +74,11 @@ function terminalRecord(terminalId) {
   return null;
 }
 
+function isInteractiveTerminal(terminalId) {
+  const record = terminalRecord(terminalId);
+  return String(record?.state || 'running') === 'running';
+}
+
 function cssVar(name, fallback = '') {
   if (typeof getComputedStyle === 'undefined' || typeof document === 'undefined') return fallback;
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
@@ -111,12 +116,14 @@ function disposeXterm(terminalId) {
   const existing = _xterms.get(terminalId);
   if (!existing) return;
   try { existing.dataDisposable?.dispose?.(); } catch { /* ignore */ }
+  try { existing.resizeObserver?.disconnect?.(); } catch { /* ignore */ }
   try { existing.term?.dispose?.(); } catch { /* ignore */ }
   _xterms.delete(terminalId);
 }
 
 function sendRawTerminalInput(terminalId, input) {
   if (!terminalId || !input) return;
+  if (!isInteractiveTerminal(terminalId)) return;
   const previous = _rawInputQueues.get(terminalId) || Promise.resolve();
   const next = previous.catch(() => {}).then(async () => {
     const response = await api(`/api/terminals/${encodeURIComponent(terminalId)}/input`, {
@@ -133,6 +140,7 @@ function sendRawTerminalInput(terminalId, input) {
 
 async function resizeBackendTerminal(terminalId, cols, rows) {
   if (!terminalId || !cols || !rows) return;
+  if (!isInteractiveTerminal(terminalId)) return;
   await api(`/api/terminals/${encodeURIComponent(terminalId)}/resize`, {
     method: 'POST',
     body: { actor: 'dashboard', cols, rows },
@@ -151,12 +159,14 @@ async function ensureXterm(terminalId) {
     const dims = estimateGeometry(mount);
     const cols = Number.isFinite(record.cols) ? record.cols : dims.cols;
     const rows = Number.isFinite(record.rows) ? record.rows : dims.rows;
+    const interactive = isInteractiveTerminal(terminalId);
     mount.textContent = '';
     mount.classList.add('operator-terminal-xterm-host');
     const term = new Terminal({
       allowProposedApi: false,
       convertEol: false,
-      cursorBlink: true,
+      cursorBlink: interactive,
+      disableStdin: !interactive,
       cols,
       rows,
       fontFamily: cssVar('--mono-font', 'ui-monospace, SFMono-Regular, Menlo, monospace'),
@@ -167,13 +177,22 @@ async function ensureXterm(terminalId) {
     term.open(mount);
     term.write(shell.operatorTerminalBuffers?.[terminalId] || '');
     const dataDisposable = term.onData((data) => sendRawTerminalInput(terminalId, data));
-    const nextDims = estimateGeometry(mount);
-    if (nextDims.cols !== cols || nextDims.rows !== rows) {
-      term.resize(nextDims.cols, nextDims.rows);
+    const created = { term, mount, dataDisposable, cols, rows, resizeObserver: null };
+    const resizeToMount = () => {
+      const nextDims = estimateGeometry(mount);
+      if (nextDims.cols === created.cols && nextDims.rows === created.rows) return;
+      created.cols = nextDims.cols;
+      created.rows = nextDims.rows;
+      try { term.resize(nextDims.cols, nextDims.rows); } catch { /* ignore */ }
       resizeBackendTerminal(terminalId, nextDims.cols, nextDims.rows);
+    };
+    if (typeof ResizeObserver !== 'undefined') {
+      created.resizeObserver = new ResizeObserver(resizeToMount);
+      created.resizeObserver.observe(mount);
     }
-    term.focus();
-    const created = { term, mount, dataDisposable };
+    resizeToMount();
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(resizeToMount);
+    if (interactive) term.focus();
     _xterms.set(terminalId, created);
     return created;
   } catch (error) {
@@ -266,25 +285,6 @@ export async function handleStartOperatorTerminal(event) {
   shell.operatorTerminalOffsets[response.data.id] = '';
   shell.operatorTerminalBuffers[response.data.id] = '';
   return true;
-}
-
-export async function handleOperatorTerminalInput(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const terminalId = form.dataset.terminalId;
-  const input = form.querySelector('input[name="input"]');
-  const value = input?.value || '';
-  if (!terminalId || !value.trim()) return;
-  if (input) input.value = '';
-  const response = await api(`/api/terminals/${encodeURIComponent(terminalId)}/input`, {
-    method: 'POST',
-    body: { actor: 'dashboard', input: value },
-  });
-  if (!response.ok) {
-    renderAlert(response.data?.error || 'Could not write terminal input.', 'bad');
-    return;
-  }
-  await pollOnce(terminalId).catch(() => {});
 }
 
 export async function handleStopOperatorTerminal(event) {

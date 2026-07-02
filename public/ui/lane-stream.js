@@ -74,6 +74,22 @@ function renderAnsi(value) {
   return html.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
 }
 
+function plainTerminalText(value) {
+  return applyBackspaces(value)
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+export function laneTerminalSnippet(laneId, { maxLines = 10, maxChars = 1200 } = {}) {
+  const text = plainTerminalText(_buffers.get(laneId) || '');
+  if (!text) return '';
+  const lines = text.split('\n')
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim());
+  return lines.slice(-maxLines).join('\n').slice(-maxChars).trim();
+}
+
 function cssVar(name, fallback = '') {
   if (typeof getComputedStyle === 'undefined' || typeof document === 'undefined') return fallback;
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
@@ -111,6 +127,7 @@ function disposeXterm(laneId) {
   const existing = _xterms.get(laneId);
   if (!existing) return;
   try { existing.dataDisposable?.dispose?.(); } catch { /* ignore */ }
+  try { existing.resizeObserver?.disconnect?.(); } catch { /* ignore */ }
   try { existing.term?.dispose?.(); } catch { /* ignore */ }
   _xterms.delete(laneId);
 }
@@ -150,12 +167,14 @@ async function ensureXterm(laneId) {
   try {
     const { Terminal } = await loadXterm();
     const dims = estimateGeometry(mount);
+    const interactive = isInteractiveTerminal(laneId);
     mount.textContent = '';
     mount.classList.add('terminal-xterm-host');
     const term = new Terminal({
       allowProposedApi: false,
       convertEol: false,
-      cursorBlink: true,
+      cursorBlink: interactive,
+      disableStdin: !interactive,
       cols: dims.cols,
       rows: dims.rows,
       fontFamily: cssVar('--mono-font', 'ui-monospace, SFMono-Regular, Menlo, monospace'),
@@ -166,9 +185,22 @@ async function ensureXterm(laneId) {
     term.open(mount);
     term.write(_buffers.get(laneId) || '');
     const dataDisposable = term.onData((data) => sendRawLaneInput(laneId, data));
-    resizeBackendLane(laneId, dims.cols, dims.rows);
-    term.focus();
-    const created = { term, mount, dataDisposable };
+    const created = { term, mount, dataDisposable, cols: dims.cols, rows: dims.rows, resizeObserver: null };
+    const resizeToMount = () => {
+      const next = estimateGeometry(mount);
+      if (next.cols === created.cols && next.rows === created.rows) return;
+      created.cols = next.cols;
+      created.rows = next.rows;
+      try { term.resize(next.cols, next.rows); } catch { /* ignore */ }
+      resizeBackendLane(laneId, next.cols, next.rows);
+    };
+    if (typeof ResizeObserver !== 'undefined') {
+      created.resizeObserver = new ResizeObserver(resizeToMount);
+      created.resizeObserver.observe(mount);
+    }
+    resizeToMount();
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(resizeToMount);
+    if (interactive) term.focus();
     _xterms.set(laneId, created);
     return created;
   } catch (error) {

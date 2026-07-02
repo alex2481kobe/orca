@@ -431,7 +431,10 @@ export function render(uiState = null) {
   // Live terminal stream: subscribe ONLY for the focused lane detail OR the
   // session's terminal-mode chat. One stream at a time keeps long-running agents
   // cheap while still offering the familiar CLI view inside the chat.
-  const chatTerminalLane = (!shell.route.laneId && session && shell.chatTerminalOpenBySession?.[session.id])
+  const chatTerminalLane = (!shell.route.laneId
+    && session
+    && shell.chatTerminalOpenBySession?.[session.id]
+    && shell.chatTerminalTabBySession?.[session.id] !== 'command')
     ? activeOrchestratorLaneForSession(session)
     : null;
   const focusedStreamLane = (shell.route.laneId && lane) ? lane : chatTerminalLane;

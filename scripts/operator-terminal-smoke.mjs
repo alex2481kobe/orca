@@ -103,29 +103,54 @@ try {
     await page.click('[data-action="setChatTerminalTab"][data-tab="command"]');
     await page.waitForSelector('[data-action="startOperatorTerminal"]', { timeout: 10000 });
     await page.click('[data-action="startOperatorTerminal"]');
-    await page.waitForSelector('.operator-terminal-input-form input[name="input"]', { timeout: 10000 });
     try {
       await page.waitForSelector('.operator-terminal-stream .xterm', { timeout: 10000 });
     } catch (error) {
       const terminalHtml = await page.evaluate(() => document.querySelector('.operator-terminal-stream')?.outerHTML || '').catch(() => '');
       fail('xterm did not mount', `${error.message}\n${terminalHtml}\n${consoleErrors.join('\n')}`);
     }
-    await page.fill(
-      '.operator-terminal-input-form input[name="input"]',
-      'printf "__ORCA_UI_TERMINAL__\\n"; pwd; cd ..; pwd; ls',
-    );
-    await page.press('.operator-terminal-input-form input[name="input"]', 'Enter');
+    await page.click('.operator-terminal-stream .xterm');
+    await page.keyboard.type('printf "__ORCA_UI_TERMINAL__\\n"; pwd; cd ..; pwd; ls');
+    await page.keyboard.press('Enter');
     await page.waitForFunction(() => {
       const text = document.querySelector('.operator-terminal-stream')?.textContent || '';
       return text.includes('__ORCA_UI_TERMINAL__') && !text.includes('Connecting to terminal');
     }, { timeout: 12000 });
     const output = await page.locator('.operator-terminal-stream').innerText();
     if (!output.includes('__ORCA_UI_TERMINAL__')) fail('terminal output marker missing', output);
+    const layout = await page.evaluate(() => {
+      const chat = document.querySelector('.chat');
+      const terminal = document.querySelector('.chat-terminal');
+      const stream = document.querySelector('.operator-terminal-stream');
+      const xterm = document.querySelector('.operator-terminal-stream .xterm');
+      const composer = document.querySelector('#orchestrator-message-form');
+      const tb = terminal?.getBoundingClientRect();
+      const sb = stream?.getBoundingClientRect();
+      return {
+        terminalOpen: chat?.classList.contains('chat-terminal-open') || false,
+        composerHidden: composer ? getComputedStyle(composer).display === 'none' : false,
+        terminalHeight: tb?.height || 0,
+        streamHeight: sb?.height || 0,
+        xtermHeight: xterm?.getBoundingClientRect().height || 0,
+        bottomGap: tb && sb ? Math.round(tb.bottom - sb.bottom) : 999,
+      };
+    });
+    if (!layout.terminalOpen || !layout.composerHidden) fail('terminal did not replace chat composer', JSON.stringify(layout));
+    if (layout.streamHeight < Math.max(360, layout.terminalHeight * 0.62)) fail('terminal stream too short', JSON.stringify(layout));
+    if (layout.xtermHeight < layout.streamHeight - 8) fail('xterm did not fill stream', JSON.stringify(layout));
+    if (layout.bottomGap > 18) fail('terminal leaves excessive bottom gap', JSON.stringify(layout));
     const shotDir = path.join(previousCwd, 'artifacts', 'operator-terminal-smoke');
     await fs.mkdir(shotDir, { recursive: true });
     await page.screenshot({ path: path.join(shotDir, 'command-terminal.png'), fullPage: true });
     if (consoleErrors.length) fail('browser console errors', consoleErrors.join('\n'));
     await page.click('[data-action="stopOperatorTerminal"]');
+    await page.waitForFunction(() => {
+      const stream = document.querySelector('.operator-terminal-stream');
+      return stream?.querySelector('.xterm') && stream.textContent.includes('__ORCA_UI_TERMINAL__')
+        && !document.querySelector('[data-action="stopOperatorTerminal"]');
+    }, { timeout: 10000 });
+    await page.screenshot({ path: path.join(shotDir, 'command-terminal-stopped.png'), fullPage: true });
+    if (consoleErrors.length) fail('browser console errors after stop', consoleErrors.join('\n'));
     await context.close();
     log('done', 'command terminal rendered shell output');
   } finally {
