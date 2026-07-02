@@ -122,7 +122,7 @@ export function renderLane(project, session, lane) {
           <small>raw output, streaming</small>
         </summary>
         <div class="disclosure-body">
-          <pre id="lane-stream-${safeAttr(lane.id)}" class="lane-stream" aria-live="polite" tabindex="0">Connecting to live output…</pre>
+          <div id="lane-stream-${safeAttr(lane.id)}" class="lane-stream" data-interactive-terminal="${lane.processMeta?.terminalWrapper === 'pty' && ['starting', 'running'].includes(lane.state) ? 'true' : 'false'}" aria-live="polite" tabindex="0">Connecting to live output…</div>
         </div>
       </details>
       <details class="disclosure card">

@@ -4,9 +4,13 @@ import { shell } from './state.js';
 
 const POLL_MS = 450;
 const MAX_CHARS = 200000;
+const XTERM_MODULE_URL = '/vendor/xterm/xterm.mjs';
 
 let _timer = null;
 let _activeTerminalId = null;
+let _xtermModulePromise = null;
+const _xterms = new Map();
+const _rawInputQueues = new Map();
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -61,7 +65,124 @@ function mountFor(terminalId) {
   return typeof document !== 'undefined' ? document.getElementById(`operator-terminal-stream-${terminalId}`) : null;
 }
 
-function paintTerminal(terminalId) {
+function terminalRecord(terminalId) {
+  const sessions = shell.operatorTerminalsBySession || {};
+  for (const record of Object.values(sessions)) {
+    const terminal = record?.terminals?.find?.((item) => item.id === terminalId);
+    if (terminal) return terminal;
+  }
+  return null;
+}
+
+function cssVar(name, fallback = '') {
+  if (typeof getComputedStyle === 'undefined' || typeof document === 'undefined') return fallback;
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+}
+
+function xtermTheme() {
+  return {
+    background: cssVar('--terminal-bg', cssVar('--panel')),
+    foreground: cssVar('--terminal-text', cssVar('--text')),
+    cursor: cssVar('--accent', cssVar('--text')),
+    selectionBackground: cssVar('--surface-strong', cssVar('--terminal-line')),
+  };
+}
+
+function estimateGeometry(mount) {
+  const width = Math.max(320, mount?.clientWidth || 820);
+  const height = Math.max(180, mount?.clientHeight || 420);
+  return {
+    cols: Math.max(20, Math.min(240, Math.floor(width / 8.6))),
+    rows: Math.max(8, Math.min(80, Math.floor(height / 18))),
+  };
+}
+
+function loadXterm() {
+  if (!_xtermModulePromise) {
+    _xtermModulePromise = import(XTERM_MODULE_URL).catch((error) => {
+      _xtermModulePromise = null;
+      throw error;
+    });
+  }
+  return _xtermModulePromise;
+}
+
+function disposeXterm(terminalId) {
+  const existing = _xterms.get(terminalId);
+  if (!existing) return;
+  try { existing.dataDisposable?.dispose?.(); } catch { /* ignore */ }
+  try { existing.term?.dispose?.(); } catch { /* ignore */ }
+  _xterms.delete(terminalId);
+}
+
+function sendRawTerminalInput(terminalId, input) {
+  if (!terminalId || !input) return;
+  const previous = _rawInputQueues.get(terminalId) || Promise.resolve();
+  const next = previous.catch(() => {}).then(async () => {
+    const response = await api(`/api/terminals/${encodeURIComponent(terminalId)}/input`, {
+      method: 'POST',
+      body: { actor: 'dashboard', input, raw: true },
+    });
+    if (!response.ok) throw new Error(response.data?.error || 'Terminal input failed.');
+  });
+  _rawInputQueues.set(terminalId, next);
+  next.catch(() => renderAlert('Terminal input failed.', 'bad')).finally(() => {
+    if (_rawInputQueues.get(terminalId) === next) _rawInputQueues.delete(terminalId);
+  });
+}
+
+async function resizeBackendTerminal(terminalId, cols, rows) {
+  if (!terminalId || !cols || !rows) return;
+  await api(`/api/terminals/${encodeURIComponent(terminalId)}/resize`, {
+    method: 'POST',
+    body: { actor: 'dashboard', cols, rows },
+  }).catch(() => {});
+}
+
+async function ensureXterm(terminalId) {
+  const mount = mountFor(terminalId);
+  if (!mount) return null;
+  const existing = _xterms.get(terminalId);
+  if (existing?.mount === mount) return existing;
+  disposeXterm(terminalId);
+  try {
+    const { Terminal } = await loadXterm();
+    const record = terminalRecord(terminalId) || {};
+    const dims = estimateGeometry(mount);
+    const cols = Number.isFinite(record.cols) ? record.cols : dims.cols;
+    const rows = Number.isFinite(record.rows) ? record.rows : dims.rows;
+    mount.textContent = '';
+    mount.classList.add('operator-terminal-xterm-host');
+    const term = new Terminal({
+      allowProposedApi: false,
+      convertEol: false,
+      cursorBlink: true,
+      cols,
+      rows,
+      fontFamily: cssVar('--mono-font', 'ui-monospace, SFMono-Regular, Menlo, monospace'),
+      fontSize: 13,
+      scrollback: 5000,
+      theme: xtermTheme(),
+    });
+    term.open(mount);
+    term.write(shell.operatorTerminalBuffers?.[terminalId] || '');
+    const dataDisposable = term.onData((data) => sendRawTerminalInput(terminalId, data));
+    const nextDims = estimateGeometry(mount);
+    if (nextDims.cols !== cols || nextDims.rows !== rows) {
+      term.resize(nextDims.cols, nextDims.rows);
+      resizeBackendTerminal(terminalId, nextDims.cols, nextDims.rows);
+    }
+    term.focus();
+    const created = { term, mount, dataDisposable };
+    _xterms.set(terminalId, created);
+    return created;
+  } catch (error) {
+    mount.dataset.xtermError = error?.message || 'xterm failed';
+    return null;
+  }
+}
+
+function paintFallbackTerminal(terminalId) {
   const el = mountFor(terminalId);
   if (!el) return;
   const value = shell.operatorTerminalBuffers?.[terminalId] || '';
@@ -73,13 +194,16 @@ function paintTerminal(terminalId) {
 
 export function fillOperatorTerminal(terminalId) {
   if (!terminalId) return;
-  paintTerminal(terminalId);
+  ensureXterm(terminalId).then((record) => {
+    if (!record) paintFallbackTerminal(terminalId);
+  });
 }
 
 export function stopOperatorTerminalPolling() {
   if (_timer) clearTimeout(_timer);
   _timer = null;
   _activeTerminalId = null;
+  for (const terminalId of _xterms.keys()) disposeXterm(terminalId);
 }
 
 async function pollOnce(terminalId) {
@@ -98,7 +222,12 @@ async function pollOnce(terminalId) {
   if (text) {
     shell.operatorTerminalBuffers[terminalId] = ((shell.operatorTerminalBuffers[terminalId] || '') + text).slice(-MAX_CHARS);
   }
-  paintTerminal(terminalId);
+  const record = await ensureXterm(terminalId);
+  if (record && text) {
+    record.term.write(text);
+  } else if (!record) {
+    paintFallbackTerminal(terminalId);
+  }
 }
 
 export function watchOperatorTerminal(terminalId) {
@@ -120,9 +249,11 @@ export function watchOperatorTerminal(terminalId) {
 export async function handleStartOperatorTerminal(event) {
   const sessionId = event.currentTarget.dataset.sessionId || shell.route.sessionId;
   if (!sessionId) return;
+  const mount = typeof document !== 'undefined' ? document.querySelector('.chat-terminal') : null;
+  const dims = estimateGeometry(mount);
   const response = await api(`/api/sessions/${encodeURIComponent(sessionId)}/terminals`, {
     method: 'POST',
-    body: { actor: 'dashboard', title: 'Command tab' },
+    body: { actor: 'dashboard', title: 'Command tab', cols: dims.cols, rows: dims.rows },
   });
   if (!response.ok) {
     renderAlert(response.data?.error || 'Could not start terminal.', 'bad');

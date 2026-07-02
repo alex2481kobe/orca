@@ -3,6 +3,7 @@
 
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import pty from '@lydell/node-pty';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { createAgentEventNormalizer } from '../agent-events.js';
@@ -35,6 +36,14 @@ function presentationModeForLane(lane) {
     : 'chat';
 }
 
+const MAX_TERMINAL_INPUT_BYTES = 16 * 1024;
+
+function cleanTerminalDimension(value, fallback, min, max) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+}
+
 function redactArgForDisplay(value, index, total) {
   const text = String(value ?? '');
   if (!text) return text;
@@ -63,15 +72,15 @@ function commandLineForLog(binary, args, lane) {
 function buildProcessLaunch(safeBinary, args, lane) {
   const mode = presentationModeForLane(lane);
   const rawArgs = Array.isArray(args) ? args : [];
-  // macOS `script file command ...args` gives Codex/Claude a real PTY without
-  // adding a native dependency. Keep it scoped to terminal-presented lanes; chat
-  // lanes stay ordinary pipes so structured event parsing remains deterministic.
-  if (mode === 'terminal' && process.platform === 'darwin') {
+  // Terminal-presented lanes run behind a real PTY so Codex/Claude render the
+  // same interactive TUI/slash-command surface users see in their native terminal.
+  // Chat lanes stay ordinary pipes so structured event parsing remains stable.
+  if (mode === 'terminal') {
     return {
-      binary: 'script',
-      args: ['-q', '/dev/null', safeBinary, ...rawArgs],
+      binary: safeBinary,
+      args: rawArgs,
       wrapped: true,
-      wrapper: 'script',
+      wrapper: 'pty',
     };
   }
   return { binary: safeBinary, args: rawArgs, wrapped: false, wrapper: null };
@@ -383,18 +392,29 @@ export class CliExecutorAdapter {
       const safeWorkdir = await this._resolveWorkdir(lane.workdir || this.defaultWorkingDir);
 
       const launch = buildProcessLaunch(safeBinary, args, lane);
-      const child = spawn(launch.binary, launch.args, {
-        shell: false,
-        cwd: safeWorkdir,
-        env: this._buildEnv(lane),
-        detached: process.platform !== 'win32',
-        // The prompt is passed as argv; the child must NOT inherit/keep an open
-        // stdin pipe. `codex exec` blocks forever on "Reading additional input
-        // from stdin..." waiting for EOF that never comes, and `claude --print`
-        // wastes 3s warning about missing stdin. Close stdin so one-shot agents
-        // run to completion.
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
+      const usePty = launch.wrapper === 'pty';
+      const child = usePty
+        ? pty.spawn(launch.binary, launch.args, {
+          cwd: safeWorkdir,
+          env: this._buildEnv(lane),
+          name: 'xterm-256color',
+          cols: 100,
+          rows: 28,
+          encoding: 'utf8',
+        })
+        : spawn(launch.binary, launch.args, {
+          shell: false,
+          cwd: safeWorkdir,
+          env: this._buildEnv(lane),
+          detached: process.platform !== 'win32',
+          // The prompt is passed as argv; the child must NOT inherit/keep an open
+          // stdin pipe. `codex exec` blocks forever on "Reading additional input
+          // from stdin..." waiting for EOF that never comes, and `claude --print`
+          // wastes 3s warning about missing stdin. Close stdin so one-shot agents
+          // run to completion.
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+      runtime.usesPty = usePty;
       runtime.process = child;
       this.runtimes.set(String(lane.id), runtime);
       lane.processMeta = {
@@ -415,7 +435,7 @@ export class CliExecutorAdapter {
         stopRequestedBy: null,
         stopResult: null,
         platform: process.platform,
-        processGroupSupported: process.platform !== 'win32',
+        processGroupSupported: !usePty && process.platform !== 'win32',
       };
       runtime.terminalLogPath = path.join(runtimeDir, 'terminal.log');
       runtime.stdoutLogPath = path.join(runtimeDir, 'stdout.log');
@@ -428,10 +448,12 @@ export class CliExecutorAdapter {
       await fs.writeFile(runtime.stdoutLogPath, '');
       await fs.writeFile(runtime.stderrLogPath, '');
 
-      child.stdout?.setEncoding('utf8');
-      child.stderr?.setEncoding('utf8');
-      runtime.stdoutClosed = !child.stdout;
-      runtime.stderrClosed = !child.stderr;
+      if (!usePty) {
+        child.stdout?.setEncoding('utf8');
+        child.stderr?.setEncoding('utf8');
+      }
+      runtime.stdoutClosed = usePty ? true : !child.stdout;
+      runtime.stderrClosed = usePty ? true : !child.stderr;
       // Bound total forwarded output so a runaway executor cannot exhaust memory
       // through queued data events feeding an async onLog callback.
       runtime.outputBytes = 0;
@@ -473,9 +495,6 @@ export class CliExecutorAdapter {
           safeFire(this.onAgentEvent, lane, agentEvent);
         }
       };
-      child.stdout?.on('data', (chunk) => forward(`[${this.label}]`, chunk, runtime.stdoutLogPath, 'stdout'));
-      child.stderr?.on('data', (chunk) => forward(`[${this.label} err]`, chunk, runtime.stderrLogPath, 'stderr'));
-
       const maybeFinalizeExit = () => {
         if (runtime.finalized || !runtime.exitSeen || !runtime.stdoutClosed || !runtime.stderrClosed) return;
         runtime.finalized = true;
@@ -501,39 +520,60 @@ export class CliExecutorAdapter {
         }
       };
 
-      child.stdout?.on('close', () => {
-        runtime.stdoutClosed = true;
-        maybeFinalizeExit();
-      });
-      child.stderr?.on('close', () => {
-        runtime.stderrClosed = true;
-        maybeFinalizeExit();
-      });
+      if (usePty) {
+        runtime.ptyDataDisposable = child.onData((chunk) => forward(`[${this.label}]`, chunk, runtime.stdoutLogPath, 'stdout'));
+        runtime.ptyExitDisposable = child.onExit((event = {}) => {
+          const code = Number.isFinite(event.exitCode) ? event.exitCode : null;
+          const signal = event.signal || null;
+          fs.appendFile(runtime.terminalLogPath, `\n[orca] process exited code=${code} signal=${signal || ''}\n`).catch(() => {});
+          runtime.exitSeen = true;
+          runtime.exitCode = code;
+          runtime.signal = signal || null;
+          if (lane.processMeta) {
+            lane.processMeta.endedAt = lane.processMeta.endedAt || new Date().toISOString();
+            lane.processMeta.exitCode = code;
+            lane.processMeta.signal = signal || null;
+          }
+          maybeFinalizeExit();
+        });
+      } else {
+        child.stdout?.on('data', (chunk) => forward(`[${this.label}]`, chunk, runtime.stdoutLogPath, 'stdout'));
+        child.stderr?.on('data', (chunk) => forward(`[${this.label} err]`, chunk, runtime.stderrLogPath, 'stderr'));
 
-      child.on('error', (error) => {
-        if (runtime.status !== 'active') return;
-        runtime.status = 'failed';
-        // Detach output listeners so a late buffered chunk can't fire onLog on a
-        // lane whose runtime was already reaped.
-        child.stdout?.destroy();
-        child.stderr?.destroy();
-        fs.appendFile(runtime.terminalLogPath, `\n[orca] process failed to launch: ${error.message} (${error.code || 'ERR'})\n`).catch(() => {});
-        this.runtimes.delete(String(lane.id));
-        safeFire(this.onFail, lane, `Executor process failed to launch: ${error.message} (${error.code || 'ERR'})`, 'scheduler');
-      });
+        child.stdout?.on('close', () => {
+          runtime.stdoutClosed = true;
+          maybeFinalizeExit();
+        });
+        child.stderr?.on('close', () => {
+          runtime.stderrClosed = true;
+          maybeFinalizeExit();
+        });
 
-      child.on('exit', (code, signal) => {
-        fs.appendFile(runtime.terminalLogPath, `\n[orca] process exited code=${code} signal=${signal || ''}\n`).catch(() => {});
-        runtime.exitSeen = true;
-        runtime.exitCode = code;
-        runtime.signal = signal || null;
-        if (lane.processMeta) {
-          lane.processMeta.endedAt = lane.processMeta.endedAt || new Date().toISOString();
-          lane.processMeta.exitCode = code;
-          lane.processMeta.signal = signal || null;
-        }
-        maybeFinalizeExit();
-      });
+        child.on('error', (error) => {
+          if (runtime.status !== 'active') return;
+          runtime.status = 'failed';
+          // Detach output listeners so a late buffered chunk can't fire onLog on a
+          // lane whose runtime was already reaped.
+          child.stdout?.destroy();
+          child.stderr?.destroy();
+          fs.appendFile(runtime.terminalLogPath, `\n[orca] process failed to launch: ${error.message} (${error.code || 'ERR'})\n`).catch(() => {});
+          this.runtimes.delete(String(lane.id));
+          safeFire(this.onFail, lane, `Executor process failed to launch: ${error.message} (${error.code || 'ERR'})`, 'scheduler');
+        });
+
+        child.on('exit', (code, signal) => {
+          fs.appendFile(runtime.terminalLogPath, `\n[orca] process exited code=${code} signal=${signal || ''}\n`).catch(() => {});
+          runtime.exitSeen = true;
+          runtime.exitCode = code;
+          runtime.signal = signal || null;
+          if (lane.processMeta) {
+            lane.processMeta.endedAt = lane.processMeta.endedAt || new Date().toISOString();
+            lane.processMeta.exitCode = code;
+            lane.processMeta.signal = signal || null;
+          }
+          maybeFinalizeExit();
+        });
+      }
 
       await safeFire(this.onLog, lane, `${this.label} adapter started (runtime ${runtime.runtimeId})`);
       if (lane.mcpConfigPath) {
@@ -548,19 +588,25 @@ export class CliExecutorAdapter {
       try {
         const proc = runtime?.process;
         if (proc) {
-          proc.removeAllListeners('exit');
-          proc.stdout?.removeAllListeners('data');
-          proc.stdout?.removeAllListeners('close');
-          proc.stderr?.removeAllListeners('data');
-          proc.stderr?.removeAllListeners('close');
-          proc.removeAllListeners('error');
-          const pid = proc.pid;
-          if (pid) {
-            if (process.platform === 'win32') {
-              try { proc.kill('SIGKILL'); } catch { /* already gone */ }
-            } else {
-              try { process.kill(-pid, 'SIGKILL'); } catch {
+          if (runtime?.usesPty) {
+            try { runtime.ptyDataDisposable?.dispose?.(); } catch { /* ignore */ }
+            try { runtime.ptyExitDisposable?.dispose?.(); } catch { /* ignore */ }
+            try { proc.kill('SIGHUP'); } catch { /* already gone */ }
+          } else {
+            proc.removeAllListeners('exit');
+            proc.stdout?.removeAllListeners('data');
+            proc.stdout?.removeAllListeners('close');
+            proc.stderr?.removeAllListeners('data');
+            proc.stderr?.removeAllListeners('close');
+            proc.removeAllListeners('error');
+            const pid = proc.pid;
+            if (pid) {
+              if (process.platform === 'win32') {
                 try { proc.kill('SIGKILL'); } catch { /* already gone */ }
+              } else {
+                try { process.kill(-pid, 'SIGKILL'); } catch {
+                  try { proc.kill('SIGKILL'); } catch { /* already gone */ }
+                }
               }
             }
           }
@@ -585,8 +631,35 @@ export class CliExecutorAdapter {
     }
 
     runtime.status = 'stopping';
-    runtime.process.removeAllListeners('exit');
     const proc = runtime.process;
+    if (runtime.usesPty) {
+      try { runtime.ptyDataDisposable?.dispose?.(); } catch { /* ignore */ }
+      try { runtime.ptyExitDisposable?.dispose?.(); } catch { /* ignore */ }
+      let killedPty = false;
+      try {
+        proc.kill('SIGHUP');
+        killedPty = true;
+      } catch { /* already exited */ }
+      this.runtimes.delete(laneKey);
+      const meta = runtime.lane?.processMeta || null;
+      if (meta) {
+        meta.endedAt = meta.endedAt || new Date().toISOString();
+        meta.stopRequestedBy = context.actor || 'dashboard';
+        meta.stopResult = killedPty ? 'sighup' : 'no_active_process';
+      }
+      await safeFire(this.onStop, runtime.lane, {
+        actor: context.actor || 'dashboard',
+        reason: context.reason || `${this.label} adapter stop requested`,
+      });
+      await safeFire(this.onLog, runtime.lane, `${this.label} adapter stopped (${killedPty ? 'sighup sent' : 'already exited'}).`);
+      return {
+        stopped: true,
+        reason: killedPty ? 'Stop signal sent.' : 'No running process to stop.',
+        processGroupSupported: false,
+      };
+    }
+
+    runtime.process.removeAllListeners('exit');
     // Detach the stdout/stderr data and error listeners too: after we kill the
     // child, a late buffered chunk would otherwise call forward() → onLog on a
     // lane the registry has already terminalized, and keep the streams referenced.
@@ -653,6 +726,39 @@ export class CliExecutorAdapter {
     };
   }
 
+  writeTerminalInput(laneId, input, context = {}) {
+    const runtime = this.runtimes.get(String(laneId));
+    if (!runtime || runtime.status !== 'active' || !runtime.process) {
+      throw { status: 409, message: 'Lane terminal is not running.' };
+    }
+    if (!runtime.usesPty) {
+      throw { status: 409, message: 'Lane is not backed by an interactive terminal.' };
+    }
+    const text = String(input ?? '');
+    if (!text) throw { status: 422, message: 'Terminal input is required.' };
+    if (Buffer.byteLength(text, 'utf8') > MAX_TERMINAL_INPUT_BYTES) {
+      throw { status: 413, message: `Terminal input exceeds ${MAX_TERMINAL_INPUT_BYTES} bytes.` };
+    }
+    const normalized = context.raw ? text : (text.endsWith('\n') || text.endsWith('\r') ? text : `${text}\n`);
+    runtime.process.write(normalized);
+    runtime.heartbeatAt = Date.now();
+    return { accepted: true, laneId: String(laneId), bytes: Buffer.byteLength(normalized, 'utf8') };
+  }
+
+  resizeTerminal(laneId, { cols, rows } = {}) {
+    const runtime = this.runtimes.get(String(laneId));
+    if (!runtime || runtime.status !== 'active' || !runtime.process) {
+      throw { status: 409, message: 'Lane terminal is not running.' };
+    }
+    if (!runtime.usesPty) {
+      throw { status: 409, message: 'Lane is not backed by an interactive terminal.' };
+    }
+    const nextCols = cleanTerminalDimension(cols, 100, 20, 240);
+    const nextRows = cleanTerminalDimension(rows, 28, 8, 80);
+    runtime.process.resize(nextCols, nextRows);
+    return { accepted: true, laneId: String(laneId), cols: nextCols, rows: nextRows };
+  }
+
   touchHeartbeat(laneId, actor = 'adapter') {
     const runtime = this.runtimes.get(String(laneId));
     if (!runtime || runtime.status !== 'active') {
@@ -672,11 +778,17 @@ export class CliExecutorAdapter {
         // Kill the whole detached PROCESS GROUP (not just the direct child) — the
         // agent's fan-outs (node/git/browsers) live in that group and would
         // otherwise be orphaned. Mirror stop()'s negative-PID kill.
-        const pid = runtime.process.pid;
-        if (pid && process.platform !== 'win32') {
-          try { process.kill(-pid, 'SIGKILL'); } catch { try { runtime.process.kill('SIGKILL'); } catch { /* gone */ } }
+        if (runtime.usesPty) {
+          try { runtime.ptyDataDisposable?.dispose?.(); } catch { /* ignore */ }
+          try { runtime.ptyExitDisposable?.dispose?.(); } catch { /* ignore */ }
+          try { runtime.process.kill('SIGHUP'); } catch { /* gone */ }
         } else {
-          try { runtime.process.kill('SIGKILL'); } catch { /* gone */ }
+          const pid = runtime.process.pid;
+          if (pid && process.platform !== 'win32') {
+            try { process.kill(-pid, 'SIGKILL'); } catch { try { runtime.process.kill('SIGKILL'); } catch { /* gone */ } }
+          } else {
+            try { runtime.process.kill('SIGKILL'); } catch { /* gone */ }
+          }
         }
         this.runtimes.delete(laneId);
         await safeFire(this.onFail, runtime.lane, `${this.label} adapter heartbeat timeout`, 'heartbeat');

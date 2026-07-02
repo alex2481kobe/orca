@@ -27,6 +27,8 @@ const PUBLIC_ROUTE_KEYS = new Set([
   'POST /api/auth/pair',
   'GET /',
   'GET /styles.css',
+  'GET /vendor/xterm/xterm.css',
+  'GET /vendor/xterm/xterm.mjs',
   'GET /app.js',
   'GET /manifest.webmanifest',
   'GET /service-worker.js',
@@ -71,6 +73,7 @@ const ADMIN_ROUTE_KEYS = new Set([
   'GET /api/terminals/{terminalId}',
   'GET /api/terminals/{terminalId}/tail',
   'POST /api/terminals/{terminalId}/input',
+  'POST /api/terminals/{terminalId}/resize',
   'POST /api/terminals/{terminalId}/stop',
 ]);
 

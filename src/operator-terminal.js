@@ -1,5 +1,5 @@
-import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import pty from '@lydell/node-pty';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -48,8 +48,29 @@ function buildShellLaunch(shellPath) {
     args: shellArgs,
     displayBinary: shellPath,
     displayArgs: shellArgs,
-    wrapper: null,
+    wrapper: 'pty',
   };
+}
+
+function buildTerminalEnv(session, shellPath) {
+  const env = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (typeof value === 'string') env[key] = value;
+  }
+  env.TERM = env.TERM || 'xterm-256color';
+  env.COLORTERM = env.COLORTERM || 'truecolor';
+  env.CLICOLOR_FORCE = env.CLICOLOR_FORCE || '1';
+  env.FORCE_COLOR = env.FORCE_COLOR || '1';
+  env.SHELL = shellPath || env.SHELL || '/bin/sh';
+  env.ORCA_SESSION_ID = session.id;
+  env.ORCA_PROJECT_ID = session.projectId || '';
+  return env;
+}
+
+function cleanDimension(value, fallback, min, max) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
 }
 
 function appendBounded(terminal, chunk) {
@@ -78,6 +99,8 @@ function terminalSummary(terminal) {
     shell: terminal.shellName,
     pid: terminal.pid || null,
     wrapper: terminal.wrapper || null,
+    cols: terminal.cols,
+    rows: terminal.rows,
     createdAt: terminal.createdAt,
     updatedAt: terminal.updatedAt,
     endedAt: terminal.endedAt || null,
@@ -87,19 +110,6 @@ function terminalSummary(terminal) {
     baseOffset: terminal.baseOffset,
     truncated: Boolean(terminal.truncated),
   };
-}
-
-function killProcessGroup(child, signal = 'SIGTERM') {
-  if (!child || !child.pid) return false;
-  if (process.platform === 'win32') {
-    try { return child.kill(signal); } catch { return false; }
-  }
-  try {
-    process.kill(-child.pid, signal);
-    return true;
-  } catch {
-    try { return child.kill(signal); } catch { return false; }
-  }
 }
 
 export function createOperatorTerminalManager({ registry }) {
@@ -143,19 +153,15 @@ export function createOperatorTerminalManager({ registry }) {
     await fs.mkdir(artifactDir, { recursive: true });
     const logPath = path.join(artifactDir, 'terminal.log');
 
-    const child = spawn(launch.binary, launch.args, {
+    const cols = cleanDimension(body.cols, 100, 20, 240);
+    const rows = cleanDimension(body.rows, 28, 8, 80);
+    const term = pty.spawn(launch.binary, launch.args, {
       cwd: startCwd,
-      env: {
-        ...process.env,
-        TERM: process.env.TERM || 'xterm-256color',
-        COLORTERM: process.env.COLORTERM || 'truecolor',
-        CLICOLOR_FORCE: process.env.CLICOLOR_FORCE || '1',
-        FORCE_COLOR: process.env.FORCE_COLOR || '1',
-        ORCA_SESSION_ID: session.id,
-        ORCA_PROJECT_ID: session.projectId || '',
-      },
-      detached: process.platform !== 'win32',
-      stdio: ['pipe', 'pipe', 'pipe'],
+      env: buildTerminalEnv(session, shellPath),
+      name: 'xterm-256color',
+      cols,
+      rows,
+      encoding: 'utf8',
     });
 
     const title = cleanText(body.title, 'Command tab', 80);
@@ -168,9 +174,11 @@ export function createOperatorTerminalManager({ registry }) {
       shellName: publicShellName(shellPath),
       shellPath,
       wrapper: launch.wrapper,
+      cols,
+      rows,
       state: 'running',
-      pid: child.pid || null,
-      process: child,
+      pid: term.pid || null,
+      process: term,
       logPath,
       output: '',
       size: 0,
@@ -185,7 +193,7 @@ export function createOperatorTerminalManager({ registry }) {
     terminals.set(id, terminal);
 
     appendBounded(terminal, [
-      `Orca command terminal (${terminal.wrapper ? `${terminal.wrapper} PTY` : 'pipe'})`,
+      `Orca command terminal (${terminal.wrapper})`,
       `Shell: ${terminal.shellName}`,
       `Cwd: ${startCwd}`,
       `Started: ${createdAt}`,
@@ -198,18 +206,10 @@ export function createOperatorTerminalManager({ registry }) {
       appendBounded(terminal, text);
       fs.appendFile(logPath, text).catch(() => {});
     };
-    child.stdout?.setEncoding('utf8');
-    child.stderr?.setEncoding('utf8');
-    child.stdout?.on('data', forward);
-    child.stderr?.on('data', forward);
-    child.on('error', (error) => {
-      if (terminal.state !== 'running') return;
-      terminal.state = 'failed';
-      terminal.endedAt = nowIso();
-      appendBounded(terminal, `\n[orca] terminal failed: ${error.message}\n`);
-      fs.appendFile(logPath, `\n[orca] terminal failed: ${error.message}\n`).catch(() => {});
-    });
-    child.on('exit', (code, signal) => {
+    term.onData(forward);
+    term.onExit((event = {}) => {
+      const code = Number.isFinite(event.exitCode) ? event.exitCode : null;
+      const signal = event.signal || null;
       if (terminal.state === 'stopped') {
         terminal.exitCode = code;
         terminal.signal = signal || terminal.signal;
@@ -243,7 +243,7 @@ export function createOperatorTerminalManager({ registry }) {
 
   function writeInput(id, input, context = {}) {
     const terminal = terminalFor(id);
-    if (terminal.state !== 'running' || !terminal.process || terminal.process.killed) {
+    if (terminal.state !== 'running' || !terminal.process) {
       throw { status: 409, message: 'Terminal is not running.' };
     }
     const text = String(input ?? '');
@@ -251,20 +251,45 @@ export function createOperatorTerminalManager({ registry }) {
     if (Buffer.byteLength(text, 'utf8') > MAX_INPUT_BYTES) {
       throw { status: 413, message: `Terminal input exceeds ${MAX_INPUT_BYTES} bytes.` };
     }
-    const normalized = text.endsWith('\n') || text.endsWith('\r') ? text : `${text}\n`;
-    terminal.process.stdin.write(normalized);
+    const normalized = context.raw ? text : (text.endsWith('\n') || text.endsWith('\r') ? text : `${text}\n`);
+    terminal.process.write(normalized);
+    if (!context.raw) {
+      registry.recordAudit({
+        type: 'operator_terminal_input',
+        actor: cleanText(context.actor, 'dashboard', 120),
+        projectId: terminal.projectId,
+        sessionId: terminal.sessionId,
+        summary: `Operator terminal input sent to "${terminal.title}"`,
+        status: 'passed',
+        evidence: {
+          terminalId: terminal.id,
+          chars: normalized.length,
+          firstToken: normalized.trim().split(/\s+/)[0]?.slice(0, 80) || '',
+        },
+      });
+    }
+    return terminalSummary(terminal);
+  }
+
+  function resize(id, { cols, rows } = {}, context = {}) {
+    const terminal = terminalFor(id);
+    if (terminal.state !== 'running' || !terminal.process) {
+      throw { status: 409, message: 'Terminal is not running.' };
+    }
+    const nextCols = cleanDimension(cols, terminal.cols || 100, 20, 240);
+    const nextRows = cleanDimension(rows, terminal.rows || 28, 8, 80);
+    terminal.process.resize(nextCols, nextRows);
+    terminal.cols = nextCols;
+    terminal.rows = nextRows;
+    terminal.updatedAt = nowIso();
     registry.recordAudit({
-      type: 'operator_terminal_input',
+      type: 'operator_terminal_resized',
       actor: cleanText(context.actor, 'dashboard', 120),
       projectId: terminal.projectId,
       sessionId: terminal.sessionId,
-      summary: `Operator terminal input sent to "${terminal.title}"`,
+      summary: `Operator terminal "${terminal.title}" resized`,
       status: 'passed',
-      evidence: {
-        terminalId: terminal.id,
-        chars: normalized.length,
-        firstToken: normalized.trim().split(/\s+/)[0]?.slice(0, 80) || '',
-      },
+      evidence: { terminalId: terminal.id, cols: nextCols, rows: nextRows },
     });
     return terminalSummary(terminal);
   }
@@ -296,9 +321,9 @@ export function createOperatorTerminalManager({ registry }) {
     const terminal = terminalFor(id);
     if (terminal.state !== 'running') return terminalSummary(terminal);
     terminal.state = 'stopped';
-    terminal.signal = 'SIGTERM';
+    terminal.signal = 'SIGHUP';
     terminal.endedAt = nowIso();
-    killProcessGroup(terminal.process, 'SIGTERM');
+    try { terminal.process.kill('SIGHUP'); } catch { /* already gone */ }
     registry.recordAudit({
       type: 'operator_terminal_stopped',
       actor: cleanText(context.actor, 'dashboard', 120),
@@ -315,10 +340,10 @@ export function createOperatorTerminalManager({ registry }) {
     const targets = [...terminals.values()].filter((terminal) => terminal.state === 'running');
     for (const terminal of targets) {
       terminal.state = 'stopped';
-      terminal.signal = 'SIGTERM';
+      terminal.signal = 'SIGHUP';
       terminal.endedAt = nowIso();
       appendBounded(terminal, `\n[orca] terminal stopped: ${reason}\n`);
-      killProcessGroup(terminal.process, 'SIGTERM');
+      try { terminal.process.kill('SIGHUP'); } catch { /* already gone */ }
     }
     return { stopped: targets.length };
   }
@@ -328,6 +353,7 @@ export function createOperatorTerminalManager({ registry }) {
     start,
     get: (id) => terminalSummary(terminalFor(id)),
     writeInput,
+    resize,
     tail,
     stop,
     stopAll,

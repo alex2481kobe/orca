@@ -106,6 +106,38 @@ export async function handleLaneRoutes(ctx, req, res, method, parts) {
       }
     }
 
+    if (parts.length === 4 && parts[3] === 'terminal-input' && method === 'POST') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+      if (rejectSpoofedActor(body, res)) return;
+      try {
+        const result = registry.writeLaneTerminalInput(lane.id, {
+          input: body.input,
+          raw: Boolean(body.raw),
+          actor: body.actor || 'dashboard',
+        });
+        return sendJson(res, 200, result);
+      } catch (error) {
+        return sendJson(res, error.status || 500, { error: error.message || 'Could not write lane terminal input.' });
+      }
+    }
+
+    if (parts.length === 4 && parts[3] === 'terminal-resize' && method === 'POST') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+      if (rejectSpoofedActor(body, res)) return;
+      try {
+        const result = registry.resizeLaneTerminal(lane.id, {
+          cols: body.cols,
+          rows: body.rows,
+          actor: body.actor || 'dashboard',
+        });
+        return sendJson(res, 200, result);
+      } catch (error) {
+        return sendJson(res, error.status || 500, { error: error.message || 'Could not resize lane terminal.' });
+      }
+    }
+
     if (parts.length === 3 && method === 'DELETE') {
       const body = await parseJsonBody(req).catch(() => ({}));
       if (rejectSpoofedActor(body || {}, res)) return;

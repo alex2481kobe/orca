@@ -206,6 +206,32 @@ async function waitForTerminalText(server, terminalId, token, pattern) {
   });
 }
 
+async function waitForLaneState(server, laneId, token, predicate) {
+  const headers = token ? { 'x-orca-token': token } : {};
+  for (let i = 0; i < 80; i += 1) {
+    const lane = await server.requestJson(`/api/lanes/${laneId}`, { method: 'GET', headers });
+    if (lane.status === 200 && predicate(lane.body)) return lane;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return server.requestJson(`/api/lanes/${laneId}`, { method: 'GET', headers });
+}
+
+async function waitForLaneTerminalText(server, laneId, token, pattern) {
+  const headers = token ? { 'x-orca-token': token } : {};
+  for (let i = 0; i < 80; i += 1) {
+    const tail = await server.requestJson(`/api/lanes/${laneId}/terminal-tail?maxBytes=65536`, {
+      method: 'GET',
+      headers,
+    });
+    if (tail.status === 200 && pattern.test(tail.body?.text || '')) return tail;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return server.requestJson(`/api/lanes/${laneId}/terminal-tail?maxBytes=65536`, {
+    method: 'GET',
+    headers,
+  });
+}
+
 test('server API requires token for mutating actions while allowing read actions', async () => {
   const token = 'route-token-01';
   const server = await startServer({ token });
@@ -228,7 +254,7 @@ test('server API requires token for mutating actions while allowing read actions
         approved: true,
       },
     });
-    assert.equal(created.status, 201);
+    assert.equal(created.status, 201, JSON.stringify(created.body));
     assert.equal(created.body.name, 'Authorized project');
   } finally {
     await server.stop();
@@ -262,11 +288,23 @@ test('operator command terminals are admin-only and accept real shell input', as
     const started = await server.requestJson(`/api/sessions/${session.body.id}/terminals`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
-      body: { title: 'Smoke terminal', actor: 'dashboard' },
+      body: { title: 'Smoke terminal', actor: 'dashboard', cols: 88, rows: 26 },
     });
     assert.equal(started.status, 201);
     assert.equal(started.body.sessionId, session.body.id);
     assert.equal(started.body.state, 'running');
+    assert.equal(started.body.wrapper, 'pty');
+    assert.equal(started.body.cols, 88);
+    assert.equal(started.body.rows, 26);
+
+    const resized = await server.requestJson(`/api/terminals/${started.body.id}/resize`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'dashboard', cols: 100, rows: 30 },
+    });
+    assert.equal(resized.status, 200);
+    assert.equal(resized.body.cols, 100);
+    assert.equal(resized.body.rows, 30);
 
     const input = [
       'printf "__ORCA_PWD1__%s\\n" "$PWD"',
@@ -284,10 +322,18 @@ test('operator command terminals are admin-only and accept real shell input', as
     });
     assert.equal(wrote.status, 200);
 
-    const tail = await waitForTerminalText(server, started.body.id, token, /__ORCA_PWD2__.*terminal-smoke-dir|smoke\.txt/s);
+    const raw = await server.requestJson(`/api/terminals/${started.body.id}/input`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { input: 'printf "__ORCA_RAW__\\n"\\n', actor: 'dashboard', raw: true },
+    });
+    assert.equal(raw.status, 200);
+
+    const tail = await waitForTerminalText(server, started.body.id, token, /(?=.*__ORCA_PWD2__)(?=.*__ORCA_RAW__)(?=.*smoke\.txt)/s);
     assert.equal(tail.status, 200);
     assert.match(tail.body.text, /__ORCA_PWD1__/);
     assert.match(tail.body.text, /__ORCA_PWD2__/);
+    assert.match(tail.body.text, /__ORCA_RAW__/);
     assert.match(tail.body.text, /smoke\.txt/);
 
     const stopped = await server.requestJson(`/api/terminals/${started.body.id}/stop`, {
@@ -297,6 +343,81 @@ test('operator command terminals are admin-only and accept real shell input', as
     });
     assert.equal(stopped.status, 200);
     assert.equal(['running', 'stopped', 'done', 'failed'].includes(stopped.body.state), true);
+  } finally {
+    await server.stop();
+  }
+});
+
+test('lane terminal input and resize reach a PTY-backed interactive lane', async () => {
+  const token = 'lane-terminal-route-token';
+  const server = await startServer({
+    token,
+    env: {
+      ORCA_ENABLE_CUSTOM_CLI: 'true',
+      ORCA_CLI_BINARY: '/bin/bash',
+      ORCA_CLI_ALLOWED_BINARIES: '/bin/bash',
+    },
+  });
+
+  try {
+    const project = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Lane Terminal Project', approved: true },
+    });
+    assert.equal(project.status, 201);
+    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Lane Terminal Session', approved: true },
+    });
+    assert.equal(session.status, 201);
+
+    const created = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        title: 'Interactive bash lane',
+        executorType: 'cli',
+        executorBinary: '/bin/bash',
+        args: ['--noprofile', '--norc'],
+        presentationMode: 'terminal',
+        approved: true,
+      },
+    });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    const laneId = created.body.id;
+
+    const running = await waitForLaneState(server, laneId, token, (lane) => lane?.state === 'running' && lane?.processMeta?.terminalWrapper === 'pty');
+    assert.equal(running.status, 200);
+    assert.equal(running.body.processMeta.terminalWrapper, 'pty');
+
+    const resized = await server.requestJson(`/api/lanes/${laneId}/terminal-resize`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'dashboard', cols: 90, rows: 24 },
+    });
+    assert.equal(resized.status, 200);
+    assert.equal(resized.body.result.cols, 90);
+    assert.equal(resized.body.result.rows, 24);
+
+    const input = await server.requestJson(`/api/lanes/${laneId}/terminal-input`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'dashboard', input: 'printf "__ORCA_LANE_PTY__\\n"\n', raw: true },
+    });
+    assert.equal(input.status, 200);
+
+    const tail = await waitForLaneTerminalText(server, laneId, token, /__ORCA_LANE_PTY__/);
+    assert.equal(tail.status, 200);
+    assert.match(tail.body.text, /__ORCA_LANE_PTY__/);
+
+    const stopped = await server.requestJson(`/api/lanes/${laneId}/stop`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'dashboard', approved: true },
+    });
+    assert.equal(stopped.status, 200);
   } finally {
     await server.stop();
   }

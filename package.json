@@ -106,6 +106,8 @@
     "typescript": "6.0.3"
   },
   "dependencies": {
-    "@tauri-apps/plugin-updater": "2.10.1"
+    "@lydell/node-pty": "1.2.0-beta.12",
+    "@tauri-apps/plugin-updater": "2.10.1",
+    "@xterm/xterm": "6.0.0"
   }
 }

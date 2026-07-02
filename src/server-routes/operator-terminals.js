@@ -70,10 +70,25 @@ export async function handleOperatorTerminalRoutes(ctx, req, res, method, parts)
     try {
       const terminal = operatorTerminals.writeInput(parts[2], body.input, {
         actor: body.actor || 'dashboard',
+        raw: Boolean(body.raw),
       });
       return sendJson(res, 200, terminal);
     } catch (error) {
       return sendJson(res, error.status || 500, { error: error.message || 'Could not write terminal input.' });
+    }
+  }
+
+  if (terminalRoute && parts.length === 4 && parts[3] === 'resize' && method === 'POST') {
+    const body = await parseJsonBody(req);
+    if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return undefined;
+    try {
+      const terminal = operatorTerminals.resize(parts[2], body, {
+        actor: body.actor || 'dashboard',
+      });
+      return sendJson(res, 200, terminal);
+    } catch (error) {
+      return sendJson(res, error.status || 500, { error: error.message || 'Could not resize terminal.' });
     }
   }
 

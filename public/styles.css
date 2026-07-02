@@ -2803,7 +2803,30 @@ body.sidebar-collapsed .pill {
   white-space: nowrap;
 }
 .operator-terminal-stream {
+  background: var(--terminal-bg);
+  border-color: var(--terminal-line);
+  color: var(--terminal-text);
   min-height: 22rem;
+}
+.operator-terminal-xterm-host,
+.terminal-xterm-host {
+  overflow: hidden;
+  padding: 0;
+  white-space: normal;
+  word-break: normal;
+}
+.operator-terminal-xterm-host .xterm,
+.terminal-xterm-host .xterm {
+  height: 100%;
+  padding: 0.55rem 0.65rem;
+}
+.operator-terminal-xterm-host .xterm-viewport,
+.terminal-xterm-host .xterm-viewport {
+  background: transparent;
+}
+.operator-terminal-xterm-host .xterm-screen,
+.terminal-xterm-host .xterm-screen {
+  min-height: 100%;
 }
 .operator-terminal-input-form {
   align-items: center;

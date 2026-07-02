@@ -181,8 +181,9 @@ test('terminal presentation mode reaches the orchestrator lane and drops structu
     const lane = latestOrchestratorLane(registry, session.id);
     assert.equal(lane.presentationMode, 'terminal');
     const cmd = buildExecutorCommandArgs('codex', lane);
-    assert.equal(cmd[0], 'exec');
+    assert.notEqual(cmd[0], 'exec');
     assert.equal(cmd.includes('--json'), false, 'terminal mode keeps codex in native text presentation');
+    assert.equal(cmd.includes('--skip-git-repo-check'), false, 'terminal mode uses codex interactive top-level options only');
 
     const claudeCmd = buildExecutorCommandArgs('claude', {
       taskPrompt: 'hello',
@@ -191,6 +192,7 @@ test('terminal presentation mode reaches the orchestrator lane and drops structu
       intelligenceProfile: 'high',
       permissionsProfile: 'plan',
     });
+    assert.equal(claudeCmd.includes('--print'), false, 'terminal mode launches interactive Claude');
     assert.equal(claudeCmd.includes('--output-format'), false, 'terminal mode keeps claude off stream-json');
     assert.equal(claudeCmd.includes('stream-json'), false);
   } finally {

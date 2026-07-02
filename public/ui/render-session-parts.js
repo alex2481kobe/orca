@@ -321,7 +321,7 @@ function renderAgentTerminalInner(session) {
         </div>
       </div>
     </div>
-    <pre id="lane-stream-${safeAttr(lane.id)}" class="lane-stream chat-terminal-stream" aria-live="polite" tabindex="0">Connecting to live output…</pre>
+    <div id="lane-stream-${safeAttr(lane.id)}" class="lane-stream chat-terminal-stream" data-interactive-terminal="${lane.processMeta?.terminalWrapper === 'pty' && ['starting', 'running'].includes(lane.state) ? 'true' : 'false'}" aria-live="polite" tabindex="0">Connecting to live output…</div>
   `;
 }
 
@@ -373,9 +373,9 @@ function renderOperatorTerminalInner(session) {
         </div>
         ${stopped ? '' : `<button class="secondary" data-action="stopOperatorTerminal" data-terminal-id="${safeAttr(active.id)}" type="button">Stop</button>`}
       </div>
-      <pre id="operator-terminal-stream-${safeAttr(active.id)}" class="lane-stream chat-terminal-stream operator-terminal-stream" aria-live="polite" tabindex="0">Connecting to terminal…</pre>
+      <div id="operator-terminal-stream-${safeAttr(active.id)}" class="lane-stream chat-terminal-stream operator-terminal-stream" aria-live="polite" tabindex="0">Connecting to terminal…</div>
       <form class="operator-terminal-input-form" data-terminal-id="${safeAttr(active.id)}">
-        <input name="input" autocomplete="off" spellcheck="false" placeholder="${stopped ? 'Terminal stopped' : 'Run command'}" ${stopped ? 'disabled' : ''} />
+        <input name="input" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="${stopped ? 'Terminal stopped' : 'Run command'}" ${stopped ? 'disabled' : ''} />
         <button type="submit" ${stopped ? 'disabled' : ''}>${icon('send', { size: 16 })}</button>
       </form>
     </div>

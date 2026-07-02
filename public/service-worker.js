@@ -6,6 +6,8 @@ const CACHE_NAME = 'orca-static-20260608o';
 const STATIC_ASSETS = [
   '/',
   '/styles.css',
+  '/vendor/xterm/xterm.css',
+  '/vendor/xterm/xterm.mjs',
   '/app.js',
   '/theme-init.js',
   '/ui/theme.js',

@@ -104,6 +104,12 @@ try {
     await page.waitForSelector('[data-action="startOperatorTerminal"]', { timeout: 10000 });
     await page.click('[data-action="startOperatorTerminal"]');
     await page.waitForSelector('.operator-terminal-input-form input[name="input"]', { timeout: 10000 });
+    try {
+      await page.waitForSelector('.operator-terminal-stream .xterm', { timeout: 10000 });
+    } catch (error) {
+      const terminalHtml = await page.evaluate(() => document.querySelector('.operator-terminal-stream')?.outerHTML || '').catch(() => '');
+      fail('xterm did not mount', `${error.message}\n${terminalHtml}\n${consoleErrors.join('\n')}`);
+    }
     await page.fill(
       '.operator-terminal-input-form input[name="input"]',
       'printf "__ORCA_UI_TERMINAL__\\n"; pwd; cd ..; pwd; ls',

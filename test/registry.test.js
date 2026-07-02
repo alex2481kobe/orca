@@ -2189,7 +2189,8 @@ test('buildExecutorCommandArgs derives safe argv from lane task prompt', async (
     permissionsProfile: 'plan',
     presentationMode: 'terminal',
   });
-  assert.deepEqual(codexTerminalArgs.slice(0, 3), ['exec', '--sandbox', 'read-only']);
+  assert.deepEqual(codexTerminalArgs.slice(0, 2), ['--sandbox', 'read-only']);
+  assert.equal(codexTerminalArgs.includes('exec'), false);
   assert.equal(codexTerminalArgs.includes('--json'), false);
 
   const claudeTerminalArgs = buildExecutorCommandArgs('claude', {

@@ -445,6 +445,67 @@ export const laneOpsMethods = {
   },
 
 
+  writeLaneTerminalInput(laneLocator, { input = '', raw = false, actor = 'dashboard' } = {}) {
+    const lane = this.getLane(laneLocator);
+    if (!lane) {
+      throw { status: 404, message: 'Lane not found.' };
+    }
+    if (!isLiveLaneState(lane.state)) {
+      throw { status: 409, message: 'Lane is not running.' };
+    }
+    const executor = this.getExecutorForLane(lane);
+    if (typeof executor.writeTerminalInput !== 'function') {
+      throw { status: 409, message: 'Lane executor does not support interactive terminal input.' };
+    }
+    const result = executor.writeTerminalInput(lane.id, input, { raw });
+    lane.heartbeatAt = nowIso();
+    lane.updatedAt = nowIso();
+    if (!raw) {
+      this.recordAudit({
+        type: 'lane_terminal_input',
+        actor: String(actor || 'dashboard').slice(0, 120),
+        projectId: lane.projectId,
+        sessionId: lane.sessionId,
+        laneId: lane.id,
+        summary: `Terminal input sent to lane ${lane.title}`,
+        status: 'passed',
+        evidence: {
+          laneId: lane.id,
+          bytes: result.bytes,
+          firstToken: String(input || '').trim().split(/\s+/)[0]?.slice(0, 80) || '',
+        },
+      });
+    }
+    return { lane: clonePayload(lane), result };
+  },
+
+  resizeLaneTerminal(laneLocator, { cols, rows, actor = 'dashboard' } = {}) {
+    const lane = this.getLane(laneLocator);
+    if (!lane) {
+      throw { status: 404, message: 'Lane not found.' };
+    }
+    if (!isLiveLaneState(lane.state)) {
+      throw { status: 409, message: 'Lane is not running.' };
+    }
+    const executor = this.getExecutorForLane(lane);
+    if (typeof executor.resizeTerminal !== 'function') {
+      throw { status: 409, message: 'Lane executor does not support terminal resize.' };
+    }
+    const result = executor.resizeTerminal(lane.id, { cols, rows });
+    lane.updatedAt = nowIso();
+    this.recordAudit({
+      type: 'lane_terminal_resized',
+      actor: String(actor || 'dashboard').slice(0, 120),
+      projectId: lane.projectId,
+      sessionId: lane.sessionId,
+      laneId: lane.id,
+      summary: `Terminal resized for lane ${lane.title}`,
+      status: 'passed',
+      evidence: { laneId: lane.id, cols: result.cols, rows: result.rows },
+    });
+    return { lane: clonePayload(lane), result };
+  },
+
   async touchHeartbeat(laneLocator, context = {}) {
     const lane = this.getLane(laneLocator);
     if (!lane) {

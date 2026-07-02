@@ -48,7 +48,7 @@ export function buildExecutorCommandArgs(label, lane, options = {}) {
   const out = [];
   switch (String(label).toLowerCase()) {
     case 'codex': {
-      out.push('exec');
+      if (!terminalPresentation) out.push('exec');
       if (!terminalPresentation) out.push('--json');
       if (model) out.push('--model', model);
       // Reasoning effort (the "/reasoning" level) -> -c model_reasoning_effort.
@@ -66,7 +66,7 @@ export function buildExecutorCommandArgs(label, lane, options = {}) {
       else out.push('--sandbox', 'workspace-write');
       // Run in non-git session folders and fresh per-lane worktrees without the
       // interactive "not a trusted git repo" refusal.
-      out.push('--skip-git-repo-check');
+      if (!terminalPresentation) out.push('--skip-git-repo-check');
       // Codex has NO `--mcp-config` flag (that's Claude-only); passing it makes
       // `codex exec` exit 2. Configure MCP servers via `-c mcp_servers.<name>.*`
       // config overrides instead, which keep the user's default ~/.codex auth.
@@ -85,7 +85,7 @@ export function buildExecutorCommandArgs(label, lane, options = {}) {
       break;
     }
     case 'claude': {
-      out.push('--print');
+      if (!terminalPresentation) out.push('--print');
       if (model) out.push('--model', model);
       // Claude exposes "ultracode" (xhigh + dynamic-workflow orchestration) and
       // "fast" as SESSION SETTINGS, not flags — collect them into one --settings.
