@@ -19,6 +19,11 @@ import { normalizeWorkstationUrl, rememberWorkstation, setPendingWorkstationUrl,
 import { openRowMenuFromTrigger, closeRowMenu, isRowMenuOpenFor } from './ui/row-menu.js';
 import { openScopedSettingsDialog } from './ui/settings-dialog.js';
 import { toggleComposerDictation, voiceSupported } from './ui/voice.js';
+import {
+  handleOperatorTerminalInput,
+  handleStartOperatorTerminal,
+  handleStopOperatorTerminal,
+} from './ui/operator-terminal.js';
 
 // Deep-link entry point for the native app: the Rust side (run_mobile) calls this
 // when an `orca://connect?ws=<workstation-url>` link is opened (e.g. a QR scanned
@@ -260,6 +265,10 @@ document.addEventListener('submit', async (event) => {
   }
   if (event.target.id === 'orchestrator-message-form') {
     await handleOrchestratorMessage(formEvent);
+    return;
+  }
+  if (event.target.classList.contains('operator-terminal-input-form')) {
+    await handleOperatorTerminalInput(formEvent);
     return;
   }
   if (event.target.classList.contains('lane-controls-form')) {
@@ -639,6 +648,39 @@ document.addEventListener('click', async (event) => {
       shell.chatTerminalOpenBySession[sessionId] = !shell.chatTerminalOpenBySession[sessionId];
       render(captureContentUiState());
     }
+    return;
+  }
+
+  if (action === 'setChatTerminalTab') {
+    const sessionId = actionTarget.dataset.sessionId || shell.route.sessionId;
+    const tab = actionTarget.dataset.tab === 'command' ? 'command' : 'agent';
+    if (sessionId) {
+      shell.chatTerminalTabBySession = shell.chatTerminalTabBySession || {};
+      shell.chatTerminalTabBySession[sessionId] = tab;
+      if (tab === 'command') await refresh();
+      else render(captureContentUiState());
+    }
+    return;
+  }
+
+  if (action === 'selectOperatorTerminal') {
+    const sessionId = actionTarget.dataset.sessionId || shell.route.sessionId;
+    const terminalId = actionTarget.dataset.terminalId;
+    if (sessionId && terminalId) {
+      shell.operatorTerminalActiveBySession = shell.operatorTerminalActiveBySession || {};
+      shell.operatorTerminalActiveBySession[sessionId] = terminalId;
+      render(captureContentUiState());
+    }
+    return;
+  }
+
+  if (action === 'startOperatorTerminal') {
+    if (await handleStartOperatorTerminal({ currentTarget: actionTarget })) await refresh();
+    return;
+  }
+
+  if (action === 'stopOperatorTerminal') {
+    if (await handleStopOperatorTerminal({ currentTarget: actionTarget })) await refresh();
     return;
   }
 

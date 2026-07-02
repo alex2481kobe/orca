@@ -20,6 +20,7 @@ const STROKE_ICONS = {
   branch: { vb: '0 0 20 20', sw: 1.6, inner: '<circle cx="6" cy="5" r="2"/><circle cx="6" cy="15" r="2"/><circle cx="14" cy="7" r="2"/><path d="M6 7v6M14 9c0 3-3 3.5-6 3.5"/>' },
   'panel-right': { vb: '0 0 20 20', sw: 1.5, inner: '<rect x="2.5" y="3.5" width="15" height="13" rx="2.2"/><path d="M12.5 3.5v13"/>' },
   terminal: { vb: '0 0 20 20', sw: 1.6, inner: '<rect x="2.5" y="4" width="15" height="12" rx="2.2"/><path d="M6 8l2.2 2L6 12M10 12h4"/>' },
+  code: { vb: '0 0 20 20', sw: 1.7, inner: '<path d="M7.5 6 4 10l3.5 4M12.5 6 16 10l-3.5 4"/>' },
   'folder-rounded': { vb: '0 0 24 24', sw: 1.6, inner: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2.2h6a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/>' },
   info: { vb: '0 0 20 20', sw: 1.7, inner: '<circle cx="10" cy="10" r="7"/><path d="M10 9v4M10 6.8h.01"/>' },
   more: { vb: '0 0 20 20', sw: 0, inner: '<circle cx="4.5" cy="10" r="1.4" fill="currentColor"/><circle cx="10" cy="10" r="1.4" fill="currentColor"/><circle cx="15.5" cy="10" r="1.4" fill="currentColor"/>' },

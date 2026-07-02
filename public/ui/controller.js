@@ -267,6 +267,22 @@ export async function refresh(options = {}) {
             shell.backlogs = shell.backlogs || {};
             shell.backlogs[shell.route.sessionId] = backlogResp.data;
           }
+          const commandTerminalOpen = shell.chatTerminalOpenBySession?.[shell.route.sessionId]
+            && shell.chatTerminalTabBySession?.[shell.route.sessionId] === 'command';
+          if (commandTerminalOpen) {
+            const terminalsResp = await api(`/api/sessions/${encodeURIComponent(shell.route.sessionId)}/terminals`);
+            if (requestId !== refreshRequestId) return;
+            shell.operatorTerminalsBySession = shell.operatorTerminalsBySession || {};
+            if (terminalsResp.ok && terminalsResp.data) {
+              shell.operatorTerminalsBySession[shell.route.sessionId] = terminalsResp.data;
+            } else if (terminalsResp.status === 403 || terminalsResp.status === 401) {
+              shell.operatorTerminalsBySession[shell.route.sessionId] = {
+                sessionId: shell.route.sessionId,
+                terminals: [],
+                error: terminalsResp.data?.error || 'Command terminals require workstation admin access.',
+              };
+            }
+          }
         }
       }
     }

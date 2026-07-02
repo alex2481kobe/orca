@@ -33,6 +33,7 @@ const STATIC_ASSETS = [
   '/ui/handlers.js',
   '/ui/mobile-shell.js',
   '/ui/notifications.js',
+  '/ui/operator-terminal.js',
   '/ui/qr.js',
   '/ui/render-fragments.js',
   '/ui/render-helpers.js',

@@ -66,6 +66,12 @@ const ADMIN_ROUTE_KEYS = new Set([
   // is requireAdminAuth in src/server-routes/mcp.js, so paired phones are denied.
   'POST /api/mcp/orchestrator-bootstrap',
   'POST /api/mcp/supervisor-bootstrap',
+  'GET /api/sessions/{sessionId}/terminals',
+  'POST /api/sessions/{sessionId}/terminals',
+  'GET /api/terminals/{terminalId}',
+  'GET /api/terminals/{terminalId}/tail',
+  'POST /api/terminals/{terminalId}/input',
+  'POST /api/terminals/{terminalId}/stop',
 ]);
 
 function resolveAuthContract(method, routePath, declared) {

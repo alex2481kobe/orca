@@ -33,6 +33,7 @@ import { handleProvidersApi } from './server-routes/providers.js';
 import { handleSettingsRoutes } from './server-routes/settings.js';
 import { handleAgentToolRoutes } from './server-routes/agent-tools.js';
 import { handleSupervisorRoutes } from './server-routes/supervisor.js';
+import { handleOperatorTerminalRoutes } from './server-routes/operator-terminals.js';
 import { handleCaptureRoutes } from './server-routes/capture.js';
 import { handleArtifactRoutes } from './server-routes/artifacts.js';
 import { handleMiscRoutes } from './server-routes/misc.js';
@@ -40,6 +41,7 @@ import { createStaticServer } from './server-routes/static-server.js';
 import { createAuthApi } from './server-routes/auth-api.js';
 import { createEventStream } from './server-routes/event-stream.js';
 import { createLaneStream } from './server-routes/lane-stream.js';
+import { createOperatorTerminalManager } from './operator-terminal.js';
 import {
   classifyRequestForRateLimit,
   createRateLimiter,
@@ -58,6 +60,7 @@ const registry = new OrcaRegistry({
   heartbeatIntervalMs: Number.parseInt(process.env.ORCA_HEARTBEAT_MS, 10) || undefined,
   autoCompleteMs: Number.parseInt(process.env.ORCA_AUTO_COMPLETE_MS, 10) || undefined,
 });
+const operatorTerminals = createOperatorTerminalManager({ registry });
 const privateAccess = new PrivateAccessStore();
 const authSessions = new AuthSessionStore();
 const rateLimiter = createRateLimiter({
@@ -903,6 +906,7 @@ const ROUTE_CTX = {
   hasOperatorAuth,
   hasAdminAuth,
   buildMobileManifest,
+  operatorTerminals,
 };
 
 async function handleApi(req, res, pathname, method, parts) {
@@ -955,6 +959,11 @@ async function handleApi(req, res, pathname, method, parts) {
 
   if (parts[1] === 'supervisor') {
     const result = await handleSupervisorRoutes(ROUTE_CTX, req, res, method, parts);
+    if (result !== LANE_FALL_THROUGH) return;
+  }
+
+  if (parts[1] === 'terminals' || (parts[1] === 'sessions' && parts[3] === 'terminals')) {
+    const result = await handleOperatorTerminalRoutes(ROUTE_CTX, req, res, method, parts);
     if (result !== LANE_FALL_THROUGH) return;
   }
 
@@ -1114,6 +1123,9 @@ async function stopServer() {
   // orphaned to launchd/init (the "codex/claude left running" leak).
   if (typeof registry.stopAllExecutors === 'function') {
     await registry.stopAllExecutors('server shutdown').catch(() => {});
+  }
+  if (operatorTerminals && typeof operatorTerminals.stopAll === 'function') {
+    await operatorTerminals.stopAll('server shutdown').catch(() => {});
   }
   if (typeof registry.drainPendingWrites === 'function') {
     await registry.drainPendingWrites();

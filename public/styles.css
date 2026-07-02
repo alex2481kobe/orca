@@ -30,6 +30,10 @@
   --warn: #d8a657;
   --bad: #ef8377;
   --accent-blue: #4d9fff;
+  --terminal-bg: #0d0f0c;
+  --terminal-line: rgba(245, 241, 232, 0.14);
+  --terminal-text: #e6f1df;
+  --terminal-muted: #8a948a;
   --shell-gap: 1rem;
   /* Global radius scale — every rounded element references these so corners are
      consistent app-wide (no ad-hoc px values, no sharp corners). */
@@ -2710,6 +2714,30 @@ body.sidebar-collapsed .pill {
 .chat.chat-terminal-open { justify-content: flex-start; }
 .chat.chat-terminal-open .chat-thread { display: none; }
 .chat.chat-terminal-open .chat-terminal { display: flex; }
+.chat-terminal-tabs {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: var(--space-1);
+  min-height: 2.25rem;
+}
+.chat-terminal-tabs button,
+.operator-terminal-tabs button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  display: inline-flex;
+  gap: var(--space-1);
+  min-height: 2rem;
+  padding: 0.35rem 0.55rem;
+}
+.chat-terminal-tabs button.active,
+.operator-terminal-tabs button.active {
+  background: var(--active);
+  color: var(--text);
+}
 .chat-terminal-head {
   align-items: center;
   border-bottom: 1px solid var(--line);
@@ -2741,6 +2769,76 @@ body.sidebar-collapsed .pill {
   text-align: center;
 }
 .chat-terminal-empty strong { color: var(--text); }
+.operator-terminal-shell {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+}
+.operator-terminal-toolbar {
+  align-items: center;
+  display: flex;
+  gap: var(--space-2);
+  justify-content: space-between;
+  min-height: 2.25rem;
+}
+.operator-terminal-tabs {
+  align-items: center;
+  display: flex;
+  flex: 1 1 auto;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow-x: auto;
+}
+.operator-terminal-tabs button {
+  border: 1px solid transparent;
+  flex: 0 0 auto;
+  max-width: 14rem;
+}
+.operator-terminal-tabs button span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.operator-terminal-stream {
+  min-height: 22rem;
+}
+.operator-terminal-input-form {
+  align-items: center;
+  background: var(--terminal-bg);
+  border: 1px solid var(--terminal-line);
+  border-radius: var(--radius-sm);
+  display: flex;
+  gap: var(--space-2);
+  min-height: 2.45rem;
+  padding: 0.25rem;
+}
+.operator-terminal-input-form::before {
+  color: var(--terminal-muted);
+  content: '$';
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  padding-left: 0.45rem;
+}
+.operator-terminal-input-form input {
+  background: transparent;
+  border: 0;
+  color: var(--terminal-text);
+  flex: 1 1 auto;
+  font-family: var(--mono);
+  font-size: 0.86rem;
+  min-width: 0;
+  outline: none;
+  padding: 0.45rem 0.2rem;
+}
+.operator-terminal-input-form button {
+  flex: 0 0 auto;
+  min-height: 2rem;
+  min-width: 2rem;
+  padding: 0.35rem;
+}
 
 .chat-empty { color: var(--muted); margin: auto; padding: 3rem 1rem; text-align: center; }
 .chat-empty h2 { color: var(--text); font-size: 1.3rem; margin: 0 0 0.4rem; }

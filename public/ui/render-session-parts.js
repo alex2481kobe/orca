@@ -285,6 +285,23 @@ export function renderChatThreadInner(session) {
 }
 
 export function renderChatTerminalInner(session) {
+  const activeTab = shell.chatTerminalTabBySession?.[session.id] === 'command' ? 'command' : 'agent';
+  const tabs = `
+    <div class="chat-terminal-tabs" role="tablist" aria-label="Terminal views">
+      <button class="${activeTab === 'agent' ? 'active' : ''}" data-action="setChatTerminalTab" data-session-id="${safeAttr(session.id)}" data-tab="agent" type="button" role="tab" aria-selected="${activeTab === 'agent' ? 'true' : 'false'}">
+        ${icon('terminal', { size: 15 })}<span>Agent</span>
+      </button>
+      <button class="${activeTab === 'command' ? 'active' : ''}" data-action="setChatTerminalTab" data-session-id="${safeAttr(session.id)}" data-tab="command" type="button" role="tab" aria-selected="${activeTab === 'command' ? 'true' : 'false'}">
+        ${icon('code', { size: 15 })}<span>Command</span>
+      </button>
+    </div>
+  `;
+  return activeTab === 'command'
+    ? `${tabs}${renderOperatorTerminalInner(session)}`
+    : `${tabs}${renderAgentTerminalInner(session)}`;
+}
+
+function renderAgentTerminalInner(session) {
   const lane = activeOrchestratorLaneForSession(session);
   if (!lane) {
     return `
@@ -305,6 +322,63 @@ export function renderChatTerminalInner(session) {
       </div>
     </div>
     <pre id="lane-stream-${safeAttr(lane.id)}" class="lane-stream chat-terminal-stream" aria-live="polite" tabindex="0">Connecting to live output…</pre>
+  `;
+}
+
+function operatorTerminalRecords(sessionId) {
+  const record = shell.operatorTerminalsBySession?.[sessionId] || null;
+  const terminals = Array.isArray(record?.terminals) ? record.terminals : [];
+  return { record, terminals };
+}
+
+function renderOperatorTerminalInner(session) {
+  const { record, terminals } = operatorTerminalRecords(session.id);
+  const activeId = shell.operatorTerminalActiveBySession?.[session.id] || terminals.find((item) => item.state === 'running')?.id || terminals[0]?.id || '';
+  const active = terminals.find((item) => item.id === activeId) || terminals[0] || null;
+  const accessError = record?.error || '';
+  const tabButtons = terminals.map((terminal) => `
+    <button class="${terminal.id === active?.id ? 'active' : ''}" data-action="selectOperatorTerminal" data-session-id="${safeAttr(session.id)}" data-terminal-id="${safeAttr(terminal.id)}" type="button">
+      <span>${safeText(terminal.title || 'Terminal')}</span>
+      ${stateBadge(terminal.state || 'unknown')}
+    </button>
+  `).join('');
+  if (!active) {
+    return `
+      <div class="operator-terminal-shell">
+        <div class="operator-terminal-toolbar">
+          <div class="operator-terminal-tabs">${tabButtons}</div>
+          <button class="secondary" data-action="startOperatorTerminal" data-session-id="${safeAttr(session.id)}" type="button">${icon('plus', { size: 15 })}<span>New terminal</span></button>
+        </div>
+        <div class="chat-terminal-empty">
+          <strong>${accessError ? 'Command terminal unavailable.' : 'No command terminal yet.'}</strong>
+          <span>${safeText(accessError || 'Start a terminal to run commands in this session folder.')}</span>
+        </div>
+      </div>
+    `;
+  }
+  const stopped = active.state !== 'running';
+  return `
+    <div class="operator-terminal-shell">
+      <div class="operator-terminal-toolbar">
+        <div class="operator-terminal-tabs">${tabButtons}</div>
+        <button class="secondary" data-action="startOperatorTerminal" data-session-id="${safeAttr(session.id)}" type="button">${icon('plus', { size: 15 })}<span>New terminal</span></button>
+      </div>
+      <div class="chat-terminal-head">
+        <div>
+          <strong>${safeText(active.title || 'Command tab')}</strong>
+          <div class="chat-terminal-meta">
+            <span>${safeText(active.shell || 'shell')} · ${safeText(active.cwd || '')}</span>
+            ${stateBadge(active.state || 'unknown')}
+          </div>
+        </div>
+        ${stopped ? '' : `<button class="secondary" data-action="stopOperatorTerminal" data-terminal-id="${safeAttr(active.id)}" type="button">Stop</button>`}
+      </div>
+      <pre id="operator-terminal-stream-${safeAttr(active.id)}" class="lane-stream chat-terminal-stream operator-terminal-stream" aria-live="polite" tabindex="0">Connecting to terminal…</pre>
+      <form class="operator-terminal-input-form" data-terminal-id="${safeAttr(active.id)}">
+        <input name="input" autocomplete="off" spellcheck="false" placeholder="${stopped ? 'Terminal stopped' : 'Run command'}" ${stopped ? 'disabled' : ''} />
+        <button type="submit" ${stopped ? 'disabled' : ''}>${icon('send', { size: 16 })}</button>
+      </form>
+    </div>
   `;
 }
 

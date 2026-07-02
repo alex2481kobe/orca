@@ -102,6 +102,7 @@ import { loadEvidenceGallery, renderAuditLog, renderLane } from './render-lane.j
 import { renderSession } from './render-session.js';
 import { activeOrchestratorLaneForSession, restoreContentUiState } from './render-fragments.js';
 import { subscribeLaneStream, unsubscribeLaneStream, fillLaneStream } from './lane-stream.js';
+import { watchOperatorTerminal, stopOperatorTerminalPolling, fillOperatorTerminal } from './operator-terminal.js';
 import { enhanceSelects } from './dropdown.js';
 import { FIRST_CLASS_CLI_EXECUTOR_TYPES } from './constants.js';
 import { orderItems, readSidebarOrder, isProjectExpanded } from './sidebar.js';
@@ -374,6 +375,7 @@ export function render(uiState = null) {
   // clears automatically once the server responds.
   if (shell.serverUnreachable) {
     unsubscribeLaneStream();
+    stopOperatorTerminalPolling();
     renderSidebarProjects(project);
     if (refs.topbarTitle) refs.topbarTitle.textContent = 'Orca';
     writeHtml(refs.content, renderServerUnreachable());
@@ -385,6 +387,7 @@ export function render(uiState = null) {
   // before pairing; every other route shows the connect screen.
   if (isUnconnectedMobileApp()) {
     unsubscribeLaneStream();
+    stopOperatorTerminalPolling();
     renderSidebarProjects();
     const onSettings = activeHomePanel() === 'system';
     if (refs.topbarTitle) refs.topbarTitle.textContent = onSettings ? 'Settings' : 'Orca';
@@ -394,6 +397,7 @@ export function render(uiState = null) {
   }
   if (browserAccessBlocked()) {
     unsubscribeLaneStream();
+    stopOperatorTerminalPolling();
     renderSidebarProjects();
     if (refs.topbarTitle) refs.topbarTitle.textContent = 'Orca';
     renderAccessGate();
@@ -436,6 +440,25 @@ export function render(uiState = null) {
     fillLaneStream(focusedStreamLane.id);
   } else {
     unsubscribeLaneStream();
+  }
+  const commandTerminalOpen = !shell.route.laneId
+    && session
+    && shell.chatTerminalOpenBySession?.[session.id]
+    && shell.chatTerminalTabBySession?.[session.id] === 'command';
+  if (commandTerminalOpen) {
+    const terminals = shell.operatorTerminalsBySession?.[session.id]?.terminals || [];
+    const activeId = shell.operatorTerminalActiveBySession?.[session.id]
+      || terminals.find((item) => item.state === 'running')?.id
+      || terminals[0]?.id
+      || '';
+    if (activeId) {
+      watchOperatorTerminal(activeId);
+      fillOperatorTerminal(activeId);
+    } else {
+      stopOperatorTerminalPolling();
+    }
+  } else {
+    stopOperatorTerminalPolling();
   }
 }
 

@@ -190,6 +190,22 @@ async function waitForServerLane(server, laneId, token) {
   return server.requestJson(`/api/lanes/${laneId}`, { method: 'GET', headers });
 }
 
+async function waitForTerminalText(server, terminalId, token, pattern) {
+  const headers = token ? { 'x-orca-token': token } : {};
+  for (let i = 0; i < 80; i += 1) {
+    const tail = await server.requestJson(`/api/terminals/${terminalId}/tail?maxChars=65536`, {
+      method: 'GET',
+      headers,
+    });
+    if (tail.status === 200 && pattern.test(tail.body?.text || '')) return tail;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return server.requestJson(`/api/terminals/${terminalId}/tail?maxChars=65536`, {
+    method: 'GET',
+    headers,
+  });
+}
+
 test('server API requires token for mutating actions while allowing read actions', async () => {
   const token = 'route-token-01';
   const server = await startServer({ token });
@@ -214,6 +230,73 @@ test('server API requires token for mutating actions while allowing read actions
     });
     assert.equal(created.status, 201);
     assert.equal(created.body.name, 'Authorized project');
+  } finally {
+    await server.stop();
+  }
+});
+
+test('operator command terminals are admin-only and accept real shell input', async () => {
+  const token = 'terminal-route-token';
+  const server = await startServer({ token });
+
+  try {
+    const project = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Terminal Project', approved: true },
+    });
+    assert.equal(project.status, 201);
+    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Terminal Session', approved: true },
+    });
+    assert.equal(session.status, 201);
+
+    const denied = await server.requestJson(`/api/sessions/${session.body.id}/terminals`, {
+      method: 'POST',
+      body: { title: 'Denied terminal' },
+    });
+    assert.equal(denied.status, 401);
+
+    const started = await server.requestJson(`/api/sessions/${session.body.id}/terminals`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { title: 'Smoke terminal', actor: 'dashboard' },
+    });
+    assert.equal(started.status, 201);
+    assert.equal(started.body.sessionId, session.body.id);
+    assert.equal(started.body.state, 'running');
+
+    const input = [
+      'printf "__ORCA_PWD1__%s\\n" "$PWD"',
+      'cd ..',
+      'printf "__ORCA_PWD2__%s\\n" "$PWD"',
+      'mkdir -p terminal-smoke-dir',
+      'cd terminal-smoke-dir',
+      'printf "hello\\n" > smoke.txt',
+      'ls',
+    ].join('\n');
+    const wrote = await server.requestJson(`/api/terminals/${started.body.id}/input`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { input, actor: 'dashboard' },
+    });
+    assert.equal(wrote.status, 200);
+
+    const tail = await waitForTerminalText(server, started.body.id, token, /__ORCA_PWD2__.*terminal-smoke-dir|smoke\.txt/s);
+    assert.equal(tail.status, 200);
+    assert.match(tail.body.text, /__ORCA_PWD1__/);
+    assert.match(tail.body.text, /__ORCA_PWD2__/);
+    assert.match(tail.body.text, /smoke\.txt/);
+
+    const stopped = await server.requestJson(`/api/terminals/${started.body.id}/stop`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'dashboard' },
+    });
+    assert.equal(stopped.status, 200);
+    assert.equal(['running', 'stopped', 'done', 'failed'].includes(stopped.body.state), true);
   } finally {
     await server.stop();
   }
