@@ -274,6 +274,25 @@ try {
     if (terminalChatText.includes('Thinking...')) fail('terminal lane leaked stale thinking label after returning to chat', terminalChatText);
     if (!terminalChatText.includes('Terminal ran for') && !terminalChatText.includes('Terminal active')) fail('terminal lane missing terminal-aware chat receipt label', terminalChatText);
     if (!terminalChatText.includes('turn_complete') && !terminalChatText.includes('I can help with that.')) fail('terminal lane missing terminal transcript receipt', terminalChatText);
+    for (let i = 0; i < 3; i += 1) {
+      await page.click('[data-action="toggleChatTerminal"]');
+      await page.waitForSelector('.chat.chat-terminal-open .chat-terminal .lane-stream', { timeout: 10000 });
+      await page.waitForFunction(() => {
+        const text = document.querySelector('.chat.chat-terminal-open .chat-terminal .lane-stream')?.textContent || '';
+        return text.includes('turn_complete') || text.includes('I can help with that.');
+      }, { timeout: 10000 });
+      const liveText = await page.locator('.chat.chat-terminal-open .chat-terminal .lane-stream').innerText();
+      if (!liveText.includes('turn_complete') && !liveText.includes('I can help with that.')) {
+        fail('agent terminal switch lost terminal transcript', liveText);
+      }
+      await page.click('[data-action="toggleChatTerminal"]');
+      await page.waitForSelector('.chat:not(.chat-terminal-open) .terminal-chat-receipt', { timeout: 10000 });
+      const switchedChatText = await page.locator('.chat-thread').innerText();
+      if (switchedChatText.includes('Thinking...')) fail('terminal/chat switch left stale thinking state', switchedChatText);
+      if (!switchedChatText.includes('Terminal ran for') && !switchedChatText.includes('Terminal active')) {
+        fail('terminal/chat switch lost terminal receipt', switchedChatText);
+      }
+    }
     log('terminal lane', `${terminalLaneId} presentation=${terminalLane.body.presentationMode}`);
     await context.close();
   } finally {

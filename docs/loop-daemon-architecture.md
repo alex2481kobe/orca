@@ -22,7 +22,10 @@ An Orca loop is not a chat transcript. It is a persisted control record:
 - `state`: `running`, `paused`, `completed`, or `archived`.
 - `cadenceMs`: how often Orca may consider another iteration.
 - `executorTypes`: the lane mix to queue per iteration, such as `codex` and `claude`.
-- `maxIterations`: optional hard stop.
+- `runMode`: `nonstop` for always-on local daemon behavior, or `bounded` for a finite run.
+- `maxIterations`: optional hard stop; `0` means `nonstop`.
+- `skills`: bounded skill references the loop should apply to each iteration.
+- `directives`: bounded user-approved operating rules injected into each loop-created task.
 - `pauseReason`: why the daemon stopped itself, such as `auth_required` or `rate_limited`.
 - `resumeAt`: optional retry window for self-paused loops, used today for rate limits.
 - `lastTaskIds` and `iteration`: progress anchors for supervision and recovery.
@@ -69,6 +72,7 @@ The contract is intentionally narrow:
 - A running loop requires the same approval policy as lane creation.
 - A loop does not queue another iteration while any loop-owned task is still pending, assigned, or in-lane.
 - Loop-created tasks and lanes are tagged with `loopId` / `metadataLoopId`.
+- Loop skills/directives are stored as bounded arrays and copied into each loop-created task prompt. Executors apply them only inside normal Orca policy, approval, safety, and lane-scope limits.
 - If a loop-owned lane reports auth or rate-limit failure text, the loop pauses and notifies the user instead of retrying blindly.
 - If a rate-limit failure includes a retry window, the loop waits until `resumeAt`, emits a resume notification, and continues without reprocessing the old failed lane as a fresh pause signal.
 - If a session explicitly disables audit pass requirements, completed lanes sync their linked backlog tasks to accepted so low-token mock/daemon loops can keep moving.
@@ -98,7 +102,7 @@ The first backend slice adds:
 - Session-scoped agent event API and MCP tools: `event.drain`, `event.ack`, `event.replay`.
 - Session-scoped compact-memory API and MCP tools: `session.memory.get`, `session.memory.update`.
 - Route inventory and security-matrix rows for the loop API.
-- Tests for Codex+Claude task fan-out, duplicate suppression, max-iteration completion, auth/rate-limit pauses, MCP exposure, supervisor read-only boundaries, and agent event drain/ack/replay.
+- Tests for Codex+Claude task fan-out, duplicate suppression, nonstop and max-iteration completion, skill/directive injection, auth/rate-limit pauses, MCP exposure, supervisor read-only boundaries, and agent event drain/ack/replay.
 
 ## Next Slices
 

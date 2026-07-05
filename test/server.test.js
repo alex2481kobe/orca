@@ -2905,20 +2905,30 @@ test('agent tool routes expose discovery, nextAction, and token-gated leases', a
         name: 'Dogfood loop',
         goal: 'Keep checking executor output and add the next bounded task.',
         executorTypes: ['codex', 'claude'],
+        runMode: 'bounded',
         cadenceMs: 1000,
         maxIterations: 2,
+        skills: ['clean-architecture', 'web-app-verification'],
+        directives: ['Preserve chat and terminal state when testing UI flows.'],
       },
     });
     assert.equal(loop.status, 201);
     assert.equal(loop.body?.state, 'running');
+    assert.equal(loop.body?.runMode, 'bounded');
+    assert.equal(loop.body?.isNonstop, false);
     assert.deepEqual(loop.body?.executorTypes, ['codex', 'claude']);
+    assert.deepEqual(loop.body?.skills, ['clean-architecture', 'web-app-verification']);
+    assert.deepEqual(loop.body?.directives, ['Preserve chat and terminal state when testing UI flows.']);
 
     const listedLoops = await server.requestJson(`/api/sessions/${session.body.id}/loops`, {
       method: 'GET',
       headers: { 'x-orca-tool-lease': lease.body.leaseToken },
     });
     assert.equal(listedLoops.status, 200);
-    assert.equal(listedLoops.body.some((entry) => entry.id === loop.body.id), true);
+    const listedLoop = listedLoops.body.find((entry) => entry.id === loop.body.id);
+    assert.ok(listedLoop);
+    assert.equal(listedLoop.runMode, 'bounded');
+    assert.deepEqual(listedLoop.skills, ['clean-architecture', 'web-app-verification']);
 
     const pausedLoop = await server.requestJson(`/api/sessions/${session.body.id}/loops/${loop.body.id}`, {
       method: 'PATCH',
@@ -2927,10 +2937,15 @@ test('agent tool routes expose discovery, nextAction, and token-gated leases', a
         state: 'paused',
         pauseReason: 'manual',
         pauseMessage: 'Pausing after test setup.',
+        runMode: 'nonstop',
+        directives: ['Resume only after the active orchestrator has reviewed the queue.'],
       },
     });
     assert.equal(pausedLoop.status, 200);
     assert.equal(pausedLoop.body?.state, 'paused');
+    assert.equal(pausedLoop.body?.runMode, 'nonstop');
+    assert.equal(pausedLoop.body?.maxIterations, 0);
+    assert.deepEqual(pausedLoop.body?.directives, ['Resume only after the active orchestrator has reviewed the queue.']);
 
     const supervisorLease = await server.requestJson('/api/agent-tools/leases', {
       method: 'POST',

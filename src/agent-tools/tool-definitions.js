@@ -790,7 +790,7 @@ export const TOOL_DEFINITIONS = [
     route: '/api/sessions/{sessionId}/loops',
     implemented: true,
     mutating: true,
-    summary: 'Create a governed loop that keeps queuing bounded backlog iterations on a cadence. Body: goal, name, executorTypes, cadenceMs, maxIterations, approved.',
+    summary: 'Create a governed loop that keeps queuing bounded backlog iterations on a cadence. Body: goal, name, executorTypes, cadenceMs, runMode(nonstop|bounded), maxIterations, skills, directives, approved.',
   },
   {
     id: 'loop.update',
@@ -800,7 +800,7 @@ export const TOOL_DEFINITIONS = [
     route: '/api/sessions/{sessionId}/loops/{loopId}',
     implemented: true,
     mutating: true,
-    summary: 'Update, pause, resume, complete, or archive a loop. Resuming a running loop requires the same approval gate as lane creation.',
+    summary: 'Update, pause, resume, complete, archive, or retune a loop, including runMode, maxIterations, skills, and directives. Resuming a running loop requires the same approval gate as lane creation.',
   },
   {
     id: 'tailscale.status',

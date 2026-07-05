@@ -23,6 +23,15 @@ const readInt = (name, fallback, { min = 1, max = Number.MAX_SAFE_INTEGER } = {}
   return Math.max(min, Math.min(max, parsed));
 };
 
+const readList = (name, fallback) => {
+  const raw = String(process.env[name] || '').trim();
+  if (!raw) return fallback;
+  return raw
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+};
+
 const durationMs = readInt('ORCA_SOAK_DURATION_MS', 15_000, { min: 3_000 });
 const cadenceMs = readInt('ORCA_SOAK_CADENCE_MS', 1_000, { min: 1_000, max: 24 * 60 * 60 * 1000 });
 const tickMs = readInt('ORCA_SOAK_TICK_MS', 250, { min: 50, max: 10_000 });
@@ -37,6 +46,11 @@ const restartMs = readInt('ORCA_SOAK_RESTART_MS', 0, { min: 0, max: 24 * 60 * 60
 const injectRateLimit = process.env.ORCA_SOAK_INJECT_RATE_LIMIT !== 'false';
 const requireAudit = process.env.ORCA_SOAK_REQUIRE_AUDIT === 'true';
 const exerciseEventQueue = process.env.ORCA_SOAK_EVENT_QUEUE !== 'false';
+const soakSkills = readList('ORCA_SOAK_SKILLS', ['clean-architecture', 'web-app-verification']);
+const soakDirectives = readList('ORCA_SOAK_DIRECTIVES', [
+  'Keep token usage low by using mock executors unless a real lane is explicitly required.',
+  'Pause cleanly and notify on rate-limit or authentication blockers.',
+]);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const log = (label, payload = {}) => {
@@ -209,6 +223,9 @@ try {
     executorTypes: ['mock'],
     cadenceMs,
     maxIterations,
+    runMode: maxIterations > 0 ? 'bounded' : 'nonstop',
+    skills: soakSkills,
+    directives: soakDirectives,
   }, { actor: orchestratorLease.actor, approved: true });
 
   log('start', {
@@ -218,6 +235,9 @@ try {
     autoCompleteMs,
     capacity,
     maxIterations,
+    runMode: loop.runMode,
+    skills: loop.skills,
+    directiveCount: loop.directives.length,
     sampleMs,
     restartMs,
     injectRateLimit,
@@ -284,6 +304,7 @@ try {
   exerciseAgentQueue(session.id);
 
   const finalLoop = registry.getLoop(loop.id);
+  const finalPublicLoop = registry.publicLoop(finalLoop);
   const finalCounts = loopCounts(loop.id);
   const overview = registry.supervisorOverview({ projectId: project.id, sessionId: session.id });
   const activeSupervisor = overview.activeSupervisors.find((entry) => entry.actor === 'fable-soak-supervisor');
@@ -296,6 +317,9 @@ try {
   assert.ok(activeSupervisor?.active, 'supervisor registration should stay visible');
   assert.equal(activeOrchestrator?.actor, 'fable-soak-orchestrator');
   assert.ok(['running', 'completed'].includes(finalLoop.state), `loop should be running or completed, got ${finalLoop.state}`);
+  assert.equal(finalPublicLoop.runMode, maxIterations > 0 ? 'bounded' : 'nonstop');
+  assert.deepEqual(finalPublicLoop.skills, soakSkills);
+  assert.deepEqual(finalPublicLoop.directives, soakDirectives);
   assert.equal(finalCounts.runningLanes <= capacity, true, 'running lanes must not exceed approved capacity');
   assert.equal(finalCounts.activeTasks <= capacity, true, 'active loop tasks must remain bounded by capacity');
   assert.equal(finalCounts.acceptedTasks > 0 || finalCounts.failedTasks > 0, true, 'soak should exercise at least one terminal task');
@@ -329,12 +353,18 @@ try {
     assert.equal(eventStats.replayed <= Math.max(25, eventStats.drained * 4), true, 'event queue replay should remain bounded by new work');
     assert.equal(eventStats.leftUnackedSeenAgain, true, 'unacked event should be redelivered on a later drain');
     assert.equal(replayAll.events.some((event) => event.type === 'loop_iteration_queued'), true, 'loop iteration events should be replayable');
+    const iterationEvent = replayAll.events.find((event) => event.type === 'loop_iteration_queued');
+    assert.deepEqual(iterationEvent?.metadata?.skills, soakSkills);
+    assert.equal(iterationEvent?.metadata?.runMode, maxIterations > 0 ? 'bounded' : 'nonstop');
   }
 
   log('done', {
     loopState: finalLoop.state,
+    runMode: finalPublicLoop.runMode,
     pauseReason: finalLoop.pauseReason,
     iteration: finalLoop.iteration,
+    skills: finalPublicLoop.skills,
+    directiveCount: finalPublicLoop.directives.length,
     acceptedTotal,
     pausedNotification,
     resumedNotification,

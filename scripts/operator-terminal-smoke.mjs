@@ -139,6 +139,31 @@ try {
     if (layout.streamHeight < Math.max(360, layout.terminalHeight * 0.62)) fail('terminal stream too short', JSON.stringify(layout));
     if (layout.xtermHeight < layout.streamHeight - 8) fail('xterm did not fill stream', JSON.stringify(layout));
     if (layout.bottomGap > 18) fail('terminal leaves excessive bottom gap', JSON.stringify(layout));
+    await page.click('[data-action="toggleChatTerminal"]');
+    await page.waitForSelector('.chat:not(.chat-terminal-open) #orchestrator-message-form', { timeout: 10000 });
+    await page.click('[data-action="toggleChatTerminal"]');
+    await page.waitForSelector('.chat.chat-terminal-open .chat-terminal-tabs', { timeout: 10000 });
+    await page.click('[data-action="setChatTerminalTab"][data-tab="command"]');
+    await page.waitForFunction(() => {
+      const stream = document.querySelector('.operator-terminal-stream');
+      return stream?.querySelector('.xterm') && stream.textContent.includes('__ORCA_UI_TERMINAL__');
+    }, { timeout: 10000 });
+    const switchLayout = await page.evaluate(() => {
+      const terminal = document.querySelector('.chat-terminal');
+      const stream = document.querySelector('.operator-terminal-stream');
+      const composer = document.querySelector('#orchestrator-message-form');
+      const tb = terminal?.getBoundingClientRect();
+      const sb = stream?.getBoundingClientRect();
+      return {
+        composerHidden: composer ? getComputedStyle(composer).display === 'none' : false,
+        xtermCount: document.querySelectorAll('.operator-terminal-stream .xterm').length,
+        outputRetained: (stream?.textContent || '').includes('__ORCA_UI_TERMINAL__'),
+        bottomGap: tb && sb ? Math.round(tb.bottom - sb.bottom) : 999,
+      };
+    });
+    if (!switchLayout.composerHidden || switchLayout.xtermCount !== 1 || !switchLayout.outputRetained || switchLayout.bottomGap > 18) {
+      fail('terminal/chat switch did not preserve command terminal state', JSON.stringify(switchLayout));
+    }
     const shotDir = path.join(previousCwd, 'artifacts', 'operator-terminal-smoke');
     await fs.mkdir(shotDir, { recursive: true });
     await page.screenshot({ path: path.join(shotDir, 'command-terminal.png'), fullPage: true });

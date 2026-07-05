@@ -20,6 +20,10 @@ const LOOP_TERMINAL_TASK_STATES = new Set(['accepted', 'failed']);
 const AUTH_PATTERN = /\b(401|403|auth(?:entication|orization)?|unauthorized|forbidden|login|\/login|api key|token expired|credentials?)\b/i;
 const RATE_LIMIT_PATTERN = /\b(429|rate.?limit|too many requests|quota|usage limit|try again later|retry-after)\b/i;
 const RETRY_AFTER_PATTERN = /\b(?:retry-after|retry after|try again in)\s*:?\s*(\d{1,6})\s*(ms|millisecond|milliseconds|s|sec|secs|second|seconds|m|min|mins|minute|minutes)?\b/i;
+const NONSTOP_RUN_MODES = new Set(['nonstop', 'continuous', 'forever', 'always-on', 'always_on', '24/7']);
+const BOUNDED_RUN_MODES = new Set(['bounded', 'finite', 'limited']);
+const MAX_LOOP_SKILLS = 16;
+const MAX_LOOP_DIRECTIVES = 12;
 
 function cleanText(value, max, fallback = '') {
   const text = String(value || '')
@@ -36,6 +40,43 @@ function normalizeLoopState(value, fallback = 'paused') {
 function normalizePauseReason(value, fallback = 'manual') {
   const reason = String(value || '').trim().toLowerCase();
   return LOOP_PAUSE_REASONS.includes(reason) ? reason : fallback;
+}
+
+function normalizeLoopIterations({ runMode = '', maxIterations = undefined, fallbackMaxIterations = 0 } = {}) {
+  const mode = String(runMode || '').trim().toLowerCase();
+  const rawIterations = maxIterations === undefined ? fallbackMaxIterations : maxIterations;
+  const parsed = Math.max(0, Math.min(10_000, Number.parseInt(rawIterations, 10) || 0));
+  if (NONSTOP_RUN_MODES.has(mode)) return { runMode: 'nonstop', maxIterations: 0 };
+  if (BOUNDED_RUN_MODES.has(mode)) {
+    const bounded = parsed > 0 ? parsed : Math.max(1, Math.min(10_000, Number.parseInt(fallbackMaxIterations, 10) || 1));
+    return { runMode: 'bounded', maxIterations: bounded };
+  }
+  return {
+    runMode: parsed > 0 ? 'bounded' : 'nonstop',
+    maxIterations: parsed,
+  };
+}
+
+function normalizeLoopList(value, { maxItems, maxLength }) {
+  const source = Array.isArray(value)
+    ? value
+    : (typeof value === 'string' && value.trim() ? value.split(/\r?\n/) : []);
+  const normalized = [];
+  for (const item of source) {
+    const text = cleanText(item, maxLength).replace(/\s+/g, ' ');
+    if (!text || normalized.includes(text)) continue;
+    normalized.push(text);
+    if (normalized.length >= maxItems) break;
+  }
+  return normalized;
+}
+
+function normalizeLoopSkills(value) {
+  return normalizeLoopList(value, { maxItems: MAX_LOOP_SKILLS, maxLength: 120 });
+}
+
+function normalizeLoopDirectives(value) {
+  return normalizeLoopList(value, { maxItems: MAX_LOOP_DIRECTIVES, maxLength: 700 });
 }
 
 function normalizeResumeAt(value) {
@@ -86,12 +127,21 @@ function normalizeExecutorTypes(registry, value) {
 }
 
 function loopTaskPrompt(loop, { iteration, executorType }) {
+  const skills = safeArray(loop.skills, []);
+  const directives = safeArray(loop.directives, []);
   return [
     `Loop goal: ${loop.goal}`,
     `Loop iteration: ${iteration}`,
     `Executor lane: ${executorType}`,
+    `Loop run mode: ${loop.maxIterations > 0 ? `bounded (${loop.maxIterations} iteration${loop.maxIterations === 1 ? '' : 's'})` : 'nonstop'}`,
+    skills.length ? `Loop skills to apply: ${skills.join(', ')}` : '',
+    directives.length ? [
+      'Loop directives:',
+      ...directives.map((directive) => `- ${directive}`),
+    ].join('\n') : '',
     '',
     'Operate as part of a persistent Orca loop:',
+    '- apply the loop skills/directives above unless they conflict with policy, safety, approval gates, or lane scope;',
     '- inspect the existing session/orchestrator/supervisor state before acting;',
     '- do not accept weak success claims without evidence;',
     '- produce concrete work, tests, or a concise blocker with the exact next action;',
@@ -132,8 +182,16 @@ export const loopMethods = {
     if (!loop) return null;
     const tasks = (this.tasks || []).filter((task) => task.loopId === loop.id);
     const activeTasks = tasks.filter((task) => !LOOP_TERMINAL_TASK_STATES.has(task.state));
+    const iterationContract = normalizeLoopIterations({
+      maxIterations: loop.maxIterations,
+      fallbackMaxIterations: loop.maxIterations,
+    });
     return {
       ...clonePayload(loop),
+      runMode: iterationContract.runMode,
+      isNonstop: iterationContract.runMode === 'nonstop',
+      skills: normalizeLoopSkills(loop.skills),
+      directives: normalizeLoopDirectives(loop.directives),
       progress: {
         taskCount: tasks.length,
         activeTaskCount: activeTasks.length,
@@ -149,7 +207,11 @@ export const loopMethods = {
     goal,
     cadenceMs = 60_000,
     maxIterations = 0,
+    runMode = '',
     executorTypes = null,
+    skills = null,
+    skillRefs = null,
+    directives = null,
     state = 'running',
     actor = 'orchestrator',
   } = {}, context = {}) {
@@ -170,6 +232,7 @@ export const loopMethods = {
         };
       }
     }
+    const iterationContract = normalizeLoopIterations({ runMode, maxIterations });
     const loop = {
       id: randomUUID(),
       projectId: session.projectId,
@@ -182,9 +245,11 @@ export const loopMethods = {
       resumeAt: null,
       pauseSignalLaneIds: [],
       cadenceMs: Math.max(1_000, Math.min(24 * 60 * 60 * 1000, Number.parseInt(cadenceMs, 10) || 60_000)),
-      maxIterations: Math.max(0, Math.min(10_000, Number.parseInt(maxIterations, 10) || 0)),
+      maxIterations: iterationContract.maxIterations,
       iteration: 0,
       executorTypes: normalizeExecutorTypes(this, executorTypes),
+      skills: normalizeLoopSkills(skills !== null ? skills : skillRefs),
+      directives: normalizeLoopDirectives(directives),
       lastRunAt: null,
       nextRunAt: initialState === 'running' ? now : null,
       lastTaskIds: [],
@@ -200,7 +265,14 @@ export const loopMethods = {
       sessionId: loop.sessionId,
       summary: `Loop "${loop.name}" created`,
       status: 'passed',
-      evidence: { loopId: loop.id, executorTypes: loop.executorTypes, cadenceMs: loop.cadenceMs },
+      evidence: {
+        loopId: loop.id,
+        runMode: iterationContract.runMode,
+        executorTypes: loop.executorTypes,
+        cadenceMs: loop.cadenceMs,
+        skillCount: loop.skills.length,
+        directiveCount: loop.directives.length,
+      },
     });
     this.persistState();
     return this.publicLoop(loop);
@@ -218,10 +290,19 @@ export const loopMethods = {
     if (patch.cadenceMs !== undefined) {
       loop.cadenceMs = Math.max(1_000, Math.min(24 * 60 * 60 * 1000, Number.parseInt(patch.cadenceMs, 10) || loop.cadenceMs));
     }
-    if (patch.maxIterations !== undefined) {
-      loop.maxIterations = Math.max(0, Math.min(10_000, Number.parseInt(patch.maxIterations, 10) || 0));
+    if (patch.maxIterations !== undefined || patch.runMode !== undefined) {
+      const iterationContract = normalizeLoopIterations({
+        runMode: patch.runMode,
+        maxIterations: patch.maxIterations,
+        fallbackMaxIterations: loop.maxIterations,
+      });
+      loop.maxIterations = iterationContract.maxIterations;
     }
     if (patch.executorTypes !== undefined) loop.executorTypes = normalizeExecutorTypes(this, patch.executorTypes);
+    if (patch.skills !== undefined || patch.skillRefs !== undefined) {
+      loop.skills = normalizeLoopSkills(patch.skills !== undefined ? patch.skills : patch.skillRefs);
+    }
+    if (patch.directives !== undefined) loop.directives = normalizeLoopDirectives(patch.directives);
     if (patch.state !== undefined) {
       const next = normalizeLoopState(patch.state, loop.state);
       if (next === 'running' && loop.state !== 'running') {
@@ -256,7 +337,15 @@ export const loopMethods = {
       sessionId: loop.sessionId,
       summary: `Loop "${loop.name}" updated`,
       status: 'passed',
-      evidence: { loopId: loop.id, state: loop.state, pauseReason: loop.pauseReason || null, resumeAt: loop.resumeAt || null },
+      evidence: {
+        loopId: loop.id,
+        state: loop.state,
+        runMode: loop.maxIterations > 0 ? 'bounded' : 'nonstop',
+        pauseReason: loop.pauseReason || null,
+        resumeAt: loop.resumeAt || null,
+        skillCount: safeArray(loop.skills, []).length,
+        directiveCount: safeArray(loop.directives, []).length,
+      },
     });
     this.persistState();
     return this.publicLoop(loop);
@@ -488,7 +577,14 @@ export const loopMethods = {
           sessionId: loop.sessionId,
           loopId: loop.id,
           dedupeKey: `loop-iteration:${loop.id}:${iteration}`,
-          metadata: { iteration, taskIds, executorTypes: loop.executorTypes },
+          metadata: {
+            iteration,
+            taskIds,
+            executorTypes: loop.executorTypes,
+            runMode: loop.maxIterations > 0 ? 'bounded' : 'nonstop',
+            skills: normalizeLoopSkills(loop.skills),
+            directiveCount: normalizeLoopDirectives(loop.directives).length,
+          },
         });
       }
       changed = true;

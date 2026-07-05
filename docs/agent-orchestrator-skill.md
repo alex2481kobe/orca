@@ -83,6 +83,20 @@ This whole flow (external-orchestrator bootstrap → session with orchestrator C
 + capacity → spawn/stop/retry/pause executor lanes → read-only events) is proven
 by `npm run smoke:orchestrator-lifecycle`.
 
+## Durable loop fields
+
+Use `loop.create` when the user wants a daemon/soak/24-7 workflow instead of a
+single executor pass. Important body fields:
+
+- `runMode`: `nonstop` for always-on loops, or `bounded` for finite runs.
+- `maxIterations`: finite cap for `bounded`; `0` means `nonstop`.
+- `skills`: short skill references to apply on each iteration.
+- `directives`: bounded user-approved operating rules injected into each
+  loop-created task.
+
+Skills and directives do not override Orca policy, approval gates, safety rules,
+or lane scope. They are task context for the executors the loop queues.
+
 ## Configurable agent flow (read it from `session.next_action`)
 
 The user (or you) can shape how work moves between agents via the layered `flow`
