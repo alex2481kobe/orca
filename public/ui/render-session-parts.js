@@ -165,21 +165,25 @@ function renderChatRunMeta(lane, working) {
   if (!lane) return '';
   const terminalMode = lane.presentationMode === 'terminal';
   const duration = laneElapsedMs(lane);
-  const bits = [];
-  if (duration > 0 || !working) bits.push(formatDuration(duration));
+  const startedAt = lane?.startedAt || lane?.createdAt || '';
+  const endedAt = lane?.completedAt || lane?.updatedAt || '';
+  const durationText = (duration > 0 || !working) ? formatDuration(duration) : '';
   const tokens = tokenSummary(lane);
-  if (tokens) bits.push(tokens);
   const label = working
     ? (terminalMode ? 'Terminal active' : 'Thinking...')
     : (lane.state === 'failed' || lane.state === 'stopped'
       ? 'Stopped after'
       : (terminalMode ? 'Terminal ran for' : 'Worked for'));
+  const bits = [
+    durationText ? `<span class="chat-run-duration" data-started-at="${safeAttr(startedAt)}" data-ended-at="${safeAttr(working ? '' : endedAt)}">${safeText(durationText)}</span>` : '',
+    tokens ? `<span class="chat-run-tokens">${safeText(tokens)}</span>` : '',
+  ].filter(Boolean).join('<span class="chat-run-sep">·</span>');
   return `
     <div class="chat-run-meta" data-lane-id="${safeAttr(lane.id)}">
       <span class="chat-run-meta-main">
         ${working && !terminalMode ? '<span class="chat-spinner" aria-hidden="true"></span>' : ''}
         <span>${safeText(label)}</span>
-        ${bits.length ? `<span class="chat-run-bits">${safeText(bits.join(' · '))}</span>` : ''}
+        ${bits ? `<span class="chat-run-bits">${bits}</span>` : ''}
       </span>
       <button class="chat-run-terminal-action" data-action="showLaneTerminal" data-session-id="${safeAttr(lane.sessionId || '')}" data-lane-id="${safeAttr(lane.id)}" type="button" title="Show this turn in Terminal" aria-label="Show this turn in Terminal">
         ${icon('terminal', { size: 14 })}
@@ -326,14 +330,20 @@ export function renderChatThreadInner(session) {
 }
 
 export function renderChatTerminalInner(session) {
-  const activeTab = shell.chatTerminalTabBySession?.[session.id] === 'command' ? 'command' : 'agent';
+  const agentLane = chatTerminalLaneForSession(session);
+  const { terminals } = operatorTerminalRecords(session.id);
+  const activeTerminalId = shell.operatorTerminalActiveBySession?.[session.id] || terminals.find((item) => item.state === 'running')?.id || terminals[0]?.id || '';
+  const activeTerminal = terminals.find((item) => item.id === activeTerminalId) || terminals[0] || null;
+  const activeTab = !agentLane || shell.chatTerminalTabBySession?.[session.id] === 'command' ? 'command' : 'agent';
+  const agentLabel = agentLane ? (agentLane.executorType || 'agent') : 'orca';
+  const commandLabel = activeTerminal?.title || 'command-deck';
   const tabs = `
     <div class="chat-terminal-tabs" role="tablist" aria-label="Terminal views">
       <button class="${activeTab === 'agent' ? 'active' : ''}" data-action="setChatTerminalTab" data-session-id="${safeAttr(session.id)}" data-tab="agent" type="button" role="tab" aria-selected="${activeTab === 'agent' ? 'true' : 'false'}">
-        ${icon('terminal', { size: 15 })}<span>Agent</span>
+        ${icon('terminal', { size: 15 })}<span>${safeText(agentLabel)}</span>
       </button>
       <button class="${activeTab === 'command' ? 'active' : ''}" data-action="setChatTerminalTab" data-session-id="${safeAttr(session.id)}" data-tab="command" type="button" role="tab" aria-selected="${activeTab === 'command' ? 'true' : 'false'}">
-        ${icon('code', { size: 15 })}<span>Command</span>
+        ${icon('code', { size: 15 })}<span>${safeText(commandLabel)}</span>
       </button>
     </div>
   `;
@@ -366,11 +376,11 @@ function renderAgentTerminalInner(session) {
   return `
     <div class="agent-terminal-shell">
       ${laneTabs}
-      <div class="chat-terminal-head" data-lane-id="${safeAttr(lane.id)}">
+      <div class="chat-terminal-head compact" data-lane-id="${safeAttr(lane.id)}">
         <div>
-          <strong>Agent terminal</strong>
+          <strong>${safeText(lane.executorType || 'agent')}</strong>
           <div class="chat-terminal-meta">
-            <span>${safeText(lane.title || lane.id)} · ${safeText(lane.executorType || 'agent')} · ${safeText(lane.presentationMode === 'terminal' ? 'native CLI' : 'structured chat')}</span>
+            <span>${safeText(lane.title || lane.id)}</span>
             ${stateBadge(lane.state || 'unknown')}
           </div>
         </div>
@@ -421,7 +431,7 @@ function renderOperatorTerminalInner(session) {
         <div class="operator-terminal-tabs">${tabButtons}</div>
         <button class="secondary terminal-action-button" data-action="startOperatorTerminal" data-session-id="${safeAttr(session.id)}" type="button" title="New terminal">${icon('plus', { size: 15 })}<span>New terminal</span></button>
       </div>
-      <div class="chat-terminal-head">
+      <div class="chat-terminal-head compact">
         <div>
           <strong>${safeText(active.title || 'Command tab')}</strong>
           <div class="chat-terminal-meta">

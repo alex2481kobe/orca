@@ -441,9 +441,12 @@ export class CliExecutorAdapter {
       runtime.stdoutLogPath = path.join(runtimeDir, 'stdout.log');
       runtime.stderrLogPath = path.join(runtimeDir, 'stderr.log');
       const commandLine = commandLineForLog(safeBinary, args, lane);
+      const terminalPreamble = usePty
+        ? ''
+        : `Command: ${commandLine}\nPresentation: ${presentationModeForLane(lane)}${launch.wrapper ? ` (${launch.wrapper} PTY)` : ''}\nCwd: ${safeWorkdir}\nStarted: ${lane.processMeta.startedAt}\n\n`;
       await fs.writeFile(
         runtime.terminalLogPath,
-        `Command: ${commandLine}\nPresentation: ${presentationModeForLane(lane)}${launch.wrapper ? ` (${launch.wrapper} PTY)` : ''}\nCwd: ${safeWorkdir}\nStarted: ${lane.processMeta.startedAt}\n\n`,
+        terminalPreamble,
       );
       await fs.writeFile(runtime.stdoutLogPath, '');
       await fs.writeFile(runtime.stderrLogPath, '');

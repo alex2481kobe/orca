@@ -2714,16 +2714,18 @@ body.sidebar-collapsed .pill {
 .chat.chat-terminal-open { justify-content: flex-start; padding-bottom: var(--space-4); }
 .chat.chat-terminal-open .chat-thread { display: none; }
 .chat.chat-terminal-open .chat-terminal { display: flex; }
-.chat.chat-command-terminal-open .composer-shell { display: none; }
+.chat.chat-terminal-open .composer-shell { display: none; }
 .chat-terminal-tabs {
   align-items: center;
-  background: var(--panel-soft);
+  align-self: flex-start;
+  background: transparent;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   display: flex;
   gap: var(--space-1);
-  min-height: 2.4rem;
-  padding: 0.25rem;
+  min-height: 2rem;
+  padding: 0.2rem;
+  width: auto;
 }
 .chat-terminal-tabs button,
 .operator-terminal-tabs button {
@@ -2734,8 +2736,8 @@ body.sidebar-collapsed .pill {
   color: var(--muted);
   display: inline-flex;
   gap: var(--space-1);
-  min-height: 2rem;
-  padding: 0.35rem 0.55rem;
+  min-height: 1.65rem;
+  padding: 0.2rem 0.5rem;
 }
 .chat-terminal-tabs button.active,
 .operator-terminal-tabs button.active {
@@ -2744,16 +2746,17 @@ body.sidebar-collapsed .pill {
 }
 .chat-terminal-head {
   align-items: center;
-  background: var(--panel-soft);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
   color: var(--muted);
   display: flex;
   gap: var(--space-3);
   justify-content: space-between;
-  min-height: 2.75rem;
-  padding: var(--space-3) var(--space-4);
+  min-height: 2.1rem;
+  padding: 0.15rem 0;
 }
+.chat-terminal-head.compact { min-height: 2rem; }
 .chat-terminal-head strong { color: var(--text); font-size: 0.92rem; }
 .chat-terminal-head span { display: block; font-size: 0.78rem; margin-top: 0.15rem; }
 .chat-terminal-meta { align-items: center; display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.15rem; }
@@ -2819,14 +2822,14 @@ body.sidebar-collapsed .pill {
 }
 .operator-terminal-toolbar {
   align-items: center;
-  background: var(--panel-soft);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
   display: flex;
   gap: var(--space-2);
   justify-content: space-between;
-  min-height: 2.4rem;
-  padding: 0.25rem;
+  min-height: 2rem;
+  padding: 0;
 }
 .operator-terminal-tabs {
   align-items: center;
@@ -2921,7 +2924,14 @@ body.sidebar-collapsed .pill {
   gap: 0.45rem;
   min-width: 0;
 }
-.chat-run-bits { color: var(--muted); }
+.chat-run-bits {
+  align-items: center;
+  color: var(--muted);
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.chat-run-sep { opacity: 0.7; }
 .chat-run-terminal-action {
   align-items: center;
   background: transparent;
@@ -2989,7 +2999,7 @@ body.sidebar-collapsed .pill {
 .composer { padding: 0.6rem 1rem 1.1rem; }
 .composer.composer-shell {
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-xl);
-  margin: 0 auto 1rem; max-width: 768px; padding: 0.5rem 0.55rem; position: relative; width: 100%;
+  margin: 0 auto 1rem; max-width: 768px; padding: 0.5rem 0.55rem; position: sticky; bottom: 1rem; width: 100%;
 }
 /* "/" command palette — floats above the composer, Codex-style. */
 .slash-menu {
@@ -3012,7 +3022,7 @@ body.sidebar-collapsed .pill {
 .slash-info { color: var(--muted); font-size: 0.82rem; padding: 0.45rem 0.6rem; }
 .composer textarea {
   background: transparent; border: 0; color: var(--text); font: inherit; font-size: 0.93rem;
-  max-height: 200px; outline: none; padding: 0.5rem 0.55rem; resize: none; width: 100%;
+  max-height: 220px; outline: none; overflow-y: hidden; padding: 0.5rem 0.55rem; resize: none; width: 100%;
 }
 .composer-bar { align-items: center; display: flex; gap: var(--space-1); padding: 0 0.15rem; }
 .composer-attach,
@@ -3069,9 +3079,9 @@ body.no-voice .composer-mic { display: none; }
    The :has() form is a fallback. Without the class form, phase-1 rendered the
    composer at the bottom and phase-2 re-centered it, causing a visible shift. */
 .chat--empty,
-.chat:has(.chat-thread .chat-empty) { justify-content: center; }
+.chat:has(.chat-thread .chat-empty) { justify-content: flex-start; }
 .chat--empty .chat-thread,
-.chat:has(.chat-thread .chat-empty) .chat-thread { flex: 0 0 auto; padding-bottom: 0.4rem; }
+.chat:has(.chat-thread .chat-empty) .chat-thread { flex: 1 1 auto; padding-bottom: 0.4rem; }
 .chat-empty { padding: 1rem; }
 .chat-empty h2 { font-size: 1.85rem; font-weight: 600; letter-spacing: -0.02em; }
 /* Composer textarea: start at one line, grow with content. */

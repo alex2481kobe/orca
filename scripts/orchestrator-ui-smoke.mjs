@@ -192,7 +192,7 @@ try {
     if (chatText.includes('Started codex orchestrator lane')) fail('chat leaked orchestrator stub instead of assistant reply', chatText);
     if (/\b(Queued|Started|Output|Done)\b/.test(chatText)) fail('chat leaked raw lifecycle/event labels', chatText);
     if (/activity items?/i.test(chatText)) fail('chat leaked vague activity-items copy', chatText);
-    if (!chatText.includes('Worked for')) fail('chat missing compact run receipt', chatText);
+    if (!chatText.includes('Terminal ran for') && !chatText.includes('Terminal active')) fail('chat missing compact terminal-aware run receipt', chatText);
     if (!chatText.includes('12 tokens')) fail('chat missing reported token usage', chatText);
     const visibleTimelineCount = await page.locator('.chat-thread .agent-event-list').count();
     if (visibleTimelineCount !== 0) fail('chat rendered full agent event timeline', String(visibleTimelineCount));
@@ -229,6 +229,8 @@ try {
     if (lane.body.model !== 'gpt-5') fail('lane model', JSON.stringify(lane.body));
     if (lane.body.permissionsProfile !== 'plan') fail('lane mode', JSON.stringify(lane.body));
     if (lane.body.intelligenceProfile !== 'high') fail('lane intelligence', JSON.stringify(lane.body));
+    if (lane.body.presentationMode !== 'terminal') fail('chat-created CLI lane should use terminal presentation', JSON.stringify(lane.body));
+    if ((lane.body.processMeta?.args || []).includes('--json')) fail('chat-created CLI lane should not use codex --json', JSON.stringify(lane.body.processMeta?.args || []));
     if (!Array.isArray(lane.body.agentEvents) || !lane.body.agentEvents.some((event) => event.type === 'agent.queued')) {
       fail('lane agent events', JSON.stringify(lane.body.agentEvents || []));
     }
@@ -237,8 +239,6 @@ try {
     }
     log('lane', `${laneId} ${lane.body.state} model=${lane.body.model} mode=${lane.body.permissionsProfile}`);
 
-    await page.click('[data-action="toggleChatTerminal"]');
-    await page.waitForSelector('.chat.chat-terminal-open .chat-terminal', { timeout: 10000 });
     await page.fill('#orchestrator-message-form textarea[name="message"]', 'Run this one in terminal presentation mode.');
     const terminalResponsePromise = page.waitForResponse((response) => response.url().includes('/orchestrator/messages'), { timeout: 15000 });
     await page.click('#orchestrator-message-form button[type="submit"]');
@@ -249,6 +249,7 @@ try {
     const terminalTurn = await terminalTurnResponse.json();
     const terminalLaneId = terminalTurn?.lane?.id;
     if (!terminalLaneId) fail('missing terminal-mode lane id', JSON.stringify(terminalTurn || null));
+    await page.click('[data-action="toggleChatTerminal"]');
     const waitForTerminalLaneView = async () => {
       try {
         await page.waitForFunction((id) => {
@@ -284,9 +285,9 @@ try {
         fail('terminal lane view did not bind to the selected lane', JSON.stringify(snapshot));
       }
     };
-    await page.waitForFunction(() =>
-      (document.querySelector('.chat-terminal-meta')?.textContent || '').includes('native CLI'),
-    { timeout: 10000 });
+    await waitForTerminalLaneView();
+    const terminalHeaderCopy = await page.locator('.chat-terminal-head').innerText();
+    if (/native CLI|structured chat|Agent terminal/i.test(terminalHeaderCopy)) fail('terminal header leaked old explanatory copy', terminalHeaderCopy);
     let terminalLane = null;
     for (let i = 0; i < 30; i += 1) {
       terminalLane = await req('GET', `/api/lanes/${terminalLaneId}`);
@@ -313,7 +314,7 @@ try {
         bottomGap: tb && sb ? Math.round(tb.bottom - sb.bottom) : 999,
       };
     });
-    if (!terminalLayout.composerVisible) fail('agent terminal should keep the chat composer available', JSON.stringify(terminalLayout));
+    if (terminalLayout.composerVisible) fail('agent terminal should replace the chat composer', JSON.stringify(terminalLayout));
     if (terminalLayout.streamHeight < Math.max(320, terminalLayout.terminalHeight * 0.58)) fail('agent terminal stream too short', JSON.stringify(terminalLayout));
     if (terminalLayout.bottomGap > 18) fail('agent terminal leaves excessive bottom gap', JSON.stringify(terminalLayout));
     const terminalHeaderLaneId = await page.locator('.chat-terminal-head').getAttribute('data-lane-id');
@@ -363,7 +364,7 @@ try {
       }
     }
 
-    await page.fill('#orchestrator-message-form textarea[name="message"]', 'Create a normal follow-up chat lane after the terminal run.');
+    await page.fill('#orchestrator-message-form textarea[name="message"]', 'Create a follow-up turn from chat after the terminal run.');
     const followupResponsePromise = page.waitForResponse((response) => response.url().includes('/orchestrator/messages'), { timeout: 15000 });
     await page.click('#orchestrator-message-form button[type="submit"]');
     const followupResponse = await followupResponsePromise;
@@ -376,24 +377,28 @@ try {
     await page.waitForFunction(() =>
       (document.querySelector('.chat-thread')?.textContent || '').includes('I can help with that.'),
     null, { timeout: 10000 });
+    const followupLane = await req('GET', `/api/lanes/${followupLaneId}`);
+    if (followupLane.status !== 200) fail('follow-up lane fetch', JSON.stringify(followupLane.body));
+    if (followupLane.body.presentationMode !== 'terminal') fail('follow-up CLI chat lane should use terminal presentation', JSON.stringify(followupLane.body));
+    if ((followupLane.body.processMeta?.args || []).includes('--json')) fail('follow-up CLI chat lane should not use codex --json', JSON.stringify(followupLane.body.processMeta?.args || []));
 
     await page.click('[data-action="toggleChatTerminal"]');
     await page.waitForSelector('.chat.chat-terminal-open .chat-terminal .lane-stream', { timeout: 10000 });
     const pinnedStreamId = await page.locator('.chat.chat-terminal-open .chat-terminal .lane-stream').getAttribute('id');
-    if (pinnedStreamId !== `lane-stream-${terminalLaneId}`) {
-      fail('terminal view did not preserve pinned terminal lane after follow-up chat lane', `${pinnedStreamId} expected lane-stream-${terminalLaneId}`);
+    if (pinnedStreamId !== `lane-stream-${followupLaneId}`) {
+      fail('terminal view did not follow the latest chat-created terminal lane', `${pinnedStreamId} expected lane-stream-${followupLaneId}`);
     }
-    const activePinnedTab = await page.locator(`.agent-terminal-lane-tabs [data-lane-id="${terminalLaneId}"]`).getAttribute('aria-selected');
+    const activePinnedTab = await page.locator(`.agent-terminal-lane-tabs [data-lane-id="${followupLaneId}"]`).getAttribute('aria-selected');
     if (activePinnedTab !== 'true') fail('terminal lane tab is not selected after reopen', String(activePinnedTab));
 
-    await page.click(`.agent-terminal-lane-tabs [data-lane-id="${followupLaneId}"]`);
-    await page.waitForSelector(`#lane-stream-${followupLaneId}`, { timeout: 10000 });
-    const switchedStreamId = await page.locator('.chat.chat-terminal-open .chat-terminal .lane-stream').getAttribute('id');
-    if (switchedStreamId !== `lane-stream-${followupLaneId}`) fail('agent terminal lane selector did not switch lanes', switchedStreamId);
     await page.click(`.agent-terminal-lane-tabs [data-lane-id="${terminalLaneId}"]`);
     await page.waitForSelector(`#lane-stream-${terminalLaneId}`, { timeout: 10000 });
+    const switchedStreamId = await page.locator('.chat.chat-terminal-open .chat-terminal .lane-stream').getAttribute('id');
+    if (switchedStreamId !== `lane-stream-${terminalLaneId}`) fail('agent terminal lane selector did not switch lanes', switchedStreamId);
+    await page.click(`.agent-terminal-lane-tabs [data-lane-id="${followupLaneId}"]`);
+    await page.waitForSelector(`#lane-stream-${followupLaneId}`, { timeout: 10000 });
     const repinnedStreamId = await page.locator('.chat.chat-terminal-open .chat-terminal .lane-stream').getAttribute('id');
-    if (repinnedStreamId !== `lane-stream-${terminalLaneId}`) fail('agent terminal lane selector did not switch back', repinnedStreamId);
+    if (repinnedStreamId !== `lane-stream-${followupLaneId}`) fail('agent terminal lane selector did not switch back', repinnedStreamId);
     log('terminal lane', `${terminalLaneId} presentation=${terminalLane.body.presentationMode}`);
     await context.close();
   } finally {

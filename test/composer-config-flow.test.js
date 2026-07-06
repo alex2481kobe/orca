@@ -344,11 +344,12 @@ test('non-objective chat turns do not receive the full orchestration tool contra
     await send(registry, session.id, { executorType: 'codex', message: 'Just checking in.' });
     const lane = latestOrchestratorLane(registry, session.id);
 
-    assert.match(lane.taskPrompt, /conversational, not an actionable project objective/i);
+    assert.match(lane.taskPrompt, /Answer the user directly/i);
     assert.doesNotMatch(lane.taskPrompt, /ORCA_TOOL_LEASE_TOKEN/);
     assert.doesNotMatch(lane.taskPrompt, /Executor capability matrix/);
     assert.doesNotMatch(lane.taskPrompt, /Next-action URL/);
-    assert.match(lane.taskPrompt, /local metadata as operational context/i);
+    assert.doesNotMatch(lane.taskPrompt, /conversational, not an actionable project objective/i);
+    assert.doesNotMatch(lane.taskPrompt, /local metadata as operational context/i);
   } finally {
     await cleanup();
   }

@@ -4,7 +4,7 @@ import { safeNavigate, appendNativeFlag, isNativeApp } from './ui/dom.js';
 import { readSidebarOrder, writeSidebarOrder, orderItems, moveId, toggleProjectExpanded } from './ui/sidebar.js';
 import { api, initializeApiToken, setApiToken, currentActiveProject } from './ui/api.js';
 import { isVerificationProject } from './ui/render-helpers.js';
-import { renderLaneExecutorGuidance, repopulateExecutorScopedControls, captureContentUiState, uploadComposerFiles, renderSession, render, renderSidebarProjects, renderMobileManifest, pinChatTerminalLaneForSession } from './ui/render-views.js';
+import { renderLaneExecutorGuidance, repopulateExecutorScopedControls, captureContentUiState, uploadComposerFiles, renderSession, render, renderSidebarProjects, renderMobileManifest, pinChatTerminalLaneForSession, chatTerminalLaneForSession } from './ui/render-views.js';
 import { refresh, showArtifacts, parseRoute, connectEventStream, startPolling, syncAuthSessions } from './ui/controller.js';
 import { handlePrivateAccessSettings, handleNotificationSettings, handleNotificationAction, handleCreatePrivateAccessTarget, handlePrivateAccessAction, handleProviderAction, handleAppBackupAction, handleCleanupSchedule, handleCreateMcpTool, handleAddProjectQuickLink, handleCreateLane, handleOrchestratorMessage, handleLaneControlsUpdate, handleAuditEventAction, handleWorkstationPicker, handleNewSession, handleNewProject, ensureRealSession } from './ui/handlers.js';
 import { handleLaneActions, handleSessionActions, handleSystemActions } from './ui/handlers-actions.js';
@@ -23,6 +23,36 @@ import {
   handleStartOperatorTerminal,
   handleStopOperatorTerminal,
 } from './ui/operator-terminal.js';
+
+function fitMessageTextarea(field) {
+  if (!field || field.tagName !== 'TEXTAREA' || field.name !== 'message') return;
+  field.style.height = 'auto';
+  const max = 220;
+  const next = Math.min(max, Math.max(24, field.scrollHeight));
+  field.style.height = `${next}px`;
+  field.style.overflowY = field.scrollHeight > max ? 'auto' : 'hidden';
+}
+
+function formatLiveDuration(ms) {
+  const totalSeconds = Math.max(0, Math.round(Number(ms || 0) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const parts = [];
+  if (hours) parts.push(`${hours}h`);
+  if (minutes || hours) parts.push(`${minutes}m`);
+  parts.push(`${seconds}s`);
+  return parts.join(' ');
+}
+
+function tickRunDurations() {
+  document.querySelectorAll('.chat-run-duration[data-started-at]').forEach((el) => {
+    if (el.dataset.endedAt) return;
+    const started = Date.parse(el.dataset.startedAt || '');
+    if (!Number.isFinite(started) || started <= 0) return;
+    el.textContent = formatLiveDuration(Date.now() - started);
+  });
+}
 
 // Deep-link entry point for the native app: the Rust side (run_mobile) calls this
 // when an `orca://connect?ws=<workstation-url>` link is opened (e.g. a QR scanned
@@ -637,12 +667,38 @@ document.addEventListener('click', async (event) => {
   }
 
   if (action === 'toggleChatTerminal') {
-    const sessionId = actionTarget.dataset.sessionId || shell.route.sessionId;
+    let sessionId = actionTarget.dataset.sessionId || shell.route.sessionId;
     if (sessionId) {
+      if (String(sessionId).startsWith('draft-')) {
+        const realId = await ensureRealSession(sessionId);
+        if (!realId || realId === sessionId) return;
+        shell.chatTerminalOpenBySession = shell.chatTerminalOpenBySession || {};
+        shell.chatTerminalOpenBySession[realId] = Boolean(shell.chatTerminalOpenBySession[sessionId]);
+        delete shell.chatTerminalOpenBySession[sessionId];
+        sessionId = realId;
+        const realSession = shell.sessions.find((item) => item.id === realId);
+        if (realSession?.route) safeNavigate(realSession.route);
+      }
       shell.chatTerminalOpenBySession = shell.chatTerminalOpenBySession || {};
       shell.chatTerminalOpenBySession[sessionId] = !shell.chatTerminalOpenBySession[sessionId];
-      if (shell.chatTerminalOpenBySession[sessionId] && shell.chatTerminalTabBySession?.[sessionId] !== 'command') {
+      if (shell.chatTerminalOpenBySession[sessionId]) {
         const session = shell.sessions.find((item) => item.id === sessionId) || shell.draftSessions?.[sessionId];
+        const agentLane = chatTerminalLaneForSession(session);
+        shell.chatTerminalTabBySession = shell.chatTerminalTabBySession || {};
+        if (!agentLane) {
+          shell.chatTerminalTabBySession[sessionId] = 'command';
+          const terminals = shell.operatorTerminalsBySession?.[sessionId]?.terminals || [];
+          const activeTerminal = terminals.some((terminal) => terminal.state === 'running');
+          if (!activeTerminal) {
+            const started = await handleStartOperatorTerminal({ currentTarget: { dataset: { sessionId } } });
+            if (started) {
+              await refresh();
+              return;
+            }
+          }
+        } else if (shell.chatTerminalTabBySession[sessionId] !== 'command') {
+          shell.chatTerminalTabBySession[sessionId] = 'agent';
+        }
         pinChatTerminalLaneForSession(session);
       }
       render(captureContentUiState());
@@ -855,6 +911,7 @@ document.addEventListener('keydown', (event) => {
 document.addEventListener('input', (event) => {
   const field = event.target;
   if (!field || field.name !== 'message') return;
+  fitMessageTextarea(field);
   const form = field.closest?.('#orchestrator-message-form');
   const sessionId = form?.dataset?.sessionId;
   if (sessionId) shell.composerDrafts[sessionId] = field.value;
@@ -932,6 +989,7 @@ setInterval(() => {
     el.classList.toggle('soon', total <= 30);
   });
 }, 1000);
+setInterval(tickRunDurations, 1000);
 // Connect the live SSE stream only after the initial load settles. A persistent
 // SSE connection would otherwise keep the page from ever reaching "network idle"
 // (used by automated checks); the polling timer covers this short window.

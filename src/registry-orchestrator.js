@@ -137,10 +137,9 @@ function buildOrchestratorPrompt({
     return [
       'You are the Orca chat and orchestration agent for this project/session.',
       policy.intent === 'status'
-        ? 'The current user message is asking for status/blocker context, not new execution.'
-        : 'The current user message is conversational, not an actionable project objective.',
-      'Reply like a normal capable agent: brief, direct, and useful. Keep internal Orca tool names out of the user-facing answer. Do not create executor lanes, backlog items, loops, or broad tool calls unless the user gives an actual objective.',
-      'Treat filesystem paths, account names, repository URLs, environment variables, and local metadata as operational context. Avoid surfacing that metadata unless it helps answer the user.',
+        ? 'Answer the user directly. If they are asking about status or blockers, explain the current state plainly before suggesting a next step.'
+        : 'Answer the user directly. If the message is casual, be conversational; if it includes a small request you can answer without orchestration, handle it in this turn.',
+      'Keep internal Orca tool names out of the user-facing answer. Do not create executor lanes, backlog items, loops, or broad tool calls unless the user gives an objective that needs them.',
       policyText,
       canReadStatus ? 'Read-only Orca status tools are available if needed. Do not mutate state, create lanes, add tasks, start loops, or change settings on this turn.' : '',
       'If helpful, offer one simple next step they can ask Orca to do.',
@@ -160,12 +159,11 @@ function buildOrchestratorPrompt({
   }
   return [
     'You are the Orca orchestration agent for this project/session.',
-    'Read the current user request before acting. If a future message has no actionable project objective, answer conversationally instead of forcing orchestration.',
+    'Read the current user request before acting. Answer simple messages directly; orchestrate only when the request actually needs planning, lanes, backlog, loops, or audit.',
     'Own decomposition, planning, lane creation, executor assignment, and audit handoff.',
     'Only create executor lanes, backlog tasks, or loops when the server turn policy below allows that action family.',
     'Do not ask the human to manually create executor lanes when the policy allows you to create them through Orca tools.',
     'Keep internal Orca tool names out of user-facing chat. Use available tools when needed; if a tool is unavailable, state the plain blocker and continue with the useful next step.',
-    'Treat filesystem paths, account names, repository URLs, environment variables, and local metadata as operational context. Avoid surfacing that metadata unless it helps answer the user.',
     toolAccessEnabled ? 'Use the scoped tool lease from ORCA_TOOL_LEASE_TOKEN, never the full API token.' : 'No Orca tool lease is available for this turn; answer from the conversation and provided context.',
     policyText,
     policy.executionStrategy === 'plan_only' ? 'This is a planning turn: update plan/backlog/memory only. Do not create executor lanes or loops.' : '',

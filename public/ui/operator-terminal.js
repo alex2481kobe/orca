@@ -270,9 +270,12 @@ export async function handleStartOperatorTerminal(event) {
   if (!sessionId) return;
   const mount = typeof document !== 'undefined' ? document.querySelector('.chat-terminal') : null;
   const dims = estimateGeometry(mount);
+  const session = shell.sessions.find((item) => item.id === sessionId) || shell.draftSessions?.[sessionId] || {};
+  const titleSource = String(session.repoRoot || session.worktreeRoot || session.name || 'terminal').replace(/[\\/]+$/, '');
+  const title = titleSource.split(/[\\/]+/).filter(Boolean).at(-1) || 'terminal';
   const response = await api(`/api/sessions/${encodeURIComponent(sessionId)}/terminals`, {
     method: 'POST',
-    body: { actor: 'dashboard', title: 'Command tab', cols: dims.cols, rows: dims.rows },
+    body: { actor: 'dashboard', title, cols: dims.cols, rows: dims.rows },
   });
   if (!response.ok) {
     renderAlert(response.data?.error || 'Could not start terminal.', 'bad');

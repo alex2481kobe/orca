@@ -5,6 +5,7 @@ import { composerAttachmentsFor } from './render-session-parts.js';
 import { pinChatTerminalLaneForSession } from './render-fragments.js';
 import { renderAlert, safeNavigate } from './dom.js';
 import { normalizeExecutorType } from './executor.js';
+import { FIRST_CLASS_CLI_EXECUTOR_TYPES } from './constants.js';
 import { api } from './api.js';
 import { refresh } from './controller.js';
 import { shell } from './state.js';
@@ -60,7 +61,7 @@ export async function handleOrchestratorMessage(event) {
   const permissionsProfile = String(payload.permissionsProfile || '').trim() || 'auto-edit';
   const speed = String(payload.speed || '').trim() || 'standard';
   const branch = String(payload.branch || '').trim();
-  const executionMode = shell.chatTerminalOpenBySession?.[sessionId] ? 'terminal' : 'chat';
+  const executionMode = FIRST_CLASS_CLI_EXECUTOR_TYPES.includes(executorType) ? 'terminal' : 'chat';
   // Sending your own chat message IS the approval — a real chat doesn't pop a
   // confirm modal on every message. The composer already shows mode/model, so the
   // operator's send is the explicit, informed action.
@@ -73,6 +74,12 @@ export async function handleOrchestratorMessage(event) {
   const restoreDraft = () => {
     shell.composerDrafts[sessionId] = draft;
     if (messageField) messageField.value = draft;
+  };
+  const resetDraftField = () => {
+    if (!messageField) return;
+    messageField.value = '';
+    messageField.style.height = '';
+    messageField.style.overflowY = '';
   };
   let response;
   try {
@@ -99,7 +106,8 @@ export async function handleOrchestratorMessage(event) {
     return;
   }
   if (response.ok) {
-    if (executionMode === 'terminal' && response.data?.lane?.id) {
+    resetDraftField();
+    if (response.data?.lane?.id) {
       const realSession = shell.sessions.find((item) => item.id === sessionId);
       pinChatTerminalLaneForSession(realSession, response.data.lane.id);
     }
