@@ -2914,7 +2914,33 @@ body.sidebar-collapsed .pill {
   width: max-content;
   max-width: 100%;
 }
+.chat-run-meta-main {
+  align-items: center;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  min-width: 0;
+}
 .chat-run-bits { color: var(--muted); }
+.chat-run-terminal-action {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  display: inline-flex;
+  height: 1.55rem;
+  justify-content: center;
+  margin-left: 0.1rem;
+  padding: 0;
+  width: 1.55rem;
+}
+.chat-run-terminal-action:hover,
+.chat-run-terminal-action:focus-visible {
+  background: var(--panel-soft);
+  border-color: var(--line);
+  color: var(--text);
+}
 .chat-run-details {
   border-top: 1px solid var(--line);
   color: var(--muted);

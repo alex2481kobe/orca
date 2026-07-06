@@ -677,6 +677,36 @@ document.addEventListener('click', async (event) => {
     return;
   }
 
+  if (action === 'showLaneTerminal') {
+    const sessionId = actionTarget.dataset.sessionId || shell.route.sessionId;
+    const laneId = actionTarget.dataset.laneId;
+    const session = shell.sessions.find((item) => item.id === sessionId) || shell.draftSessions?.[sessionId];
+    if (session && laneId) {
+      shell.chatTerminalOpenBySession = shell.chatTerminalOpenBySession || {};
+      shell.chatTerminalTabBySession = shell.chatTerminalTabBySession || {};
+      shell.chatTerminalOpenBySession[sessionId] = true;
+      shell.chatTerminalTabBySession[sessionId] = 'agent';
+      pinChatTerminalLaneForSession(session, laneId);
+      render(captureContentUiState());
+    }
+    return;
+  }
+
+  if (action === 'showLaneChat') {
+    const sessionId = actionTarget.dataset.sessionId || shell.route.sessionId;
+    const laneId = actionTarget.dataset.laneId;
+    const session = shell.sessions.find((item) => item.id === sessionId) || shell.draftSessions?.[sessionId];
+    if (session && laneId) {
+      shell.chatTerminalOpenBySession = shell.chatTerminalOpenBySession || {};
+      shell.chatTerminalOpenBySession[sessionId] = false;
+      pinChatTerminalLaneForSession(session, laneId);
+      render(captureContentUiState());
+      const turn = document.querySelector(`.msg-assistant[data-lane-id="${CSS.escape(laneId)}"]`);
+      turn?.scrollIntoView?.({ block: 'nearest' });
+    }
+    return;
+  }
+
   if (action === 'selectOperatorTerminal') {
     const sessionId = actionTarget.dataset.sessionId || shell.route.sessionId;
     const terminalId = actionTarget.dataset.terminalId;

@@ -118,6 +118,8 @@ const WIRED_ACTIONS = new Set([
   'logoutBrowserSession',
   'setProviderSecret',
   'showArtifacts',
+  'showLaneChat',
+  'showLaneTerminal',
   'stopLane',
   'toggleChatTerminal',
   'toggleExecutorPanel',

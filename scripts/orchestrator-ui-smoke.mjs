@@ -142,6 +142,19 @@ try {
     page.on('pageerror', (error) => log('browser pageerror', error.stack || error.message));
     page.on('dialog', (dialog) => dialog.accept());
     await page.goto(`${base}${session.body.route}`, { waitUntil: 'networkidle', timeout: 20000 });
+    await page.evaluate(() => {
+      window.__orcaActionLog = [];
+      document.addEventListener('click', (event) => {
+        const target = event.target?.closest?.('[data-action]');
+        if (!target) return;
+        window.__orcaActionLog.push({
+          action: target.dataset.action || '',
+          laneId: target.dataset.laneId || '',
+          sessionId: target.dataset.sessionId || '',
+          at: Date.now(),
+        });
+      }, true);
+    });
     await page.waitForSelector('#orchestrator-message-form textarea[name="message"]', { timeout: 15000 });
     // Selects are now custom dropdowns: click the trigger, then the option.
     const pick = async (name, value) => {
@@ -236,6 +249,41 @@ try {
     const terminalTurn = await terminalTurnResponse.json();
     const terminalLaneId = terminalTurn?.lane?.id;
     if (!terminalLaneId) fail('missing terminal-mode lane id', JSON.stringify(terminalTurn || null));
+    const waitForTerminalLaneView = async () => {
+      try {
+        await page.waitForFunction((id) => {
+          const head = document.querySelector('.chat.chat-terminal-open .chat-terminal-head');
+          const stream = document.getElementById(`lane-stream-${id}`);
+          return head?.dataset?.laneId === id && Boolean(stream);
+        }, terminalLaneId, { timeout: 10000 });
+      } catch (error) {
+        const snapshot = await page.evaluate(async (id) => {
+          let shellState = {};
+          try {
+            const state = await import('/ui/state.js');
+            shellState = {
+              route: state.shell.route,
+              chatTerminalOpenBySession: state.shell.chatTerminalOpenBySession,
+              chatTerminalTabBySession: state.shell.chatTerminalTabBySession,
+              chatTerminalAgentLaneBySession: state.shell.chatTerminalAgentLaneBySession,
+            };
+          } catch (error) {
+            shellState = { error: String(error?.message || error) };
+          }
+          return {
+            shellState,
+            chatClass: document.querySelector('.chat')?.className || '',
+            terminalHtml: (document.querySelector('.chat-terminal')?.innerHTML || '').slice(0, 1200),
+            headLaneId: document.querySelector('.chat-terminal-head')?.dataset?.laneId || '',
+            streamIds: [...document.querySelectorAll('.chat-terminal .lane-stream')].map((el) => el.id),
+            hasTargetStream: Boolean(document.getElementById(`lane-stream-${id}`)),
+            actionLog: window.__orcaActionLog || [],
+            bodyText: (document.body.textContent || '').slice(0, 1200),
+          };
+        }, terminalLaneId);
+        fail('terminal lane view did not bind to the selected lane', JSON.stringify(snapshot));
+      }
+    };
     await page.waitForFunction(() =>
       (document.querySelector('.chat-terminal-meta')?.textContent || '').includes('native CLI'),
     { timeout: 10000 });
@@ -268,15 +316,36 @@ try {
     if (!terminalLayout.composerVisible) fail('agent terminal should keep the chat composer available', JSON.stringify(terminalLayout));
     if (terminalLayout.streamHeight < Math.max(320, terminalLayout.terminalHeight * 0.58)) fail('agent terminal stream too short', JSON.stringify(terminalLayout));
     if (terminalLayout.bottomGap > 18) fail('agent terminal leaves excessive bottom gap', JSON.stringify(terminalLayout));
-    await page.click('[data-action="toggleChatTerminal"]');
-    await page.waitForSelector('.chat:not(.chat-terminal-open) .terminal-chat-receipt', { timeout: 10000 });
+    const terminalHeaderLaneId = await page.locator('.chat-terminal-head').getAttribute('data-lane-id');
+    if (terminalHeaderLaneId !== terminalLaneId) fail('terminal header is not bound to the terminal lane', `${terminalHeaderLaneId} expected ${terminalLaneId}`);
+    await page.click(`.chat-terminal-head[data-lane-id="${terminalLaneId}"] [data-action="showLaneChat"]`);
+    await page.waitForSelector(`.chat:not(.chat-terminal-open) .msg-assistant[data-lane-id="${terminalLaneId}"]`, { timeout: 10000 });
+    const terminalTurnNode = page.locator(`.msg-assistant[data-lane-id="${terminalLaneId}"]`).first();
+    const terminalTurnCount = await page.locator(`.msg-assistant[data-lane-id="${terminalLaneId}"]`).count();
+    if (terminalTurnCount !== 1) fail('terminal lane rendered more than one assistant chat turn', String(terminalTurnCount));
     const terminalChatText = await page.locator('.chat-thread').innerText();
     if (terminalChatText.includes('Thinking...')) fail('terminal lane leaked stale thinking label after returning to chat', terminalChatText);
     if (!terminalChatText.includes('Terminal ran for') && !terminalChatText.includes('Terminal active')) fail('terminal lane missing terminal-aware chat receipt label', terminalChatText);
-    if (!terminalChatText.includes('turn_complete') && !terminalChatText.includes('I can help with that.')) fail('terminal lane missing terminal transcript receipt', terminalChatText);
+    if (!terminalChatText.includes('turn_complete') && !terminalChatText.includes('I can help with that.')) fail('terminal lane missing terminal transcript text', terminalChatText);
+    const terminalTranscriptText = await terminalTurnNode.locator('.chat-agent-transcript').innerText().catch(() => '');
+    const terminalReceiptCount = await terminalTurnNode.locator('.terminal-chat-receipt').count();
+    if (terminalTranscriptText.trim() && terminalReceiptCount !== 0) {
+      fail('terminal lane duplicated parsed assistant text and terminal receipt in chat', await terminalTurnNode.innerText());
+    }
+    if (!terminalTranscriptText.trim() && terminalReceiptCount !== 1) {
+      fail('terminal lane without parsed text should keep one terminal receipt', await terminalTurnNode.innerText());
+    }
+    const bridgeCount = await terminalTurnNode.locator('[data-action="showLaneTerminal"]').count();
+    if (bridgeCount !== 1) fail('terminal turn missing one chat-to-terminal bridge', String(bridgeCount));
+    await terminalTurnNode.locator('[data-action="showLaneTerminal"]').click();
+    await waitForTerminalLaneView();
+    const bridgedStreamId = await page.locator('.chat.chat-terminal-open .chat-terminal .lane-stream').getAttribute('id');
+    if (bridgedStreamId !== `lane-stream-${terminalLaneId}`) fail('chat-to-terminal bridge selected the wrong lane', bridgedStreamId);
+    await page.click(`.chat-terminal-head[data-lane-id="${terminalLaneId}"] [data-action="showLaneChat"]`);
+    await page.waitForSelector(`.chat:not(.chat-terminal-open) .msg-assistant[data-lane-id="${terminalLaneId}"]`, { timeout: 10000 });
     for (let i = 0; i < 3; i += 1) {
-      await page.click('[data-action="toggleChatTerminal"]');
-      await page.waitForSelector('.chat.chat-terminal-open .chat-terminal .lane-stream', { timeout: 10000 });
+      await page.click(`.msg-assistant[data-lane-id="${terminalLaneId}"] [data-action="showLaneTerminal"]`);
+      await waitForTerminalLaneView();
       await page.waitForFunction(() => {
         const text = document.querySelector('.chat.chat-terminal-open .chat-terminal .lane-stream')?.textContent || '';
         return text.includes('turn_complete') || text.includes('I can help with that.');
@@ -285,8 +354,8 @@ try {
       if (!liveText.includes('turn_complete') && !liveText.includes('I can help with that.')) {
         fail('agent terminal switch lost terminal transcript', liveText);
       }
-      await page.click('[data-action="toggleChatTerminal"]');
-      await page.waitForSelector('.chat:not(.chat-terminal-open) .terminal-chat-receipt', { timeout: 10000 });
+      await page.click(`.chat-terminal-head[data-lane-id="${terminalLaneId}"] [data-action="showLaneChat"]`);
+      await page.waitForSelector(`.chat:not(.chat-terminal-open) .msg-assistant[data-lane-id="${terminalLaneId}"]`, { timeout: 10000 });
       const switchedChatText = await page.locator('.chat-thread').innerText();
       if (switchedChatText.includes('Thinking...')) fail('terminal/chat switch left stale thinking state', switchedChatText);
       if (!switchedChatText.includes('Terminal ran for') && !switchedChatText.includes('Terminal active')) {
