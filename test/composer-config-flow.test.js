@@ -348,6 +348,7 @@ test('non-objective chat turns do not receive the full orchestration tool contra
     assert.doesNotMatch(lane.taskPrompt, /ORCA_TOOL_LEASE_TOKEN/);
     assert.doesNotMatch(lane.taskPrompt, /Executor capability matrix/);
     assert.doesNotMatch(lane.taskPrompt, /Next-action URL/);
+    assert.doesNotMatch(lane.taskPrompt, /message is casual/i);
     assert.doesNotMatch(lane.taskPrompt, /conversational, not an actionable project objective/i);
     assert.doesNotMatch(lane.taskPrompt, /local metadata as operational context/i);
   } finally {

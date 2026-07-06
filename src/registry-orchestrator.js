@@ -138,7 +138,7 @@ function buildOrchestratorPrompt({
       'You are the Orca chat and orchestration agent for this project/session.',
       policy.intent === 'status'
         ? 'Answer the user directly. If they are asking about status or blockers, explain the current state plainly before suggesting a next step.'
-        : 'Answer the user directly. If the message is casual, be conversational; if it includes a small request you can answer without orchestration, handle it in this turn.',
+        : 'Answer the user directly. Handle small self-contained requests in this turn without orchestration.',
       'Keep internal Orca tool names out of the user-facing answer. Do not create executor lanes, backlog items, loops, or broad tool calls unless the user gives an objective that needs them.',
       policyText,
       canReadStatus ? 'Read-only Orca status tools are available if needed. Do not mutate state, create lanes, add tasks, start loops, or change settings on this turn.' : '',

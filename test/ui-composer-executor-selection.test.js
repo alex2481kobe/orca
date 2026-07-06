@@ -107,3 +107,32 @@ test('chat transcript recovers Codex agent_message text stored as raw command ou
 
   assert.equal(text, 'Recovered answer from raw Codex JSON.');
 });
+
+test('terminal view shows only real terminal tabs before an agent lane exists', async () => {
+  installBrowserGlobals();
+  const [{ shell }, { renderChatTerminalInner }] = await Promise.all([
+    import('../public/ui/state.js'),
+    import('../public/ui/render-session-parts.js'),
+  ]);
+  installExecutorProfiles(shell);
+  shell.chatTerminalTabBySession = { 'session-terminal-tabs': 'command' };
+  shell.chatTerminalAgentLaneBySession = {};
+  shell.operatorTerminalsBySession = {
+    'session-terminal-tabs': {
+      terminals: [{ id: 'terminal-1', title: 'command-deck', state: 'running', shell: 'zsh', cwd: '/repo' }],
+    },
+  };
+  shell.operatorTerminalActiveBySession = { 'session-terminal-tabs': 'terminal-1' };
+
+  const html = renderChatTerminalInner({
+    id: 'session-terminal-tabs',
+    projectId: 'project-1',
+    leader: 'codex',
+    orchestratorThread: { messages: [], laneIds: [], activeLaneId: null },
+  });
+
+  assert.doesNotMatch(html, /data-tab="agent"/);
+  assert.doesNotMatch(html, />orca<\/span>/);
+  assert.match(html, />command-deck<\/span>/);
+  assert.doesNotMatch(html, /Command tab/);
+});

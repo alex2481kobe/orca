@@ -348,6 +348,90 @@ test('operator command terminals are admin-only and accept real shell input', as
   }
 });
 
+test('operator command terminals wrap manual codex with Orca MCP lease and enroll it', async () => {
+  const token = 'terminal-agent-bridge-token';
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-terminal-agent-'));
+  const fakeCodex = path.join(tempDir, 'codex-real');
+  await fs.writeFile(fakeCodex, [
+    '#!/bin/sh',
+    'printf "__ORCA_FAKE_CODEX__\\n"',
+    'for arg in "$@"; do',
+    '  case "$arg" in',
+    '    *ORCA_TOOL_LEASE_TOKEN*) printf "mcp_servers.orca.env.ORCA_TOOL_LEASE_TOKEN=<redacted>\\n" ;;',
+    '    *) printf "%s\\n" "$arg" ;;',
+    '  esac',
+    'done',
+    '',
+  ].join('\n'));
+  await fs.chmod(fakeCodex, 0o755);
+  const server = await startServer({
+    token,
+    env: {
+      ORCA_CODEX_BINARY: fakeCodex,
+      ORCA_CODEX_ALLOWED_BINARIES: fakeCodex,
+    },
+  });
+
+  try {
+    const project = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Terminal Agent Project', approved: true },
+    });
+    assert.equal(project.status, 201);
+    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Terminal Agent Session', approved: true },
+    });
+    assert.equal(session.status, 201);
+
+    const started = await server.requestJson(`/api/sessions/${session.body.id}/terminals`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { title: 'Agent terminal', actor: 'dashboard', cols: 100, rows: 28 },
+    });
+    assert.equal(started.status, 201);
+    assert.equal(started.body.agentBridge.state, 'ready');
+    assert.equal(started.body.agentBridge.role, 'orchestrator');
+    assert.equal(started.body.agentBridge.wrapperCommands.includes('codex'), true);
+
+    const wrote = await server.requestJson(`/api/terminals/${started.body.id}/input`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { input: 'printf "__ORCA_CODEX_PATH__%s\\n" "$(command -v codex)"\ncodex --version', actor: 'dashboard' },
+    });
+    assert.equal(wrote.status, 200);
+
+    const tail = await waitForTerminalText(server, started.body.id, token, /__ORCA_FAKE_CODEX__/);
+    assert.equal(tail.status, 200);
+    assert.match(tail.body.text, /mcp_servers\.orca\.command=/);
+    assert.match(tail.body.text, /ORCA_TOOL_LEASE_TOKEN/);
+    assert.match(tail.body.text, /__ORCA_CODEX_PATH__.*\/operator-terminals\/.*\/bin\/codex/);
+    assert.doesNotMatch(tail.body.text, /ORCA_AGENT_STARTED/);
+
+    const terminal = await server.requestJson(`/api/terminals/${started.body.id}`, {
+      method: 'GET',
+      headers: { 'x-orca-token': token },
+    });
+    assert.equal(terminal.status, 200);
+    assert.equal(terminal.body.agentBridge.state, 'active');
+    assert.equal(terminal.body.agentBridge.executorType, 'codex');
+
+    const status = await server.requestJson(`/api/sessions/${session.body.id}/orchestrator/status`, {
+      method: 'GET',
+      headers: { 'x-orca-token': token },
+    });
+    assert.equal(status.status, 200);
+    assert.equal(status.body.activeOrchestrator.active, true);
+    assert.equal(status.body.activeOrchestrator.source, 'terminal');
+    assert.match(status.body.activeOrchestrator.actor, /^codex:/);
+  } finally {
+    await server.stop();
+    await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
+  }
+});
+
 test('lane terminal input and resize reach a PTY-backed interactive lane', async () => {
   const token = 'lane-terminal-route-token';
   const server = await startServer({

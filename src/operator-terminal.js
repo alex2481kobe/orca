@@ -1,13 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import pty from '@lydell/node-pty';
+import { constants as fsConstants } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { availableToolIdsForRole } from './agent-tools.js';
+import { getExecutorProfile } from './executor-factory.js';
+import { buildOrchestratorMcpConfigs } from './mcp-orchestrator-bootstrap.js';
 
 const MAX_TERMINALS_PER_SESSION = 4;
 const MAX_INPUT_BYTES = 16 * 1024;
 const MAX_RETAINED_CHARS = 256 * 1024;
 const TERMINAL_TAIL_DEFAULT_CHARS = 32 * 1024;
 const TERMINAL_TAIL_MAX_CHARS = 128 * 1024;
+const AGENT_MARKER_RE = /\x1b]777;ORCA_AGENT_STARTED=([A-Za-z0-9_-]+)\x07/g;
 
 function nowIso() {
   return new Date().toISOString();
@@ -20,6 +25,38 @@ function cleanText(value, fallback = '', max = 160) {
 
 function publicShellName(value) {
   return path.basename(String(value || '').trim()) || 'shell';
+}
+
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
+function envPathParts() {
+  return String(process.env.PATH || '')
+    .split(path.delimiter)
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+async function canExecute(file) {
+  try {
+    await fs.access(file, fsConstants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function resolveExecutable(binary, skipDir = '') {
+  const value = String(binary || '').trim();
+  if (!value) return '';
+  if (path.isAbsolute(value)) return value;
+  for (const dir of envPathParts()) {
+    if (skipDir && path.resolve(dir) === path.resolve(skipDir)) continue;
+    const candidate = path.join(dir, value);
+    if (await canExecute(candidate)) return candidate;
+  }
+  return value;
 }
 
 function chooseShell(explicitShell) {
@@ -52,7 +89,7 @@ function buildShellLaunch(shellPath) {
   };
 }
 
-function buildTerminalEnv(session, shellPath) {
+function buildTerminalEnv(session, shellPath, bridge = null) {
   const env = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (typeof value === 'string') env[key] = value;
@@ -64,6 +101,20 @@ function buildTerminalEnv(session, shellPath) {
   env.SHELL = shellPath || env.SHELL || '/bin/sh';
   env.ORCA_SESSION_ID = session.id;
   env.ORCA_PROJECT_ID = session.projectId || '';
+  if (bridge?.wrapperDir) {
+    env.PATH = `${bridge.wrapperDir}${path.delimiter}${env.PATH || ''}`;
+  }
+  if (bridge?.env) {
+    for (const [key, value] of Object.entries(bridge.env)) {
+      env[key] = String(value || '');
+    }
+  }
+  if (bridge?.zdotdir) {
+    env.ORCA_REAL_ZDOTDIR = env.ZDOTDIR || env.HOME || '';
+    env.ZDOTDIR = bridge.zdotdir;
+  }
+  if (bridge?.terminalId) env.ORCA_TERMINAL_ID = bridge.terminalId;
+  if (bridge?.leaseId) env.ORCA_TOOL_LEASE_ID = bridge.leaseId;
   return env;
 }
 
@@ -109,6 +160,128 @@ function terminalSummary(terminal) {
     size: terminal.size,
     baseOffset: terminal.baseOffset,
     truncated: Boolean(terminal.truncated),
+    agentBridge: terminal.agentBridge ? {
+      state: terminal.agentBridge.state || 'ready',
+      role: terminal.agentBridge.role || 'orchestrator',
+      actor: terminal.agentBridge.actor || null,
+      leaseId: terminal.agentBridge.leaseId || null,
+      executorType: terminal.agentBridge.executorType || null,
+      startedAt: terminal.agentBridge.startedAt || null,
+      wrapperCommands: Array.isArray(terminal.agentBridge.wrapperCommands) ? terminal.agentBridge.wrapperCommands : [],
+    } : null,
+  };
+}
+
+async function writeWrapperScript({ wrapperPath, realBinary, injectedArgs = [], executorType }) {
+  const marker = `\x1b]777;ORCA_AGENT_STARTED=${executorType}\x07`;
+  const lines = [
+    '#!/bin/sh',
+    `printf ${shellQuote(marker)}`,
+    `exec ${shellQuote(realBinary)}${injectedArgs.length ? ` ${injectedArgs.map(shellQuote).join(' ')}` : ''} "$@"`,
+    '',
+  ];
+  await fs.writeFile(wrapperPath, lines.join('\n'), { mode: 0o700 });
+  await fs.chmod(wrapperPath, 0o700);
+}
+
+async function writeZshBridgeEnv({ shellDir }) {
+  await fs.mkdir(shellDir, { recursive: true });
+  await fs.chmod(shellDir, 0o700).catch(() => {});
+  const zshenv = [
+    '# Orca keeps manual agent launches connected to this session.',
+    'orca_agent_bridge_path() {',
+    '  if [ -n "$ORCA_AGENT_BRIDGE_BIN" ]; then',
+    '    path=("$ORCA_AGENT_BRIDGE_BIN" ${path:#$ORCA_AGENT_BRIDGE_BIN})',
+    '    export PATH',
+    '    rehash >/dev/null 2>&1 || hash -r >/dev/null 2>&1 || true',
+    '  fi',
+    '}',
+    'if [ -n "$ORCA_REAL_ZDOTDIR" ] && [ "$ORCA_REAL_ZDOTDIR" != "$ZDOTDIR" ] && [ -r "$ORCA_REAL_ZDOTDIR/.zshenv" ]; then',
+    '  . "$ORCA_REAL_ZDOTDIR/.zshenv"',
+    'fi',
+    'orca_agent_bridge_path',
+    'if autoload -Uz add-zsh-hook >/dev/null 2>&1; then',
+    '  add-zsh-hook precmd orca_agent_bridge_path >/dev/null 2>&1 || true',
+    '  add-zsh-hook preexec orca_agent_bridge_path >/dev/null 2>&1 || true',
+    'fi',
+    '',
+  ].join('\n');
+  await fs.writeFile(path.join(shellDir, '.zshenv'), zshenv, { mode: 0o600 });
+  return shellDir;
+}
+
+async function createTerminalAgentBridge(registry, session, terminalId, artifactDir) {
+  const allowedTools = availableToolIdsForRole('orchestrator');
+  if (!allowedTools.length) return null;
+  const actor = `operator-terminal:${terminalId}`;
+  const { lease, leaseToken } = registry.createToolLease({
+    role: 'orchestrator',
+    projectId: session.projectId,
+    sessionId: session.id,
+    allowedTools,
+    ttlMs: 24 * 60 * 60 * 1000,
+    actor,
+    replaceActiveForActor: true,
+  });
+  const configs = buildOrchestratorMcpConfigs({
+    baseUrl: registry.serverBaseUrl(),
+    leaseToken,
+    role: 'orchestrator',
+    projectId: session.projectId,
+    sessionId: session.id,
+  });
+  const wrapperDir = path.join(artifactDir, 'bin');
+  await fs.mkdir(wrapperDir, { recursive: true });
+  await fs.chmod(wrapperDir, 0o700).catch(() => {});
+  const zdotdir = await writeZshBridgeEnv({ shellDir: path.join(artifactDir, 'shell', 'zsh') });
+  const claudeConfigPath = path.join(artifactDir, 'claude-mcp.json');
+  await fs.writeFile(claudeConfigPath, JSON.stringify(configs.clients.claudeDesktop.config, null, 2), { mode: 0o600 });
+
+  const wrapperCommands = [];
+  const codexProfile = getExecutorProfile('codex') || {};
+  const codexReal = await resolveExecutable(codexProfile.defaultBinary || 'codex', wrapperDir);
+  if (codexReal && path.isAbsolute(codexReal)) {
+    const injectedArgs = [
+      '-c', `mcp_servers.orca.command=${JSON.stringify(configs.nodePath)}`,
+      '-c', `mcp_servers.orca.args=${JSON.stringify([configs.serverPath])}`,
+      ...Object.entries(configs.env).flatMap(([key, value]) => ['-c', `mcp_servers.orca.env.${key}=${JSON.stringify(String(value))}`]),
+    ];
+    await writeWrapperScript({
+      wrapperPath: path.join(wrapperDir, 'codex'),
+      realBinary: codexReal,
+      injectedArgs,
+      executorType: 'codex',
+    });
+    wrapperCommands.push('codex');
+  }
+
+  const claudeProfile = getExecutorProfile('claude') || {};
+  const claudeReal = await resolveExecutable(claudeProfile.defaultBinary || 'claude', wrapperDir);
+  if (claudeReal && path.isAbsolute(claudeReal)) {
+    await writeWrapperScript({
+      wrapperPath: path.join(wrapperDir, 'claude'),
+      realBinary: claudeReal,
+      injectedArgs: ['--mcp-config', claudeConfigPath],
+      executorType: 'claude',
+    });
+    wrapperCommands.push('claude');
+  }
+
+  return {
+    state: 'ready',
+    role: 'orchestrator',
+    actor,
+    leaseId: lease.id,
+    terminalId,
+    wrapperDir,
+    zdotdir,
+    wrapperCommands,
+    env: {
+      ...configs.env,
+      ORCA_AGENT_BRIDGE_BIN: wrapperDir,
+      ORCA_ROLE: 'orchestrator',
+      ORCA_TERMINAL_ID: terminalId,
+    },
   };
 }
 
@@ -151,20 +324,22 @@ export function createOperatorTerminalManager({ registry }) {
     const id = randomUUID();
     const artifactDir = path.join(process.cwd(), 'artifacts', String(session.id), 'operator-terminals', id);
     await fs.mkdir(artifactDir, { recursive: true });
+    await fs.chmod(artifactDir, 0o700).catch(() => {});
     const logPath = path.join(artifactDir, 'terminal.log');
+    const agentBridge = await createTerminalAgentBridge(registry, session, id, artifactDir);
 
     const cols = cleanDimension(body.cols, 100, 20, 240);
     const rows = cleanDimension(body.rows, 28, 8, 80);
     const term = pty.spawn(launch.binary, launch.args, {
       cwd: startCwd,
-      env: buildTerminalEnv(session, shellPath),
+      env: buildTerminalEnv(session, shellPath, agentBridge),
       name: 'xterm-256color',
       cols,
       rows,
       encoding: 'utf8',
     });
 
-    const title = cleanText(body.title, 'Command tab', 80);
+    const title = cleanText(body.title, 'terminal', 80);
     const terminal = {
       id,
       projectId: session.projectId,
@@ -189,20 +364,60 @@ export function createOperatorTerminalManager({ registry }) {
       endedAt: null,
       exitCode: null,
       signal: null,
+      agentBridge,
     };
     terminals.set(id, terminal);
 
     appendBounded(terminal, [
-      `Orca command terminal (${terminal.wrapper})`,
+      `Orca terminal (${terminal.wrapper})`,
       `Shell: ${terminal.shellName}`,
       `Cwd: ${startCwd}`,
       `Started: ${createdAt}`,
+      agentBridge?.wrapperCommands?.length
+        ? `Orca agent bridge: ${agentBridge.wrapperCommands.join(', ')}`
+        : '',
       '',
-    ].join('\n'));
+    ].filter((line) => line !== '').join('\n') + '\n');
     await fs.writeFile(logPath, terminal.output);
 
+    const attachAgent = (executorType) => {
+      if (!terminal.agentBridge) return;
+      const normalized = cleanText(executorType, 'agent', 40).toLowerCase();
+      terminal.agentBridge.state = 'active';
+      terminal.agentBridge.executorType = normalized;
+      terminal.agentBridge.startedAt = terminal.agentBridge.startedAt || nowIso();
+      try {
+        registry.enrollOrchestrator(session.id, {
+          leaseId: terminal.agentBridge.leaseId,
+          actor: `${normalized}:${terminal.id.slice(0, 8)}`,
+          source: 'terminal',
+          takeover: true,
+        });
+      } catch (error) {
+        registry.recordAudit({
+          type: 'operator_terminal_agent_attach_failed',
+          actor: terminal.agentBridge.actor || 'operator-terminal',
+          projectId: session.projectId,
+          sessionId: session.id,
+          summary: `Operator terminal agent attach failed for ${normalized}`,
+          status: 'failed',
+          evidence: { terminalId: terminal.id, error: error.message || String(error) },
+        });
+      }
+    };
+
+    const stripAgentMarkers = (chunk) => {
+      let text = String(chunk || '');
+      text = text.replace(AGENT_MARKER_RE, (_match, executorType) => {
+        attachAgent(executorType);
+        return '';
+      });
+      return text;
+    };
+
     const forward = (chunk) => {
-      const text = String(chunk || '');
+      const text = stripAgentMarkers(chunk);
+      if (!text) return;
       appendBounded(terminal, text);
       fs.appendFile(logPath, text).catch(() => {});
     };
@@ -235,6 +450,10 @@ export function createOperatorTerminalManager({ registry }) {
         cwd: startCwd,
         shell: terminal.shellName,
         wrapper: terminal.wrapper || null,
+        agentBridge: terminal.agentBridge ? {
+          leaseId: terminal.agentBridge.leaseId,
+          wrapperCommands: terminal.agentBridge.wrapperCommands,
+        } : null,
       },
     });
 

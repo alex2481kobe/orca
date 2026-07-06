@@ -336,15 +336,22 @@ export function renderChatTerminalInner(session) {
   const activeTerminal = terminals.find((item) => item.id === activeTerminalId) || terminals[0] || null;
   const activeTab = !agentLane || shell.chatTerminalTabBySession?.[session.id] === 'command' ? 'command' : 'agent';
   const agentLabel = agentLane ? (agentLane.executorType || 'agent') : 'orca';
-  const commandLabel = activeTerminal?.title || 'command-deck';
-  const tabs = `
-    <div class="chat-terminal-tabs" role="tablist" aria-label="Terminal views">
+  const commandLabel = activeTerminal?.title || 'terminal';
+  const tabButtons = [
+    agentLane ? `
       <button class="${activeTab === 'agent' ? 'active' : ''}" data-action="setChatTerminalTab" data-session-id="${safeAttr(session.id)}" data-tab="agent" type="button" role="tab" aria-selected="${activeTab === 'agent' ? 'true' : 'false'}">
         ${icon('terminal', { size: 15 })}<span>${safeText(agentLabel)}</span>
       </button>
+    ` : '',
+    `
       <button class="${activeTab === 'command' ? 'active' : ''}" data-action="setChatTerminalTab" data-session-id="${safeAttr(session.id)}" data-tab="command" type="button" role="tab" aria-selected="${activeTab === 'command' ? 'true' : 'false'}">
-        ${icon('code', { size: 15 })}<span>${safeText(commandLabel)}</span>
+        ${icon('terminal', { size: 15 })}<span>${safeText(commandLabel)}</span>
       </button>
+    `,
+  ].filter(Boolean).join('');
+  const tabs = `
+    <div class="chat-terminal-tabs" role="tablist" aria-label="Terminal views">
+      ${tabButtons}
     </div>
   `;
   return activeTab === 'command'
@@ -433,7 +440,7 @@ function renderOperatorTerminalInner(session) {
       </div>
       <div class="chat-terminal-head compact">
         <div>
-          <strong>${safeText(active.title || 'Command tab')}</strong>
+          <strong>${safeText(active.title || 'terminal')}</strong>
           <div class="chat-terminal-meta">
             <span title="${safeAttr(active.cwd || '')}">${safeText(active.shell || 'shell')}${active.cwd ? ` · ${safeText(compactPath(active.cwd))}` : ''}</span>
             ${stateBadge(active.state || 'unknown')}
