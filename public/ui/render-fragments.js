@@ -241,6 +241,45 @@ export function activeOrchestratorLaneForSession(session) {
     .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))[0] || null;
 }
 
+export function orchestratorLanesForSession(session) {
+  const sessionId = session?.id;
+  const thread = session?.orchestratorThread || {};
+  const seen = new Set();
+  const lanes = [];
+  const push = (lane) => {
+    if (!lane || lane.sessionId !== sessionId || lane.owner !== 'orchestrator' || seen.has(lane.id)) return;
+    seen.add(lane.id);
+    lanes.push(lane);
+  };
+  for (const laneId of Array.isArray(thread.laneIds) ? thread.laneIds : []) {
+    push(shell.lanes.find((lane) => lane.id === laneId));
+  }
+  shell.lanes
+    .filter((lane) => lane.sessionId === sessionId && lane.owner === 'orchestrator')
+    .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0))
+    .forEach(push);
+  return lanes;
+}
+
+export function chatTerminalLaneForSession(session) {
+  const lanes = orchestratorLanesForSession(session);
+  const selectedId = shell.chatTerminalAgentLaneBySession?.[session?.id] || '';
+  return lanes.find((lane) => lane.id === selectedId)
+    || activeOrchestratorLaneForSession(session)
+    || lanes.at(-1)
+    || null;
+}
+
+export function pinChatTerminalLaneForSession(session, laneId = '') {
+  const lane = laneId
+    ? orchestratorLanesForSession(session).find((item) => item.id === laneId)
+    : chatTerminalLaneForSession(session);
+  if (!session?.id || (!lane && !laneId)) return null;
+  shell.chatTerminalAgentLaneBySession = shell.chatTerminalAgentLaneBySession || {};
+  shell.chatTerminalAgentLaneBySession[session.id] = lane?.id || laneId;
+  return lane || { id: laneId };
+}
+
 export function renderAgentEventTimeline(lane, { limit = 80, compact = false } = {}) {
   const events = Array.isArray(lane?.agentEvents) ? lane.agentEvents.slice(-limit) : [];
   if (!events.length) {

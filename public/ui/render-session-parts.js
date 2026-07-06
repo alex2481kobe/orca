@@ -2,7 +2,7 @@
 
 import { formatRelative, safeAttr, safeText, stateBadge } from './format.js';
 import { agentEventLabel, isLaneStoppable, isLiveLaneState, isRestartableLaneState, pendingAuditsForSession } from './render-helpers.js';
-import { activeOrchestratorLaneForSession, assistantEventTranscriptText, intelligenceOptionsFor, renderAgentEventTimeline, runModeOptionsFor } from './render-fragments.js';
+import { activeOrchestratorLaneForSession, assistantEventTranscriptText, chatTerminalLaneForSession, intelligenceOptionsFor, orchestratorLanesForSession, renderAgentEventTimeline, runModeOptionsFor } from './render-fragments.js';
 import { shell } from './state.js';
 import { renderAlert, writeHtml } from './dom.js';
 import { api } from './api.js';
@@ -338,7 +338,8 @@ export function renderChatTerminalInner(session) {
 }
 
 function renderAgentTerminalInner(session) {
-  const lane = activeOrchestratorLaneForSession(session);
+  const lane = chatTerminalLaneForSession(session);
+  const lanes = orchestratorLanesForSession(session).slice(-8);
   if (!lane) {
     return `
       <div class="chat-terminal-empty">
@@ -347,8 +348,19 @@ function renderAgentTerminalInner(session) {
       </div>
     `;
   }
+  const laneTabs = lanes.length > 1 ? `
+    <div class="operator-terminal-tabs agent-terminal-lane-tabs" role="tablist" aria-label="Agent terminal lanes">
+      ${lanes.map((item, index) => `
+        <button class="${item.id === lane.id ? 'active' : ''}" data-action="selectAgentTerminalLane" data-session-id="${safeAttr(session.id)}" data-lane-id="${safeAttr(item.id)}" type="button" role="tab" aria-selected="${item.id === lane.id ? 'true' : 'false'}" title="${safeAttr(item.title || item.id)}">
+          <span>${safeText(`#${index + 1} ${item.executorType || 'agent'}`)}</span>
+          ${stateBadge(item.state || 'unknown')}
+        </button>
+      `).join('')}
+    </div>
+  ` : '';
   return `
     <div class="agent-terminal-shell">
+      ${laneTabs}
       <div class="chat-terminal-head">
         <div>
           <strong>Agent terminal</strong>

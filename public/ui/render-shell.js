@@ -100,7 +100,7 @@ import { renderAppearancePanel, renderWorkstationList } from './render-home-pane
 import { renderWorkstationPickerPanel } from './render-project.js';
 import { loadEvidenceGallery, renderAuditLog, renderLane } from './render-lane.js';
 import { renderSession } from './render-session.js';
-import { activeOrchestratorLaneForSession, restoreContentUiState } from './render-fragments.js';
+import { activeOrchestratorLaneForSession, chatTerminalLaneForSession, restoreContentUiState } from './render-fragments.js';
 import { subscribeLaneStream, unsubscribeLaneStream, fillLaneStream } from './lane-stream.js';
 import { watchOperatorTerminal, stopOperatorTerminalPolling, fillOperatorTerminal } from './operator-terminal.js';
 import { enhanceSelects } from './dropdown.js';
@@ -435,7 +435,7 @@ export function render(uiState = null) {
     && session
     && shell.chatTerminalOpenBySession?.[session.id]
     && shell.chatTerminalTabBySession?.[session.id] !== 'command')
-    ? activeOrchestratorLaneForSession(session)
+    ? chatTerminalLaneForSession(session)
     : null;
   const focusedStreamLane = (shell.route.laneId && lane) ? lane : chatTerminalLane;
   if (focusedStreamLane) {

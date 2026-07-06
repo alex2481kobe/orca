@@ -4,7 +4,7 @@ import { safeNavigate, appendNativeFlag, isNativeApp } from './ui/dom.js';
 import { readSidebarOrder, writeSidebarOrder, orderItems, moveId, toggleProjectExpanded } from './ui/sidebar.js';
 import { api, initializeApiToken, setApiToken, currentActiveProject } from './ui/api.js';
 import { isVerificationProject } from './ui/render-helpers.js';
-import { renderLaneExecutorGuidance, repopulateExecutorScopedControls, captureContentUiState, uploadComposerFiles, renderSession, render, renderSidebarProjects, renderMobileManifest } from './ui/render-views.js';
+import { renderLaneExecutorGuidance, repopulateExecutorScopedControls, captureContentUiState, uploadComposerFiles, renderSession, render, renderSidebarProjects, renderMobileManifest, pinChatTerminalLaneForSession } from './ui/render-views.js';
 import { refresh, showArtifacts, parseRoute, connectEventStream, startPolling, syncAuthSessions } from './ui/controller.js';
 import { handlePrivateAccessSettings, handleNotificationSettings, handleNotificationAction, handleCreatePrivateAccessTarget, handlePrivateAccessAction, handleProviderAction, handleAppBackupAction, handleCleanupSchedule, handleCreateMcpTool, handleAddProjectQuickLink, handleCreateLane, handleOrchestratorMessage, handleLaneControlsUpdate, handleAuditEventAction, handleWorkstationPicker, handleNewSession, handleNewProject, ensureRealSession } from './ui/handlers.js';
 import { handleLaneActions, handleSessionActions, handleSystemActions } from './ui/handlers-actions.js';
@@ -641,6 +641,10 @@ document.addEventListener('click', async (event) => {
     if (sessionId) {
       shell.chatTerminalOpenBySession = shell.chatTerminalOpenBySession || {};
       shell.chatTerminalOpenBySession[sessionId] = !shell.chatTerminalOpenBySession[sessionId];
+      if (shell.chatTerminalOpenBySession[sessionId] && shell.chatTerminalTabBySession?.[sessionId] !== 'command') {
+        const session = shell.sessions.find((item) => item.id === sessionId) || shell.draftSessions?.[sessionId];
+        pinChatTerminalLaneForSession(session);
+      }
       render(captureContentUiState());
     }
     return;
@@ -653,7 +657,22 @@ document.addEventListener('click', async (event) => {
       shell.chatTerminalTabBySession = shell.chatTerminalTabBySession || {};
       shell.chatTerminalTabBySession[sessionId] = tab;
       if (tab === 'command') await refresh();
-      else render(captureContentUiState());
+      else {
+        const session = shell.sessions.find((item) => item.id === sessionId) || shell.draftSessions?.[sessionId];
+        pinChatTerminalLaneForSession(session);
+        render(captureContentUiState());
+      }
+    }
+    return;
+  }
+
+  if (action === 'selectAgentTerminalLane') {
+    const sessionId = actionTarget.dataset.sessionId || shell.route.sessionId;
+    const laneId = actionTarget.dataset.laneId;
+    const session = shell.sessions.find((item) => item.id === sessionId) || shell.draftSessions?.[sessionId];
+    if (session && laneId) {
+      pinChatTerminalLaneForSession(session, laneId);
+      render(captureContentUiState());
     }
     return;
   }

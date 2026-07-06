@@ -2,6 +2,7 @@
 
 import { buildApprovedActionBody, toObj } from './handlers-config.js';
 import { composerAttachmentsFor } from './render-session-parts.js';
+import { pinChatTerminalLaneForSession } from './render-fragments.js';
 import { renderAlert, safeNavigate } from './dom.js';
 import { normalizeExecutorType } from './executor.js';
 import { api } from './api.js';
@@ -98,6 +99,10 @@ export async function handleOrchestratorMessage(event) {
     return;
   }
   if (response.ok) {
+    if (executionMode === 'terminal' && response.data?.lane?.id) {
+      const realSession = shell.sessions.find((item) => item.id === sessionId);
+      pinChatTerminalLaneForSession(realSession, response.data.lane.id);
+    }
     composerAttachmentsFor(sessionId).length = 0; // clear attached files after send
     await refresh();
   } else {

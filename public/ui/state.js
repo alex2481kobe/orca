@@ -46,6 +46,7 @@ export const shell = {
   // browser watches the run, not the session contract.
   chatTerminalOpenBySession: {},
   chatTerminalTabBySession: {},
+  chatTerminalAgentLaneBySession: {},
   operatorTerminalsBySession: {},
   operatorTerminalActiveBySession: {},
   operatorTerminalOffsets: {},
