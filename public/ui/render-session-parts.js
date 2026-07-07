@@ -2,7 +2,7 @@
 
 import { formatRelative, safeAttr, safeText, stateBadge } from './format.js';
 import { agentEventLabel, isLaneStoppable, isLiveLaneState, isRestartableLaneState, pendingAuditsForSession } from './render-helpers.js';
-import { activeOrchestratorLaneForSession, assistantEventTranscriptText, chatTerminalLaneForSession, intelligenceOptionsFor, orchestratorLanesForSession, renderAgentEventTimeline, runModeOptionsFor } from './render-fragments.js';
+import { activeOrchestratorLaneForSession, assistantEventTranscriptText, chatTerminalLaneForSession, intelligenceOptionsFor, renderAgentEventTimeline, runModeOptionsFor } from './render-fragments.js';
 import { shell } from './state.js';
 import { renderAlert, writeHtml } from './dom.js';
 import { api } from './api.js';
@@ -185,7 +185,7 @@ function renderChatRunMeta(lane, working) {
         <span>${safeText(label)}</span>
         ${bits ? `<span class="chat-run-bits">${bits}</span>` : ''}
       </span>
-      <button class="chat-run-terminal-action" data-action="showLaneTerminal" data-session-id="${safeAttr(lane.sessionId || '')}" data-lane-id="${safeAttr(lane.id)}" type="button" title="Show this turn in Terminal" aria-label="Show this turn in Terminal">
+      <button class="chat-run-terminal-action" data-action="showLaneTerminal" data-session-id="${safeAttr(lane.sessionId || '')}" data-lane-id="${safeAttr(lane.id)}" type="button" title="View live output" aria-label="View live output">
         ${icon('terminal', { size: 14 })}
       </button>
     </div>
@@ -206,8 +206,8 @@ function renderTerminalChatSnippet(lane, working, { compact = false } = {}) {
   return `
     <div class="terminal-chat-receipt muted${compact ? ' compact' : ''}" data-lane-id="${safeAttr(lane.id)}">
       ${safeText(working
-        ? 'Native CLI is open in Terminal view. Switch back there to interact with the session.'
-        : 'Terminal transcript is available in Terminal view.')}
+        ? 'Live CLI output is available for this session.'
+        : 'Terminal transcript is available for this session.')}
     </div>
   `;
 }
@@ -334,58 +334,31 @@ export function renderChatTerminalInner(session) {
   const { terminals } = operatorTerminalRecords(session.id);
   const activeTerminalId = shell.operatorTerminalActiveBySession?.[session.id] || terminals.find((item) => item.state === 'running')?.id || terminals[0]?.id || '';
   const activeTerminal = terminals.find((item) => item.id === activeTerminalId) || terminals[0] || null;
-  const activeTab = !agentLane || shell.chatTerminalTabBySession?.[session.id] === 'command' ? 'command' : 'agent';
-  const agentLabel = agentLane ? (agentLane.executorType || 'agent') : 'orca';
-  const commandLabel = activeTerminal?.title || 'terminal';
-  const tabButtons = [
-    agentLane ? `
-      <button class="${activeTab === 'agent' ? 'active' : ''}" data-action="setChatTerminalTab" data-session-id="${safeAttr(session.id)}" data-tab="agent" type="button" role="tab" aria-selected="${activeTab === 'agent' ? 'true' : 'false'}">
-        ${icon('terminal', { size: 15 })}<span>${safeText(agentLabel)}</span>
-      </button>
-    ` : '',
-    `
-      <button class="${activeTab === 'command' ? 'active' : ''}" data-action="setChatTerminalTab" data-session-id="${safeAttr(session.id)}" data-tab="command" type="button" role="tab" aria-selected="${activeTab === 'command' ? 'true' : 'false'}">
-        ${icon('terminal', { size: 15 })}<span>${safeText(commandLabel)}</span>
-      </button>
-    `,
-  ].filter(Boolean).join('');
-  const tabs = `
-    <div class="chat-terminal-tabs" role="tablist" aria-label="Terminal views">
-      ${tabButtons}
-    </div>
-  `;
-  return activeTab === 'command'
-    ? `${tabs}${renderOperatorTerminalInner(session)}`
-    : `${tabs}${renderAgentTerminalInner(session)}`;
+  const explicitCommand = shell.chatTerminalTabBySession?.[session.id] === 'command';
+  return (activeTerminal && (explicitCommand || !agentLane) && !agentLane?.processMeta?.attachedOperatorTerminalId)
+    ? renderOperatorTerminalInner(session)
+    : renderAgentTerminalInner(session);
 }
 
 function renderAgentTerminalInner(session) {
   const lane = chatTerminalLaneForSession(session);
-  const lanes = orchestratorLanesForSession(session).slice(-8);
   if (!lane) {
     return `
       <div class="chat-terminal-empty">
-        <strong>No agent terminal yet.</strong>
+        <strong>No live output yet.</strong>
         <span>Send a message to start an orchestrator lane, then this view will show its live terminal output.</span>
       </div>
     `;
   }
-  const laneTabs = lanes.length > 1 ? `
-    <div class="operator-terminal-tabs agent-terminal-lane-tabs" role="tablist" aria-label="Agent terminal lanes">
-      ${lanes.map((item, index) => `
-        <button class="${item.id === lane.id ? 'active' : ''}" data-action="selectAgentTerminalLane" data-session-id="${safeAttr(session.id)}" data-lane-id="${safeAttr(item.id)}" type="button" role="tab" aria-selected="${item.id === lane.id ? 'true' : 'false'}" title="${safeAttr(item.title || item.id)}">
-          <span>${safeText(`#${index + 1} ${item.executorType || 'agent'}`)}</span>
-          ${stateBadge(item.state || 'unknown')}
-        </button>
-      `).join('')}
-    </div>
-  ` : '';
+  const attachedNative = Boolean(lane.processMeta?.attachedOperatorTerminalId);
+  const title = attachedNative
+    ? `${lane.executorType || 'agent'} terminal agent`
+    : (lane.executorType || 'agent');
   return `
     <div class="agent-terminal-shell">
-      ${laneTabs}
       <div class="chat-terminal-head compact" data-lane-id="${safeAttr(lane.id)}">
         <div>
-          <strong>${safeText(lane.executorType || 'agent')}</strong>
+          <strong>${safeText(title)}</strong>
           <div class="chat-terminal-meta">
             <span>${safeText(lane.title || lane.id)}</span>
             ${stateBadge(lane.state || 'unknown')}
@@ -411,21 +384,21 @@ function renderOperatorTerminalInner(session) {
   const activeId = shell.operatorTerminalActiveBySession?.[session.id] || terminals.find((item) => item.state === 'running')?.id || terminals[0]?.id || '';
   const active = terminals.find((item) => item.id === activeId) || terminals[0] || null;
   const accessError = record?.error || '';
-  const tabButtons = terminals.map((terminal) => `
+  const tabButtons = terminals.length > 1 ? terminals.map((terminal) => `
     <button class="${terminal.id === active?.id ? 'active' : ''}" data-action="selectOperatorTerminal" data-session-id="${safeAttr(session.id)}" data-terminal-id="${safeAttr(terminal.id)}" type="button">
       <span>${safeText(terminal.title || 'Terminal')}</span>
       ${stateBadge(terminal.state || 'unknown')}
     </button>
-  `).join('');
+  `).join('') : '';
   if (!active) {
     return `
       <div class="operator-terminal-shell">
         <div class="operator-terminal-toolbar">
           <div class="operator-terminal-tabs">${tabButtons}</div>
-          <button class="secondary terminal-action-button" data-action="startOperatorTerminal" data-session-id="${safeAttr(session.id)}" type="button" title="New terminal">${icon('plus', { size: 15 })}<span>New terminal</span></button>
+          <button class="secondary terminal-action-button" data-action="startOperatorTerminal" data-session-id="${safeAttr(session.id)}" type="button" title="New shell">${icon('plus', { size: 15 })}<span>New shell</span></button>
         </div>
         <div class="chat-terminal-empty">
-          <strong>${accessError ? 'Command terminal unavailable.' : 'No command terminal yet.'}</strong>
+          <strong>${accessError ? 'Shell unavailable.' : 'No shell yet.'}</strong>
           <span>${safeText(accessError || 'Start a terminal to run commands in this session folder.')}</span>
         </div>
       </div>
@@ -436,11 +409,13 @@ function renderOperatorTerminalInner(session) {
     <div class="operator-terminal-shell">
       <div class="operator-terminal-toolbar">
         <div class="operator-terminal-tabs">${tabButtons}</div>
-        <button class="secondary terminal-action-button" data-action="startOperatorTerminal" data-session-id="${safeAttr(session.id)}" type="button" title="New terminal">${icon('plus', { size: 15 })}<span>New terminal</span></button>
+        <button class="secondary terminal-action-button" data-action="startOperatorTerminal" data-session-id="${safeAttr(session.id)}" type="button" title="New shell">${icon('plus', { size: 15 })}<span>New shell</span></button>
       </div>
       <div class="chat-terminal-head compact">
         <div>
-          <strong>${safeText(active.title || 'terminal')}</strong>
+          <strong>${safeText(active.agentBridge?.state === 'active' && active.agentBridge?.executorType
+            ? `${active.agentBridge.executorType} terminal agent`
+            : (active.title || 'shell'))}</strong>
           <div class="chat-terminal-meta">
             <span title="${safeAttr(active.cwd || '')}">${safeText(active.shell || 'shell')}${active.cwd ? ` · ${safeText(compactPath(active.cwd))}` : ''}</span>
             ${stateBadge(active.state || 'unknown')}
@@ -489,7 +464,7 @@ export function renderOrchestratorConsole(session) {
   return `
     <article class="chat${locked ? '' : ' chat--empty'}">
       <div class="chat-thread" id="chat-thread-${safeAttr(session.id)}"></div>
-      <div class="chat-terminal" id="chat-terminal-${safeAttr(session.id)}" aria-label="Agent terminal"></div>
+      <div class="chat-terminal" id="chat-terminal-${safeAttr(session.id)}" aria-label="Live session terminal"></div>
       <form id="orchestrator-message-form" data-session-id="${safeAttr(session.id)}" class="composer composer-shell">
         <div id="composer-attachments-${safeAttr(session.id)}" class="composer-attachments">${renderComposerAttachmentChips(session.id)}</div>
         <textarea name="message" rows="1" placeholder="Do anything"></textarea>

@@ -78,6 +78,20 @@ export async function handleOperatorTerminalRoutes(ctx, req, res, method, parts)
     }
   }
 
+  if (terminalRoute && parts.length === 4 && parts[3] === 'message' && method === 'POST') {
+    const body = await parseJsonBody(req);
+    if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return undefined;
+    try {
+      const terminal = operatorTerminals.writeAgentMessage(parts[2], body.message, {
+        actor: body.actor || 'dashboard',
+      });
+      return sendJson(res, 200, terminal);
+    } catch (error) {
+      return sendJson(res, error.status || 500, { error: error.message || 'Could not send terminal agent message.' });
+    }
+  }
+
   if (terminalRoute && parts.length === 4 && parts[3] === 'resize' && method === 'POST') {
     const body = await parseJsonBody(req);
     if (body === null) return sendBodyError(req, res);

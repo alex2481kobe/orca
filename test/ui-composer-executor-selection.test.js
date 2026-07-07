@@ -132,7 +132,58 @@ test('terminal view shows only real terminal tabs before an agent lane exists', 
   });
 
   assert.doesNotMatch(html, /data-tab="agent"/);
+  assert.doesNotMatch(html, /data-tab="command"/);
+  assert.doesNotMatch(html, /chat-terminal-tabs/);
   assert.doesNotMatch(html, />orca<\/span>/);
-  assert.match(html, />command-deck<\/span>/);
+  assert.match(html, /<strong>command-deck<\/strong>/);
   assert.doesNotMatch(html, /Command tab/);
+});
+
+test('terminal view prefers an attached native agent lane over the raw shell', async () => {
+  installBrowserGlobals();
+  const [{ shell }, { renderChatTerminalInner }] = await Promise.all([
+    import('../public/ui/state.js'),
+    import('../public/ui/render-session-parts.js'),
+  ]);
+  installExecutorProfiles(shell);
+  shell.chatTerminalTabBySession = { 'session-attached-lane': 'command' };
+  shell.operatorTerminalsBySession = {
+    'session-attached-lane': {
+      terminals: [{
+        id: 'terminal-attached',
+        title: 'command-deck',
+        state: 'running',
+        shell: 'zsh',
+        cwd: '/repo',
+        agentBridge: { state: 'active', executorType: 'codex', activeLaneId: 'lane-attached' },
+      }],
+    },
+  };
+  shell.operatorTerminalActiveBySession = { 'session-attached-lane': 'terminal-attached' };
+  shell.lanes = [{
+    id: 'lane-attached',
+    sessionId: 'session-attached-lane',
+    projectId: 'project-1',
+    owner: 'orchestrator',
+    executorType: 'codex',
+    title: 'command-deck',
+    state: 'running',
+    presentationMode: 'terminal',
+    processMeta: {
+      terminalWrapper: 'pty',
+      attachedOperatorTerminalId: 'terminal-attached',
+    },
+  }];
+
+  const html = renderChatTerminalInner({
+    id: 'session-attached-lane',
+    projectId: 'project-1',
+    leader: 'codex',
+    orchestratorThread: { messages: [], laneIds: ['lane-attached'], activeLaneId: 'lane-attached' },
+  });
+
+  assert.match(html, /codex terminal agent/);
+  assert.match(html, /lane-stream-lane-attached/);
+  assert.doesNotMatch(html, /operator-terminal-stream-terminal-attached/);
+  assert.doesNotMatch(html, /data-tab="command"/);
 });

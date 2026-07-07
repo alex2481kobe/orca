@@ -2,7 +2,7 @@
 
 import { refs, shell } from './state.js';
 import { writeHtml } from './dom.js';
-import { activeOrchestratorLaneForSession, renderLaneExecutorGuidance } from './render-fragments.js';
+import { activeOrchestratorLaneForSession, chatTerminalLaneForSession, renderLaneExecutorGuidance } from './render-fragments.js';
 import { safeText, safeAttr } from './format.js';
 import { icon } from './icons.js';
 import { renderExecutorSidePanel, renderOrchestratorConsole, renderChatThreadInner, renderChatTerminalInner, renderExecutorListInner, renderOrchestratorPanelInner } from './render-session-parts.js';
@@ -71,7 +71,8 @@ export function renderSession(project, session) {
   if (shellEl) {
     shellEl.classList.toggle('info-open', panelOpen);
     const terminalOpen = Boolean(shell.chatTerminalOpenBySession?.[sid]);
-    const commandTerminalOpen = terminalOpen && shell.chatTerminalTabBySession?.[sid] === 'command';
+    const terminalLane = terminalOpen ? chatTerminalLaneForSession(session) : null;
+    const commandTerminalOpen = terminalOpen && shell.chatTerminalTabBySession?.[sid] === 'command' && !terminalLane;
     shellEl.classList.toggle('chat-terminal-open', terminalOpen);
     shellEl.classList.toggle('chat-command-terminal-open', commandTerminalOpen);
     const chatEl = shellEl.querySelector('.chat');

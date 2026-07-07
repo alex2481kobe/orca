@@ -73,6 +73,7 @@ const ADMIN_ROUTE_KEYS = new Set([
   'GET /api/terminals/{terminalId}',
   'GET /api/terminals/{terminalId}/tail',
   'POST /api/terminals/{terminalId}/input',
+  'POST /api/terminals/{terminalId}/message',
   'POST /api/terminals/{terminalId}/resize',
   'POST /api/terminals/{terminalId}/stop',
 ]);

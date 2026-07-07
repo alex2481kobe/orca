@@ -13,6 +13,10 @@ const TERMINAL_TAIL_DEFAULT_BYTES = 32 * 1024;
 const TERMINAL_TAIL_MAX_BYTES = 128 * 1024;
 
 function laneTerminalLogPath(lane) {
+  const attachedTerminalId = String(lane?.processMeta?.attachedOperatorTerminalId || '').trim();
+  if (attachedTerminalId && /^[A-Za-z0-9_-]+$/.test(attachedTerminalId)) {
+    return path.join(process.cwd(), 'artifacts', String(lane.sessionId || 'orphan'), 'operator-terminals', attachedTerminalId, 'terminal.log');
+  }
   return path.join(process.cwd(), 'artifacts', String(lane.sessionId || 'orphan'), String(lane.id), 'terminal.log');
 }
 

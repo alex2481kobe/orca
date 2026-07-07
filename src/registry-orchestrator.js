@@ -4,7 +4,8 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { nowIso, clonePayload, normalizeExecutorType, isPathWithinBoundary } from './registry-utils.js';
+import { nowIso, clonePayload, normalizeExecutorType, isPathWithinBoundary, buildLaneRoute } from './registry-utils.js';
+import { LANE_STATES } from './worker-contract.js';
 import { FIRST_CLASS_CLI_EXECUTOR_TYPES } from './executor-factory.js';
 import { buildNextActionEnvelope, findTool } from './agent-tools.js';
 import { renderLaneTree } from './render-lane-tree.js';
@@ -17,6 +18,7 @@ import {
 } from './orchestrator-turn-policy.js';
 
 const MAX_ORCHESTRATOR_THREAD_MESSAGES = 500;
+const { RUNNING: RUNNING_STATE } = LANE_STATES;
 // An active orchestrator that hasn't called a tool in this long is considered
 // stale, so a fresh chat can take over without forcing an explicit takeover.
 const ORCHESTRATOR_STALE_MS = 15 * 60 * 1000;
@@ -471,6 +473,184 @@ export const orchestratorMethods = {
     });
   },
 
+  attachNativeAgentTerminal(sessionLocator, {
+    terminalId = '',
+    executorType = '',
+    cwd = '',
+    pid = null,
+    cols = null,
+    rows = null,
+    actor = 'operator-terminal',
+    leaseId = 'dashboard',
+    title = '',
+  } = {}) {
+    const session = this.getSession(sessionLocator);
+    if (!session) throw { status: 404, message: 'Session not found.' };
+    const normalizedTerminalId = safeChatText(terminalId, 120);
+    if (!/^[A-Za-z0-9_-]+$/.test(normalizedTerminalId)) {
+      throw { status: 422, message: 'Terminal id is invalid.' };
+    }
+    const normalizedExecutorType = normalizeExecutorType(executorType);
+    const supported = this.getSupportedExecutorTypes();
+    if (!supported.includes(normalizedExecutorType)) {
+      throw {
+        status: 422,
+        message: `Terminal agent executorType must be one of: ${supported.join(', ')}.`,
+      };
+    }
+
+    const project = this.getProject(session.projectId);
+    const thread = this.ensureOrchestratorThread(session);
+    const now = nowIso();
+    const workdir = this.resolveLaneWorkdir(session, cwd || session.repoRoot || session.worktreeRoot);
+    let lane = (this.lanes || []).find((item) =>
+      item.sessionId === session.id
+      && item.owner === 'orchestrator'
+      && item.processMeta?.attachedOperatorTerminalId === normalizedTerminalId
+      && ['starting', 'running'].includes(String(item.state || '').toLowerCase()));
+    const isNew = !lane;
+
+    if (!lane) {
+      const laneId = randomUUID();
+      lane = {
+        id: laneId,
+        projectId: session.projectId,
+        sessionId: session.id,
+        title: `${normalizedExecutorType} terminal`,
+        taskDescription: 'Native terminal orchestrator session.',
+        executorType: normalizedExecutorType,
+        command: null,
+        commandArgs: [],
+        args: undefined,
+        executorBinary: null,
+        workdir,
+        policyProfile: 'default',
+        settingsOverrides: {},
+        mcpTools: [],
+        mcpToolIds: [],
+        taskPrompt: '',
+        model: '',
+        permissionsProfile: '',
+        intelligenceProfile: '',
+        speed: '',
+        presentationMode: 'terminal',
+        executorCapabilities: this.getExecutorCapabilities(normalizedExecutorType),
+        verificationCommand: '',
+        expectedArtifacts: [],
+        targetUrl: '',
+        repoRoot: session.repoRoot || '',
+        branch: '',
+        sharedWorktree: true,
+        worktreeMode: 'direct',
+        worktreePath: workdir,
+        state: RUNNING_STATE,
+        owner: 'orchestrator',
+        heartbeatAt: now,
+        createdAt: now,
+        updatedAt: now,
+        startedAt: now,
+        completedAt: null,
+        exitReason: null,
+        processMeta: null,
+        changedFiles: [],
+        lastEvidenceCaptureAt: null,
+        lastEvidence: null,
+        critiqueMode: 'not_required',
+        critiqueState: 'not_required',
+        critiqueRevision: 1,
+        critiqueNonce: null,
+        critiqueFindings: [],
+        auditState: 'not_queued',
+        auditFindings: [],
+        auditTargetLaneId: null,
+        metadataTaskId: null,
+        metadataLoopId: null,
+        turnPolicy: null,
+        route: buildLaneRoute(project?.slug || 'project', session.id, laneId),
+        runProfile: {
+          autoCompleteMs: this.autoCompleteMs,
+          heartbeatIntervalMs: this.heartbeatIntervalMs,
+        },
+        logs: [],
+        agentEvents: [],
+        artifactPath: `/artifacts/${session.id}/${laneId}`,
+      };
+      if (project) {
+        lane.projectSlug = project.slug;
+        lane.projectName = project.name;
+      }
+      this.lanes.push(lane);
+    }
+
+    lane.title = safeChatText(title, 80) || lane.title || `${normalizedExecutorType} terminal`;
+    lane.executorType = normalizedExecutorType;
+    lane.presentationMode = 'terminal';
+    lane.state = RUNNING_STATE;
+    lane.workdir = workdir;
+    lane.worktreePath = workdir;
+    lane.heartbeatAt = now;
+    lane.startedAt = lane.startedAt || now;
+    lane.updatedAt = now;
+    lane.completedAt = null;
+    lane.exitReason = null;
+    lane.processMeta = {
+      ...(lane.processMeta || {}),
+      pid: Number.isFinite(Number(pid)) ? Number(pid) : null,
+      terminalWrapper: 'pty',
+      attachedOperatorTerminalId: normalizedTerminalId,
+      managedBy: 'operator-terminal',
+      cwd: workdir,
+      cols: Number.isFinite(Number(cols)) ? Number(cols) : null,
+      rows: Number.isFinite(Number(rows)) ? Number(rows) : null,
+      startedAt: lane.processMeta?.startedAt || now,
+      endedAt: null,
+      exitCode: null,
+      signal: null,
+    };
+    if (isNew) {
+      lane.logs = [{
+        at: now,
+        message: `Native ${normalizedExecutorType} terminal attached.`,
+      }];
+      lane.agentEvents = [{
+        id: randomUUID(),
+        at: now,
+        type: 'agent.started',
+        source: normalizedExecutorType,
+        title: 'Native terminal attached',
+        content: `Attached native ${normalizedExecutorType} terminal orchestrator.`,
+      }];
+      this.recordAudit({
+        type: 'operator_terminal_agent_attached',
+        actor: safeChatText(actor, 120) || 'operator-terminal',
+        projectId: session.projectId,
+        sessionId: session.id,
+        laneId: lane.id,
+        summary: `Native ${normalizedExecutorType} terminal attached as orchestrator lane`,
+        status: 'passed',
+        evidence: { terminalId: normalizedTerminalId, executorType: normalizedExecutorType, pid: lane.processMeta.pid },
+      });
+    }
+
+    thread.laneIds = [...new Set([...(Array.isArray(thread.laneIds) ? thread.laneIds : []), lane.id])].slice(-100);
+    thread.activeLaneId = lane.id;
+    thread.executorType = normalizedExecutorType;
+    thread.updatedAt = now;
+    this.enrollOrchestrator(session.id, {
+      leaseId,
+      actor: safeChatText(actor, 120) || `${normalizedExecutorType}:${normalizedTerminalId.slice(0, 8)}`,
+      source: 'terminal',
+      takeover: true,
+    });
+    this.persistState();
+    return {
+      attached: true,
+      laneId: lane.id,
+      lane: clonePayload(lane),
+      activeOrchestrator: this.publicActiveOrchestrator(thread.activeOrchestrator || null, session),
+    };
+  },
+
   notifyOrchestratorManualLaneStop(lane, actor = 'dashboard', reason = '') {
     if (!lane || lane.owner === 'orchestrator') return;
     if (!['dashboard', 'operator', 'user'].includes(String(actor || '').toLowerCase())) return;
@@ -510,6 +690,58 @@ export const orchestratorMethods = {
       try { if (this.getExecutorCapabilities(type)?.binaryExists) return type; } catch { /* keep looking */ }
     }
     return supported.includes('codex') ? 'codex' : 'mock';
+  },
+
+  findActiveInteractiveOrchestratorLane(sessionLocator) {
+    const session = this.getSession(sessionLocator);
+    if (!session) return null;
+    const thread = this.ensureOrchestratorThread(session);
+    const lanesById = new Map((this.lanes || []).map((lane) => [lane.id, lane]));
+    const candidates = [];
+    const push = (lane) => {
+      if (!lane || lane.sessionId !== session.id || lane.owner !== 'orchestrator') return;
+      if (candidates.some((item) => item.id === lane.id)) return;
+      candidates.push(lane);
+    };
+    if (thread.activeLaneId) push(lanesById.get(thread.activeLaneId));
+    const laneIds = Array.isArray(thread.laneIds) ? thread.laneIds : [];
+    for (let i = laneIds.length - 1; i >= 0; i -= 1) push(lanesById.get(laneIds[i]));
+    (this.lanes || [])
+      .filter((lane) => lane.sessionId === session.id && lane.owner === 'orchestrator')
+      .sort((a, b) => Date.parse(b.updatedAt || b.startedAt || b.createdAt || 0) - Date.parse(a.updatedAt || a.startedAt || a.createdAt || 0))
+      .forEach(push);
+    return candidates.find((lane) =>
+      ['starting', 'running'].includes(String(lane.state || '').toLowerCase())
+      && String(lane.presentationMode || '').toLowerCase() === 'terminal'
+      && lane.processMeta?.terminalWrapper === 'pty'
+      && !lane.processMeta?.endedAt) || null;
+  },
+
+  appendOrchestratorRuntimeUserMessage(session, {
+    text = '',
+    lane = null,
+    terminalId = '',
+    source = 'lane-terminal',
+  } = {}) {
+    const thread = this.ensureOrchestratorThread(session);
+    const now = nowIso();
+    const message = {
+      id: randomUUID(),
+      role: 'user',
+      content: safeChatText(text),
+      laneId: lane?.id || null,
+      source,
+      terminalId: terminalId || null,
+      createdAt: now,
+    };
+    this.appendOrchestratorThreadMessage(thread, message);
+    if (lane?.id) {
+      thread.laneIds = [...new Set([...(Array.isArray(thread.laneIds) ? thread.laneIds : []), lane.id])].slice(-100);
+      thread.activeLaneId = lane.id;
+      thread.executorType = lane.executorType || thread.executorType || null;
+    }
+    thread.updatedAt = now;
+    return message;
   },
 
   async sendOrchestratorMessage(sessionLocator, {
@@ -587,6 +819,52 @@ export const orchestratorMethods = {
     const project = this.getProject(session.projectId);
     const thread = this.ensureOrchestratorThread(session);
     const now = nowIso();
+    const activeRuntimeLane = !attachmentList.length && !context.forceNewTurn
+      ? this.findActiveInteractiveOrchestratorLane(session.id)
+      : null;
+    if (activeRuntimeLane) {
+      const terminalId = activeRuntimeLane.processMeta?.attachedOperatorTerminalId || '';
+      const userMessage = this.appendOrchestratorRuntimeUserMessage(session, {
+        text,
+        lane: activeRuntimeLane,
+        terminalId,
+        source: terminalId ? 'terminal' : 'lane-terminal',
+      });
+      try {
+        this.writeLaneTerminalInput(activeRuntimeLane.id, {
+          input: text,
+          raw: false,
+          actor: context.actor || 'dashboard',
+        });
+      } catch (error) {
+        thread.messages = thread.messages.filter((entry) => entry.id !== userMessage.id);
+        throw error;
+      }
+      this.recordAudit({
+        type: 'orchestrator_message_routed_to_terminal',
+        actor: context.actor || 'dashboard',
+        projectId: session.projectId,
+        sessionId: session.id,
+        laneId: activeRuntimeLane.id,
+        summary: `Routed chat message to active ${activeRuntimeLane.executorType} terminal orchestrator`,
+        status: 'passed',
+        evidence: {
+          messageId: userMessage.id,
+          executorType: activeRuntimeLane.executorType,
+          terminalId: terminalId || null,
+        },
+      });
+      this.persistState();
+      return clonePayload({
+        thread,
+        message: userMessage,
+        lane: activeRuntimeLane,
+        routedTo: 'active_terminal',
+        turnPolicy: null,
+        allowedTools: [],
+      });
+    }
+
     const userMessage = {
       id: randomUUID(),
       role: 'user',

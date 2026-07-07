@@ -433,8 +433,7 @@ export function render(uiState = null) {
   // cheap while still offering the familiar CLI view inside the chat.
   const chatTerminalLane = (!shell.route.laneId
     && session
-    && shell.chatTerminalOpenBySession?.[session.id]
-    && shell.chatTerminalTabBySession?.[session.id] !== 'command')
+    && shell.chatTerminalOpenBySession?.[session.id])
     ? chatTerminalLaneForSession(session)
     : null;
   const focusedStreamLane = (shell.route.laneId && lane) ? lane : chatTerminalLane;
@@ -447,7 +446,8 @@ export function render(uiState = null) {
   const commandTerminalOpen = !shell.route.laneId
     && session
     && shell.chatTerminalOpenBySession?.[session.id]
-    && shell.chatTerminalTabBySession?.[session.id] === 'command';
+    && shell.chatTerminalTabBySession?.[session.id] === 'command'
+    && !chatTerminalLane;
   if (commandTerminalOpen) {
     const terminals = shell.operatorTerminalsBySession?.[session.id]?.terminals || [];
     const activeId = shell.operatorTerminalActiveBySession?.[session.id]

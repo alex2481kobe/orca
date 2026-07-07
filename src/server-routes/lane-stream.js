@@ -18,6 +18,10 @@ export function createLaneStream(deps) {
   function laneTerminalLogPath(lane) {
     // Mirror the executor's runtimeDir (cli-adapter.js). lane.id/sessionId come
     // from the registry (not raw URL), so the path can't be traversal-controlled.
+    const attachedTerminalId = String(lane?.processMeta?.attachedOperatorTerminalId || '').trim();
+    if (attachedTerminalId && /^[A-Za-z0-9_-]+$/.test(attachedTerminalId)) {
+      return path.join(process.cwd(), 'artifacts', String(lane.sessionId || 'orphan'), 'operator-terminals', attachedTerminalId, 'terminal.log');
+    }
     return path.join(process.cwd(), 'artifacts', String(lane.sessionId || 'orphan'), String(lane.id), 'terminal.log');
   }
 

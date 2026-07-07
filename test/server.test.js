@@ -361,6 +361,9 @@ test('operator command terminals wrap manual codex with Orca MCP lease and enrol
     '    *) printf "%s\\n" "$arg" ;;',
     '  esac',
     'done',
+    'while IFS= read -r line; do',
+    '  [ "$line" = "__ORCA_FAKE_EXIT__" ] && exit 0',
+    'done',
     '',
   ].join('\n'));
   await fs.chmod(fakeCodex, 0o755);
@@ -417,6 +420,7 @@ test('operator command terminals wrap manual codex with Orca MCP lease and enrol
     assert.equal(terminal.status, 200);
     assert.equal(terminal.body.agentBridge.state, 'active');
     assert.equal(terminal.body.agentBridge.executorType, 'codex');
+    assert.ok(terminal.body.agentBridge.activeLaneId);
 
     const status = await server.requestJson(`/api/sessions/${session.body.id}/orchestrator/status`, {
       method: 'GET',
@@ -426,6 +430,129 @@ test('operator command terminals wrap manual codex with Orca MCP lease and enrol
     assert.equal(status.body.activeOrchestrator.active, true);
     assert.equal(status.body.activeOrchestrator.source, 'terminal');
     assert.match(status.body.activeOrchestrator.actor, /^codex:/);
+    const statusLane = status.body.lanes.find((lane) => lane.id === terminal.body.agentBridge.activeLaneId);
+    assert.ok(statusLane);
+    assert.equal(statusLane.processMeta.attachedOperatorTerminalId, started.body.id);
+  } finally {
+    await server.stop();
+    await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
+  }
+});
+
+test('operator terminal agent messages are delivered to the active native CLI and recorded in chat', async () => {
+  const token = 'terminal-agent-message-token';
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-terminal-agent-message-'));
+  const fakeCodex = path.join(tempDir, 'codex-real');
+  await fs.writeFile(fakeCodex, [
+    '#!/bin/sh',
+    'printf "__ORCA_FAKE_CODEX_READY__\\n"',
+    'while IFS= read -r line; do',
+    '  [ "$line" = "exit-now" ] && exit 7',
+    '  printf "__ORCA_FAKE_CODEX_INPUT__%s\\n" "$line"',
+    'done',
+    '',
+  ].join('\n'));
+  await fs.chmod(fakeCodex, 0o755);
+  const server = await startServer({
+    token,
+    env: {
+      ORCA_CODEX_BINARY: fakeCodex,
+      ORCA_CODEX_ALLOWED_BINARIES: fakeCodex,
+    },
+  });
+
+  try {
+    const project = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Terminal Message Project', approved: true },
+    });
+    assert.equal(project.status, 201);
+    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { name: 'Terminal Message Session', approved: true },
+    });
+    assert.equal(session.status, 201);
+
+    const started = await server.requestJson(`/api/sessions/${session.body.id}/terminals`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { title: 'native-agent', actor: 'dashboard', cols: 100, rows: 28 },
+    });
+    assert.equal(started.status, 201);
+
+    const launched = await server.requestJson(`/api/terminals/${started.body.id}/input`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { input: 'codex', actor: 'dashboard' },
+    });
+    assert.equal(launched.status, 200);
+    await waitForTerminalText(server, started.body.id, token, /__ORCA_FAKE_CODEX_READY__/);
+
+    const sent = await server.requestJson(`/api/terminals/${started.body.id}/message`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { message: 'hello native terminal agent', actor: 'dashboard' },
+    });
+    assert.equal(sent.status, 200);
+    assert.equal(sent.body.agentBridge.state, 'active');
+    assert.equal(sent.body.agentBridge.executorType, 'codex');
+    assert.ok(sent.body.agentBridge.activeLaneId);
+
+    const tail = await waitForTerminalText(server, started.body.id, token, /__ORCA_FAKE_CODEX_INPUT__hello native terminal agent/);
+    assert.match(tail.body.text, /__ORCA_FAKE_CODEX_INPUT__hello native terminal agent/);
+    const laneTail = await waitForLaneTerminalText(server, sent.body.agentBridge.activeLaneId, token, /__ORCA_FAKE_CODEX_INPUT__hello native terminal agent/);
+    assert.equal(laneTail.status, 200);
+
+    const thread = await server.requestJson(`/api/sessions/${session.body.id}/orchestrator`, {
+      method: 'GET',
+      headers: { 'x-orca-token': token },
+    });
+    assert.equal(thread.status, 200);
+    const userTurn = thread.body.messages.find((message) => message.role === 'user' && message.terminalId === started.body.id);
+    assert.equal(userTurn.content, 'hello native terminal agent');
+    assert.equal(userTurn.source, 'terminal');
+    assert.equal(userTurn.laneId, sent.body.agentBridge.activeLaneId);
+
+    const lanesBefore = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'GET',
+      headers: { 'x-orca-token': token },
+    });
+    assert.equal(lanesBefore.status, 200);
+    const routed = await server.requestJson(`/api/sessions/${session.body.id}/orchestrator/messages`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { message: 'second message through canonical chat', executorType: 'codex', approved: true },
+    });
+    assert.equal(routed.status, 201);
+    assert.equal(routed.body.routedTo, 'active_terminal');
+    assert.equal(routed.body.lane.id, sent.body.agentBridge.activeLaneId);
+    const secondTail = await waitForTerminalText(server, started.body.id, token, /__ORCA_FAKE_CODEX_INPUT__second message through canonical chat/);
+    assert.match(secondTail.body.text, /__ORCA_FAKE_CODEX_INPUT__second message through canonical chat/);
+    const lanesAfter = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+      method: 'GET',
+      headers: { 'x-orca-token': token },
+    });
+    assert.equal(lanesAfter.status, 200);
+    assert.equal(lanesAfter.body.length, lanesBefore.body.length);
+
+    const exitTurn = await server.requestJson(`/api/sessions/${session.body.id}/orchestrator/messages`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { message: 'exit-now', executorType: 'codex', approved: true },
+    });
+    assert.equal(exitTurn.status, 201);
+    const exitedLane = await waitForLaneState(server, sent.body.agentBridge.activeLaneId, token, (lane) => lane?.state === 'failed');
+    assert.equal(exitedLane.status, 200);
+    assert.equal(exitedLane.body.state, 'failed');
+    const terminalAfterExit = await server.requestJson(`/api/terminals/${started.body.id}`, {
+      method: 'GET',
+      headers: { 'x-orca-token': token },
+    });
+    assert.equal(terminalAfterExit.status, 200);
+    assert.equal(terminalAfterExit.body.agentBridge.state, 'ready');
+    assert.equal(terminalAfterExit.body.agentBridge.activeLaneId, null);
   } finally {
     await server.stop();
     await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });

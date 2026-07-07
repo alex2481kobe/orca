@@ -13,6 +13,7 @@ const MAX_RETAINED_CHARS = 256 * 1024;
 const TERMINAL_TAIL_DEFAULT_CHARS = 32 * 1024;
 const TERMINAL_TAIL_MAX_CHARS = 128 * 1024;
 const AGENT_MARKER_RE = /\x1b]777;ORCA_AGENT_STARTED=([A-Za-z0-9_-]+)\x07/g;
+const AGENT_EXIT_MARKER_RE = /\x1b]777;ORCA_AGENT_EXITED=([A-Za-z0-9_-]+):(-?\d+)\x07/g;
 
 function nowIso() {
   return new Date().toISOString();
@@ -166,6 +167,7 @@ function terminalSummary(terminal) {
       actor: terminal.agentBridge.actor || null,
       leaseId: terminal.agentBridge.leaseId || null,
       executorType: terminal.agentBridge.executorType || null,
+      activeLaneId: terminal.agentBridge.activeLaneId || null,
       startedAt: terminal.agentBridge.startedAt || null,
       wrapperCommands: Array.isArray(terminal.agentBridge.wrapperCommands) ? terminal.agentBridge.wrapperCommands : [],
     } : null,
@@ -174,10 +176,15 @@ function terminalSummary(terminal) {
 
 async function writeWrapperScript({ wrapperPath, realBinary, injectedArgs = [], executorType }) {
   const marker = `\x1b]777;ORCA_AGENT_STARTED=${executorType}\x07`;
+  const exitPrefix = `\x1b]777;ORCA_AGENT_EXITED=${executorType}:`;
+  const exitSuffix = '\x07';
   const lines = [
     '#!/bin/sh',
     `printf ${shellQuote(marker)}`,
-    `exec ${shellQuote(realBinary)}${injectedArgs.length ? ` ${injectedArgs.map(shellQuote).join(' ')}` : ''} "$@"`,
+    `${shellQuote(realBinary)}${injectedArgs.length ? ` ${injectedArgs.map(shellQuote).join(' ')}` : ''} "$@"`,
+    'status=$?',
+    `printf ${shellQuote(exitPrefix)}"$status"${shellQuote(exitSuffix)}`,
+    'exit "$status"',
     '',
   ];
   await fs.writeFile(wrapperPath, lines.join('\n'), { mode: 0o700 });
@@ -387,12 +394,18 @@ export function createOperatorTerminalManager({ registry }) {
       terminal.agentBridge.executorType = normalized;
       terminal.agentBridge.startedAt = terminal.agentBridge.startedAt || nowIso();
       try {
-        registry.enrollOrchestrator(session.id, {
+        const result = registry.attachNativeAgentTerminal(session.id, {
+          terminalId: terminal.id,
+          executorType: normalized,
+          cwd: terminal.cwd,
+          pid: terminal.pid,
+          cols: terminal.cols,
+          rows: terminal.rows,
           leaseId: terminal.agentBridge.leaseId,
           actor: `${normalized}:${terminal.id.slice(0, 8)}`,
-          source: 'terminal',
-          takeover: true,
+          title: terminal.title,
         });
+        terminal.agentBridge.activeLaneId = result?.lane?.id || result?.laneId || terminal.agentBridge.activeLaneId || null;
       } catch (error) {
         registry.recordAudit({
           type: 'operator_terminal_agent_attach_failed',
@@ -406,10 +419,45 @@ export function createOperatorTerminalManager({ registry }) {
       }
     };
 
+    const detachAgent = (executorType, exitCode = 0) => {
+      if (!terminal.agentBridge) return;
+      const normalized = cleanText(executorType, 'agent', 40).toLowerCase();
+      const activeLaneId = terminal.agentBridge.activeLaneId || null;
+      terminal.agentBridge.state = 'ready';
+      terminal.agentBridge.executorType = null;
+      terminal.agentBridge.startedAt = null;
+      terminal.agentBridge.activeLaneId = null;
+      try {
+        registry.resignOrchestrator?.(session.id, {
+          leaseId: terminal.agentBridge.leaseId,
+          reason: 'terminal agent exited',
+        });
+      } catch { /* another orchestrator may already own the session */ }
+      if (!activeLaneId) return;
+      const lane = registry.getLane(activeLaneId);
+      if (!lane || lane.processMeta?.attachedOperatorTerminalId !== terminal.id) return;
+      lane.processMeta = {
+        ...(lane.processMeta || {}),
+        exitCode,
+        signal: null,
+        endedAt: nowIso(),
+      };
+      if (['starting', 'running'].includes(String(lane.state || '').toLowerCase())) {
+        if (Number(exitCode) === 0) registry.markLaneCompleted(lane);
+        else registry.markLaneFailed(lane, `${normalized} terminal agent exited with code ${exitCode}`, 'operator-terminal');
+      } else {
+        registry.persistState?.();
+      }
+    };
+
     const stripAgentMarkers = (chunk) => {
       let text = String(chunk || '');
       text = text.replace(AGENT_MARKER_RE, (_match, executorType) => {
         attachAgent(executorType);
+        return '';
+      });
+      text = text.replace(AGENT_EXIT_MARKER_RE, (_match, executorType, exitCode) => {
+        detachAgent(executorType, Number.parseInt(exitCode, 10) || 0);
         return '';
       });
       return text;
@@ -434,6 +482,9 @@ export function createOperatorTerminalManager({ registry }) {
         terminal.signal = signal || null;
       }
       terminal.endedAt = nowIso();
+      if (terminal.agentBridge?.activeLaneId) {
+        detachAgent(terminal.agentBridge.executorType || 'agent', code === null ? 1 : code);
+      }
       appendBounded(terminal, `\n[orca] terminal exited code=${code} signal=${signal || ''}\n`);
       fs.appendFile(logPath, `\n[orca] terminal exited code=${code} signal=${signal || ''}\n`).catch(() => {});
     });
@@ -472,7 +523,7 @@ export function createOperatorTerminalManager({ registry }) {
     }
     const normalized = context.raw ? text : (text.endsWith('\n') || text.endsWith('\r') ? text : `${text}\n`);
     terminal.process.write(normalized);
-    if (!context.raw) {
+    if (!context.raw && !context.skipAudit) {
       registry.recordAudit({
         type: 'operator_terminal_input',
         actor: cleanText(context.actor, 'dashboard', 120),
@@ -488,6 +539,53 @@ export function createOperatorTerminalManager({ registry }) {
       });
     }
     return terminalSummary(terminal);
+  }
+
+  function writeAgentMessage(id, message, context = {}) {
+    const terminal = terminalFor(id);
+    const bridge = terminal.agentBridge || null;
+    if (bridge?.state !== 'active' || !bridge?.executorType) {
+      throw { status: 409, message: 'Terminal does not have an active agent session.' };
+    }
+    const text = cleanText(message, '', MAX_INPUT_BYTES);
+    if (!text) throw { status: 422, message: 'Message is required.' };
+    const summary = writeInput(id, text, {
+      actor: context.actor || 'dashboard',
+      raw: false,
+      skipAudit: true,
+    });
+    const session = registry.getSession(terminal.sessionId);
+    if (session && typeof registry.ensureOrchestratorThread === 'function') {
+      const thread = registry.ensureOrchestratorThread(session);
+      const now = nowIso();
+      thread.executorType = bridge.executorType || thread.executorType || null;
+      registry.appendOrchestratorThreadMessage(thread, {
+        id: randomUUID(),
+        role: 'user',
+        content: text,
+        laneId: bridge.activeLaneId || null,
+        createdAt: now,
+        source: 'terminal',
+        terminalId: terminal.id,
+      });
+      thread.activeLaneId = bridge.activeLaneId || thread.activeLaneId || null;
+      thread.updatedAt = now;
+      registry.persistState?.();
+    }
+    registry.recordAudit({
+      type: 'operator_terminal_agent_message',
+      actor: cleanText(context.actor, 'dashboard', 120),
+      projectId: terminal.projectId,
+      sessionId: terminal.sessionId,
+      summary: `Message sent to native ${bridge.executorType} terminal agent`,
+      status: 'passed',
+      evidence: {
+        terminalId: terminal.id,
+        executorType: bridge.executorType,
+        chars: text.length,
+      },
+    });
+    return summary;
   }
 
   function resize(id, { cols, rows } = {}, context = {}) {
@@ -567,14 +665,17 @@ export function createOperatorTerminalManager({ registry }) {
     return { stopped: targets.length };
   }
 
-  return {
+  const manager = {
     listForSession,
     start,
     get: (id) => terminalSummary(terminalFor(id)),
     writeInput,
+    writeAgentMessage,
     resize,
     tail,
     stop,
     stopAll,
   };
+  registry.operatorTerminals = manager;
+  return manager;
 }
