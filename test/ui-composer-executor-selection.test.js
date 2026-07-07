@@ -136,6 +136,8 @@ test('terminal view shows only real terminal tabs before an agent lane exists', 
   assert.doesNotMatch(html, /chat-terminal-tabs/);
   assert.doesNotMatch(html, />orca<\/span>/);
   assert.match(html, /<strong>command-deck<\/strong>/);
+  assert.match(html, /operator-terminal-current/);
+  assert.doesNotMatch(html, /chat-terminal-head compact/);
   assert.doesNotMatch(html, /Command tab/);
 });
 
@@ -186,4 +188,58 @@ test('terminal view prefers an attached native agent lane over the raw shell', a
   assert.match(html, /lane-stream-lane-attached/);
   assert.doesNotMatch(html, /operator-terminal-stream-terminal-attached/);
   assert.doesNotMatch(html, /data-tab="command"/);
+});
+
+test('operator terminal title uses human project context instead of internal worktree ids', async () => {
+  installBrowserGlobals();
+  const { defaultOperatorTerminalTitle } = await import('../public/ui/operator-terminal.js');
+
+  assert.equal(
+    defaultOperatorTerminalTitle({
+      repoRoot: '/Users/alexrodriguez/Documents/Projects/web/command-deck/command-deck-client/',
+      worktreeRoot: '/Users/alexrodriguez/Documents/Projects/web/command-deck/artifacts/session-uuid',
+      name: 'Orca UI',
+    }),
+    'command-deck-client',
+  );
+  assert.equal(
+    defaultOperatorTerminalTitle({
+      worktreeRoot: '/Users/alexrodriguez/Documents/Projects/web/command-deck/artifacts/019f3e86-d157-7bb2-86d6-ea38cb885995',
+      name: 'Terminal Message Session',
+    }),
+    'Terminal Message Session',
+  );
+  assert.equal(defaultOperatorTerminalTitle({}), 'Shell');
+});
+
+test('operator terminal tabs disambiguate duplicate shell names without repeating active state metadata', async () => {
+  installBrowserGlobals();
+  const [{ shell }, { renderChatTerminalInner }] = await Promise.all([
+    import('../public/ui/state.js'),
+    import('../public/ui/render-session-parts.js'),
+  ]);
+  installExecutorProfiles(shell);
+  shell.chatTerminalTabBySession = { 'session-duplicate-shells': 'command' };
+  shell.chatTerminalAgentLaneBySession = {};
+  shell.operatorTerminalsBySession = {
+    'session-duplicate-shells': {
+      terminals: [
+        { id: 'terminal-1', title: 'command-deck', state: 'running', shell: 'zsh', cwd: '/repo' },
+        { id: 'terminal-2', title: 'command-deck', state: 'stopped', shell: 'zsh', cwd: '/repo' },
+      ],
+    },
+  };
+  shell.operatorTerminalActiveBySession = { 'session-duplicate-shells': 'terminal-1' };
+
+  const html = renderChatTerminalInner({
+    id: 'session-duplicate-shells',
+    projectId: 'project-1',
+    leader: 'codex',
+    orchestratorThread: { messages: [], laneIds: [], activeLaneId: null },
+  });
+
+  assert.match(html, />1\. command-deck<\/span>/);
+  assert.match(html, />2\. command-deck<\/span>/);
+  assert.equal((html.match(/Running/g) || []).length, 1);
+  assert.equal((html.match(/Stopped/g) || []).length, 1);
 });

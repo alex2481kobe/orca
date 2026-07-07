@@ -99,8 +99,7 @@ try {
       fail('terminal toggle not rendered', `${error.message}\n${text}\n${consoleErrors.join('\n')}`);
     }
     await page.click('[data-action="toggleChatTerminal"]');
-    await page.waitForSelector('.chat.chat-terminal-open .chat-terminal-tabs', { timeout: 10000 });
-    await page.click('[data-action="setChatTerminalTab"][data-tab="command"]');
+    await page.waitForSelector('.chat.chat-terminal-open .operator-terminal-shell', { timeout: 10000 });
     await page.waitForSelector('[data-action="startOperatorTerminal"]', { timeout: 10000 });
     await page.click('[data-action="startOperatorTerminal"]');
     try {
@@ -142,8 +141,7 @@ try {
     await page.click('[data-action="toggleChatTerminal"]');
     await page.waitForSelector('.chat:not(.chat-terminal-open) #orchestrator-message-form', { timeout: 10000 });
     await page.click('[data-action="toggleChatTerminal"]');
-    await page.waitForSelector('.chat.chat-terminal-open .chat-terminal-tabs', { timeout: 10000 });
-    await page.click('[data-action="setChatTerminalTab"][data-tab="command"]');
+    await page.waitForSelector('.chat.chat-terminal-open .operator-terminal-shell', { timeout: 10000 });
     await page.waitForFunction(() => {
       const stream = document.querySelector('.operator-terminal-stream');
       return stream?.querySelector('.xterm') && stream.textContent.includes('__ORCA_UI_TERMINAL__');
@@ -167,6 +165,62 @@ try {
     const shotDir = path.join(previousCwd, 'artifacts', 'operator-terminal-smoke');
     await fs.mkdir(shotDir, { recursive: true });
     await page.screenshot({ path: path.join(shotDir, 'command-terminal.png'), fullPage: true });
+    for (const viewport of [
+      { name: 'phone', width: 390, height: 844, minStream: 360 },
+      { name: 'shallow', width: 920, height: 540, minStream: 260 },
+    ]) {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await page.waitForTimeout(250);
+      const responsiveLayout = await page.evaluate(() => {
+        const chat = document.querySelector('.chat');
+        const terminal = document.querySelector('.chat-terminal');
+        const stream = document.querySelector('.operator-terminal-stream');
+        const xterm = document.querySelector('.operator-terminal-stream .xterm');
+        const composer = document.querySelector('#orchestrator-message-form');
+        const toolbar = document.querySelector('.operator-terminal-toolbar');
+        const tb = terminal?.getBoundingClientRect();
+        const sb = stream?.getBoundingClientRect();
+        const hb = toolbar?.getBoundingClientRect();
+        const actionButtons = toolbar?.querySelectorAll('.operator-terminal-actions button') || [];
+        const toolbarButtonsFit = [...actionButtons].every((button) => {
+          const rect = button.getBoundingClientRect();
+          return rect.left >= -1 && rect.right <= window.innerWidth + 1;
+        });
+        const toolbarButtonRects = [...actionButtons].map((button) => {
+          const rect = button.getBoundingClientRect();
+          return {
+            text: button.textContent.trim(),
+            left: Math.round(rect.left),
+            right: Math.round(rect.right),
+            width: Math.round(rect.width),
+          };
+        });
+        return {
+          terminalOpen: chat?.classList.contains('chat-terminal-open') || false,
+          composerHidden: composer ? getComputedStyle(composer).display === 'none' : false,
+          xtermCount: document.querySelectorAll('.operator-terminal-stream .xterm').length,
+          outputRetained: (stream?.textContent || '').includes('__ORCA_UI_TERMINAL__'),
+          streamHeight: sb?.height || 0,
+          bottomGap: tb && sb ? Math.round(tb.bottom - sb.bottom) : 999,
+          toolbarAboveStream: hb && sb ? hb.bottom <= sb.top + 2 : false,
+          toolbarButtonsFit,
+          toolbarButtonRects,
+        };
+      });
+      if (!responsiveLayout.terminalOpen
+        || !responsiveLayout.composerHidden
+        || responsiveLayout.xtermCount !== 1
+        || !responsiveLayout.outputRetained
+        || responsiveLayout.streamHeight < viewport.minStream
+        || responsiveLayout.bottomGap > 18
+        || !responsiveLayout.toolbarAboveStream
+        || !responsiveLayout.toolbarButtonsFit) {
+        fail(`${viewport.name} terminal layout broke`, JSON.stringify(responsiveLayout));
+      }
+      await page.screenshot({ path: path.join(shotDir, `command-terminal-${viewport.name}.png`), fullPage: true });
+    }
+    await page.setViewportSize({ width: 1280, height: 860 });
+    await page.waitForTimeout(250);
     if (consoleErrors.length) fail('browser console errors', consoleErrors.join('\n'));
     await page.click('[data-action="stopOperatorTerminal"]');
     await page.waitForFunction(() => {

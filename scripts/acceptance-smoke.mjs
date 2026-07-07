@@ -36,6 +36,8 @@ const steps = [
   { id: 'ui', command: ['npm', 'run', 'smoke:ui'], covers: ['npm run smoke:ui'] },
   { id: 'ui-inventory', command: ['npm', 'run', 'smoke:ui-inventory'], covers: ['npm run smoke:ui-inventory'] },
   { id: 'ui-contract', command: ['npm', 'run', 'smoke:ui-contract'], covers: ['npm run smoke:ui-contract'] },
+  { id: 'operator-terminal', command: ['npm', 'run', 'smoke:operator-terminal'], covers: ['npm run smoke:operator-terminal'] },
+  { id: 'orchestrator-ui', command: ['npm', 'run', 'smoke:orchestrator-ui'], covers: ['npm run smoke:orchestrator-ui'] },
   { id: 'workflow-policy', command: ['npm', 'run', 'smoke:workflow-policy'], covers: ['npm run smoke:workflow-policy'] },
   { id: 'route-inventory', command: ['npm', 'run', 'smoke:route-inventory'], covers: ['npm run smoke:route-inventory'] },
   { id: 'route-security-matrix', command: ['npm', 'run', 'smoke:route-security-matrix'], covers: ['npm run smoke:route-security-matrix'] },
@@ -92,7 +94,7 @@ let failed = null;
 // be flaky under load, so they are opt-in: set ORCA_SMOKE_UI=1 to include them.
 // They are recorded as skipped (not failed) when gated, so the routine acceptance
 // gate stays fast. Run them on demand with `npm run smoke:ui-*`.
-const PLAYWRIGHT_UI_STEPS = new Set(['ui', 'ui-inventory', 'ui-contract']);
+const PLAYWRIGHT_UI_STEPS = new Set(['ui', 'ui-inventory', 'ui-contract', 'operator-terminal', 'orchestrator-ui']);
 const includeUi = process.env.ORCA_SMOKE_UI === '1';
 
 for (const step of steps) {

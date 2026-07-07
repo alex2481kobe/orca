@@ -384,12 +384,24 @@ function renderOperatorTerminalInner(session) {
   const activeId = shell.operatorTerminalActiveBySession?.[session.id] || terminals.find((item) => item.state === 'running')?.id || terminals[0]?.id || '';
   const active = terminals.find((item) => item.id === activeId) || terminals[0] || null;
   const accessError = record?.error || '';
-  const tabButtons = terminals.length > 1 ? terminals.map((terminal) => `
+  const titleCounts = terminals.reduce((counts, terminal) => {
+    const key = terminal.title || 'Terminal';
+    counts.set(key, (counts.get(key) || 0) + 1);
+    return counts;
+  }, new Map());
+  const titleIndexes = new Map();
+  const tabButtons = terminals.length > 1 ? terminals.map((terminal) => {
+    const baseTitle = terminal.title || 'Terminal';
+    const currentIndex = (titleIndexes.get(baseTitle) || 0) + 1;
+    titleIndexes.set(baseTitle, currentIndex);
+    const displayTitle = titleCounts.get(baseTitle) > 1 ? `${currentIndex}. ${baseTitle}` : baseTitle;
+    return `
     <button class="${terminal.id === active?.id ? 'active' : ''}" data-action="selectOperatorTerminal" data-session-id="${safeAttr(session.id)}" data-terminal-id="${safeAttr(terminal.id)}" type="button">
-      <span>${safeText(terminal.title || 'Terminal')}</span>
+      <span>${safeText(displayTitle)}</span>
       ${stateBadge(terminal.state || 'unknown')}
     </button>
-  `).join('') : '';
+  `;
+  }).join('') : '';
   if (!active) {
     return `
       <div class="operator-terminal-shell">
@@ -405,23 +417,21 @@ function renderOperatorTerminalInner(session) {
     `;
   }
   const stopped = active.state !== 'running';
+  const activeTitle = active.agentBridge?.state === 'active' && active.agentBridge?.executorType
+    ? `${active.agentBridge.executorType} terminal agent`
+    : (active.title || 'shell');
+  const activeMeta = `${active.shell || 'shell'}${active.cwd ? ` · ${compactPath(active.cwd)}` : ''}`;
   return `
     <div class="operator-terminal-shell">
       <div class="operator-terminal-toolbar">
-        <div class="operator-terminal-tabs">${tabButtons}</div>
-        <button class="secondary terminal-action-button" data-action="startOperatorTerminal" data-session-id="${safeAttr(session.id)}" type="button" title="New shell">${icon('plus', { size: 15 })}<span>New shell</span></button>
-      </div>
-      <div class="chat-terminal-head compact">
-        <div>
-          <strong>${safeText(active.agentBridge?.state === 'active' && active.agentBridge?.executorType
-            ? `${active.agentBridge.executorType} terminal agent`
-            : (active.title || 'shell'))}</strong>
-          <div class="chat-terminal-meta">
-            <span title="${safeAttr(active.cwd || '')}">${safeText(active.shell || 'shell')}${active.cwd ? ` · ${safeText(compactPath(active.cwd))}` : ''}</span>
-            ${stateBadge(active.state || 'unknown')}
-          </div>
+        ${tabButtons
+          ? `<div class="operator-terminal-tabs">${tabButtons}</div>`
+          : `<div class="operator-terminal-current"><strong>${safeText(activeTitle)}</strong><span title="${safeAttr(active.cwd || '')}">${safeText(activeMeta)}</span></div>`}
+        <div class="operator-terminal-actions">
+          ${tabButtons ? `<div class="operator-terminal-active-meta"><span title="${safeAttr(active.cwd || '')}">${safeText(activeMeta)}</span></div>` : stateBadge(active.state || 'unknown')}
+          <button class="secondary terminal-action-button" data-action="startOperatorTerminal" data-session-id="${safeAttr(session.id)}" type="button" title="New shell">${icon('plus', { size: 15 })}<span>New shell</span></button>
+          ${stopped ? '' : `<button class="secondary terminal-action-button terminal-stop-button" data-action="stopOperatorTerminal" data-terminal-id="${safeAttr(active.id)}" type="button" title="Stop terminal">${icon('close', { size: 15 })}<span>Stop</span></button>`}
         </div>
-        ${stopped ? '' : `<button class="secondary terminal-action-button terminal-stop-button" data-action="stopOperatorTerminal" data-terminal-id="${safeAttr(active.id)}" type="button" title="Stop terminal">${icon('close', { size: 15 })}<span>Stop</span></button>`}
       </div>
       <div id="operator-terminal-stream-${safeAttr(active.id)}" class="lane-stream chat-terminal-stream operator-terminal-stream" data-terminal-state="${safeAttr(active.state || 'unknown')}" aria-live="polite" tabindex="0">Connecting to terminal…</div>
     </div>

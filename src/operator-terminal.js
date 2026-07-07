@@ -375,17 +375,7 @@ export function createOperatorTerminalManager({ registry }) {
     };
     terminals.set(id, terminal);
 
-    appendBounded(terminal, [
-      `Orca terminal (${terminal.wrapper})`,
-      `Shell: ${terminal.shellName}`,
-      `Cwd: ${startCwd}`,
-      `Started: ${createdAt}`,
-      agentBridge?.wrapperCommands?.length
-        ? `Orca agent bridge: ${agentBridge.wrapperCommands.join(', ')}`
-        : '',
-      '',
-    ].filter((line) => line !== '').join('\n') + '\n');
-    await fs.writeFile(logPath, terminal.output);
+    await fs.writeFile(logPath, '');
 
     const attachAgent = (executorType) => {
       if (!terminal.agentBridge) return;
@@ -555,7 +545,21 @@ export function createOperatorTerminalManager({ registry }) {
       skipAudit: true,
     });
     const session = registry.getSession(terminal.sessionId);
-    if (session && typeof registry.ensureOrchestratorThread === 'function') {
+    if (session && typeof registry.appendOrchestratorRuntimeUserMessage === 'function') {
+      const lane = bridge.activeLaneId ? registry.getLane?.(bridge.activeLaneId) : null;
+      registry.appendOrchestratorRuntimeUserMessage(session, {
+        text,
+        lane,
+        terminalId: terminal.id,
+        source: 'terminal',
+      });
+      const thread = registry.ensureOrchestratorThread?.(session);
+      if (thread) {
+        thread.executorType = bridge.executorType || thread.executorType || null;
+        thread.activeLaneId = bridge.activeLaneId || thread.activeLaneId || null;
+      }
+      registry.persistState?.();
+    } else if (session && typeof registry.ensureOrchestratorThread === 'function') {
       const thread = registry.ensureOrchestratorThread(session);
       const now = nowIso();
       thread.executorType = bridge.executorType || thread.executorType || null;

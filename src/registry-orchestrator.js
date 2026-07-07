@@ -835,6 +835,7 @@ export const orchestratorMethods = {
           input: text,
           raw: false,
           actor: context.actor || 'dashboard',
+          recordThreadMessage: false,
         });
       } catch (error) {
         thread.messages = thread.messages.filter((entry) => entry.id !== userMessage.id);

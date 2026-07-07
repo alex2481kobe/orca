@@ -459,7 +459,12 @@ export const laneOpsMethods = {
   },
 
 
-  writeLaneTerminalInput(laneLocator, { input = '', raw = false, actor = 'dashboard' } = {}) {
+  writeLaneTerminalInput(laneLocator, {
+    input = '',
+    raw = false,
+    actor = 'dashboard',
+    recordThreadMessage = true,
+  } = {}) {
     const lane = this.getLane(laneLocator);
     if (!lane) {
       throw { status: 404, message: 'Lane not found.' };
@@ -476,6 +481,17 @@ export const laneOpsMethods = {
       });
       lane.heartbeatAt = nowIso();
       lane.updatedAt = nowIso();
+      if (!raw && recordThreadMessage && lane.owner === 'orchestrator' && typeof this.appendOrchestratorRuntimeUserMessage === 'function') {
+        const session = this.getSession(lane.sessionId);
+        if (session) {
+          this.appendOrchestratorRuntimeUserMessage(session, {
+            text: input,
+            lane,
+            terminalId: attachedTerminalId,
+            source: 'lane-terminal',
+          });
+        }
+      }
       if (!raw) {
         this.recordAudit({
           type: 'lane_terminal_input',

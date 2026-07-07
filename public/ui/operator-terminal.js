@@ -265,14 +265,23 @@ export function watchOperatorTerminal(terminalId) {
   tick();
 }
 
+export function defaultOperatorTerminalTitle(session = {}) {
+  const repoRoot = String(session.repoRoot || '').replace(/[\\/]+$/, '');
+  if (repoRoot) {
+    return repoRoot.split(/[\\/]+/).filter(Boolean).at(-1)?.slice(0, 80) || 'Shell';
+  }
+  const name = String(session.name || '').trim();
+  if (name) return name.slice(0, 80);
+  return 'Shell';
+}
+
 export async function handleStartOperatorTerminal(event) {
   const sessionId = event.currentTarget.dataset.sessionId || shell.route.sessionId;
   if (!sessionId) return;
   const mount = typeof document !== 'undefined' ? document.querySelector('.chat-terminal') : null;
   const dims = estimateGeometry(mount);
   const session = shell.sessions.find((item) => item.id === sessionId) || shell.draftSessions?.[sessionId] || {};
-  const titleSource = String(session.repoRoot || session.worktreeRoot || session.name || 'terminal').replace(/[\\/]+$/, '');
-  const title = titleSource.split(/[\\/]+/).filter(Boolean).at(-1) || 'terminal';
+  const title = defaultOperatorTerminalTitle(session);
   const response = await api(`/api/sessions/${encodeURIComponent(sessionId)}/terminals`, {
     method: 'POST',
     body: { actor: 'dashboard', title, cols: dims.cols, rows: dims.rows },

@@ -335,6 +335,8 @@ test('operator command terminals are admin-only and accept real shell input', as
     assert.match(tail.body.text, /__ORCA_PWD2__/);
     assert.match(tail.body.text, /__ORCA_RAW__/);
     assert.match(tail.body.text, /smoke\.txt/);
+    assert.doesNotMatch(tail.body.text, /Orca terminal \(pty\)/);
+    assert.doesNotMatch(tail.body.text, /Orca agent bridge:/);
 
     const stopped = await server.requestJson(`/api/terminals/${started.body.id}/stop`, {
       method: 'POST',
@@ -412,6 +414,8 @@ test('operator command terminals wrap manual codex with Orca MCP lease and enrol
     assert.match(tail.body.text, /ORCA_TOOL_LEASE_TOKEN/);
     assert.match(tail.body.text, /__ORCA_CODEX_PATH__.*\/operator-terminals\/.*\/bin\/codex/);
     assert.doesNotMatch(tail.body.text, /ORCA_AGENT_STARTED/);
+    assert.doesNotMatch(tail.body.text, /Orca terminal \(pty\)/);
+    assert.doesNotMatch(tail.body.text, /Orca agent bridge:/);
 
     const terminal = await server.requestJson(`/api/terminals/${started.body.id}`, {
       method: 'GET',
@@ -536,6 +540,39 @@ test('operator terminal agent messages are delivered to the active native CLI an
     });
     assert.equal(lanesAfter.status, 200);
     assert.equal(lanesAfter.body.length, lanesBefore.body.length);
+
+    const laneMessage = await server.requestJson(`/api/lanes/${sent.body.agentBridge.activeLaneId}/terminal-input`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'dashboard', input: 'third message through lane terminal endpoint', raw: false },
+    });
+    assert.equal(laneMessage.status, 200);
+    const laneMessageTail = await waitForTerminalText(server, started.body.id, token, /__ORCA_FAKE_CODEX_INPUT__third message through lane terminal endpoint/);
+    assert.match(laneMessageTail.body.text, /__ORCA_FAKE_CODEX_INPUT__third message through lane terminal endpoint/);
+
+    const rawLaneInput = await server.requestJson(`/api/lanes/${sent.body.agentBridge.activeLaneId}/terminal-input`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'dashboard', input: 'raw xterm keystrokes stay terminal-only\n', raw: true },
+    });
+    assert.equal(rawLaneInput.status, 200);
+    const rawTail = await waitForTerminalText(server, started.body.id, token, /__ORCA_FAKE_CODEX_INPUT__raw xterm keystrokes stay terminal-only/);
+    assert.match(rawTail.body.text, /__ORCA_FAKE_CODEX_INPUT__raw xterm keystrokes stay terminal-only/);
+
+    const threadAfterRoutes = await server.requestJson(`/api/sessions/${session.body.id}/orchestrator`, {
+      method: 'GET',
+      headers: { 'x-orca-token': token },
+    });
+    assert.equal(threadAfterRoutes.status, 200);
+    const userTurns = threadAfterRoutes.body.messages.filter((message) => message.role === 'user');
+    assert.deepEqual(userTurns.map((message) => message.content), [
+      'hello native terminal agent',
+      'second message through canonical chat',
+      'third message through lane terminal endpoint',
+    ]);
+    assert.equal(userTurns.every((message) => message.laneId === sent.body.agentBridge.activeLaneId), true);
+    assert.equal(userTurns.every((message) => message.terminalId === started.body.id), true);
+    assert.equal(userTurns.some((message) => message.content.includes('raw xterm')), false);
 
     const exitTurn = await server.requestJson(`/api/sessions/${session.body.id}/orchestrator/messages`, {
       method: 'POST',

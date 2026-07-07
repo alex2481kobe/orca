@@ -706,33 +706,6 @@ document.addEventListener('click', async (event) => {
     return;
   }
 
-  if (action === 'setChatTerminalTab') {
-    const sessionId = actionTarget.dataset.sessionId || shell.route.sessionId;
-    const tab = actionTarget.dataset.tab === 'command' ? 'command' : 'agent';
-    if (sessionId) {
-      shell.chatTerminalTabBySession = shell.chatTerminalTabBySession || {};
-      shell.chatTerminalTabBySession[sessionId] = tab;
-      if (tab === 'command') await refresh();
-      else {
-        const session = shell.sessions.find((item) => item.id === sessionId) || shell.draftSessions?.[sessionId];
-        pinChatTerminalLaneForSession(session);
-        render(captureContentUiState());
-      }
-    }
-    return;
-  }
-
-  if (action === 'selectAgentTerminalLane') {
-    const sessionId = actionTarget.dataset.sessionId || shell.route.sessionId;
-    const laneId = actionTarget.dataset.laneId;
-    const session = shell.sessions.find((item) => item.id === sessionId) || shell.draftSessions?.[sessionId];
-    if (session && laneId) {
-      pinChatTerminalLaneForSession(session, laneId);
-      render(captureContentUiState());
-    }
-    return;
-  }
-
   if (action === 'showLaneTerminal') {
     const sessionId = actionTarget.dataset.sessionId || shell.route.sessionId;
     const laneId = actionTarget.dataset.laneId;

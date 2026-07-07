@@ -388,14 +388,16 @@ try {
     if (pinnedStreamId !== `lane-stream-${followupLaneId}`) {
       fail('terminal view did not follow the latest chat-created terminal lane', `${pinnedStreamId} expected lane-stream-${followupLaneId}`);
     }
-    const activePinnedTab = await page.locator(`.agent-terminal-lane-tabs [data-lane-id="${followupLaneId}"]`).getAttribute('aria-selected');
-    if (activePinnedTab !== 'true') fail('terminal lane tab is not selected after reopen', String(activePinnedTab));
 
-    await page.click(`.agent-terminal-lane-tabs [data-lane-id="${terminalLaneId}"]`);
+    await page.click('[data-action="toggleChatTerminal"]');
+    await page.waitForSelector(`.chat:not(.chat-terminal-open) .msg-assistant[data-lane-id="${terminalLaneId}"]`, { timeout: 10000 });
+    await page.click(`.msg-assistant[data-lane-id="${terminalLaneId}"] [data-action="showLaneTerminal"]`);
     await page.waitForSelector(`#lane-stream-${terminalLaneId}`, { timeout: 10000 });
     const switchedStreamId = await page.locator('.chat.chat-terminal-open .chat-terminal .lane-stream').getAttribute('id');
     if (switchedStreamId !== `lane-stream-${terminalLaneId}`) fail('agent terminal lane selector did not switch lanes', switchedStreamId);
-    await page.click(`.agent-terminal-lane-tabs [data-lane-id="${followupLaneId}"]`);
+    await page.click(`.chat-terminal-head[data-lane-id="${terminalLaneId}"] [data-action="showLaneChat"]`);
+    await page.waitForSelector(`.chat:not(.chat-terminal-open) .msg-assistant[data-lane-id="${followupLaneId}"]`, { timeout: 10000 });
+    await page.click(`.msg-assistant[data-lane-id="${followupLaneId}"] [data-action="showLaneTerminal"]`);
     await page.waitForSelector(`#lane-stream-${followupLaneId}`, { timeout: 10000 });
     const repinnedStreamId = await page.locator('.chat.chat-terminal-open .chat-terminal .lane-stream').getAttribute('id');
     if (repinnedStreamId !== `lane-stream-${followupLaneId}`) fail('agent terminal lane selector did not switch back', repinnedStreamId);
