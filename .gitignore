@@ -35,3 +35,11 @@ docs/current-task.md
 docs/full-buildout-goal.md
 docs/open-source-release-checklist.md
 docs/final-readiness-report.md
+
+# Local-only workspace coordination. These lived in the parent wrapper folder
+# before the repo was flattened to a single `orca/` root; they are local
+# governance/scratch and must never be published.
+throwaway/
+.claudeignore
+.codexignore
+.claude/
