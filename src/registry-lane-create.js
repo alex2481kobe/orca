@@ -261,6 +261,9 @@ export const laneCreateMethods = {
       id: laneId,
       projectId: session.projectId,
       sessionId: session.id,
+      // v2: when the container is an orchestrator, group the executor under it in
+      // the overview tree. Null for legacy session-owned lanes.
+      orchestratorId: session.orchestratorId || null,
       title: String(title).trim(),
       taskDescription: String(taskDescription || '').trim(),
       executorType: normalizedExecutorType,

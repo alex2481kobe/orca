@@ -130,6 +130,37 @@ test('registerOrchestrator works against a real registry with a real lease + sho
   }
 });
 
+test('an executor lane spawned under an orchestrator groups under it in the overview', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orca-spawn-'));
+  const realRoot = fs.realpathSync(root);
+  const prevRoots = process.env.ORCA_REPO_ROOTS;
+  const prevCwd = process.cwd();
+  process.env.ORCA_REPO_ROOTS = realRoot;
+  process.chdir(root);
+  try {
+    const { OrcaRegistry } = await import('../src/registry.js');
+    const reg = new OrcaRegistry({ autoAudit: false, autoCompleteMs: 60 * 60 * 1000 });
+    reg.stopScheduler();
+    const { lease } = reg.createToolLease({ role: 'orchestrator', actor: 'claude', allowedTools: ['orchestrator.register', 'executor.spawn'] });
+    const orch = await reg.registerOrchestrator({ cwd: realRoot, actor: 'claude', title: 't' }, { leaseId: lease.id });
+    // getSession resolves the orchestrator as a lane container (workdir = cwd).
+    const container = reg.getSession(orch.id);
+    assert.equal(container.orchestratorId, orch.id);
+    assert.equal(container.repoRoot, realRoot);
+    const lane = await reg.createLane(orch.id, { title: 'build', executorType: 'mock', taskPrompt: 'x' }, { actor: 'claude', approved: true });
+    assert.equal(lane.orchestratorId, orch.id, 'lane carries orchestratorId');
+    const ov = reg.buildOverview();
+    const execs = ov.projects[0].orchestrators[0].executors;
+    assert.equal(execs.length, 1);
+    assert.equal(execs[0].title, 'build');
+    reg.stopScheduler();
+    await reg.drainPendingWrites();
+  } finally {
+    if (prevRoots === undefined) delete process.env.ORCA_REPO_ROOTS; else process.env.ORCA_REPO_ROOTS = prevRoots;
+    process.chdir(prevCwd);
+  }
+});
+
 test('v1 state migrates to a fresh v2 store with a backup and audit, idempotently', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orca-mig-'));
   fs.mkdirSync(path.join(root, '.orca'), { recursive: true });

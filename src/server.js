@@ -435,6 +435,9 @@ function toolLeaseRequirementForRoute(method, parts) {
   if (parts[1] === 'orchestrators' && parts[2] && parts[3] === 'resign' && method === 'POST') {
     return { toolId: 'orchestrator.resign' };
   }
+  if (parts[1] === 'orchestrators' && parts[2] && parts[3] === 'executors' && parts.length === 4 && method === 'POST') {
+    return { toolId: 'executor.spawn' };
+  }
   if (parts[1] === 'sessions' && parts[2] && parts[3] === 'orchestrator' && parts[4] === 'enroll' && method === 'POST') {
     return { toolId: 'orchestrator.enroll', sessionId: parts[2] };
   }

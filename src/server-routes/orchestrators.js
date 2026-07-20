@@ -82,6 +82,37 @@ export async function handleOrchestratorRoutes(ctx, req, res, method, parts) {
     }
   }
 
+  // POST /api/orchestrators/{id}/executors — spawn an executor lane under this
+  // orchestrator (container = the orchestrator, workdir = its project's cwd).
+  if (parts.length === 4 && parts[3] === 'executors' && method === 'POST') {
+    const body = await parseJsonBody(req);
+    if (body === null) return sendBodyError(req, res);
+    if (rejectSpoofedActor(body, res)) return;
+    const orchestratorId = parts[2];
+    const orchestrator = (registry.orchestrators || []).find((o) => o.id === orchestratorId);
+    if (!orchestrator) return sendJson(res, 404, { error: 'Orchestrator not found.' });
+    const lease = leaseIdFor(ctx, req, registry, 'executor.spawn');
+    if (lease && lease.error) return sendJson(res, lease.status, { error: lease.error });
+    const leaseId = lease?.id || 'dashboard';
+    // Only the lease that owns the orchestrator may spawn its executors.
+    if (leaseId !== 'dashboard' && orchestrator.leaseId !== leaseId) {
+      return sendJson(res, 403, { error: 'Lease does not own this orchestrator.' });
+    }
+    try {
+      const lanePayload = { ...body, owner: body.owner || 'executor' };
+      const lane = await registry.createLane(orchestratorId, lanePayload, {
+        actor: body.actor || orchestrator.actor || 'orchestrator',
+        approved: body.approved,
+      });
+      return sendJson(res, 201, lane);
+    } catch (error) {
+      return sendJson(res, error.status || 500, {
+        error: error.message || 'Could not spawn executor.',
+        requiresApproval: error.requiresApproval || false,
+      });
+    }
+  }
+
   return FALL_THROUGH;
 }
 

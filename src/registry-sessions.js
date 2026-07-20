@@ -420,7 +420,28 @@ export const sessionMethods = {
   },
 
   getSession(locator) {
-    return this.sessions.find((session) => session.id === locator);
+    const session = this.sessions.find((session) => session.id === locator);
+    if (session) return session;
+    // v2: an executor lane's container can be an ORCHESTRATOR (executors run
+    // under an orchestrator; workdir = its project's cwd). Return a session-shaped
+    // view so the shared lane lifecycle keeps working without a backing session.
+    // Orchestrator ids are prefixed (orc_) and never collide with session UUIDs.
+    const orch = (this.orchestrators || []).find((item) => item.id === locator);
+    if (orch) {
+      const project = (this.projects || []).find((item) => item.id === orch.projectId);
+      return {
+        id: orch.id,
+        projectId: orch.projectId,
+        orchestratorId: orch.id,
+        repoRoot: project?.cwd || '',
+        critiqueMode: 'none',
+        worktreeMode: 'off',
+        spawnPolicy: 'never',
+        artifactRetentionDays: null,
+        _orchestratorContainer: true,
+      };
+    }
+    return undefined;
   },
 
   // Permanently delete an ARCHIVED session: drop its lanes (best-effort worktree

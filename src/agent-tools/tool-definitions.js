@@ -463,6 +463,16 @@ export const TOOL_DEFINITIONS = [
     summary: 'Update your self-authored title/focus line (shown in the dashboard tree). Body: {title?, focus?}.',
   },
   {
+    id: 'executor.spawn',
+    group: 'orchestrator',
+    roles: ['orchestrator', 'dashboard'],
+    method: 'POST',
+    route: '/api/orchestrators/{orchestratorId}/executors',
+    implemented: true,
+    mutating: true,
+    summary: 'Spawn an executor lane under your orchestrator (runs in your project\'s cwd). Body: {title, executorType, taskPrompt, model?, permissionsProfile?, worktree?}.',
+  },
+  {
     id: 'orchestrator.resign',
     group: 'orchestrator',
     roles: ['orchestrator', 'dashboard'],

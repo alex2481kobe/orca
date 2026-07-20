@@ -30,6 +30,7 @@ const OWNERSHIP_EXEMPT_TOOLS = new Set([
   'orchestrator.resign',
   'orchestrator.register',
   'orchestrator.update',
+  'executor.spawn',
   'project.create',
   'session.create',
 ]);
