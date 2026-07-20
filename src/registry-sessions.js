@@ -436,7 +436,10 @@ export const sessionMethods = {
         repoRoot: project?.cwd || '',
         critiqueMode: 'none',
         worktreeMode: 'off',
-        spawnPolicy: 'never',
+        // Explicitly-spawned executor lanes must be launchable by the scheduler.
+        spawnPolicy: 'auto',
+        approvedCapacity: 4,
+        laneConcurrencyLimit: 4,
         artifactRetentionDays: null,
         _orchestratorContainer: true,
       };

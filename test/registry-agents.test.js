@@ -161,6 +161,35 @@ test('an executor lane spawned under an orchestrator groups under it in the over
   }
 });
 
+test('the scheduler launches a queued executor under an orchestrator to completion', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orca-run-'));
+  const realRoot = fs.realpathSync(root);
+  const prevRoots = process.env.ORCA_REPO_ROOTS;
+  const prevCwd = process.cwd();
+  process.env.ORCA_REPO_ROOTS = realRoot;
+  process.chdir(root);
+  try {
+    const { OrcaRegistry } = await import('../src/registry.js');
+    const reg = new OrcaRegistry({ autoAudit: false, heartbeatIntervalMs: 100, autoCompleteMs: 300 });
+    const { lease } = reg.createToolLease({ role: 'orchestrator', actor: 'claude', allowedTools: ['orchestrator.register', 'executor.spawn'] });
+    const orch = await reg.registerOrchestrator({ cwd: realRoot, actor: 'claude', title: 't' }, { leaseId: lease.id });
+    const lane = await reg.createLane(orch.id, { title: 'run me', executorType: 'mock', taskPrompt: 'x' }, { actor: 'claude', approved: true });
+    assert.equal(lane.state, 'queued');
+    const done = new Set(['done', 'ready_for_audit', 'accepted']);
+    for (let i = 0; i < 60 && !done.has(reg.getLane(lane.id).state); i += 1) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    const final = reg.getLane(lane.id);
+    assert.ok(done.has(final.state), `mock lane should complete, got ${final.state}`);
+    assert.equal(final.orchestratorId, orch.id, 'orchestratorId preserved through the run');
+    reg.stopScheduler();
+    await reg.drainPendingWrites();
+  } finally {
+    if (prevRoots === undefined) delete process.env.ORCA_REPO_ROOTS; else process.env.ORCA_REPO_ROOTS = prevRoots;
+    process.chdir(prevCwd);
+  }
+});
+
 test('v1 state migrates to a fresh v2 store with a backup and audit, idempotently', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orca-mig-'));
   fs.mkdirSync(path.join(root, '.orca'), { recursive: true });

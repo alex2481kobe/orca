@@ -160,9 +160,14 @@ export const schedulerMethods = {
     await this.tickExecutors();
     await this.runCleanupSchedulerTick().catch(() => {});
 
-    const sessionById = new Map(this.sessions.map((session) => [session.id, session]));
+    // Launch queued lanes for both legacy sessions AND v2 orchestrator containers
+    // (getSession returns a session-shaped, launchable view for an orchestrator id).
+    const containers = [
+      ...this.sessions,
+      ...(this.orchestrators || []).map((orchestrator) => this.getSession(orchestrator.id)).filter(Boolean),
+    ];
 
-    for (const session of sessionById.values()) {
+    for (const session of containers) {
       const sessionLanes = this.lanes.filter((lane) => lane.sessionId === session.id);
       const queued = sessionLanes
         .filter((lane) => lane.state === QUEUED_STATE)
