@@ -33,6 +33,15 @@ export async function handleMiscRoutes(ctx, req, res, method, parts) {
     return sendJson(res, 200, payload);
   }
 
+  if (parts[1] === 'overview' && method === 'GET') {
+    // The v2 read-only dashboard poll: projects-by-cwd -> orchestrators ->
+    // executor tree. Workspace data, so operator-gated.
+    if (!hasOperatorAuth(req)) {
+      return sendJson(res, 401, { error: 'Operator authentication required.' });
+    }
+    return sendJson(res, 200, registry.buildOverview());
+  }
+
   if (parts[1] === 'policy' && method === 'GET') {
     return sendJson(res, 200, { policies: registry.getPolicyMap() });
   }
