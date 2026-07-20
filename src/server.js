@@ -19,6 +19,7 @@ import { handleProjectRoutes } from './server-routes/projects.js';
 import { handleMcpRoutes } from './server-routes/mcp.js';
 import { handleNotificationRoutes } from './server-routes/notifications.js';
 import { handleExecutorRoutes } from './server-routes/executors.js';
+import { handleOrchestratorRoutes } from './server-routes/orchestrators.js';
 import { handlePrivateAccessApi } from './server-routes/private-access.js';
 import { handleProvidersApi } from './server-routes/providers.js';
 import { handleSettingsRoutes } from './server-routes/settings.js';
@@ -424,6 +425,15 @@ function toolLeaseRequirementForRoute(method, parts) {
     if (parts.length === 4 && method === 'POST') return { toolId: 'loop.create', sessionId: parts[2] };
     if (parts.length === 5 && method === 'GET') return { toolId: 'loop.describe', sessionId: parts[2] };
     if (parts.length === 5 && method === 'PATCH') return { toolId: 'loop.update', sessionId: parts[2] };
+  }
+  if (parts[1] === 'orchestrators' && parts.length === 2 && method === 'POST') {
+    return { toolId: 'orchestrator.register' };
+  }
+  if (parts[1] === 'orchestrators' && parts[2] && parts.length === 3 && method === 'PATCH') {
+    return { toolId: 'orchestrator.update' };
+  }
+  if (parts[1] === 'orchestrators' && parts[2] && parts[3] === 'resign' && method === 'POST') {
+    return { toolId: 'orchestrator.resign' };
   }
   if (parts[1] === 'sessions' && parts[2] && parts[3] === 'orchestrator' && parts[4] === 'enroll' && method === 'POST') {
     return { toolId: 'orchestrator.enroll', sessionId: parts[2] };
@@ -950,6 +960,11 @@ async function handleApi(req, res, pathname, method, parts) {
 
   if (parts[1] === 'executors') {
     const result = await handleExecutorRoutes(ROUTE_CTX, req, res, method, parts);
+    if (result !== LANE_FALL_THROUGH) return;
+  }
+
+  if (parts[1] === 'orchestrators') {
+    const result = await handleOrchestratorRoutes(ROUTE_CTX, req, res, method, parts);
     if (result !== LANE_FALL_THROUGH) return;
   }
 

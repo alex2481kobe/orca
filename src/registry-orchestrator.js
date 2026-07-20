@@ -28,6 +28,8 @@ const ORCHESTRATOR_STALE_MS = 15 * 60 * 1000;
 const OWNERSHIP_EXEMPT_TOOLS = new Set([
   'orchestrator.enroll',
   'orchestrator.resign',
+  'orchestrator.register',
+  'orchestrator.update',
   'project.create',
   'session.create',
 ]);
