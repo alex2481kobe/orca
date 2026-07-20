@@ -1,7 +1,7 @@
-// Miscellaneous singleton API routes (health, policy, route-inventory,
-// system blockers, audit events list/ack, mobile manifest) extracted from
-// server.js. ctx-threaded; each route self-guards on parts[1]. Returns
-// FALL_THROUGH when none matched so the caller continues to the global 404.
+// Miscellaneous singleton API routes (health, policy, system blockers,
+// audit events list/ack, mobile manifest) extracted from server.js.
+// ctx-threaded; each route self-guards on parts[1]. Returns FALL_THROUGH
+// when none matched so the caller continues to the global 404.
 
 import { FALL_THROUGH } from './lanes.js';
 
@@ -14,7 +14,6 @@ export async function handleMiscRoutes(ctx, req, res, method, parts) {
     rejectSpoofedActor,
     getSearchParams,
     hasOperatorAuth,
-    buildRouteInventory,
     buildMobileManifest,
   } = ctx;
   if (parts[1] === 'health' && method === 'GET') {
@@ -36,10 +35,6 @@ export async function handleMiscRoutes(ctx, req, res, method, parts) {
 
   if (parts[1] === 'policy' && method === 'GET') {
     return sendJson(res, 200, { policies: registry.getPolicyMap() });
-  }
-
-  if (parts[1] === 'route-inventory' && method === 'GET') {
-    return sendJson(res, 200, buildRouteInventory());
   }
 
   if (parts[1] === 'system' && parts[2] === 'blockers' && method === 'GET') {

@@ -13,13 +13,6 @@ import {
   buildAgentToolDiscovery,
   buildNextActionEnvelope,
 } from './agent-tools.js';
-import {
-  applyAppImport,
-  buildAppExport,
-  buildSupportBundle,
-  validateAppImport,
-} from './app-backup.js';
-import { buildRouteInventory } from './route-inventory.js';
 import { handleLaneRoutes, FALL_THROUGH as LANE_FALL_THROUGH } from './server-routes/lanes.js';
 import { handleSessionRoutes } from './server-routes/sessions.js';
 import { handleTaskRoutes } from './server-routes/tasks.js';
@@ -27,7 +20,6 @@ import { handleProjectRoutes } from './server-routes/projects.js';
 import { handleMcpRoutes } from './server-routes/mcp.js';
 import { handleNotificationRoutes } from './server-routes/notifications.js';
 import { handleExecutorRoutes } from './server-routes/executors.js';
-import { handleAppRoutes } from './server-routes/app.js';
 import { handlePrivateAccessApi } from './server-routes/private-access.js';
 import { handleProvidersApi } from './server-routes/providers.js';
 import { handleSettingsRoutes } from './server-routes/settings.js';
@@ -896,11 +888,6 @@ const ROUTE_CTX = {
   buildNextActionEnvelope,
   requestOrigin,
   requireAdminAuth,
-  applyAppImport,
-  validateAppImport,
-  buildAppExport,
-  buildSupportBundle,
-  buildRouteInventory,
   privateAccess,
   providerProfiles,
   buildAgentToolDiscovery,
@@ -947,10 +934,6 @@ async function handleApi(req, res, pathname, method, parts) {
     if (result !== LANE_FALL_THROUGH) return;
   }
 
-  if (parts[1] === 'app') {
-    const result = await handleAppRoutes(ROUTE_CTX, req, res, method, parts);
-    if (result !== LANE_FALL_THROUGH) return;
-  }
 
 
   if (parts[1] === 'agent-tools') {
