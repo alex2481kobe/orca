@@ -20,6 +20,8 @@ import { workspaceMethods } from './registry-workspaces.js';
 import { auditLogMethods } from './registry-audit-log.js';
 import { persistenceMethods } from './registry-persistence.js';
 import { artifactMethods } from './registry-artifacts.js';
+import { agentMethods } from './registry-agents.js';
+import { overviewMethods } from './registry-overview.js';
 import { lifecycleMethods } from './registry-lifecycle.js';
 import {
   parseBooleanEnv,
@@ -44,6 +46,7 @@ export class OrcaRegistry {
   } = {}) {
     this.projects = [];
     this.sessions = [];
+    this.orchestrators = [];
     this.lanes = [];
     this.tasks = [];
     this.loops = [];
@@ -179,6 +182,12 @@ Object.assign(OrcaRegistry.prototype, auditMethods);
 Object.assign(OrcaRegistry.prototype, projectMethods);
 Object.assign(OrcaRegistry.prototype, mcpToolMethods);
 Object.assign(OrcaRegistry.prototype, sessionMethods);
+// v2 agent/overview mixins are assigned BEFORE orchestratorMethods so the old
+// session-based resignOrchestrator (still live until Lane 2 step 5 removes it)
+// wins the one method-name collision. The new register/update/touch/stale
+// methods do not collide and remain available for the v2 register route.
+Object.assign(OrcaRegistry.prototype, agentMethods);
+Object.assign(OrcaRegistry.prototype, overviewMethods);
 Object.assign(OrcaRegistry.prototype, orchestratorMethods);
 Object.assign(OrcaRegistry.prototype, cleanupMethods);
 Object.assign(OrcaRegistry.prototype, laneOpsMethods);

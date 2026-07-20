@@ -3,6 +3,7 @@
 // for OrcaRegistry. Extracted from registry.js.
 
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { nowIso, safeArray } from './registry-utils.js';
 import { DEFAULT_NOTIFICATION_SETTINGS, sanitizeNotificationSettings } from './registry-notifications.js';
@@ -31,13 +32,36 @@ export const persistenceMethods = {
     };
     const recovered = readJsonFileWithRecoverySync(this.stateFile, { fallback });
     this.stateLoadStatus = recovered.status;
+    let migratedFromV1 = false;
     try {
-      const parsed = recovered.data || fallback;
+      let parsed = recovered.data || fallback;
+      // v1 -> v2 fresh-start migration. The v1 model (explicit projects/sessions +
+      // an exclusive per-session orchestrator marker) has no honest mapping to the
+      // v2 model (implicit projects-by-cwd + first-class orchestrator records);
+      // agents repopulate the whole model on reconnect. Back up the old file (never
+      // silently delete), then start from an empty v2 store.
+      if (parsed && parsed.version !== 2) {
+        const hadData = safeArray(parsed.projects).length
+          || safeArray(parsed.sessions).length
+          || safeArray(parsed.lanes).length;
+        if (hadData) {
+          try { fsSync.copyFileSync(this.stateFile, `${this.stateFile}.v1.bak`); } catch { /* best-effort backup */ }
+          migratedFromV1 = true;
+        }
+        parsed = { ...fallback, version: 2 };
+        // Persist the fresh v2 store immediately so the migration STICKS: writes
+        // are otherwise debounced+unref'd, so a crash right after migration would
+        // re-read the old v1 file and re-migrate on every restart.
+        try {
+          fsSync.writeFileSync(this.stateFile, JSON.stringify({ ...parsed, savedAt: nowIso() }));
+        } catch { /* best-effort; the debounced write will catch up */ }
+      }
       this.projects = safeArray(parsed.projects).map((project) => ({
         ...project,
         quickLinks: normalizeQuickLinks(project.quickLinks || []),
       }));
       this.sessions = safeArray(parsed.sessions);
+      this.orchestrators = safeArray(parsed.orchestrators);
       this.lanes = safeArray(parsed.lanes);
       this.tasks = safeArray(parsed.tasks);
       this.loops = safeArray(parsed.loops).filter((loop) => loop && typeof loop.id === 'string').slice(0, 500);
@@ -89,6 +113,17 @@ export const persistenceMethods = {
           ...this.cleanupSchedule,
           ...parsed.cleanupSchedule,
         };
+      }
+      if (migratedFromV1) {
+        this.auditEvents.unshift({
+          id: randomUUID(),
+          type: 'registry_state_migrated',
+          actor: 'system',
+          status: 'passed',
+          summary: 'Migrated state v1 -> v2 (fresh start); previous state backed up to state.json.v1.bak',
+          createdAt: nowIso(),
+          evidence: { from: 1, to: 2, backupPath: `${this.stateFile}.v1.bak` },
+        });
       }
       this.ensureSessionWorkspaces();
       this.recoverInterruptedLanes();
@@ -159,11 +194,12 @@ export const persistenceMethods = {
 
   snapshotState() {
     return {
-      version: 1,
+      version: 2,
       savedAt: nowIso(),
       policies: this.policies,
       projects: this.projects,
       sessions: this.sessions,
+      orchestrators: this.orchestrators,
       lanes: this.lanes,
       tasks: this.tasks,
       loops: this.loops,

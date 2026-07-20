@@ -155,7 +155,7 @@ test('registry recovers persisted projects from backup and audits recovery', asy
     const stateFile = path.join(dir, '.orca', 'state.json');
     try {
       await writeJsonFileAtomic(stateFile, {
-        version: 1,
+        version: 2,
         savedAt: new Date().toISOString(),
         policies: {},
         projects: [{
@@ -201,7 +201,7 @@ test('registry restores persisted sessions and normalizes invalid session config
     const stateFile = path.join(dir, '.orca', 'state.json');
     try {
       await writeJsonFileAtomic(stateFile, {
-        version: 1,
+        version: 2,
         savedAt: new Date().toISOString(),
         policies: {},
         projects: [{
