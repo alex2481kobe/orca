@@ -7,7 +7,16 @@ export function buildExecutorCommandArgs(label, lane, options = {}) {
   const terminalPresentation = presentationMode === 'terminal';
   const taskPrompt = String(lane.taskPrompt || '').trim();
   if (!taskPrompt) return [];
-  const safePrompt = taskPrompt.replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 4096);
+  // Prompt is passed as a single argv token. The old 4096 cap silently truncated
+  // ordinary scope-controlled prompts (explicit file lists + exclusions) — exactly
+  // the prompts that keep an executor on-task — so it undermined scope control.
+  // Cap generously (96 KiB, far under the ~256 KiB per-arg OS limit) so real
+  // prompts pass intact; keep the control-char sanitization (a real safety gate).
+  const MAX_PROMPT_BYTES = 96 * 1024;
+  const cleaned = taskPrompt.replace(/[\x00-\x1f\x7f]/g, ' ');
+  const safePrompt = Buffer.byteLength(cleaned, 'utf8') > MAX_PROMPT_BYTES
+    ? `${cleaned.slice(0, MAX_PROMPT_BYTES)}\n\n[orca: prompt truncated at ${MAX_PROMPT_BYTES} bytes]`
+    : cleaned;
   // Values that become discrete argv tokens must not begin with "-" or the
   // executor's own option parser would treat them as flags (flag injection),
   // and must not carry control characters. shell:false already blocks shell

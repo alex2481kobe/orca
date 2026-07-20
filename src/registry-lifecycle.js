@@ -4,10 +4,37 @@
 
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { isRunningLaneState } from './worker-contract.js';
 import { nowIso, buildLaneRoute } from './registry-utils.js';
 
 export const lifecycleMethods = {
+  // On a HARD restart (SIGKILL — graceful shutdown already stops executors), a
+  // lane's detached child process group survives with no supervisor, still
+  // running and burning tokens. Kill it. PID-REUSE HAZARD: the persisted pid may
+  // now belong to an unrelated process, so verify it still looks like one of our
+  // executor CLIs (via ps) before killing the group — a wrong kill is worse than
+  // a missed reap. Negative pid targets the whole detached group (matches
+  // cli-adapter's own stop()).
+  _reapOrphanedLaneProcess(lane) {
+    const meta = lane.processMeta || {};
+    const pid = Number(meta.pgid || meta.pid);
+    if (!Number.isInteger(pid) || pid <= 1) return false;
+    let command = '';
+    try {
+      command = String(execFileSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8', timeout: 2000 }) || '').toLowerCase();
+    } catch {
+      return false; // process is already gone (or ps unavailable) — nothing to reap
+    }
+    if (!/\b(codex|claude|gemini)\b/.test(command)) return false; // reused / not our executor — do NOT kill
+    try {
+      process.kill(-pid, 'SIGKILL');
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
   recoverInterruptedLanes() {
     for (const lane of this.lanes) {
       const session = this.sessions.find((value) => value.id === lane.sessionId);
@@ -23,7 +50,15 @@ export const lifecycleMethods = {
         }
       }
       if (isRunningLaneState(lane.state)) {
-        this.markLaneFailed(lane, 'Controller restarted while lane was active', 'system', false);
+        const reaped = this._reapOrphanedLaneProcess(lane);
+        this.markLaneFailed(
+          lane,
+          reaped
+            ? 'Controller restarted while lane was active (orphaned executor process reaped)'
+            : 'Controller restarted while lane was active',
+          'system',
+          false,
+        );
       }
       if (!lane.id) {
         lane.id = randomUUID();
