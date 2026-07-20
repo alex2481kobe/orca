@@ -125,17 +125,14 @@ test('deleteLane removes a terminal lane (and refuses a live one)', async () => 
     await registry.getExecutorForType('mock').start(registry.getLane(live.id));
     registry.getLane(live.id).state = 'running';
     await assert.rejects(() => registry.deleteLane(live.id, { actor: 'test' }), (e) => e.status === 422);
-    // Terminal lane can be deleted; runtime maps cleared; linked task unlinked.
+    // Terminal lane can be deleted; runtime maps cleared.
     const done = makeLane(registry, session.id);
     registry.ensureLaneToolLease(registry.getLane(done.id));
     registry.markLaneCompleted(registry.getLane(done.id)); // -> done
-    const task = registry.addTask(session.id, { title: 'x' });
-    registry.linkTaskToLane(task.id, done.id);
     const result = await registry.deleteLane(done.id, { actor: 'test' });
     assert.equal(result.deleted, true);
     assert.equal(registry.getLane(done.id), undefined);
     assert.equal(registry.laneRuntimeEnv.has(String(done.id)), false);
-    assert.equal(registry.getTask(task.id).laneId, null);
   });
 });
 
@@ -168,61 +165,6 @@ test('deleteLane removes terminal orchestrator turn references', async () => {
     assert.equal(afterFirstDelete.activeLane, null);
     assert.deepEqual(afterFirstDelete.laneIds, []);
   });
-});
-
-test('deleteLane requeues an in_lane task instead of stranding it', async () => {
-  await withRegistry(async (registry) => {
-    const { session } = setup(registry);
-    const done = makeLane(registry, session.id);
-    registry.markLaneCompleted(registry.getLane(done.id)); // -> done (deletable, awaiting audit)
-    const task = registry.addTask(session.id, { title: 'x', maxAttempts: 2 });
-    registry.linkTaskToLane(task.id, done.id); // -> in_lane, attempts=1
-    await registry.deleteLane(done.id, { actor: 'test' });
-    // Task must not be stranded in_lane with a dead link — it should requeue.
-    assert.equal(registry.getTask(task.id).state, 'pending');
-    assert.equal(registry.getTask(task.id).laneId, null);
-  });
-});
-
-test('deleteLane fails an out-of-budget in_lane task and completes the backlog', async () => {
-  await withRegistry(async (registry) => {
-    const { session } = setup(registry);
-    const done = makeLane(registry, session.id);
-    registry.markLaneCompleted(registry.getLane(done.id));
-    const task = registry.addTask(session.id, { title: 'x', maxAttempts: 1 });
-    registry.linkTaskToLane(task.id, done.id); // -> in_lane, attempts=1 (== maxAttempts)
-    await registry.deleteLane(done.id, { actor: 'test' });
-    assert.equal(registry.getTask(task.id).state, 'failed');
-    // All tasks terminal -> backlog completion latches even via the delete path.
-    assert.ok(registry.getSession(session.id).backlogCompletedAt);
-  });
-});
-
-test('pruneInMemoryRecords never drops a done lane still linked to an in_lane task', async () => {
-  const prev = process.env.ORCA_MAX_TERMINAL_LANES_PER_SESSION;
-  process.env.ORCA_MAX_TERMINAL_LANES_PER_SESSION = '2';
-  try {
-    await withRegistry(async (registry) => {
-      const { session } = setup(registry);
-      // One done lane awaiting audit, linked to an in_lane task (the protected one).
-      const awaiting = makeLane(registry, session.id);
-      registry.markLaneCompleted(registry.getLane(awaiting.id)); // -> done
-      const task = registry.addTask(session.id, { title: 'awaiting' });
-      registry.linkTaskToLane(task.id, awaiting.id); // -> in_lane, laneId = awaiting
-      // Pile on more terminal lanes so the cap (2) is exceeded and prune fires.
-      for (let i = 0; i < 5; i += 1) {
-        const l = makeLane(registry, session.id);
-        registry.markLaneCompleted(registry.getLane(l.id));
-      }
-      registry.pruneInMemoryRecords();
-      // The linked done lane must survive even though it's among the oldest terminal lanes.
-      assert.ok(registry.getLane(awaiting.id), 'linked-to-in_lane-task lane must not be pruned');
-      assert.equal(registry.getTask(task.id).laneId, String(awaiting.id));
-    });
-  } finally {
-    if (prev === undefined) delete process.env.ORCA_MAX_TERMINAL_LANES_PER_SESSION;
-    else process.env.ORCA_MAX_TERMINAL_LANES_PER_SESSION = prev;
-  }
 });
 
 test('acceptLaneAudit overrides an escalated audit (clears the dead end)', async () => {

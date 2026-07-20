@@ -223,9 +223,6 @@ test('registry restores persisted sessions and normalizes invalid session config
         const session = registry.getSession('s1');
         assert.ok(session, 'session restored from disk');
         // Invalid enums normalized to safe defaults (no ReferenceError thrown).
-        const cap = registry.getSessionCapacity('s1');
-        assert.equal(cap.spawnPolicy, 'within_capacity');
-        assert.equal(cap.idleShutdownMode, 'immediate');
         assert.equal(session.critiqueMode, 'suggested');
       } finally {
         registry.stopScheduler();

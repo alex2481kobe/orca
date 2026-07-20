@@ -15,7 +15,6 @@ import {
 } from './agent-tools.js';
 import { handleLaneRoutes, FALL_THROUGH as LANE_FALL_THROUGH } from './server-routes/lanes.js';
 import { handleSessionRoutes } from './server-routes/sessions.js';
-import { handleTaskRoutes } from './server-routes/tasks.js';
 import { handleProjectRoutes } from './server-routes/projects.js';
 import { handleMcpRoutes } from './server-routes/mcp.js';
 import { handleNotificationRoutes } from './server-routes/notifications.js';
@@ -24,7 +23,6 @@ import { handlePrivateAccessApi } from './server-routes/private-access.js';
 import { handleProvidersApi } from './server-routes/providers.js';
 import { handleSettingsRoutes } from './server-routes/settings.js';
 import { handleAgentToolRoutes } from './server-routes/agent-tools.js';
-import { handleSupervisorRoutes } from './server-routes/supervisor.js';
 import { handleOperatorTerminalRoutes } from './server-routes/operator-terminals.js';
 import { handleCaptureRoutes } from './server-routes/capture.js';
 import { handleArtifactRoutes } from './server-routes/artifacts.js';
@@ -941,11 +939,6 @@ async function handleApi(req, res, pathname, method, parts) {
     if (result !== LANE_FALL_THROUGH) return;
   }
 
-  if (parts[1] === 'supervisor') {
-    const result = await handleSupervisorRoutes(ROUTE_CTX, req, res, method, parts);
-    if (result !== LANE_FALL_THROUGH) return;
-  }
-
   if (parts[1] === 'terminals' || (parts[1] === 'sessions' && parts[3] === 'terminals')) {
     const result = await handleOperatorTerminalRoutes(ROUTE_CTX, req, res, method, parts);
     if (result !== LANE_FALL_THROUGH) return;
@@ -994,11 +987,6 @@ async function handleApi(req, res, pathname, method, parts) {
 
   if (parts[1] === 'lanes') {
     const result = await handleLaneRoutes(ROUTE_CTX, req, res, method, parts);
-    if (result !== LANE_FALL_THROUGH) return;
-  }
-
-  if (parts[1] === 'tasks') {
-    const result = await handleTaskRoutes(ROUTE_CTX, req, res, method, parts);
     if (result !== LANE_FALL_THROUGH) return;
   }
 

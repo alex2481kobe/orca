@@ -112,27 +112,6 @@ test('status turns receive read-only tools but cannot spawn or mutate workflow',
   }
 });
 
-test('planning turns can organize plan/backlog but cannot create executor lanes', async () => {
-  const { registry, session, cleanup } = await withRegistry();
-  try {
-    const result = await sendWithPolicyLease(registry, session, 'Scope a plan for the workflow, plan only and do not implement.');
-    assert.equal(result.turnPolicy.intent, 'plan');
-    assert.equal(result.turnPolicy.executionStrategy, 'plan_only');
-    assertLeaseTool(result, 'session.plan.update', true);
-    assertLeaseTool(result, 'task.bulk_add', true);
-    assertLeaseTool(result, 'lane.create', false);
-    assertLeaseTool(result, 'loop.create', false);
-    assert.match(result.lane.taskPrompt, /planning turn/);
-    assert.equal(buildNextActionEnvelope(registry, {
-      role: 'orchestrator',
-      sessionId: session.id,
-      laneId: result.lane.id,
-      allowedTools: result.lease.allowedTools,
-    }).allowedTools.includes('lane.create'), false);
-  } finally {
-    await cleanup();
-  }
-});
 
 test('self-execution turns allow own-lane handoff and block executor spawning', async () => {
   const { registry, session, cleanup } = await withRegistry();
@@ -149,25 +128,6 @@ test('self-execution turns allow own-lane handoff and block executor spawning', 
   }
 });
 
-test('delegation and loop turns grant bounded orchestration tools', async () => {
-  const { registry, session, cleanup } = await withRegistry();
-  try {
-    const delegated = await sendWithPolicyLease(registry, session, 'Implement the feature with two executor agents in parallel.');
-    assert.equal(delegated.turnPolicy.executionStrategy, 'executor_lanes');
-    assert.equal(delegated.turnPolicy.spawnBudget.executorLanes, 4);
-    assertLeaseTool(delegated, 'lane.create', true);
-    assertLeaseTool(delegated, 'task.bulk_add', true);
-    assertLeaseTool(delegated, 'loop.create', false);
-
-    const loop = await sendWithPolicyLease(registry, session, 'Create a loop daemon that can resume after rate limits.');
-    assert.equal(loop.turnPolicy.executionStrategy, 'loop');
-    assert.equal(loop.turnPolicy.spawnBudget.loops, 1);
-    assertLeaseTool(loop, 'loop.create', true);
-    assertLeaseTool(loop, 'lane.create', true);
-  } finally {
-    await cleanup();
-  }
-});
 
 test('audit turns can verify existing work but cannot start fresh executors', async () => {
   const { registry, session, cleanup } = await withRegistry();

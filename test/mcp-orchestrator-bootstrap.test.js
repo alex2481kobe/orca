@@ -287,57 +287,6 @@ test('registry replaces duplicate external MCP bootstrap leases for the same cha
   }
 });
 
-test('registry mints a supervisor MCP bootstrap with supervisor tool scope', async () => {
-  const { registry, cleanup } = await withIsolatedRegistry();
-  try {
-    const result = registry.createOrchestratorMcpBootstrap({ role: 'supervisor', actor: 'desktop-app' });
-    assert.ok(result.leaseToken, 'returns the plaintext supervisor lease token once');
-    assert.equal(result.lease.role, 'supervisor');
-    assert.ok(result.lease.allowedTools.includes('supervisor.overview'));
-    assert.ok(result.lease.allowedTools.includes('supervisor.resign'));
-    assert.ok(result.lease.allowedTools.includes('session.supervisor_audit'));
-    for (const id of [
-      'lane.list',
-      'lane.get',
-      'lane.terminal.tail',
-      'approval.list',
-      'evidence.list',
-      'evidence.latest',
-      'orchestrator.thread.get',
-      'orchestrator.status',
-    ]) {
-      assert.equal(result.lease.allowedTools.includes(id), true, `supervisor lease includes ${id}`);
-    }
-    for (const id of [
-      'session.plan.update',
-      'session.create',
-      'capacity.set_policy',
-      'session.worktree_policy.update',
-      'settings.update',
-      'task.add',
-      'task.bulk_add',
-      'task.update',
-      'task.delete',
-      'lane.create',
-      'orchestrator.enroll',
-    ]) {
-      assert.equal(result.lease.allowedTools.includes(id), false, `supervisor lease excludes ${id}`);
-    }
-    assert.equal(result.bootstrap.clients.claudeDesktop.config.mcpServers.orca.env.ORCA_ROLE, 'supervisor');
-    const validated = registry.validateToolLease(result.leaseToken, {
-      role: 'supervisor',
-      toolId: 'supervisor.overview',
-    });
-    assert.equal(validated.active, true);
-    assert.throws(
-      () => registry.validateToolLease(result.leaseToken, { role: 'orchestrator' }),
-      (err) => err.status === 403,
-    );
-    assert.ok(registry.auditEvents.some((event) => event.type === 'supervisor_mcp_bootstrap_created'));
-  } finally {
-    await cleanup();
-  }
-});
 
 test('same external agent can register as supervisor or orchestrator with scoped authority', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
@@ -399,28 +348,12 @@ test('same external agent can register as supervisor or orchestrator with scoped
     assert.throws(
       () => registry.validateToolLease(supervisor.leaseToken, {
         role: 'supervisor',
-        toolId: 'loop.create',
+        toolId: 'lane.create',
         projectId: project.id,
         sessionId: session.id,
       }),
       (error) => error.status === 403,
     );
-
-    const loop = registry.createLoop(session.id, {
-      name: 'Fable executor choice proof',
-      goal: 'Prove an external orchestrator can choose executor agents for a loop.',
-      executorTypes: ['mock'],
-      cadenceMs: 1000,
-      maxIterations: 1,
-    }, { actor: orchestratorLease.actor, approved: true });
-    assert.equal(loop.createdBy, 'fable-agent');
-    assert.deepEqual(loop.executorTypes, ['mock']);
-
-    const overview = registry.supervisorOverview({ projectId: project.id, sessionId: session.id });
-    assert.ok(overview.activeSupervisors.some((entry) => entry.actor === 'fable-agent'));
-    const overviewSession = overview.projects[0].sessions[0];
-    assert.equal(overviewSession.activeOrchestrator.actor, 'fable-agent');
-    assert.equal(overviewSession.activeOrchestrator.active, true);
   } finally {
     await cleanup();
   }

@@ -185,22 +185,3 @@ test('agent queue: ack state persists and remains scoped per consumer after relo
     }
   });
 });
-
-test('agent queue: backlog completion emits an orchestrator wake event', async () => {
-  await withRegistry(async (registry) => {
-    const { session } = makeSession(registry, {
-      settingsOverrides: { flow: { requireAuditPass: false } },
-    });
-    const task = registry.addTask(session.id, { title: 'queue event' });
-    const lane = makeLane(registry, session.id, { owner: 'executor' });
-    registry.claimNextPendingTask(session.id);
-    registry.linkTaskToLane(task.id, lane.id);
-
-    registry.markLaneCompleted(registry.getLane(lane.id));
-
-    const drained = registry.drainAgentEvents(session.id, { role: 'orchestrator', actor: 'orch-a' });
-    assert.equal(drained.events.length, 1);
-    assert.equal(drained.events[0].type, 'backlog_completed');
-    assert.match(drained.events[0].body, /backlog tasks have been accepted/i);
-  });
-});
