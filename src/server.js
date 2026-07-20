@@ -24,8 +24,6 @@ import { handleProvidersApi } from './server-routes/providers.js';
 import { handleSettingsRoutes } from './server-routes/settings.js';
 import { handleAgentToolRoutes } from './server-routes/agent-tools.js';
 import { handleOperatorTerminalRoutes } from './server-routes/operator-terminals.js';
-import { handleCaptureRoutes } from './server-routes/capture.js';
-import { handleArtifactRoutes } from './server-routes/artifacts.js';
 import { handleMiscRoutes } from './server-routes/misc.js';
 import { createStaticServer } from './server-routes/static-server.js';
 import { createAuthApi } from './server-routes/auth-api.js';
@@ -442,9 +440,6 @@ function toolLeaseRequirementForRoute(method, parts) {
   if (parts[1] === 'tasks' && parts[2] && parts.length === 3) {
     if (method === 'PATCH') return { toolId: 'task.update' };
     if (method === 'DELETE') return { toolId: 'task.delete' };
-  }
-  if (parts[1] === 'artifacts' && parts[2] === 'cleanup' && method === 'POST') {
-    return { toolIds: ['evidence.cleanup_dry_run', 'evidence.cleanup_apply'] };
   }
   if (parts[1] === 'lanes' && parts[2] && parts.length === 3 && method === 'GET') {
     return { toolId: 'lane.get', laneId: parts[2] };
@@ -958,15 +953,6 @@ async function handleApi(req, res, pathname, method, parts) {
     if (result !== LANE_FALL_THROUGH) return;
   }
 
-  if (parts[1] === 'capture') {
-    const result = await handleCaptureRoutes(ROUTE_CTX, req, res, method, parts);
-    if (result !== LANE_FALL_THROUGH) return;
-  }
-
-  if (parts[1] === 'artifacts') {
-    const result = await handleArtifactRoutes(ROUTE_CTX, req, res, method, parts);
-    if (result !== LANE_FALL_THROUGH) return;
-  }
 
 
   if (parts[1] === 'mcp') {

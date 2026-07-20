@@ -8,11 +8,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import {
-  planPlaywrightInstall,
-  runCaptureInstall,
-  describeCaptureStatus,
-} from './capture-setup.js';
-import {
   normalizeExecutorType,
   publicBinaryName,
   firstLine,
@@ -139,19 +134,6 @@ export const executorCapabilityMethods = {
           approvalRequired: false,
         });
       }
-    }
-    // Playwright blocker — await detection so we don't false-positive after install.
-    const playwrightOk = await this.evidenceRunner.ensurePlaywrightDetected();
-    if (!playwrightOk) {
-      blockers.push({
-        id: 'playwright-missing',
-        severity: 'warn',
-        area: 'evidence',
-        summary: 'Playwright not installed; evidence capture is degraded',
-        detail: 'Without Playwright, /api/lanes/:id/evidence returns captured=false and writes a JSON marker only. Screenshots, traces, and videos cannot be produced.',
-        remediation: 'From the repo root, run: npm install --save-dev playwright && npx playwright install chromium',
-        approvalRequired: true,
-      });
     }
     return {
       generatedAt: nowIso(),
@@ -449,76 +431,6 @@ export const executorCapabilityMethods = {
         sourceCommand: getReinstallSourceCommand(type),
       },
     };
-  },
-
-  // Governed on-demand setup of the evidence-capture browser backend.
-  // Dry-run by default; executes only with approval + explicit confirmation.
-  async setupCaptureBackend({
-    actor = 'dashboard',
-    approved = false,
-    confirmed = false,
-    preferSystemChrome = true,
-  } = {}) {
-    const policyCheck = this.evaluateActionPolicy('manageExecutorCli', { actor, approved });
-    if (!policyCheck.allowed) {
-      throw {
-        status: 409,
-        message: policyCheck.message,
-        requiresApproval: true,
-        risk: policyCheck.policy.risk,
-      };
-    }
-
-    const installDir = path.join(this.storageDir, 'capture', 'playwright');
-    const plan = planPlaywrightInstall({ installDir, preferSystemChrome });
-
-    if (!confirmed) {
-      this.recordAudit({
-        type: 'capture_setup_planned',
-        actor,
-        summary: `Capture setup planned (${plan.backend})`,
-        evidence: { backend: plan.backend, channel: plan.channel, installDir, steps: plan.steps.map((s) => s.label) },
-        status: 'passed',
-      });
-      return { dryRun: true, plan };
-    }
-
-    await fs.mkdir(installDir, { recursive: true });
-    const result = await runCaptureInstall(plan, {
-      approved: true,
-      spawn: (command, args, options) => new Promise((resolve) => {
-        const child = spawn(command, args, {
-          cwd: options?.cwd,
-          env: { ...process.env, ...(options?.env || {}) },
-          stdio: 'ignore',
-        });
-        child.on('error', () => resolve({ code: 1 }));
-        child.on('close', (code) => resolve({ code: code ?? 1 }));
-      }),
-    });
-
-    if (result.ok) {
-      // Wire env so capture works immediately, without restarting the server.
-      process.env.ORCA_PLAYWRIGHT_DIR = installDir;
-      if (plan.channel) process.env.ORCA_CAPTURE_CHANNEL = plan.channel;
-      else delete process.env.ORCA_CAPTURE_CHANNEL;
-      if (plan.browsersDir) process.env.PLAYWRIGHT_BROWSERS_PATH = plan.browsersDir;
-      if (this.evidenceRunner) this.evidenceRunner._hasPlaywright = null; // force re-detect
-    }
-
-    this.recordAudit({
-      type: 'capture_setup_executed',
-      actor,
-      summary: `Capture setup ${result.ok ? 'succeeded' : 'failed'} (${plan.backend})`,
-      evidence: { backend: plan.backend, channel: plan.channel, ok: result.ok, failedStep: result.failedStep || null },
-      status: result.ok ? 'passed' : 'failed',
-    });
-
-    return { dryRun: false, executed: true, ok: result.ok, plan, result };
-  },
-
-  captureStatus({ playwrightAvailable = false } = {}) {
-    return describeCaptureStatus({ playwrightAvailable });
   },
 
   async runExecutorCliReinstall(executorType, {

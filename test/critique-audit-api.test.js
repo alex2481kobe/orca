@@ -121,57 +121,6 @@ async function createProjectSessionLane(server, token, laneBody = {}) {
   return { project: project.body, session: session.body, lane: lane.body };
 }
 
-test('critique and audit outcome routes are wired and token-gated', async () => {
-  const token = 'critique-route-token';
-  const server = await startServer({ token });
-  try {
-    const { lane } = await createProjectSessionLane(server, token, {
-      critiqueMode: 'required',
-    });
-
-    const deniedBundle = await server.requestJson(`/api/lanes/${lane.id}/critique/bundle`, {
-      method: 'POST',
-      body: { actor: 'dashboard' },
-    });
-    assert.equal(deniedBundle.status, 401);
-
-    const bundle = await server.requestJson(`/api/lanes/${lane.id}/critique/bundle`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { actor: 'dashboard' },
-    });
-    assert.equal(bundle.status, 201);
-    assert.equal(typeof bundle.body?.critiqueNonce, 'string');
-
-    const findings = await server.requestJson(`/api/lanes/${lane.id}/critique/findings`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        critiqueNonce: bundle.body.critiqueNonce,
-        checksRun: ['route smoke'],
-        ready: true,
-      },
-    });
-    assert.equal(findings.status, 200);
-    assert.equal(findings.body?.lane?.critiqueState, 'satisfied');
-
-    const accepted = await server.requestJson(`/api/lanes/${lane.id}/audit/accept`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        verdict: 'accepted',
-        findings: ['route accepted'],
-      },
-    });
-    assert.equal(accepted.status, 200);
-    assert.equal(accepted.body?.lane?.state, 'accepted');
-  } finally {
-    await server.stop();
-  }
-});
-
 test('audit findings route dispatches fix and block verdicts', async () => {
   const token = 'critique-route-token-2';
   const server = await startServer({ token });
@@ -217,36 +166,6 @@ test('audit findings route dispatches fix and block verdicts', async () => {
     });
     assert.equal(blocked.status, 200);
     assert.equal(blocked.body?.lane?.state, 'blocked');
-  } finally {
-    await server.stop();
-  }
-});
-
-test('visual critique route refuses ready findings without fresh screenshot evidence', async () => {
-  const token = 'critique-route-token-3';
-  const server = await startServer({ token });
-  try {
-    const { lane } = await createProjectSessionLane(server, token, {
-      targetUrl: 'http://127.0.0.1:4173',
-    });
-    const bundle = await server.requestJson(`/api/lanes/${lane.id}/critique/bundle`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { actor: 'dashboard' },
-    });
-    assert.equal(bundle.status, 201);
-    const findings = await server.requestJson(`/api/lanes/${lane.id}/critique/findings`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        critiqueNonce: bundle.body.critiqueNonce,
-        visualEvidenceReviewed: true,
-        ready: true,
-      },
-    });
-    assert.equal(findings.status, 409);
-    assert.equal(String(findings.body?.error || '').includes('fresh screenshot evidence'), true);
   } finally {
     await server.stop();
   }

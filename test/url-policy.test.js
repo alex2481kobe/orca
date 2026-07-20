@@ -95,7 +95,7 @@ test('evidence URL policy requires saved URLs or explicit one-time approval', ()
   );
 });
 
-test('registry rejects unsafe lane target URLs and evidence capture URLs before browser work', async () => {
+test('registry rejects unsafe lane target URLs before browser work', async () => {
   await withRegistry(async (registry) => {
     const project = registry.createProject({
       name: 'SSRF Project',
@@ -114,28 +114,11 @@ test('registry rejects unsafe lane target URLs and evidence capture URLs before 
       (error) => error.status === 422 && /blocked private/.test(error.message),
     );
 
-    const lane = registry.createLane(session.id, {
+    // A safe loopback target is accepted by the same url-policy validation.
+    registry.createLane(session.id, {
       title: 'Safe target',
       executorType: 'mock',
       targetUrl: 'http://127.0.0.1:4173/',
     }, { actor: 'test', approved: true });
-
-    await assert.rejects(
-      () => registry.captureLaneEvidence(lane.id, {
-        actor: 'test',
-        approved: true,
-        url: 'http://169.254.169.254/latest/meta-data',
-      }),
-      (error) => error.status === 422 && /blocked private/.test(error.message),
-    );
-
-    await assert.rejects(
-      () => registry.captureLaneEvidence(lane.id, {
-        actor: 'test',
-        approved: true,
-        url: 'http://127.0.0.1:5173/',
-      }),
-      (error) => error.status === 422 && /one-time/.test(error.message),
-    );
   });
 });

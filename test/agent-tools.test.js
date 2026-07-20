@@ -44,21 +44,12 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
     'lane.shutdown',
     'lane.controls.update',
     'session.worktree_policy.update',
-    'critique.bundle.create',
-    'critique.findings.record',
-    'critique.waive',
     'audit.queue_one',
     'audit.queue_all_ready',
     'audit.findings.record',
     'audit.accept',
     'audit.request_fix',
     'audit.block',
-    'evidence.capture_screenshot',
-    'evidence.capture_video',
-    'evidence.list',
-    'evidence.latest',
-    'evidence.cleanup_dry_run',
-    'evidence.cleanup_apply',
     'provider.list',
     'provider.health',
     'provider.configure',
@@ -150,34 +141,8 @@ test('nextAction envelope only advertises an implemented nextRequiredTool', asyn
     });
     assert.equal(active.nextRequiredTool, 'session.next_action');
     assert.equal(active.nextToolImplemented, true);
-    assert.equal(active.evidenceRequired, true);
-    assert.equal(active.evidenceFresh, false);
 
     registry.markLaneCompleted(registry.getLane(lane.id));
-    const critique = buildNextActionEnvelope(registry, {
-      role: 'orchestrator',
-      projectId: project.id,
-      sessionId: session.id,
-      laneId: lane.id,
-    });
-    assert.equal(critique.nextRequiredTool, 'evidence.capture_screenshot');
-    assert.equal(critique.critiqueRequired, true);
-    assert.equal(critique.critiqueSatisfied, false);
-    const target = registry.getLane(lane.id);
-    target.lastEvidenceCaptureAt = new Date(Date.now() + 1000).toISOString();
-    target.lastEvidence = {
-      status: 'captured',
-      requested: ['screenshot'],
-      produced: ['evidence-screenshot.png'],
-    };
-    const bundle = registry.createCritiqueBundle(lane.id, { actor: 'test' });
-    registry.recordCritiqueFindings(lane.id, {
-      actor: 'test',
-      critiqueNonce: bundle.critiqueNonce,
-      checksRun: ['reviewed screenshot'],
-      visualEvidenceReviewed: true,
-      ready: true,
-    });
     const audit = buildNextActionEnvelope(registry, {
       role: 'orchestrator',
       projectId: project.id,

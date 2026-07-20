@@ -136,7 +136,6 @@ test('audit turns can verify existing work but cannot start fresh executors', as
     assert.equal(result.turnPolicy.intent, 'audit');
     assert.equal(result.turnPolicy.executionStrategy, 'audit_only');
     assertLeaseTool(result, 'audit.findings.record', true);
-    assertLeaseTool(result, 'evidence.list', true);
     assertLeaseTool(result, 'lane.create', false);
     assertLeaseTool(result, 'task.bulk_add', false);
     assert.match(result.lane.taskPrompt, /audit turn/);

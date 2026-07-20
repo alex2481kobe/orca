@@ -191,10 +191,6 @@ export const auditMethods = {
         risk: policyCheck.policy.risk,
       };
     }
-    if (this.critiqueRequiredForLane(lane) && !this.critiqueSatisfiedForLane(lane)) {
-      throw { status: 409, message: 'Lane requires self-verification before audit can be queued.' };
-    }
-
     const existing = this.auditEvents.find((event) =>
       AUDIT_QUEUE_TYPES.includes(event.type) &&
       event.laneId === lane.id &&
@@ -243,8 +239,7 @@ export const auditMethods = {
 
     const doneLanes = this.lanes.filter((lane) =>
       lane.sessionId === session.id &&
-      [DONE_STATE, READY_FOR_AUDIT_STATE].includes(lane.state) &&
-      (!this.critiqueRequiredForLane(lane) || this.critiqueSatisfiedForLane(lane))
+      [DONE_STATE, READY_FOR_AUDIT_STATE].includes(lane.state)
     );
     if (!doneLanes.length) {
       return { enqueued: 0, queueIds: [] };
@@ -314,9 +309,6 @@ export const auditMethods = {
     // on the MCP path and harmless here.
     if (isRunningLaneState(lane.state)) {
       throw { status: 409, message: 'Cannot accept a lane that is still running. Stop it first.' };
-    }
-    if (this.critiqueRequiredForLane(lane) && !this.critiqueSatisfiedForLane(lane)) {
-      throw { status: 409, message: 'Cannot accept lane before required critique is satisfied.' };
     }
     lane.auditState = 'accepted';
     lane.state = ACCEPTED_STATE;

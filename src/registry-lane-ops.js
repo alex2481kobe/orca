@@ -103,7 +103,7 @@ export const laneOpsMethods = {
       lane.changedFiles = changedFiles.map((file) => String(file).slice(0, 400)).slice(0, 500);
     }
     if (handoff) lane.handoff = String(handoff).slice(0, 4000);
-    const needsCritique = this.critiqueRequiredForLane(lane) && !this.critiqueSatisfiedForLane(lane);
+    const needsCritique = false;
     lane.state = needsCritique ? NEEDS_CRITIQUE_STATE : READY_FOR_AUDIT_STATE;
     lane.submittedAt = nowIso();
     lane.updatedAt = nowIso();
@@ -427,7 +427,7 @@ export const laneOpsMethods = {
     lane.completedAt = null;
     lane.startedAt = null;
     lane.auditState = 'not_queued';
-    lane.critiqueState = this.critiqueRequiredForLane(lane) ? 'needed' : 'not_required';
+    lane.critiqueState = 'not_required';
     lane.critiqueNonce = null;
     lane.critiqueRevision = (Number.parseInt(lane.critiqueRevision, 10) || 1) + 1;
     // If this lane came from a backlog task that was requeued to 'pending' when the

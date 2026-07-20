@@ -105,8 +105,8 @@ test('Orca MCP server: initialize, tools/list, and a proxied tools/call', async 
       id: 3,
       method: 'tools/call',
       params: {
-        name: 'evidence__capture_screenshot',
-        arguments: { body: { url: 'http://localhost:5173', modes: ['screenshot'] } },
+        name: 'lane__heartbeat',
+        arguments: { body: { note: 'localhost:5173' } },
       },
     },
   ]);
@@ -122,7 +122,7 @@ test('Orca MCP server: initialize, tools/list, and a proxied tools/call', async 
   // tools/list contains executor-role tools, names underscored, not dotted
   const tools = responses.get(2).result.tools;
   const names = tools.map((t) => t.name);
-  assert.ok(names.includes('evidence__capture_screenshot'), 'screenshot tool exposed');
+  assert.ok(names.includes('lane__submit'), 'submit tool exposed');
   assert.ok(names.includes('lane__heartbeat'), 'heartbeat tool exposed');
   assert.ok(!names.some((n) => n.includes('.')), 'no dotted MCP tool names');
   // executor role must NOT see dashboard-only tools like provider.configure
@@ -133,7 +133,7 @@ test('Orca MCP server: initialize, tools/list, and a proxied tools/call', async 
   assert.equal(callResult.isError, false);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].method, 'POST');
-  assert.equal(calls[0].url, '/api/lanes/lane-123/evidence'); // {laneId} from env
+  assert.equal(calls[0].url, '/api/lanes/lane-123/heartbeat'); // {laneId} from env
   assert.equal(calls[0].lease, 'lease-abc');
   assert.match(calls[0].body, /localhost:5173/);
 });

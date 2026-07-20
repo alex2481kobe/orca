@@ -1515,71 +1515,6 @@ test('server rejects malformed query strings on query-based endpoints', async ()
     const malformedMcpQuery = await server.requestJson('/api/mcp/tools?scope=%E0%A4', { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(malformedMcpQuery.status, 400);
     assert.equal(String(malformedMcpQuery.body?.error || '').includes('Invalid request query string.'), true);
-
-    const project = await server.requestJson('/api/projects', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { name: 'Query project', approved: true },
-    });
-    assert.equal(project.status, 201);
-
-    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { name: 'Query session', approved: true },
-    });
-    assert.equal(session.status, 201);
-
-    const lane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        title: 'Query lane',
-        executorType: 'mock',
-        command: 'echo query route',
-        owner: 'test',
-        approved: true,
-      },
-    });
-    assert.equal(lane.status, 201);
-
-    const malformedEvidenceQuery = await server.requestJson(`/api/lanes/${lane.body.id}/evidence/latest?mode=%E0%A4`, { method: 'GET', headers: { 'x-orca-token': token } });
-    assert.equal(malformedEvidenceQuery.status, 400);
-    assert.equal(String(malformedEvidenceQuery.body?.error || '').includes('Invalid request query string.'), true);
-  } finally {
-    await server.stop();
-  }
-});
-
-test('server blocks destructive artifact cleanup without explicit confirmation', async () => {
-  const token = 'route-token-02';
-  const server = await startServer({ token });
-
-  try {
-    const destructiveDenied = await server.requestJson('/api/artifacts/cleanup', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        approved: true,
-        dryRun: false,
-        confirmed: false,
-      },
-    });
-    assert.equal(destructiveDenied.status, 409);
-    assert.equal(typeof destructiveDenied.body?.error === 'string', true);
-
-    const dryRunResult = await server.requestJson('/api/artifacts/cleanup', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        approved: true,
-        dryRun: true,
-      },
-    });
-    assert.equal(dryRunResult.status, 200);
-    assert.equal(dryRunResult.body?.dryRun, true);
   } finally {
     await server.stop();
   }
@@ -2510,161 +2445,6 @@ test('server MCP tooling rejects unsupported scope values and blocked commands',
   }
 });
 
-test('run-now cleanup endpoint enforces approval and supports dry-run mode', async () => {
-  const token = 'route-token-05';
-  const server = await startServer({ token });
-
-  try {
-    const denied = await server.requestJson('/api/artifacts/cleanup/run-now', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        dryRun: false,
-        confirmed: true,
-      },
-    });
-    assert.equal(denied.status, 409);
-    assert.equal(Boolean(denied.body?.requiresApproval), true);
-
-    const dryRunResult = await server.requestJson('/api/artifacts/cleanup/run-now', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        approved: true,
-        dryRun: true,
-      },
-    });
-    assert.equal(dryRunResult.status, 200);
-    assert.equal(dryRunResult.body?.dryRun, true);
-    assert.equal(dryRunResult.body?.removed, 0);
-
-    const invalidRunNowSession = await server.requestJson('/api/artifacts/cleanup/run-now', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        approved: true,
-        dryRun: true,
-        sessionId: 'missing-session-id',
-      },
-    });
-    assert.equal(invalidRunNowSession.status, 404);
-    assert.equal(String(invalidRunNowSession.body?.error || '').includes('Session not found'), true);
-
-    const missingCleanupConfirmation = await server.requestJson('/api/artifacts/cleanup/run-now', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        approved: true,
-        dryRun: false,
-        confirmed: false,
-      },
-    });
-    assert.equal(missingCleanupConfirmation.status, 409);
-    assert.equal(
-      String(missingCleanupConfirmation.body?.error || '').includes('Destructive cleanup requires explicit confirmation.'),
-      true,
-    );
-  } finally {
-    await server.stop();
-  }
-});
-
-test('cleanup schedule endpoint enforces approval and persists updated schedule', async () => {
-  const token = 'route-token-06';
-  const server = await startServer({ token });
-
-  try {
-    const denied = await server.requestJson('/api/artifacts/cleanup/schedule', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        enabled: true,
-        intervalHours: 12,
-      },
-    });
-    assert.equal(denied.status, 409);
-    assert.equal(Boolean(denied.body?.requiresApproval), true);
-
-    const saved = await server.requestJson('/api/artifacts/cleanup/schedule', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        enabled: true,
-        approved: true,
-        intervalHours: 12,
-        olderThanDays: 30,
-        dryRun: true,
-      },
-    });
-    assert.equal(saved.status, 200);
-    assert.equal(saved.body?.enabled, true);
-    assert.equal(saved.body?.intervalHours, 12);
-    assert.equal(saved.body?.olderThanDays, 30);
-    assert.equal(saved.body?.dryRun, true);
-
-    const listed = await server.requestJson('/api/artifacts/cleanup/schedule', {
-      method: 'GET',
-      headers: { 'x-orca-token': token },
-    });
-    assert.equal(listed.status, 200);
-    assert.equal(listed.body?.schedule?.enabled, true);
-    assert.equal(listed.body?.schedule?.intervalHours, 12);
-  } finally {
-    await server.stop();
-  }
-});
-
-test('cleanup schedule endpoint validates interval, session id, and retention', async () => {
-  const token = 'route-token-06b';
-  const server = await startServer({ token });
-
-  try {
-    const badInterval = await server.requestJson('/api/artifacts/cleanup/schedule', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        approved: true,
-        intervalHours: 900,
-      },
-    });
-    assert.equal(badInterval.status, 422);
-    assert.equal(String(badInterval.body?.error || '').includes('cannot exceed 720'), true);
-
-    const badSession = await server.requestJson('/api/artifacts/cleanup/schedule', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        approved: true,
-        enabled: true,
-        sessionId: 'missing-session-id',
-      },
-    });
-    assert.equal(badSession.status, 404);
-    assert.equal(String(badSession.body?.error || '').includes('Session not found'), true);
-
-    const badRetention = await server.requestJson('/api/artifacts/cleanup/schedule', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        approved: true,
-        olderThanDays: 'nope',
-      },
-    });
-    assert.equal(badRetention.status, 422);
-    assert.equal(String(badRetention.body?.error || '').includes('olderThanDays must be a positive integer or null'), true);
-  } finally {
-    await server.stop();
-  }
-});
-
 test('mobile manifest exposes deep links for projects, sessions, and lane artifact/evidence actions', async () => {
   const token = 'route-token-07';
   const server = await startServer({ token });
@@ -3409,14 +3189,6 @@ test('scoped supervisor tool leases can read only their project/session/lane con
     assert.equal(lane.status, 200);
     assert.equal(lane.body.id, laneA.body.id);
 
-    const evidence = await server.requestJson(`/api/lanes/${laneA.body.id}/evidence`, { headers: leaseHeaders });
-    assert.equal(evidence.status, 200);
-    assert.equal(evidence.body.laneId, laneA.body.id);
-    assert.equal(Array.isArray(evidence.body.files), true);
-
-    const latest = await server.requestJson(`/api/lanes/${laneA.body.id}/evidence/latest`, { headers: leaseHeaders });
-    assert.equal(latest.status, 200);
-
     // Cross-scope reads are refused for a lease bound to project/session A.
     const deniedProject = await server.requestJson(`/api/projects/${projectB.body.id}`, { headers: leaseHeaders });
     assert.equal(deniedProject.status, 403);
@@ -3612,13 +3384,6 @@ test('server rejects dashboard requests that try to spoof the scheduler actor', 
     });
     assert.equal(spoofed.status, 403);
     assert.equal(String(spoofed.body?.error || '').includes('scheduler'), true);
-
-    const systemSpoof = await server.requestJson('/api/artifacts/cleanup', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { actor: 'system', approved: true, dryRun: true, sessionId: null },
-    });
-    assert.equal(systemSpoof.status, 403);
   } finally {
     await server.stop();
   }

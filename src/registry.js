@@ -5,10 +5,8 @@ import { notificationMethods } from './registry-notification-methods.js';
 import { agentQueueMethods } from './registry-agent-queue.js';
 import { defaultPolicy } from './registry-policy.js';
 import { executorCapabilityMethods } from './registry-executor-caps.js';
-import { critiqueMethods } from './registry-critique.js';
 import { settingsMethods } from './registry-settings.js';
 import { auditMethods } from './registry-audit.js';
-import { evidenceMethods } from './registry-evidence.js';
 import { projectMethods } from './registry-projects.js';
 import { mcpToolMethods } from './registry-mcp-tools.js';
 import { sessionMethods } from './registry-sessions.js';
@@ -19,9 +17,9 @@ import { laneTerminalMethods } from './registry-lane-terminal.js';
 import { laneCreateMethods } from './registry-lane-create.js';
 import { schedulerMethods } from './registry-scheduler.js';
 import { workspaceMethods } from './registry-workspaces.js';
-import { evidenceCaptureMethods } from './registry-evidence-capture.js';
 import { auditLogMethods } from './registry-audit-log.js';
 import { persistenceMethods } from './registry-persistence.js';
+import { artifactMethods } from './registry-artifacts.js';
 import { lifecycleMethods } from './registry-lifecycle.js';
 import {
   parseBooleanEnv,
@@ -34,7 +32,6 @@ import {
 import {
   createExecutorAdapter,
 } from './executor-factory.js';
-import { PlaywrightEvidenceRunner } from './evidence-runner.js';
 
 export class OrcaRegistry {
   constructor({
@@ -117,19 +114,6 @@ export class OrcaRegistry {
       codex: createExecutorAdapter('codex', baseExecutorCallbacks),
       claude: createExecutorAdapter('claude', baseExecutorCallbacks),
     };
-    this.evidenceRunner = new PlaywrightEvidenceRunner({
-      onLog: (lane, message) => this.appendLaneLog(lane, message, { persist: false }),
-      onError: (lane, message) => this.recordAudit({
-        type: 'lane_evidence_failed',
-        actor: 'system',
-        projectId: lane.projectId,
-        sessionId: lane.sessionId,
-        laneId: lane.id,
-        summary: `Evidence capture failed for lane ${lane.title}`,
-        evidence: { lane, message },
-        status: 'failed',
-      }),
-    });
     this.laneExecutorMap = new Map();
     this.unknownExecutorAdapters = new Map();
 
@@ -190,10 +174,8 @@ Object.assign(OrcaRegistry.prototype, toolLeaseMethods);
 Object.assign(OrcaRegistry.prototype, notificationMethods);
 Object.assign(OrcaRegistry.prototype, agentQueueMethods);
 Object.assign(OrcaRegistry.prototype, executorCapabilityMethods);
-Object.assign(OrcaRegistry.prototype, critiqueMethods);
 Object.assign(OrcaRegistry.prototype, settingsMethods);
 Object.assign(OrcaRegistry.prototype, auditMethods);
-Object.assign(OrcaRegistry.prototype, evidenceMethods);
 Object.assign(OrcaRegistry.prototype, projectMethods);
 Object.assign(OrcaRegistry.prototype, mcpToolMethods);
 Object.assign(OrcaRegistry.prototype, sessionMethods);
@@ -204,7 +186,7 @@ Object.assign(OrcaRegistry.prototype, laneTerminalMethods);
 Object.assign(OrcaRegistry.prototype, laneCreateMethods);
 Object.assign(OrcaRegistry.prototype, schedulerMethods);
 Object.assign(OrcaRegistry.prototype, workspaceMethods);
-Object.assign(OrcaRegistry.prototype, evidenceCaptureMethods);
 Object.assign(OrcaRegistry.prototype, auditLogMethods);
 Object.assign(OrcaRegistry.prototype, persistenceMethods);
+Object.assign(OrcaRegistry.prototype, artifactMethods);
 Object.assign(OrcaRegistry.prototype, lifecycleMethods);

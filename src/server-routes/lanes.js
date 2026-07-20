@@ -418,66 +418,6 @@ export async function handleLaneRoutes(ctx, req, res, method, parts) {
       }
     }
 
-    if (parts.length === 5 && parts[3] === 'evidence' && parts[4] === 'presets' && method === 'GET') {
-      try {
-        return sendJson(res, 200, registry.getEvidencePresets(lane.id));
-      } catch (error) {
-        return sendJson(res, error.status || 500, { error: error.message || 'Could not load evidence presets.' });
-      }
-    }
-
-    if (parts.length === 5 && parts[3] === 'evidence' && parts[4] === 'latest' && method === 'GET') {
-      const searchParams = getSearchParams(req.url || '/');
-      if (!searchParams) {
-        return sendJson(res, 400, {
-          error: 'Invalid request query string.',
-        });
-      }
-      const mode = searchParams.get('mode');
-      try {
-        const latestEvidence = await registry.getLatestEvidence(lane.id, { mode });
-        return sendJson(res, 200, latestEvidence);
-      } catch (error) {
-        return sendJson(res, error.status || 500, { error: error.message || 'Could not load latest evidence.' });
-      }
-    }
-
-    if (parts.length === 4 && parts[3] === 'evidence' && method === 'GET') {
-      try {
-        const files = await registry.listArtifactFiles(lane.id);
-        const evidenceFiles = files.filter((filename) => filename.startsWith('evidence-') || filename === 'evidence.json');
-        return sendJson(res, 200, {
-          laneId: lane.id,
-          sessionId: lane.sessionId,
-          files: evidenceFiles.map((filename) => ({
-            name: filename,
-            url: `/artifacts/${lane.sessionId}/${lane.id}/${filename}`,
-          })),
-        });
-      } catch (error) {
-        return sendJson(res, error.status || 500, { error: error.message || 'Could not list evidence files.' });
-      }
-    }
-
-    if (parts.length === 4 && parts[3] === 'evidence' && method === 'POST') {
-      const body = await parseJsonBody(req);
-      if (body === null) return sendBodyError(req, res);
-    if (rejectSpoofedActor(body, res)) return;
-      try {
-        const result = await registry.captureLaneEvidence(lane.id, {
-          ...body,
-          actor: body.actor || 'dashboard',
-        });
-        return sendJson(res, 200, result);
-      } catch (error) {
-        return sendJson(res, error.status || 500, {
-          error: error.message || 'Could not capture evidence.',
-          requiresApproval: error.requiresApproval || false,
-          risk: error.risk || null,
-        });
-      }
-    }
-
     if (parts.length === 5 && parts[3] === 'worktree' && parts[4] === 'remove' && method === 'POST') {
       const body = await parseJsonBody(req);
       if (body === null) return sendBodyError(req, res);
@@ -492,25 +432,6 @@ export async function handleLaneRoutes(ctx, req, res, method, parts) {
       } catch (error) {
         return sendJson(res, error.status || 500, {
           error: error.message || 'Could not remove worktree.',
-          requiresApproval: error.requiresApproval || false,
-          risk: error.risk || null,
-        });
-      }
-    }
-
-    if (parts.length === 5 && parts[3] === 'evidence' && parts[4] === 'clear' && method === 'POST') {
-      const body = await parseJsonBody(req);
-      if (body === null) return sendBodyError(req, res);
-    if (rejectSpoofedActor(body, res)) return;
-      try {
-        const result = await registry.clearLaneEvidenceArtifacts(lane.id, {
-          ...body,
-          actor: body.actor || 'dashboard',
-        });
-        return sendJson(res, 200, result);
-      } catch (error) {
-        return sendJson(res, error.status || 500, {
-          error: error.message || 'Could not clear evidence artifacts.',
           requiresApproval: error.requiresApproval || false,
           risk: error.risk || null,
         });

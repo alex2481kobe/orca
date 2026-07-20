@@ -2202,74 +2202,6 @@ test('buildExecutorCommandArgs derives safe argv from lane task prompt', async (
   assert.equal(claudeTerminalArgs.includes('stream-json'), false);
 });
 
-test('evidence capture resolves saved preview presets server-side', async () => {
-  const { registry, cleanup } = await withIsolatedRegistry();
-  try {
-    let capturedOptions = null;
-    registry.evidenceRunner = {
-      capture: async (_lane, options) => {
-        capturedOptions = options;
-        return {
-          captured: true,
-          evidence: {
-            status: 'captured',
-            requested: options.modes || [],
-            produced: ['evidence-shot.png'],
-          },
-        };
-      },
-    };
-
-    const project = registry.createProject({
-      name: 'Preset Evidence Project',
-      quickLinks: [{
-        label: 'Example App',
-        url: 'http://127.0.0.1:5173',
-        kind: 'vite',
-      }],
-    }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Preset Evidence Session' }, { actor: 'test', approved: true });
-    const lane = registry.createLane(session.id, {
-      title: 'Preset Evidence Lane',
-      executorType: 'mock',
-    }, { actor: 'test', approved: true });
-
-    const presets = registry.getEvidencePresets(lane.id).presets;
-    assert.equal(presets.length, 1);
-    assert.equal(presets[0].id.startsWith('project-link:'), true);
-
-    const result = await registry.captureLaneEvidence(lane.id, {
-      actor: 'dashboard',
-      approved: true,
-      presetId: presets[0].id,
-      modes: ['screenshot'],
-    });
-    assert.equal(result.captured, true);
-    assert.equal(capturedOptions.url, 'http://127.0.0.1:5173/');
-    assert.equal(capturedOptions.networkPolicy.savedUrl, true);
-
-    await assert.rejects(
-      () => registry.captureLaneEvidence(lane.id, {
-        actor: 'dashboard',
-        approved: true,
-        presetId: 'missing-preset',
-      }),
-      (error) => error.status === 404,
-    );
-    await assert.rejects(
-      () => registry.captureLaneEvidence(lane.id, {
-        actor: 'dashboard',
-        approved: true,
-        presetId: presets[0].id,
-        url: 'http://127.0.0.1:5174',
-      }),
-      (error) => error.status === 422,
-    );
-  } finally {
-    await cleanup();
-  }
-});
-
 test('Recovery flips orphaned running lanes to failed with explicit reason', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
@@ -2837,23 +2769,6 @@ test('submitLane records summary + changed files and marks the lane ready for au
   }
 });
 
-test('submitLane routes to self-verification when critique is required', async () => {
-  const { registry, cleanup } = await withIsolatedRegistry();
-  try {
-    const project = registry.createProject({ name: 'Critique Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Critique Session' }, { actor: 'test', approved: true });
-    const lane = registry.createLane(session.id, { title: 'visual', executorType: 'mock', critiqueMode: 'required' }, { approved: true, actor: 'test' });
-    const target = registry.getLane(lane.id);
-    target.state = 'running';
-
-    const result = registry.submitLane(lane.id, { actor: 'executor', summary: 'done' });
-    assert.equal(result.needsCritique, true);
-    assert.equal(result.lane.state, 'needs_critique');
-  } finally {
-    await cleanup();
-  }
-});
-
 test('assertAgentToolAllowed enforces the workflow state machine', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
@@ -3055,28 +2970,6 @@ test('reinstall override rejects alternate registries, alias packages, and bare 
       command: 'npm install --yes -g @openai/codex',
     });
     assert.ok(ok, 'clean override plans');
-  } finally {
-    await cleanup();
-  }
-});
-
-test('evidence lookups resolve mode helpers (getLatestEvidence/getEvidenceFiles do not throw)', async () => {
-  // Regression: inferEvidenceMode/normalizeEvidenceModeList were defined in
-  // registry.js but used only in registry-evidence.js; the split orphaned them
-  // so getLatestEvidence threw "normalizeEvidenceModeList is not defined" (500
-  // on GET /api/lanes/:id/evidence/latest). Exercise both evidence readers.
-  const { registry, cleanup } = await withIsolatedRegistry();
-  try {
-    const project = registry.createProject({ name: 'Evidence Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Evidence Session' }, { actor: 'test', approved: true });
-    const lane = registry.createLane(session.id, { title: 'evidence lane', executorType: 'mock' }, { approved: true, actor: 'test' });
-
-    const latest = await registry.getLatestEvidence(lane.id, { mode: 'screenshot' });
-    assert.equal(latest.laneId, lane.id);
-    assert.equal(latest.requestedMode, 'screenshot');
-
-    const files = await registry.getEvidenceFiles(lane.id);
-    assert.ok(Array.isArray(files), 'evidence files list resolves');
   } finally {
     await cleanup();
   }

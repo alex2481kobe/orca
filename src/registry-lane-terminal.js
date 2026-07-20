@@ -25,7 +25,7 @@ export const laneTerminalMethods = {
   markLaneCompleted(lane) {
     if (!lane || TERMINAL_LANE_STATES.has(lane.state)) return;
     const now = nowIso();
-    const needsCritique = this.critiqueRequiredForLane(lane) && !this.critiqueSatisfiedForLane(lane);
+    const needsCritique = false;
     lane.state = needsCritique ? NEEDS_CRITIQUE_STATE : DONE_STATE;
     lane.updatedAt = now;
     // Auto-queue the audit when a finished executor lane requires one — the
