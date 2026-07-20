@@ -102,6 +102,34 @@ test('buildOverview groups by project and drops long-terminal executors', () => 
   assert.equal(o.executors[0].terminal, false);
 });
 
+test('registerOrchestrator works against a real registry with a real lease + shows in overview', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orca-reg-'));
+  const realRoot = fs.realpathSync(root);
+  const prevRoots = process.env.ORCA_REPO_ROOTS;
+  const prevCwd = process.cwd();
+  process.env.ORCA_REPO_ROOTS = realRoot; // make the temp cwd an approved repo root
+  process.chdir(root);
+  try {
+    const { OrcaRegistry } = await import('../src/registry.js');
+    const reg = new OrcaRegistry({ autoAudit: false });
+    reg.stopScheduler();
+    const { lease } = reg.createToolLease({ role: 'orchestrator', actor: 'claude-code', allowedTools: ['orchestrator.register'] });
+    const orch = await reg.registerOrchestrator({ cwd: realRoot, actor: 'claude-code', title: 'v2', focus: 'wiring' }, { leaseId: lease.id });
+    assert.ok(orch.id.startsWith('orc_'));
+    assert.equal(orch.leaseId, lease.id);
+    assert.equal(reg._orchestratorStale(orch), false, 'a freshly-registered orchestrator with a live lease is not stale');
+    const ov = reg.buildOverview();
+    assert.equal(ov.projects.length, 1);
+    assert.equal(ov.projects[0].name, path.basename(realRoot));
+    assert.equal(ov.projects[0].orchestrators[0].title, 'v2');
+    reg.stopScheduler();
+    await reg.drainPendingWrites();
+  } finally {
+    if (prevRoots === undefined) delete process.env.ORCA_REPO_ROOTS; else process.env.ORCA_REPO_ROOTS = prevRoots;
+    process.chdir(prevCwd);
+  }
+});
+
 test('v1 state migrates to a fresh v2 store with a backup and audit, idempotently', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orca-mig-'));
   fs.mkdirSync(path.join(root, '.orca'), { recursive: true });
