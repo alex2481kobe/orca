@@ -503,16 +503,6 @@ export const TOOL_DEFINITIONS = [
     summary: 'Show who owns this session as orchestrator plus the lane tree, backlog roll-up, and next required tool — the canonical "what is happening" call.',
   },
   {
-    id: 'orchestrator.message.send',
-    group: 'orchestrator',
-    roles: ['dashboard'],
-    method: 'POST',
-    route: '/api/sessions/{sessionId}/orchestrator/messages',
-    implemented: true,
-    mutating: true,
-    summary: 'Queue a server-owned orchestrator turn/message for this session from the dashboard/mobile console. External orchestrator agents should act directly with lane/task/session tools instead of spawning another orchestrator.',
-  },
-  {
     id: 'event.drain',
     group: 'event',
     roles: ['supervisor', 'orchestrator', 'dashboard'],

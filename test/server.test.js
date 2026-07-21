@@ -519,28 +519,6 @@ test('operator terminal agent messages are delivered to the active native CLI an
     assert.equal(userTurn.source, 'terminal');
     assert.equal(userTurn.laneId, sent.body.agentBridge.activeLaneId);
 
-    const lanesBefore = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
-      method: 'GET',
-      headers: { 'x-orca-token': token },
-    });
-    assert.equal(lanesBefore.status, 200);
-    const routed = await server.requestJson(`/api/sessions/${session.body.id}/orchestrator/messages`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { message: 'second message through canonical chat', executorType: 'codex', approved: true },
-    });
-    assert.equal(routed.status, 201);
-    assert.equal(routed.body.routedTo, 'active_terminal');
-    assert.equal(routed.body.lane.id, sent.body.agentBridge.activeLaneId);
-    const secondTail = await waitForTerminalText(server, started.body.id, token, /__ORCA_FAKE_CODEX_INPUT__second message through canonical chat/);
-    assert.match(secondTail.body.text, /__ORCA_FAKE_CODEX_INPUT__second message through canonical chat/);
-    const lanesAfter = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
-      method: 'GET',
-      headers: { 'x-orca-token': token },
-    });
-    assert.equal(lanesAfter.status, 200);
-    assert.equal(lanesAfter.body.length, lanesBefore.body.length);
-
     const laneMessage = await server.requestJson(`/api/lanes/${sent.body.agentBridge.activeLaneId}/terminal-input`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
@@ -567,19 +545,18 @@ test('operator terminal agent messages are delivered to the active native CLI an
     const userTurns = threadAfterRoutes.body.messages.filter((message) => message.role === 'user');
     assert.deepEqual(userTurns.map((message) => message.content), [
       'hello native terminal agent',
-      'second message through canonical chat',
       'third message through lane terminal endpoint',
     ]);
     assert.equal(userTurns.every((message) => message.laneId === sent.body.agentBridge.activeLaneId), true);
     assert.equal(userTurns.every((message) => message.terminalId === started.body.id), true);
     assert.equal(userTurns.some((message) => message.content.includes('raw xterm')), false);
 
-    const exitTurn = await server.requestJson(`/api/sessions/${session.body.id}/orchestrator/messages`, {
+    const exitTurn = await server.requestJson(`/api/lanes/${sent.body.agentBridge.activeLaneId}/terminal-input`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
-      body: { message: 'exit-now', executorType: 'codex', approved: true },
+      body: { actor: 'dashboard', input: 'exit-now', raw: false },
     });
-    assert.equal(exitTurn.status, 201);
+    assert.equal(exitTurn.status, 200);
     const exitedLane = await waitForLaneState(server, sent.body.agentBridge.activeLaneId, token, (lane) => lane?.state === 'failed');
     assert.equal(exitedLane.status, 200);
     assert.equal(exitedLane.body.state, 'failed');
@@ -1823,7 +1800,7 @@ test('API lane creation validates MCP tool IDs and executor constraints', async 
   }
 });
 
-test('dashboard orchestrator messages create server-owned turns and scoped tool leases', async () => {
+test('dashboard-scoped orchestrator leases enroll and gate cross-scope actions', async () => {
   const token = 'route-token-orchestrator-chat';
   const server = await startServer({ token });
 
@@ -1850,61 +1827,6 @@ test('dashboard orchestrator messages create server-owned turns and scoped tool 
     });
     assert.equal(session.status, 201);
 
-    const turn = await server.requestJson(`/api/sessions/${session.body.id}/orchestrator/messages`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        approved: true,
-        executorType: 'mock',
-        model: 'gpt-5',
-        permissionsProfile: 'plan',
-        intelligenceProfile: 'high',
-        message: 'Build the project plan and create the first executor lane.',
-      },
-    });
-    assert.equal(turn.status, 201);
-    assert.equal(turn.body?.lane?.owner, 'orchestrator');
-    assert.equal(turn.body?.lane?.executorType, 'mock');
-    assert.equal(turn.body?.lane?.model, 'gpt-5');
-    assert.equal(turn.body?.lane?.permissionsProfile, 'plan');
-    assert.equal(turn.body?.lane?.intelligenceProfile, 'high');
-    assert.equal(turn.body?.thread?.messages?.length, 2);
-    assert.equal(JSON.stringify(turn.body).includes('leaseToken'), false);
-    assert.equal(JSON.stringify(turn.body).includes(token), false);
-    assert.equal(String(turn.body?.lane?.taskPrompt || '').includes('ORCA_TOOL_LEASE_TOKEN'), true);
-    assert.equal(String(turn.body?.lane?.taskPrompt || '').includes('Build the project plan'), true);
-    assert.equal(turn.body?.turnPolicy?.executionStrategy, 'executor_lanes');
-    assert.equal(turn.body?.nextAction?.allowedTools?.includes('lane.create'), true);
-    assert.equal(turn.body?.nextAction?.allowedTools?.includes('loop.create'), false);
-
-    const statusTurn = await server.requestJson(`/api/sessions/${session.body.id}/orchestrator/messages`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        approved: true,
-        executorType: 'mock',
-        permissionsProfile: 'plan',
-        intelligenceProfile: 'high',
-        message: 'What happened with the agent?',
-      },
-    });
-    assert.equal(statusTurn.status, 201);
-    assert.equal(statusTurn.body?.turnPolicy?.intent, 'status');
-    assert.equal(statusTurn.body?.nextAction?.allowedTools?.includes('orchestrator.status'), true);
-    assert.equal(statusTurn.body?.nextAction?.allowedTools?.includes('lane.create'), false);
-    assert.equal(statusTurn.body?.nextAction?.allowedTools?.includes('task.bulk_add'), false);
-    assert.match(String(statusTurn.body?.lane?.taskPrompt || ''), /Read-only Orca status tools/);
-
-    const thread = await server.requestJson(`/api/sessions/${session.body.id}/orchestrator`, {
-      method: 'GET',
-      headers: { 'x-orca-token': token },
-    });
-    assert.equal(thread.status, 200);
-    assert.equal(thread.body?.activeLaneId, statusTurn.body.lane.id);
-    assert.equal(thread.body?.activeLane?.id, statusTurn.body.lane.id);
-
     const lease = await server.requestJson('/api/agent-tools/leases', {
       method: 'POST',
       headers: { 'x-orca-token': token },
@@ -1925,18 +1847,6 @@ test('dashboard orchestrator messages create server-owned turns and scoped tool 
     });
     assert.equal(enrolled.status, 200);
     assert.equal(enrolled.body?.activeOrchestrator?.active, true);
-
-    const leaseMessage = await server.requestJson(`/api/sessions/${session.body.id}/orchestrator/messages`, {
-      method: 'POST',
-      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
-      body: {
-        approved: true,
-        executorType: 'mock',
-        message: 'An external orchestrator lease must not spawn another orchestrator turn.',
-      },
-    });
-    assert.equal(leaseMessage.status, 401);
-    assert.match(leaseMessage.body?.error || '', /Unauthorized/i);
 
     const leaseLane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
       method: 'POST',
@@ -1961,83 +1871,6 @@ test('dashboard orchestrator messages create server-owned turns and scoped tool 
     });
     assert.equal(forbidden.status, 403);
     assert.match(forbidden.body?.error || '', /unscoped tool lease/i);
-  } finally {
-    await server.stop();
-  }
-});
-
-test('orchestrator messages reject attachment URLs outside the current session', async () => {
-  const token = 'route-token-orchestrator-attachments';
-  const server = await startServer({ token });
-
-  try {
-    const project = await server.requestJson('/api/projects', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { name: 'Attachment Boundary Project', approved: true },
-    });
-    assert.equal(project.status, 201);
-
-    const sessionA = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { name: 'Attachment Session A', leader: 'mock', approved: true },
-    });
-    const sessionB = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { name: 'Attachment Session B', leader: 'mock', approved: true },
-    });
-    assert.equal(sessionA.status, 201);
-    assert.equal(sessionB.status, 201);
-
-    const operatorHeaders = { 'x-orca-token': token };
-
-    const foreignDir = path.join(process.cwd(), 'artifacts', sessionB.body.id, 'attachments');
-    await fs.mkdir(foreignDir, { recursive: true });
-    await fs.writeFile(path.join(foreignDir, 'foreign.txt'), 'foreign session data');
-
-    const rejected = await server.requestJson(`/api/sessions/${sessionA.body.id}/orchestrator/messages`, {
-      method: 'POST',
-      headers: operatorHeaders,
-      body: {
-        approved: true,
-        message: 'Use the foreign attachment.',
-        executorType: 'mock',
-        attachments: [{ name: 'foreign.txt', url: `/artifacts/${sessionB.body.id}/attachments/foreign.txt` }],
-      },
-    });
-    assert.equal(rejected.status, 422);
-    assert.match(rejected.body?.error || '', /current session/);
-
-    const lanesAfterReject = await server.requestJson(`/api/sessions/${sessionA.body.id}/lanes`, {
-      method: 'GET',
-      headers: { 'x-orca-token': token },
-    });
-    assert.deepEqual(lanesAfterReject.body, []);
-    const threadAfterReject = await server.requestJson(`/api/sessions/${sessionA.body.id}/orchestrator`, {
-      method: 'GET',
-      headers: { 'x-orca-token': token },
-    });
-    assert.equal(threadAfterReject.body.messages.length, 0);
-
-    const ownDir = path.join(process.cwd(), 'artifacts', sessionA.body.id, 'attachments');
-    await fs.mkdir(ownDir, { recursive: true });
-    await fs.writeFile(path.join(ownDir, 'own.txt'), 'own session data');
-    const accepted = await server.requestJson(`/api/sessions/${sessionA.body.id}/orchestrator/messages`, {
-      method: 'POST',
-      headers: operatorHeaders,
-      body: {
-        approved: true,
-        message: 'Use the current-session attachment.',
-        executorType: 'mock',
-        attachments: [{ name: 'own.txt', url: `/artifacts/${sessionA.body.id}/attachments/own.txt` }],
-      },
-    });
-    assert.equal(accepted.status, 201);
-    assert.equal(accepted.body?.lane?.sessionId, sessionA.body.id);
-    assert.match(accepted.body?.lane?.taskPrompt || '', new RegExp(`/artifacts/${sessionA.body.id}/attachments/own\\.txt`));
-    assert.equal(String(accepted.body?.lane?.taskPrompt || '').includes(sessionB.body.id), false);
   } finally {
     await server.stop();
   }

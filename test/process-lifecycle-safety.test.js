@@ -84,39 +84,6 @@ test('pruneInMemoryRecords caps terminal lanes per session (bounds growth)', asy
   }
 });
 
-test('pruneInMemoryRecords removes stale orchestrator turn references', async () => {
-  const prev = process.env.ORCA_MAX_TERMINAL_LANES_PER_SESSION;
-  process.env.ORCA_MAX_TERMINAL_LANES_PER_SESSION = '1';
-  try {
-    await withRegistry(async (registry) => {
-      const { session } = setup(registry);
-      const turns = [];
-      for (let i = 1; i <= 3; i += 1) {
-        const turn = await registry.sendOrchestratorMessage(session.id, {
-          message: `Plan step ${i}.`,
-          executorType: 'mock',
-          baseUrl: 'http://127.0.0.1:1',
-        }, { actor: 'dashboard', approved: true });
-        registry.markLaneCompleted(registry.getLane(turn.lane.id));
-        turns.push(turn);
-      }
-
-      assert.equal(registry.getOrchestratorThread(session.id).activeLaneId, turns[2].lane.id);
-      assert.equal(registry.pruneInMemoryRecords(), true);
-
-      const thread = registry.getOrchestratorThread(session.id);
-      assert.deepEqual(thread.laneIds, [turns[2].lane.id]);
-      assert.equal(thread.activeLaneId, turns[2].lane.id);
-      assert.equal(thread.activeLane?.id, turns[2].lane.id);
-      assert.equal(registry.getLane(turns[0].lane.id), undefined);
-      assert.equal(registry.getLane(turns[1].lane.id), undefined);
-    });
-  } finally {
-    if (prev === undefined) delete process.env.ORCA_MAX_TERMINAL_LANES_PER_SESSION;
-    else process.env.ORCA_MAX_TERMINAL_LANES_PER_SESSION = prev;
-  }
-});
-
 test('deleteLane removes a terminal lane (and refuses a live one)', async () => {
   await withRegistry(async (registry) => {
     const { session } = setup(registry);
@@ -133,37 +100,6 @@ test('deleteLane removes a terminal lane (and refuses a live one)', async () => 
     assert.equal(result.deleted, true);
     assert.equal(registry.getLane(done.id), undefined);
     assert.equal(registry.laneRuntimeEnv.has(String(done.id)), false);
-  });
-});
-
-test('deleteLane removes terminal orchestrator turn references', async () => {
-  await withRegistry(async (registry) => {
-    const { session } = setup(registry);
-    const first = await registry.sendOrchestratorMessage(session.id, {
-      message: 'Plan the first step.',
-      executorType: 'mock',
-      baseUrl: 'http://127.0.0.1:1',
-    }, { actor: 'dashboard', approved: true });
-    const second = await registry.sendOrchestratorMessage(session.id, {
-      message: 'Plan the second step.',
-      executorType: 'mock',
-      baseUrl: 'http://127.0.0.1:1',
-    }, { actor: 'dashboard', approved: true });
-    registry.markLaneCompleted(registry.getLane(first.lane.id));
-    registry.markLaneCompleted(registry.getLane(second.lane.id));
-    assert.equal(registry.getOrchestratorThread(session.id).activeLaneId, second.lane.id);
-
-    await registry.deleteLane(second.lane.id, { actor: 'test' });
-    const afterSecondDelete = registry.getOrchestratorThread(session.id);
-    assert.equal(afterSecondDelete.activeLaneId, first.lane.id);
-    assert.equal(afterSecondDelete.activeLane?.id, first.lane.id);
-    assert.deepEqual(afterSecondDelete.laneIds, [first.lane.id]);
-
-    await registry.deleteLane(first.lane.id, { actor: 'test' });
-    const afterFirstDelete = registry.getOrchestratorThread(session.id);
-    assert.equal(afterFirstDelete.activeLaneId, null);
-    assert.equal(afterFirstDelete.activeLane, null);
-    assert.deepEqual(afterFirstDelete.laneIds, []);
   });
 });
 

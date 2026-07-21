@@ -142,7 +142,6 @@ test('registry mints an orchestrator lease whose token validates for orchestrato
     assert.ok(result.leaseToken, 'returns the plaintext lease token once');
     assert.equal(result.lease.role, 'orchestrator');
     assert.ok(result.lease.allowedTools.length >= 30, 'grants the full orchestrator toolset');
-    assert.equal(result.lease.allowedTools.includes('orchestrator.message.send'), false);
     assert.equal(result.lease.projectId, null, 'unscoped lease works session/project-wide');
 
     // The minted token must validate for an orchestrator tool (e.g. lane.create).

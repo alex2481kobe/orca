@@ -17,7 +17,6 @@ import { createLaneWorktree, describeRepoRoot } from './worktree-manager.js';
 import { sanitizeSettingsOverrides } from './effective-settings.js';
 import { validateNetworkUrl } from './url-policy.js';
 import { normalizeCritiqueMode, normalizeWorktreeMode } from './registry-lane-config.js';
-import { sanitizeOrchestratorTurnPolicy } from './orchestrator-turn-policy.js';
 
 const { QUEUED: QUEUED_STATE } = LANE_STATES;
 const MAX_WORKDIR_BYTES = 2048;
@@ -253,9 +252,7 @@ export const laneCreateMethods = {
     const expectedArtifactsList = Array.isArray(expectedArtifacts)
       ? expectedArtifacts.map((value) => String(value || '').trim()).filter(Boolean).slice(0, 32)
       : [];
-    const sanitizedTurnPolicy = owner === 'orchestrator' && turnPolicy
-      ? sanitizeOrchestratorTurnPolicy(turnPolicy)
-      : null;
+    const sanitizedTurnPolicy = null; // v2 executor lanes are not chat turns
 
     const lane = {
       id: laneId,

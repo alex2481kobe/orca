@@ -76,19 +76,6 @@ test('auto-audit: the spawned auditor lane gets the auditor tool role', async ()
   });
 });
 
-test('auto-audit: orchestrator tier nudges the orchestrator (creates an orchestrator turn)', async () => {
-  await withAutoAuditRegistry(async (registry) => {
-    const { session, lane } = seed(registry, {
-      settingsOverrides: { flow: { auditTier: 'orchestrator', requireAuditPass: true } },
-    });
-    registry.markLaneCompleted(registry.getLane(lane.id));
-    await registry.dispatchPendingAudits();
-    const orchestratorLane = registry.lanes.find((l) => l.owner === 'orchestrator' && l.sessionId === session.id);
-    assert.ok(orchestratorLane, 'an orchestrator turn should be created to run the audit');
-    assert.equal(registry.getLane(lane.id).auditState, 'auditing');
-  });
-});
-
 test('auto-audit: an unattended auto session (no live orchestrator) auto-uses a separate auditor', async () => {
   await withAutoAuditRegistry(async (registry) => {
     // spawnPolicy 'auto', default audit tier 'orchestrator', nobody enrolled —
@@ -113,29 +100,6 @@ test('auto-audit: an auditor that finishes without a verdict re-dispatches, then
       registry.lanes
         .filter((l) => l.owner === 'auditor' && l.auditTargetLaneId === lane.id)
         .forEach((a) => { a.state = 'done'; });
-      await registry.dispatchPendingAudits();
-    }
-    assert.equal(registry.getLane(lane.id).auditState, 'escalated');
-    assert.ok(registry.auditEvents.some((e) => e.type === 'lane_audit_escalated' && e.laneId === lane.id));
-  });
-});
-
-test('auto-audit: orchestrator-tier audit escalates when no orchestrator can act (no eternal hang)', async () => {
-  await withAutoAuditRegistry(async (registry) => {
-    // Non-auto session, orchestrator tier, but nobody is enrolled and the spawned
-    // turn lanes finish without recording a verdict — the lane must not hang in
-    // 'auditing' forever; it re-dispatches then escalates.
-    const { lane } = seed(registry, {
-      settingsOverrides: { flow: { auditTier: 'orchestrator', requireAuditPass: true } },
-    });
-    registry.markLaneCompleted(registry.getLane(lane.id));
-    await registry.dispatchPendingAudits(); // nudge #1 -> 'auditing', a turn lane is spawned
-    assert.equal(registry.getLane(lane.id).auditState, 'auditing');
-    // Finish every orchestrator turn lane without a verdict and re-tick a few times.
-    for (let i = 0; i < 4; i += 1) {
-      registry.lanes
-        .filter((l) => l.owner === 'orchestrator' && l.sessionId === lane.sessionId)
-        .forEach((o) => { o.state = 'done'; });
       await registry.dispatchPendingAudits();
     }
     assert.equal(registry.getLane(lane.id).auditState, 'escalated');

@@ -266,58 +266,6 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
       }
     }
 
-    if (parts.length === 5 && parts[3] === 'orchestrator' && parts[4] === 'messages' && method === 'POST') {
-      const body = await parseJsonBody(req);
-      if (body === null) return sendBodyError(req, res);
-      if (rejectSpoofedActor(body, res)) return;
-      if (unsandboxedBlocked(body.permissionsProfile)) {
-        return sendJson(res, 403, { error: 'Unsandboxed agent permissions (bypass/yolo/force) require workstation admin auth, not a paired device. Use a sandboxed mode (plan/auto-edit).' });
-      }
-      try {
-        const origin = requestOrigin(req);
-        const nextAction = buildNextActionEnvelope(registry, {
-          role: 'orchestrator',
-          projectId: session.projectId,
-          sessionId: session.id,
-        });
-        const result = await registry.sendOrchestratorMessage(session.id, {
-          message: body.message,
-          executorType: body.executorType,
-          model: body.model,
-          permissionsProfile: body.permissionsProfile,
-          intelligenceProfile: body.intelligenceProfile,
-          speed: body.speed,
-          branch: body.branch,
-          executionMode: body.executionMode,
-          targetUrl: body.targetUrl,
-          attachments: body.attachments,
-          baseUrl: origin,
-          discoveryUrl: `${origin}/api/agent-tools/discovery`,
-          nextActionUrl: `${origin}/api/agent-tools/next-action?role=orchestrator&projectId=${encodeURIComponent(session.projectId)}&sessionId=${encodeURIComponent(session.id)}`,
-        }, {
-          actor: req._toolLease?.actor || body.actor || 'dashboard',
-          approved: body.approved,
-          nextAction,
-        });
-        const scopedAllowedTools = Array.isArray(result.allowedTools) ? result.allowedTools : nextAction.allowedTools;
-        const scopedNextAction = {
-          ...nextAction,
-          allowedTools: scopedAllowedTools,
-          nextToolPermitted: scopedAllowedTools.includes(nextAction.nextRequiredTool),
-          turnPolicy: result.turnPolicy || null,
-        };
-        return sendJson(res, 201, {
-          ...result,
-          nextAction: scopedNextAction,
-        });
-      } catch (error) {
-        return sendJson(res, error.status || 500, {
-          error: error.message || 'Could not queue orchestrator message.',
-          requiresApproval: error.requiresApproval || false,
-          risk: error.risk || null,
-        });
-      }
-    }
 
     if (parts.length === 5 && parts[3] === 'supervisor' && parts[4] === 'audit' && method === 'POST') {
       const body = await parseJsonBody(req);

@@ -1424,45 +1424,6 @@ test('orchestrator thread messages are capped when restored or appended', async 
   }
 });
 
-test('orchestrator lane output is promoted into the chat thread assistant turn', async () => {
-  const { registry, cleanup } = await withIsolatedRegistry();
-
-  try {
-    const project = registry.createProject({ name: 'Thread Output Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Thread Output Session' }, { actor: 'test', approved: true });
-    const result = await registry.sendOrchestratorMessage(session.id, {
-      message: 'Say hello back.',
-      executorType: 'mock',
-      baseUrl: 'http://127.0.0.1:1',
-    }, { actor: 'dashboard', approved: true });
-    const lane = registry.getLane(result.lane.id);
-
-    let thread = registry.getOrchestratorThread(session.id);
-    let assistantTurn = thread.messages.find((message) => message.role === 'assistant' && message.laneId === lane.id);
-    assert.match(assistantTurn.content, /Started mock orchestrator lane/);
-
-    registry.appendLaneAgentEvent(lane, {
-      type: 'message.assistant.delta',
-      source: 'mock',
-      content: 'Hello',
-    });
-    thread = registry.getOrchestratorThread(session.id);
-    assistantTurn = thread.messages.find((message) => message.role === 'assistant' && message.laneId === lane.id);
-    assert.equal(assistantTurn.content, 'Hello');
-
-    registry.appendLaneAgentEvent(lane, {
-      type: 'message.assistant.final',
-      source: 'mock',
-      content: 'Hello back.',
-    });
-    thread = registry.getOrchestratorThread(session.id);
-    assistantTurn = thread.messages.find((message) => message.role === 'assistant' && message.laneId === lane.id);
-    assert.equal(assistantTurn.content, 'Hello back.');
-  } finally {
-    await cleanup();
-  }
-});
-
 test('executor CLI reinstall execute mode requires confirmation', async () => {
   const restore = restoreEnv({
     ORCA_CODEX_BINARY: process.env.ORCA_CODEX_BINARY,
@@ -2060,16 +2021,11 @@ test('CLI executor writes raw terminal stdout and stderr artifacts', async () =>
   }
 });
 
-test('manual executor stop records structured event and notifies orchestrator thread', async () => {
+test('manual executor stop records a structured agent.stopped event', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
     const project = registry.createProject({ name: 'Stop Notify Project' }, { actor: 'test', approved: true });
     const session = registry.createSession(project.id, { name: 'Stop Notify Session' }, { actor: 'test', approved: true });
-    await registry.sendOrchestratorMessage(session.id, {
-      message: 'Coordinate executor work.',
-      executorType: 'mock',
-      baseUrl: 'http://127.0.0.1:1',
-    }, { actor: 'dashboard', approved: true });
     const executorLane = registry.createLane(session.id, {
       title: 'Executor to stop',
       executorType: 'mock',
@@ -2079,11 +2035,6 @@ test('manual executor stop records structured event and notifies orchestrator th
     await registry.stopLane(executorLane.id, { actor: 'dashboard', approved: true });
     const stopped = registry.getLane(executorLane.id);
     assert.equal(stopped.agentEvents.some((event) => event.type === 'agent.stopped'), true);
-    const thread = registry.getOrchestratorThread(session.id);
-    assert.equal(
-      thread.messages.some((message) => message.role === 'system' && String(message.content).includes('Operator manually stopped executor lane')),
-      true,
-    );
   } finally {
     await cleanup();
   }
