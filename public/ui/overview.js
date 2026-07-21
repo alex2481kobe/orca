@@ -300,34 +300,27 @@ function renderPairPanel(ctx) {
     },
   ]) : '';
   return `
-      <article class="card control-card pair-panel" id="section-pair" data-panel-card="access">
-        <details class="disclosure" open>
-          <summary>
-            <span>Pair devices</span>
-            <small>${safeText(tsReady ? 'Tailscale ready' : 'Tailscale setup')}</small>
-          </summary>
-          <div class="disclosure-body">
-            ${settingsSummaryGrid([
-              { label: 'Tailnet', value: tailnetStatus },
-              { label: 'Access mode', value: accessModeSummary },
-              { label: 'Paired devices', value: pairedDeviceSummary('device') },
-            ])}
-            <div class="onboarding-card">${step1}
-            </div>
-            ${pairingSteps}
-            ${pairedDevicesDisclosure({ uikey: 'pair-paired-devices', summary: pairedDeviceSummary('device'), rows: authSessionRows, emptyText: 'No paired devices yet.' })}
-          </div>
-        </details>
+      <article class="card control-card pair-panel" data-panel-card="access">
+        <h3>Pair a device</h3>
+        ${settingsSummaryGrid([
+          { label: 'Tailnet', value: tailnetStatus },
+          { label: 'Access mode', value: accessModeSummary },
+          { label: 'Paired devices', value: pairedDeviceSummary('device') },
+        ])}
+        <div class="onboarding-card">${step1}
+        </div>
+        ${pairingSteps}
+        <div class="ts-subhead">Paired devices <span class="tiny muted">${safeText(pairedDeviceSummary('device'))}</span></div>
+        <div>${authSessionRows || '<div class="tiny muted">No paired devices yet.</div>'}</div>
       </article>`;
 }
 
-// Tailscale access card — combines the old Private-access + Optional-HTTPS. The
-// three status cards already show serve state, so we only render a setup callout
-// when an ACTION is needed (install / sign in / turn Serve on).
+// Tailscale access — flat section (no disclosure, no status cards). We only show
+// a setup callout when an ACTION is needed (install / sign in / turn Serve on);
+// otherwise it's just the HTTPS-optional block.
 function renderPrivateAccessPanel(ctx) {
   const { tailnet } = ctx;
   const httpsServeCommand = tailscaleServeCommand('https');
-  const serveSummary = tailnet.serveConfigured ? 'HTTP · on' : tailnet.loggedIn ? 'HTTP · off' : 'Tailscale setup';
   let setup = '';
   if (!tailnet.binaryAvailable) {
     setup = `<div class="ts-setup-callout">
@@ -346,30 +339,21 @@ function renderPrivateAccessPanel(ctx) {
       <div class="tiny muted">One tap runs Tailscale Serve over HTTP (tailnet-only) so a phone or laptop can open Orca.</div>
       <div class="lane-row"><button class="btn" data-action="setupTailscaleServe" type="button">Set up Tailscale Serve</button></div>
     </div>`;
+  } else {
+    setup = `<p class="tiny muted">Serving over HTTP on your tailnet — any signed-in device can open the URL above.</p>`;
   }
   return `
       <article class="card control-card" data-panel-card="access">
-        <details class="disclosure">
-          <summary><span>Tailscale access</span><small>${safeText(serveSummary)}</small></summary>
-          <div class="disclosure-body">
-            <div class="access-summary">
-              <div class="stat"><b>${tailnet.binaryAvailable ? 'Yes' : 'No'}</b><span>Tailscale detected</span></div>
-              <div class="stat"><b>${tailnet.loggedIn ? 'Yes' : 'No'}</b><span>Tailnet login</span></div>
-              <div class="stat"><b>${safeText(tailnet.serveConfigured ? 'HTTP' : 'Off')}</b><span>Serve</span></div>
-            </div>
-            ${setup}
-            <div class="ts-https">
-              <h3>HTTPS (optional)</h3>
-              <p class="tiny muted">HTTP over the tailnet is enough for the dashboard and previews. HTTPS adds secure-context browser features (installing the PWA, web push) — but issuing a certificate publishes this Mac's <code>.ts.net</code> hostname to public certificate-transparency logs. You run it in Terminal; Orca just copies the command.</p>
-              <div class="ts-commands">
-                <button class="btn-ghost" data-action="copyPrivateAccessCommand" data-command="${safeAttr(httpsServeCommand)}" type="button">Copy HTTPS command</button>
-                <button class="btn-ghost" data-action="copyPrivateAccessCommand" data-command="tailscale serve reset" type="button">Copy reset command</button>
-                ${tailnet.serveConfigured ? '<button class="btn-ghost" data-action="disableTailscaleServe" type="button">Turn off Serve</button>' : ''}
-              </div>
-            </div>
-            <p class="tiny muted">Agents register their dev-server ports as project previews automatically. The Tailscale setup here is a one-time workstation step.</p>
-          </div>
-        </details>
+        <h3>Tailscale access</h3>
+        ${setup}
+        <div class="ts-subhead">HTTPS <span class="tiny muted">optional</span></div>
+        <p class="tiny muted">HTTP over the tailnet is enough for the dashboard and previews. HTTPS adds secure-context browser features (installing the PWA, web push) — but issuing a certificate publishes this Mac's <code>.ts.net</code> hostname to public certificate-transparency logs. You run it in Terminal; Orca just copies the command.</p>
+        <div class="ts-commands">
+          <button class="btn-ghost" data-action="copyPrivateAccessCommand" data-command="${safeAttr(httpsServeCommand)}" type="button">Copy HTTPS command</button>
+          <button class="btn-ghost" data-action="copyPrivateAccessCommand" data-command="tailscale serve reset" type="button">Copy reset command</button>
+          ${tailnet.serveConfigured ? '<button class="btn-ghost" data-action="disableTailscaleServe" type="button">Turn off Serve</button>' : ''}
+        </div>
+        <p class="tiny muted">Agents register their dev-server ports as project previews automatically. The Tailscale setup here is a one-time workstation step.</p>
       </article>`;
 }
 
