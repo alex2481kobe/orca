@@ -3,7 +3,6 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <!-- Set the theme before CSS paints to avoid a flash (external for CSP). -->
     <script src="/theme-init.js"></script>
     <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#212121" />
@@ -22,13 +21,42 @@
     <link rel="stylesheet" href="/ui/overview.css" />
   </head>
   <body>
-    <div class="ov-wrap">
-      <div class="ov-head">
-        <h1>Orca</h1>
-        <span class="ov-rev" id="ov-rev"></span>
-      </div>
-      <div id="ov-root"><div class="ov-empty">Loading…</div></div>
+    <div class="app">
+      <aside class="side">
+        <div class="side-head">
+          <img class="side-logo" src="/orca-mark.png" alt="Orca" width="26" height="26" />
+          <span class="side-title">Orca</span>
+        </div>
+        <div class="side-projects" id="side-projects"></div>
+        <button class="side-settings" id="open-settings" type="button">
+          <span aria-hidden="true">⚙</span><span>Settings</span>
+        </button>
+      </aside>
+      <main class="main">
+        <div class="main-head">
+          <h1 id="main-title">Orca</h1>
+          <span class="ov-rev" id="ov-rev"></span>
+        </div>
+        <div id="ov-root"><div class="ov-empty">Loading…</div></div>
+      </main>
     </div>
+
+    <div class="settings-modal" id="settings-modal" hidden>
+      <div class="settings-card">
+        <h2>Settings</h2>
+        <div class="settings-row">
+          <div class="settings-label">Theme</div>
+          <div class="theme-toggle">
+            <button class="theme-opt" data-theme="system" type="button">System</button>
+            <button class="theme-opt" data-theme="light" type="button">Light</button>
+            <button class="theme-opt" data-theme="dark" type="button">Dark</button>
+          </div>
+        </div>
+        <button class="settings-close" data-close type="button">Done</button>
+        <div class="settings-hint">Orca runs locally. View it on your phone over Tailscale — see docs/tailscale-mobile-access.md.</div>
+      </div>
+    </div>
+
     <script type="module" src="/ui/overview.js"></script>
   </body>
 </html>

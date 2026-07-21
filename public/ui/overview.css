@@ -1,15 +1,51 @@
-/* v2 read-only overview — projects-by-cwd -> orchestrators -> executors.
-   Reuses the shared design tokens (var(--panel/--line/--text/...)). */
-.ov-wrap { max-width: 880px; margin: 0 auto; padding: var(--space-6); }
-.ov-head { display: flex; align-items: baseline; gap: var(--space-4); margin-bottom: var(--space-6); }
-.ov-head h1 { font-size: 1.1rem; font-weight: 600; letter-spacing: 0.01em; }
-.ov-head .ov-rev { color: var(--muted); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+/* v2 read-only dashboard — left panel + settings + tree. Shared design tokens. */
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); }
+.app { display: flex; min-height: 100dvh; }
+
+/* ---- left panel ---- */
+.side {
+  flex: 0 0 240px; display: flex; flex-direction: column; gap: var(--space-3);
+  padding: var(--space-5) var(--space-4); border-right: 1px solid var(--line);
+  background: var(--bg-soft); position: sticky; top: 0; height: 100dvh;
+}
+.side-head { display: flex; align-items: center; gap: var(--space-3); padding: 0 var(--space-2) var(--space-4); }
+.side-logo { width: 26px; height: 26px; border-radius: var(--radius-sm); }
+.side-title { font-weight: 650; letter-spacing: 0.01em; }
+.side-projects { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; flex: 1 1 auto; }
+.side-project {
+  display: flex; align-items: center; gap: var(--space-3); width: 100%; text-align: left;
+  padding: var(--space-3) var(--space-3); border: 0; border-radius: var(--radius-sm);
+  background: transparent; color: var(--text); font: inherit; font-size: 0.85rem; cursor: pointer;
+}
+@media (hover: hover) { .side-project:hover { background: var(--panel); } }
+.side-project.selected { background: var(--panel); font-weight: 600; }
+.side-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; background: var(--line); }
+.side-dot.live { background: var(--accent-blue); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-blue) 22%, transparent); }
+.side-pname { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-count { font-size: 0.7rem; color: var(--accent-blue); font-variant-numeric: tabular-nums; }
+.side-all-icon { font-size: 0.8rem; color: var(--muted); width: 7px; text-align: center; }
+.side-empty { color: var(--muted); font-size: 0.78rem; padding: var(--space-3); }
+.side-settings {
+  display: flex; align-items: center; gap: var(--space-3); width: 100%; text-align: left;
+  padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: transparent; color: var(--muted); font: inherit; font-size: 0.82rem; cursor: pointer; margin-top: auto;
+}
+@media (hover: hover) { .side-settings:hover { color: var(--text); background: var(--panel); } }
+
+/* ---- main ---- */
+.main { flex: 1 1 auto; min-width: 0; padding: var(--space-6); max-width: 900px; }
+.main-head { display: flex; align-items: baseline; gap: var(--space-4); margin-bottom: var(--space-6); }
+.main-head h1 { margin: 0; font-size: 1.1rem; font-weight: 600; letter-spacing: 0.01em; }
+.main-head .ov-rev { color: var(--muted); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+
+/* ---- tree ---- */
 .ov-empty { color: var(--muted); padding: var(--space-6); text-align: center; border: 1px dashed var(--line); border-radius: var(--radius); }
 .ov-project { margin-bottom: var(--space-6); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--panel); overflow: hidden; }
 .ov-project > summary { list-style: none; cursor: pointer; padding: var(--space-4) var(--space-5); display: flex; align-items: center; gap: var(--space-3); }
 .ov-project > summary::-webkit-details-marker { display: none; }
 .ov-project .ov-pname { font-weight: 600; }
-.ov-project .ov-ppath { color: var(--muted); font-size: 0.72rem; }
+.ov-project .ov-ppath { color: var(--muted); font-size: 0.72rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ov-orch { border-top: 1px solid var(--line); padding: var(--space-4) var(--space-5) var(--space-4) var(--space-6); }
 .ov-orch.stale { opacity: 0.55; }
 .ov-orow { display: flex; align-items: baseline; gap: var(--space-3); }
@@ -33,3 +69,27 @@
 .ov-stop.armed { color: #ff6b6b; border-color: #ff6b6b; background: color-mix(in srgb, #ff6b6b 12%, transparent); opacity: 1; font-weight: 600; }
 .ov-stop:disabled { opacity: 0.3; cursor: default; }
 @media (hover: none) { .ov-stop { opacity: 1; } }
+
+/* ---- settings modal ---- */
+.settings-modal { position: fixed; inset: 0; background: color-mix(in srgb, #000 45%, transparent); display: flex; align-items: center; justify-content: center; z-index: 50; }
+.settings-modal[hidden] { display: none; }
+.settings-card { width: min(360px, 92vw); background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: var(--space-6); }
+.settings-card h2 { margin: 0 0 var(--space-5); font-size: 0.95rem; font-weight: 600; }
+.settings-row { margin-bottom: var(--space-5); }
+.settings-label { font-size: 0.78rem; color: var(--muted); margin-bottom: var(--space-3); }
+.theme-toggle { display: flex; gap: 4px; border: 1px solid var(--line); border-radius: var(--radius); padding: 3px; }
+.theme-opt { flex: 1; padding: var(--space-3); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); font: inherit; font-size: 0.8rem; cursor: pointer; }
+.theme-opt.selected { background: var(--panel-soft); color: var(--text); font-weight: 600; }
+.settings-close { width: 100%; padding: var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-sm); background: transparent; color: var(--text); font: inherit; cursor: pointer; }
+.settings-hint { color: var(--muted); font-size: 0.72rem; margin-top: var(--space-4); }
+
+/* ---- responsive: stack on phones ---- */
+@media (max-width: 720px) {
+  .app { flex-direction: column; }
+  .side { flex-basis: auto; height: auto; position: static; flex-direction: row; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+  .side-head { padding: 0 var(--space-2) 0 0; }
+  .side-projects { flex-direction: row; flex-wrap: wrap; overflow: visible; flex-basis: 100%; }
+  .side-project { width: auto; }
+  .side-settings { margin: 0 0 0 auto; width: auto; }
+  .main { padding: var(--space-5); max-width: none; }
+}
