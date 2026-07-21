@@ -148,7 +148,7 @@ async function main() {
 
     const checks = [
       ['app shell', await request(routeRequest, '/')],
-      ['static app.js', await request(routeRequest, '/app.js')],
+      ['static overview.js', await request(routeRequest, '/ui/overview.js')],
       ['service worker', await request(routeRequest, '/service-worker.js')],
       ['health API', await request(routeRequest, '/api/health')],
       ['auth status API', await request(routeRequest, '/api/auth/status')],
@@ -160,7 +160,7 @@ async function main() {
       assertSecurityHeaders(label, response.headers);
     }
     assertSensitiveCache('app shell', checks[0][1].headers);
-    assertStaticCache('static app.js', checks[1][1].headers);
+    assertStaticCache('static overview.js', checks[1][1].headers);
     assertSensitiveCache('service worker', checks[2][1].headers);
     assertSensitiveCache('health API', checks[3][1].headers);
     assertSensitiveCache('auth status API', checks[4][1].headers);

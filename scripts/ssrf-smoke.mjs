@@ -168,28 +168,6 @@ async function main() {
     });
     if (lane.status !== 201) fail('safe lane create', JSON.stringify(lane.body));
 
-    const badEvidence = await request(routeRequest, `/api/lanes/${lane.body.id}/evidence`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'ssrf-smoke',
-        approved: true,
-        url: 'http://169.254.169.254/latest/meta-data',
-      },
-    });
-    if (badEvidence.status !== 422) fail('metadata evidence must be rejected', JSON.stringify(badEvidence.body));
-
-    const unsavedEvidence = await request(routeRequest, `/api/lanes/${lane.body.id}/evidence`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'ssrf-smoke',
-        approved: true,
-        url: 'http://127.0.0.1:5173/',
-      },
-    });
-    if (unsavedEvidence.status !== 422) fail('unsaved evidence URL must need one-time approval', JSON.stringify(unsavedEvidence.body));
-
     const badPrivateTarget = await request(routeRequest, '/api/private-access/targets', {
       method: 'POST',
       headers: { 'x-orca-token': token },

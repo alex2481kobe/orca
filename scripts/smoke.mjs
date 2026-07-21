@@ -2,8 +2,8 @@
 /*
  * Orca end-to-end smoke.
  *
- * Walks the full operator path against a running local server and proves
- * both the happy path AND that the security guards reject the bad path:
+ * Walks the operator path against a running local server and proves both the
+ * happy path AND that the security guards reject the bad path:
  *   1. health, policy, mobile manifest, system blockers
  *   2. unauthorized POST → 401
  *   3. spoofed actor (scheduler/system) → 403
@@ -12,11 +12,14 @@
  *   6. malformed query string → 400
  *   7. project + session + mock lane creation; lane reaches done
  *   8. MCP CRUD + Codex lane attachment (blocked execution OK)
- *   9. API provider secret/profile setup + local dummy provider lane
- *  10. evidence capture; if Playwright is present, assert captured=true
- *      and a real screenshot file with non-zero size; otherwise assert
- *      the degraded state explicitly
- *  11. audit queue + ack + cleanup dry-run + worktree route shape
+ *   9. audit queue + ack + worktree route shape
+ *  10. private access states/targets (Funnel rejection), PWA static guards
+ *  11. notifications settings + read-all
+ *
+ * (v2 note: provider-config HTTP routes, browsing/evidence, app export/import,
+ * and artifacts/cleanup were removed in the v2 refactor; their sections were
+ * dropped here. Provider secret-redaction coverage lives in the node suite —
+ * test/provider-profiles.test.js and test/api-provider-executor.test.js.)
  *
  * Usage:
  *   node scripts/smoke.mjs
@@ -26,7 +29,6 @@
  */
 
 import fs from 'node:fs/promises';
-import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
@@ -65,7 +67,6 @@ const fail = (label, info) => {
   process.exitCode = 1;
   throw new Error(label);
 };
-const isMissingPlaywrightBrowser = (value) => /Executable doesn't exist|playwright install|browser.*not.*found/i.test(String(value || ''));
 
 async function req(method, path, body, opts = {}) {
   const res = await fetch(`${base}${path}`, {
@@ -77,66 +78,6 @@ async function req(method, path, body, opts = {}) {
   let json = null;
   try { json = text ? JSON.parse(text) : null; } catch { /* non-json */ }
   return { status: res.status, body: json, text, headers: Object.fromEntries(res.headers.entries()) };
-}
-
-async function startDummyApiProvider(secret) {
-  const requests = [];
-  const server = http.createServer((request, response) => {
-    let raw = '';
-    request.setEncoding('utf8');
-    request.on('data', (chunk) => { raw += chunk; });
-    request.on('end', () => {
-      const body = raw ? JSON.parse(raw) : null;
-      requests.push({
-        method: request.method,
-        url: request.url,
-        headers: request.headers,
-        body,
-      });
-      response.writeHead(200, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({
-        choices: [{ message: { content: `full-flow provider ok ${secret}` } }],
-        usage: { prompt_tokens: 8, completion_tokens: 4 },
-      }));
-    });
-  });
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const address = server.address();
-  return {
-    baseUrl: `http://127.0.0.1:${address.port}/v1`,
-    requests,
-    close: () => new Promise((resolve) => server.close(resolve)),
-  };
-}
-
-async function startDummyGeminiProvider(secret) {
-  const requests = [];
-  const server = http.createServer((request, response) => {
-    let raw = '';
-    request.setEncoding('utf8');
-    request.on('data', (chunk) => { raw += chunk; });
-    request.on('end', () => {
-      const body = raw ? JSON.parse(raw) : null;
-      requests.push({
-        method: request.method,
-        url: request.url,
-        headers: request.headers,
-        body,
-      });
-      response.writeHead(200, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({
-        candidates: [{ content: { parts: [{ text: `full-flow gemini ok ${secret}` }] } }],
-        usageMetadata: { promptTokenCount: 8, candidatesTokenCount: 4 },
-      }));
-    });
-  });
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const address = server.address();
-  return {
-    baseUrl: `http://127.0.0.1:${address.port}/v1`,
-    requests,
-    close: () => new Promise((resolve) => server.close(resolve)),
-  };
 }
 
 async function waitForLaneTerminal(laneId, label) {
@@ -172,10 +113,11 @@ async function captureBrowserScreenshots({ sessionCookie = null, projectId = nul
   }
   const screenshots = [];
   try {
+    // v2 UI: the home/overview screen is hash-less; project drill-in is via the
+    // sidebar, not a `#project:` hash. Prove responsive render at desktop + phone.
     for (const viewport of [
-      { name: 'desktop', width: 1440, height: 920, path: projectId ? `/#project:${projectId}` : '/' },
-      { name: 'phone', width: 390, height: 844, path: sessionId ? `/#session:${sessionId}` : '/' },
-      { name: 'lane', width: 390, height: 844, path: laneId ? `/#lane:${laneId}` : '/' },
+      { name: 'desktop', width: 1440, height: 920, path: '/' },
+      { name: 'phone', width: 390, height: 844, path: '/' },
     ]) {
       const context = await browser.newContext({
         viewport: { width: viewport.width, height: viewport.height },
@@ -201,7 +143,7 @@ async function captureBrowserScreenshots({ sessionCookie = null, projectId = nul
       });
       await page.goto(new URL(viewport.path, base).toString(), { waitUntil: 'networkidle', timeout: 20000 });
       await page.waitForFunction(() => {
-        const content = document.getElementById('content');
+        const content = document.getElementById('main');
         return content && !content.textContent.trim().startsWith('Loading');
       }, { timeout: 15000 });
       const overflowPx = await page.evaluate((width) => document.documentElement.scrollWidth - width, viewport.width);
@@ -358,14 +300,6 @@ const tool = await req('POST', '/api/mcp/tools', {
 if (tool.status !== 201) fail('createMcpTool', JSON.stringify(tool));
 log('mcpTool', tool.body.id);
 
-const pauseCodexExecution = await req('POST', `/api/sessions/${session.body.id}/capacity/policy`, {
-  actor: 'dashboard',
-  approved: true,
-  spawnPolicy: 'never',
-  approvedCapacity: 2,
-});
-if (pauseCodexExecution.status !== 200) fail('pauseCodexExecution', JSON.stringify(pauseCodexExecution));
-
 const codexLane = await req('POST', `/api/sessions/${session.body.id}/lanes`, {
   title: 'smoke codex lane',
   executorType: 'codex',
@@ -376,8 +310,7 @@ const codexLane = await req('POST', `/api/sessions/${session.body.id}/lanes`, {
   model: 'gpt-5',
   permissionsProfile: 'plan',
 });
-if (codexLane.status !== 201) fail('createCodexLane', JSON.stringify(codexLane));
-if (codexLane.body?.state !== 'queued') fail('codexLane should stay queued while spawn policy is never', JSON.stringify(codexLane.body));
+if (codexLane.status !== 201 || !codexLane.body?.id) fail('createCodexLane', JSON.stringify(codexLane));
 log('codexLane', codexLane.body.id);
 
 const stopCodexLane = await req('POST', `/api/lanes/${codexLane.body.id}/stop`, {
@@ -393,132 +326,8 @@ const deleteSmokeTool = await req('DELETE', `/api/mcp/tools/${tool.body.id}`, {
 if (deleteSmokeTool.status !== 200) fail('deleteSmokeMcpTool', JSON.stringify(deleteSmokeTool));
 log('mcpToolCleanup', tool.body.id);
 
-const resumeExecution = await req('POST', `/api/sessions/${session.body.id}/capacity/policy`, {
-  actor: 'dashboard',
-  approved: true,
-  spawnPolicy: 'within_capacity',
-  approvedCapacity: 2,
-});
-if (resumeExecution.status !== 200) fail('resumeExecution', JSON.stringify(resumeExecution));
-
 const artifacts = await req('GET', `/api/lanes/${lane.body.id}/artifacts`);
 log('artifacts', `${(artifacts.body.files || []).length} files`);
-
-// --- API provider lane through dashboard-stored credential ---
-const providers = await req('GET', '/api/providers');
-if (providers.status !== 200) fail('provider catalog', JSON.stringify(providers));
-if (providers.body?.credentialBackend !== 'memory') {
-  fail(
-    'full-flow API provider smoke requires memory credential backend',
-    `Restart Orca with ORCA_CREDENTIAL_BACKEND=memory for safe local provider-secret proof. Current backend=${providers.body?.credentialBackend}`,
-  );
-}
-const apiSecret = `full-flow-api-secret-${slugSuffix}`;
-const dummyProvider = await startDummyApiProvider(apiSecret);
-const geminiSecret = `full-flow-gemini-secret-${slugSuffix}`;
-const dummyGeminiProvider = await startDummyGeminiProvider(geminiSecret);
-try {
-  const profileUpdate = await req('PATCH', '/api/providers/openai-compatible', {
-    actor: 'dashboard',
-    approved: true,
-    enabled: true,
-    baseUrl: dummyProvider.baseUrl,
-    apiStyle: 'openai-compatible',
-    secretRef: 'provider:openai-compatible',
-    apiKeyEnv: 'ORCA_OPENAI_COMPATIBLE_API_KEY',
-  });
-  if (profileUpdate.status !== 200) fail('provider profile update', JSON.stringify(profileUpdate));
-  const setSecret = await req('POST', '/api/providers/openai-compatible/secret', {
-    actor: 'dashboard',
-    approved: true,
-    secret: apiSecret,
-  });
-  if (setSecret.status !== 200) fail('provider secret set', JSON.stringify(setSecret));
-  if (JSON.stringify(setSecret.body).includes(apiSecret)) fail('provider secret response leaked secret');
-
-  const apiLane = await req('POST', `/api/sessions/${session.body.id}/lanes`, {
-    title: 'smoke API provider lane',
-    executorType: 'openai-compatible',
-    owner: 'smoke',
-    approved: true,
-    taskPrompt: 'Run the full-flow local API provider check.',
-    model: 'full-flow-model',
-  });
-  if (apiLane.status !== 201) fail('createApiProviderLane', JSON.stringify(apiLane));
-  const apiLaneDone = await waitForLaneTerminal(apiLane.body.id, 'api provider');
-  if (apiLaneDone.body?.state !== 'done') fail('API provider lane should reach done', apiLaneDone.body?.exitReason || JSON.stringify(apiLaneDone.body));
-  if (dummyProvider.requests.length !== 1) fail('dummy provider should receive one request', String(dummyProvider.requests.length));
-  if (dummyProvider.requests[0].headers.authorization !== `Bearer ${apiSecret}`) fail('dummy provider auth header mismatch');
-  if (dummyProvider.requests[0].body.model !== 'full-flow-model') fail('dummy provider model mismatch', JSON.stringify(dummyProvider.requests[0].body));
-  if (JSON.stringify(apiLaneDone.body).includes(apiSecret)) fail('API provider lane leaked secret value');
-  log('apiProviderLane', `${apiLaneDone.body.state} via ${apiLaneDone.body.processMeta?.credentialBackend || 'unknown'} credential backend`);
-
-  const geminiProfileUpdate = await req('PATCH', '/api/providers/gemini', {
-    actor: 'dashboard',
-    approved: true,
-    enabled: true,
-    baseUrl: dummyGeminiProvider.baseUrl,
-    apiStyle: 'gemini',
-    secretRef: 'provider:gemini',
-    apiKeyEnv: 'ORCA_GEMINI_API_KEY',
-  });
-  if (geminiProfileUpdate.status !== 200) fail('Gemini provider profile update', JSON.stringify(geminiProfileUpdate));
-  const setGeminiSecret = await req('POST', '/api/providers/gemini/secret', {
-    actor: 'dashboard',
-    approved: true,
-    secret: geminiSecret,
-  });
-  if (setGeminiSecret.status !== 200) fail('Gemini provider secret set', JSON.stringify(setGeminiSecret));
-  if (JSON.stringify(setGeminiSecret.body).includes(geminiSecret)) fail('Gemini provider secret response leaked secret');
-
-  const geminiLane = await req('POST', `/api/sessions/${session.body.id}/lanes`, {
-    title: 'smoke Gemini provider lane',
-    executorType: 'gemini',
-    owner: 'smoke',
-    approved: true,
-    taskPrompt: 'Run the full-flow local Gemini provider check.',
-    model: 'gemini-1.5-flash',
-  });
-  if (geminiLane.status !== 201) fail('createGeminiProviderLane', JSON.stringify(geminiLane));
-  const geminiLaneDone = await waitForLaneTerminal(geminiLane.body.id, 'gemini provider');
-  if (geminiLaneDone.body?.state !== 'done') fail('Gemini provider lane should reach done', geminiLaneDone.body?.exitReason || JSON.stringify(geminiLaneDone.body));
-  if (dummyGeminiProvider.requests.length !== 1) fail('dummy Gemini provider should receive one request', String(dummyGeminiProvider.requests.length));
-  if (dummyGeminiProvider.requests[0].headers['x-goog-api-key'] !== geminiSecret) fail('dummy Gemini provider API key header mismatch');
-  if (dummyGeminiProvider.requests[0].headers.authorization) fail('dummy Gemini provider must not receive Authorization header');
-  if (JSON.stringify(geminiLaneDone.body).includes(geminiSecret)) fail('Gemini provider lane leaked secret value');
-  log('geminiProviderLane', `${geminiLaneDone.body.state} via ${geminiLaneDone.body.processMeta?.credentialBackend || 'unknown'} credential backend`);
-} finally {
-  await dummyProvider.close();
-  await dummyGeminiProvider.close();
-}
-
-// --- evidence: real if Playwright present, degraded otherwise ---
-const playwrightBlocker = (blockers.body.blockers || []).find((b) => b.id === 'playwright-missing');
-const evidence = await req('POST', `/api/lanes/${lane.body.id}/evidence`, {
-  url: `${base}/api/health`,
-  modes: ['screenshot'],
-  approved: true,
-  oneTimeUrlApproved: true,
-});
-if (evidence.status !== 200) fail('evidence POST should be 200', JSON.stringify(evidence));
-if (playwrightBlocker) {
-  if (evidence.body?.captured !== false) fail('evidence should be degraded without Playwright', JSON.stringify(evidence.body));
-  log('evidence', `degraded ok (captured=false)`);
-} else if (evidence.body?.captured === false && isMissingPlaywrightBrowser(evidence.body?.reason || evidence.body?.evidence?.error)) {
-  log('evidence', 'degraded ok (Playwright browser binaries unavailable)');
-} else {
-  if (evidence.body?.captured !== true) fail('evidence should capture with Playwright', JSON.stringify(evidence.body));
-  const screenshot = (evidence.body?.evidence?.produced || []).find((name) => name.endsWith('-shot.png'));
-  if (!screenshot) fail('evidence should produce a screenshot file', JSON.stringify(evidence.body));
-  const fetchShot = await req('GET', `/artifacts/${lane.body.sessionId}/${lane.body.id}/${screenshot}`);
-  if (fetchShot.status !== 200) fail('screenshot file should be served', String(fetchShot.status));
-  log('evidence', `captured ok (file=${screenshot})`);
-}
-
-// --- evidence presets endpoint shape ---
-const presets = await req('GET', `/api/lanes/${lane.body.id}/evidence/presets`);
-if (presets.status !== 200 || !Array.isArray(presets.body?.presets)) fail('evidence presets shape', JSON.stringify(presets));
-log('presets', `${presets.body.presets.length} preset(s)`);
 
 // --- audit queue + ack ---
 const audit = await req('POST', `/api/lanes/${lane.body.id}/audit`, { actor: 'dashboard', approved: true });
@@ -530,16 +339,6 @@ if (auditId) {
   if (ack.status !== 200) fail('ackAudit', JSON.stringify(ack));
   log('ackedAudit', ack.body.status);
 }
-
-// --- cleanup dry-run ---
-const cleanup = await req('POST', '/api/artifacts/cleanup', {
-  actor: 'dashboard',
-  approved: true,
-  dryRun: true,
-  sessionId: session.body.id,
-});
-if (cleanup.status !== 200) fail('cleanupDryRun', JSON.stringify(cleanup));
-log('cleanupDryRun', `candidates=${cleanup.body.candidates}`);
 
 // --- worktree remove (expected 422 because lane has no managed worktree) ---
 const wtRemove = await req('POST', `/api/lanes/${lane.body.id}/worktree/remove`, { actor: 'dashboard', approved: true });
@@ -593,30 +392,9 @@ const notificationSettings = await req('PATCH', '/api/notifications/settings', {
 if (notificationSettings.status !== 200) fail('notification settings update', JSON.stringify(notificationSettings));
 const notifications = await req('GET', '/api/notifications');
 if (notifications.status !== 200) fail('notifications list', JSON.stringify(notifications));
-if (JSON.stringify(notifications.body).includes(apiSecret) || JSON.stringify(notifications.body).includes(geminiSecret)) {
-  fail('notifications leaked provider secret');
-}
 const markAll = await req('POST', '/api/notifications/read-all', { actor: 'dashboard' });
 if (markAll.status !== 200) fail('notifications mark all read', JSON.stringify(markAll));
 log('notifications', `readAll=${markAll.body.updatedCount ?? 'ok'}`);
-
-// --- import/export redaction ---
-const appExport = await req('GET', '/api/app/export');
-if (appExport.status !== 200) fail('app export', JSON.stringify(appExport));
-if (appExport.body.excludesSecrets !== true || appExport.body.includesAuthSessions !== false) fail('app export redaction flags', JSON.stringify(appExport.body));
-if (JSON.stringify(appExport.body).includes(apiSecret) || JSON.stringify(appExport.body).includes(geminiSecret)) fail('app export leaked provider secret');
-const appImportDryRun = await req('POST', '/api/app/import/dry-run', appExport.body);
-if (appImportDryRun.status !== 200 || appImportDryRun.body.dryRun !== true) fail('app import dry-run', JSON.stringify(appImportDryRun));
-const leakyImport = await req('POST', '/api/app/import/dry-run', {
-  ...appExport.body,
-  secretValue: apiSecret,
-});
-if (leakyImport.status !== 422) fail('leaky app import should be rejected', JSON.stringify(leakyImport));
-if (JSON.stringify(leakyImport.body).includes(apiSecret)) fail('leaky app import echoed secret');
-const supportBundle = await req('GET', '/api/app/support-bundle');
-if (supportBundle.status !== 200) fail('support bundle', JSON.stringify(supportBundle));
-if (JSON.stringify(supportBundle.body).includes(apiSecret) || JSON.stringify(supportBundle.body).includes(geminiSecret)) fail('support bundle leaked provider secret');
-log('appBackup', 'export/import/support redaction ok');
 
 // --- browser proof: paired-cookie desktop and phone screenshots ---
 const browserProof = await captureBrowserScreenshots({

@@ -2010,9 +2010,6 @@ test('mobile manifest exposes deep links for projects, sessions, and lane artifa
     assert.equal(sessionEntry.sessionId, session.body.id);
     assert.equal(sessionEntry.route.includes(`/projects/${project.body.slug}/sessions/${session.body.id}`), true);
     assert.equal(sessionEntry.lanes.length, 1);
-    assert.equal(typeof sessionEntry.capacityUrl, 'string');
-    assert.equal(typeof sessionEntry.capacityRequestUrl, 'string');
-    assert.equal(typeof sessionEntry.capacityPolicyUrl, 'string');
 
     const laneEntry = sessionEntry.lanes[0];
     assert.equal(laneEntry.laneId, lane.body.id);

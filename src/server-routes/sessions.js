@@ -77,52 +77,6 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
       }
     }
 
-    if (parts.length === 4 && parts[3] === 'capacity' && method === 'GET') {
-      try {
-        return sendJson(res, 200, registry.getSessionCapacity(session.id));
-      } catch (error) {
-        return sendJson(res, error.status || 500, { error: error.message || 'Could not load session capacity.' });
-      }
-    }
-
-    if (parts.length === 5 && parts[3] === 'capacity' && parts[4] === 'request' && method === 'POST') {
-      const body = await parseJsonBody(req);
-      if (body === null) return sendBodyError(req, res);
-      if (rejectSpoofedActor(body, res)) return;
-      try {
-        const result = registry.requestCapacity(session.id, {
-          ...body,
-          actor: req._toolLease?.actor || body.actor || 'dashboard',
-        });
-        return sendJson(res, 201, result);
-      } catch (error) {
-        return sendJson(res, error.status || 500, {
-          error: error.message || 'Could not request capacity.',
-          requiresApproval: error.requiresApproval || false,
-          risk: error.risk || null,
-        });
-      }
-    }
-
-    if (parts.length === 5 && parts[3] === 'capacity' && parts[4] === 'policy' && method === 'POST') {
-      const body = await parseJsonBody(req);
-      if (body === null) return sendBodyError(req, res);
-      if (rejectSpoofedActor(body, res)) return;
-      try {
-        const result = registry.setCapacityPolicy(session.id, {
-          ...body,
-          actor: req._toolLease?.actor || body.actor || 'dashboard',
-        });
-        return sendJson(res, 200, result);
-      } catch (error) {
-        return sendJson(res, error.status || 500, {
-          error: error.message || 'Could not update capacity policy.',
-          requiresApproval: error.requiresApproval || false,
-          risk: error.risk || null,
-        });
-      }
-    }
-
     if (parts.length === 4 && parts[3] === 'worktree-policy' && method === 'POST') {
       const body = await parseJsonBody(req);
       if (body === null) return sendBodyError(req, res);
@@ -272,32 +226,6 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
         return sendJson(res, 200, result);
       } catch (error) {
         return sendJson(res, error.status || 500, { error: error.message || 'Could not record supervisor audit.' });
-      }
-    }
-
-    if (parts.length === 7 && parts[3] === 'capacity' && parts[4] === 'requests' && ['approve', 'reject'].includes(parts[6]) && method === 'POST') {
-      const body = await parseJsonBody(req);
-      if (body === null) return sendBodyError(req, res);
-      if (rejectSpoofedActor(body, res)) return;
-      try {
-        const result = parts[6] === 'approve'
-          ? registry.approveCapacityRequest(session.id, parts[5], {
-            actor: body.actor || 'dashboard',
-            approved: body.approved,
-            reason: body.reason,
-          })
-          : registry.rejectCapacityRequest(session.id, parts[5], {
-            actor: body.actor || 'dashboard',
-            approved: body.approved,
-            reason: body.reason,
-          });
-        return sendJson(res, 200, result);
-      } catch (error) {
-        return sendJson(res, error.status || 500, {
-          error: error.message || 'Could not decide capacity request.',
-          requiresApproval: error.requiresApproval || false,
-          risk: error.risk || null,
-        });
       }
     }
 
