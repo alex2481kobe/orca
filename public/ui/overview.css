@@ -1,0 +1,35 @@
+/* v2 read-only overview — projects-by-cwd -> orchestrators -> executors.
+   Reuses the shared design tokens (var(--panel/--line/--text/...)). */
+.ov-wrap { max-width: 880px; margin: 0 auto; padding: var(--space-6); }
+.ov-head { display: flex; align-items: baseline; gap: var(--space-4); margin-bottom: var(--space-6); }
+.ov-head h1 { font-size: 1.1rem; font-weight: 600; letter-spacing: 0.01em; }
+.ov-head .ov-rev { color: var(--muted); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+.ov-empty { color: var(--muted); padding: var(--space-6); text-align: center; border: 1px dashed var(--line); border-radius: var(--radius); }
+.ov-project { margin-bottom: var(--space-6); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--panel); overflow: hidden; }
+.ov-project > summary { list-style: none; cursor: pointer; padding: var(--space-4) var(--space-5); display: flex; align-items: center; gap: var(--space-3); }
+.ov-project > summary::-webkit-details-marker { display: none; }
+.ov-project .ov-pname { font-weight: 600; }
+.ov-project .ov-ppath { color: var(--muted); font-size: 0.72rem; }
+.ov-orch { border-top: 1px solid var(--line); padding: var(--space-4) var(--space-5) var(--space-4) var(--space-6); }
+.ov-orch.stale { opacity: 0.55; }
+.ov-orow { display: flex; align-items: baseline; gap: var(--space-3); }
+.ov-otitle { font-weight: 550; }
+.ov-oactor { color: var(--muted); font-size: 0.72rem; }
+.ov-ofocus { color: var(--muted); font-size: 0.78rem; margin: 2px 0 var(--space-3); }
+.ov-execs { display: flex; flex-direction: column; gap: var(--space-2); margin-left: var(--space-4); }
+.ov-exec { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel-soft); font-size: 0.82rem; }
+.ov-exec.terminal { opacity: 0.5; }
+.ov-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; background: var(--accent-blue); }
+.ov-exec.terminal .ov-dot { background: var(--muted); }
+.ov-etitle { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-etype { color: var(--muted); font-size: 0.7rem; }
+.ov-tag { font-size: 0.68rem; padding: 2px var(--space-2); border-radius: var(--radius-pill); border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.ov-tag.working { color: var(--accent-blue); border-color: color-mix(in srgb, var(--accent-blue) 40%, transparent); }
+.ov-tag.waiting { color: #e0b34d; border-color: color-mix(in srgb, #e0b34d 40%, transparent); }
+.ov-tag.failed { color: #ff6b6b; border-color: color-mix(in srgb, #ff6b6b 40%, transparent); }
+.ov-etext { color: var(--muted); font-size: 0.72rem; }
+.ov-stop { flex: 0 0 auto; font-size: 0.7rem; line-height: 1; padding: 3px 7px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer; font-family: inherit; opacity: 0.55; transition: opacity 0.12s; }
+.ov-exec:hover .ov-stop { opacity: 1; }
+.ov-stop.armed { color: #ff6b6b; border-color: #ff6b6b; background: color-mix(in srgb, #ff6b6b 12%, transparent); opacity: 1; font-weight: 600; }
+.ov-stop:disabled { opacity: 0.3; cursor: default; }
+@media (hover: none) { .ov-stop { opacity: 1; } }

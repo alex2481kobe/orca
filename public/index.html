@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <!-- Set the theme before CSS paints to avoid a flash (external for CSP). -->
     <script src="/theme-init.js"></script>
     <meta name="color-scheme" content="light dark" />
@@ -18,52 +18,17 @@
     <link rel="icon" type="image/png" sizes="256x256" href="/orca-mark.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <link rel="stylesheet" href="/vendor/xterm/xterm.css?v=20260608o" />
-    <link rel="stylesheet" href="/styles.css?v=20260608o" />
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/ui/overview.css" />
   </head>
-  <body data-app="orca">
-    <header class="app-topbar">
-      <button id="mobile-nav-toggle" class="shell-toggle" data-action="toggleNav" type="button" aria-label="Toggle navigation" aria-controls="sidebar"><span class="panel-toggle-icon" aria-hidden="true"></span></button>
-      <div id="topbar-title" class="app-topbar-title"></div>
-      <div class="app-topbar-actions" aria-hidden="true"></div>
-    </header>
-    <div id="sidebar-backdrop" class="sidebar-backdrop" aria-hidden="true"></div>
-    <div id="picker-overlay"></div>
-    <main id="shell" class="ops-shell">
-      <button id="sidebar-reopen" class="sidebar-reopen" data-action="toggleNav" type="button" aria-label="Open sidebar" title="Open sidebar"><span class="panel-toggle-icon" aria-hidden="true"></span></button>
-      <aside id="sidebar" class="ops-sidebar" aria-label="navigation">
-        <div class="sidebar-head">
-          <div class="sidebar-head-main">
-            <button class="settings-back" data-action="settingsBack" type="button" aria-label="Back to workspace" title="Back">
-              <span aria-hidden="true">‹</span>
-            </button>
-            <a href="/" class="sidebar-brand-link" aria-label="Orca home" title="Home">
-              <img class="sidebar-brand-logo" src="/orca-mark.png" alt="Orca" width="28" height="28" />
-            </a>
-          </div>
-          <button class="sidebar-collapse" data-action="toggleNav" type="button" aria-label="Collapse sidebar" title="Collapse sidebar"><span class="panel-toggle-icon" aria-hidden="true"></span></button>
-        </div>
-        <div class="sidebar-section sidebar-pair-section" hidden>
-          <a href="/#pair" data-route="pair" class="sidebar-pair-button" aria-label="Pair a remote device">
-            <span class="sidebar-pair-icon" aria-hidden="true">⧉</span>
-            <span class="sidebar-pair-label">Pair a remote device</span>
-          </a>
-        </div>
-        <div class="sidebar-section">
-          <div class="sidebar-title">Projects</div>
-          <div id="sidebar-projects" class="sidebar-list"></div>
-        </div>
-        <div class="sidebar-spacer"></div>
-        <div class="sidebar-footer">
-          <button class="sidebar-link settings-row" data-action="openSettings" type="button"><span class="settings-icon" aria-hidden="true">⚙</span><span>Settings</span></button>
-        </div>
-      </aside>
-      <section class="ops-main">
-        <div id="breadcrumbs" class="breadcrumbs" aria-label="breadcrumb"></div>
-        <div id="alerts" class="alerts" role="alert"></div>
-        <div id="content" class="ops-content" aria-busy="true"><div class="app-loading" role="status" aria-label="Connecting"><img class="app-loading-logo" src="/orca-mark.png" alt="" width="44" height="44" /><span class="app-loading-spinner" aria-hidden="true"></span><span class="app-loading-text">Connecting…</span></div></div>
-      </section>
-    </main>
-    <script type="module" src="/app.js?v=20260608o"></script>
+  <body>
+    <div class="ov-wrap">
+      <div class="ov-head">
+        <h1>Orca</h1>
+        <span class="ov-rev" id="ov-rev"></span>
+      </div>
+      <div id="ov-root"><div class="ov-empty">Loading…</div></div>
+    </div>
+    <script type="module" src="/ui/overview.js"></script>
   </body>
 </html>
