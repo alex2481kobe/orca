@@ -70,8 +70,21 @@ function executorRow(e) {
       ${e.terminal ? '' : stopControl(e.id)}
     </div>`;
 }
+function previewChip(v) {
+  const href = v.url || v.localUrl || '';
+  if (!href) return '';
+  const h = String(v.healthStatus || '').toLowerCase();
+  const cls = /ok|health|reachable|up|200/.test(h) ? ' up' : /unreach|fail|down|error|refus/.test(h) ? ' down' : '';
+  const remote = Boolean(v.tailnetUrl);
+  return `<a class="ov-preview" href="${esc(href)}" target="_blank" rel="noopener"
+      title="${esc(v.tailnetUrl || v.localUrl || href)}${remote ? '' : ' (local only — Tailscale not detected)'}">
+    <span class="ov-preview-dot${cls}"></span>${icon('external', { cls: 'ov-preview-ic', size: 13 })}<span class="ov-preview-label">${esc(v.label) || 'Preview'}</span>${v.port ? `<span class="ov-preview-port">:${esc(v.port)}</span>` : ''}
+  </a>`;
+}
 function projectCard(p, wasOpen, freshEntry) {
   const open = shouldRenderProjectOpen({ pid: p.id, wasOpen, freshEntry, hasSelection: Boolean(selectedProjectId) }) ? ' open' : '';
+  const previews = (p.previews || []).filter((v) => v.url || v.localUrl);
+  const previewsHtml = previews.length ? `<div class="ov-previews">${previews.map(previewChip).join('')}</div>` : '';
   const orchs = p.orchestrators.map((o) => `
     <div class="ov-orch${o.stale ? ' stale' : ''}">
       <div class="ov-orow">${icon('agent', { cls: 'ov-oicon' })}<span class="ov-otitle">${esc(o.title) || 'Untitled orchestrator'}</span><span class="ov-oactor">${esc(o.actor)}</span></div>
@@ -81,6 +94,7 @@ function projectCard(p, wasOpen, freshEntry) {
   return `
     <details class="ov-project" data-pid="${esc(p.id)}"${open}>
       <summary>${FOLDER_ICON}<span class="ov-pname">${esc(p.name)}</span><span class="ov-ppath">${esc(p.parentName ? p.parentName + ' / ' : '')}${esc(p.cwd)}</span></summary>
+      ${previewsHtml}
       ${orchs}
     </details>`;
 }

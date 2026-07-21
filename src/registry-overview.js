@@ -3,6 +3,7 @@
 
 import { nowIso } from './registry-utils.js';
 import { LANE_STATES } from './worker-contract.js';
+import { effectiveQuickLinkUrl } from './registry-quick-links.js';
 
 const EXECUTOR_LINGER_MS = 5 * 60 * 1000;
 const ORCHESTRATOR_LINGER_MS = 15 * 60 * 1000;
@@ -96,6 +97,21 @@ export const overviewMethods = {
           .filter(Boolean);
 
         if (orchestrators.length === 0) return null;
+        // Port previews: read-only, secret-free projection of the project's
+        // dev-server quick links so a phone/laptop can open the tailnet URL from
+        // the dashboard. Hidden links are omitted; no leaseId/internal fields leak.
+        const previews = (project.quickLinks || [])
+          .filter((link) => link && !link.hidden)
+          .map((link) => ({
+            id: link.id,
+            label: link.label,
+            port: link.port ?? null,
+            kind: link.kind,
+            url: effectiveQuickLinkUrl(link, { prefer: 'tailnet' }),
+            localUrl: link.localUrl || '',
+            tailnetUrl: link.tailnetHttpUrl || '',
+            healthStatus: link.healthStatus || 'configured_unchecked',
+          }));
         return {
           id: project.id,
           name: project.name,
@@ -103,6 +119,7 @@ export const overviewMethods = {
           cwd: project.cwd,
           lastActivityAt: project.lastActivityAt,
           orchestrators,
+          previews,
         };
       })
       .filter(Boolean)

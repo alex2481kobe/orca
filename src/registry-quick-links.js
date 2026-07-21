@@ -105,6 +105,21 @@ export function normalizeQuickLinks(rawLinks = []) {
     .map((link) => normalizeQuickLink(link));
 }
 
+// Derive the tailnet HTTP preview URL for a dev-server port from the
+// workstation's MagicDNS name, e.g. tailnetUrlForPort(5173, 'orca.tail.ts.net')
+// -> 'http://orca.tail.ts.net:5173'. Pure: returns '' when the port is out of
+// range or MagicDNS is unknown (Tailscale not up) so callers can degrade to the
+// localUrl. `healthPath` is optional and appended verbatim (leading slash added).
+export function tailnetUrlForPort(port, magicDnsName, { healthPath = '' } = {}) {
+  const parsedPort = Number.parseInt(port, 10);
+  if (!Number.isFinite(parsedPort) || parsedPort < 1 || parsedPort > 65535) return '';
+  const host = String(magicDnsName || '').trim().replace(/\.$/, '');
+  if (!host) return '';
+  const rawPath = String(healthPath || '').trim();
+  const suffix = rawPath ? (rawPath.startsWith('/') ? rawPath : `/${rawPath}`) : '';
+  return `http://${host}:${parsedPort}${suffix}`;
+}
+
 export function effectiveQuickLinkUrl(link, { prefer = 'auto' } = {}) {
   if (!link) return '';
   if (prefer === 'local') return link.localUrl || link.url || '';

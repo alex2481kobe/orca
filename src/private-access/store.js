@@ -236,6 +236,16 @@ export class PrivateAccessStore {
     return detectTailnetState({ fakeState, runner: this.runner, localPort, forceRefresh });
   }
 
+  // Read-only accessor for the workstation's MagicDNS `.ts.net` name (from
+  // `tailscale status` Self.DNSName). Returns '' when Tailscale is missing or not
+  // logged in. Never triggers a Serve or outbound-network action — status only.
+  // Wire this to the registry (e.g. registry.magicDnsResolver = () =>
+  // store.magicDnsName()) so dev-server quick links can auto-fill their tailnet URL.
+  magicDnsName(fakeState = null) {
+    const state = this.tailnetState(fakeState);
+    return state?.hostname ? String(state.hostname).replace(/\.$/, '') : '';
+  }
+
   // Run Tailscale Serve for the user (HTTP, tailnet-only) so a phone can reach Orca
   // without copy-pasting commands. `action: 'enable'` runs `tailscale serve --bg
   // http://127.0.0.1:<port>`; `'disable'` runs `tailscale serve reset`. Returns the

@@ -14,6 +14,8 @@ const STROKE_ICONS = {
   remote: { vb: '0 0 20 20', sw: 1.6, inner: '<path d="M4 12a8.5 8.5 0 0 1 12 0M6.5 9.5a5 5 0 0 1 7 0"/><circle cx="10" cy="14.5" r="1.3" fill="currentColor" stroke="none"/>' },
   // An agent/orchestrator glyph (a friendly bot head).
   agent: { vb: '0 0 20 20', sw: 1.6, inner: '<rect x="4.5" y="6.5" width="11" height="8" rx="2.4"/><path d="M10 6.5V4M8 10.5h.01M12 10.5h.01"/><circle cx="10" cy="3.2" r="1"/>' },
+  // External link / open-preview (a registered dev-server port, opened over Tailscale).
+  external: { vb: '0 0 20 20', sw: 1.6, inner: '<path d="M11 4h5v5M16 4l-7 7"/><path d="M14 11.5V15a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 4 15V8a1.5 1.5 0 0 1 1.5-1.5H9"/>' },
 };
 
 export function icon(name, { cls = '', size = 16 } = {}) {

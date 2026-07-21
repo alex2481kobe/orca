@@ -12,7 +12,9 @@ import {
   normalizeQuickLink,
   normalizeQuickLinks,
   boundedQuickLinkHealthCheck,
+  tailnetUrlForPort,
 } from './registry-quick-links.js';
+import { detectTailnetState } from './private-access/tailnet.js';
 
 export const projectMethods = {
   createProject({
@@ -214,7 +216,7 @@ export const projectMethods = {
       )
     );
     const existing = existingIndex >= 0 ? project.quickLinks[existingIndex] : null;
-    const link = normalizeQuickLink(payload, existing);
+    const link = normalizeQuickLink(this._fillDevServerPreview(payload, existing), existing);
     if (existingIndex >= 0) {
       project.quickLinks[existingIndex] = link;
     } else {
@@ -231,6 +233,50 @@ export const projectMethods = {
     });
     this.persistState();
     return clonePayload({ project, link });
+  },
+
+  // Resolve the workstation's MagicDNS `.ts.net` name for auto-filling dev-server
+  // tailnet previews. Prefers an injected resolver (set by the server wiring or a
+  // test, e.g. registry.magicDnsResolver = () => privateAccess.magicDnsName()) and
+  // otherwise falls back to a read-only `tailscale status` probe. Never triggers a
+  // Serve/network action; returns '' when Tailscale is down (link stays local-only).
+  _workstationMagicDnsName() {
+    try {
+      if (typeof this.magicDnsResolver === 'function') {
+        return String(this.magicDnsResolver() || '').trim().replace(/\.$/, '');
+      }
+      const state = detectTailnetState({});
+      return state?.hostname ? String(state.hostname).trim().replace(/\.$/, '') : '';
+    } catch {
+      return '';
+    }
+  },
+
+  // Additive enrichment for a quick-link upsert: only when the caller explicitly
+  // declares a dev-server `port`, imply a loopback localUrl (so a bare {port,label}
+  // normalizes) and auto-fill the tailnet preview URL from the workstation MagicDNS
+  // name. Links without an explicit port are returned untouched.
+  _fillDevServerPreview(payload = {}, existing = null) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload;
+    const parsedPort = Number.parseInt(payload.port ?? '', 10);
+    const hasExplicitPort = Number.isFinite(parsedPort) && parsedPort >= 1 && parsedPort <= 65535;
+    if (!hasExplicitPort) return payload;
+    const next = { ...payload };
+    const present = (value) => Boolean(value && String(value).trim());
+    if (!present(next.localUrl) && !present(existing?.localUrl)) {
+      next.localUrl = `http://127.0.0.1:${parsedPort}`;
+    }
+    if (!present(next.tailnetHttpUrl) && !present(existing?.tailnetHttpUrl)) {
+      const tailnetUrl = tailnetUrlForPort(parsedPort, this._workstationMagicDnsName());
+      if (tailnetUrl) next.tailnetHttpUrl = tailnetUrl;
+    }
+    // A bare {port,label} has no primary `url`. normalizeQuickLink requires one and
+    // its `??` chain treats a blank tailnetHttpUrl as satisfying the slot, so seed a
+    // concrete primary URL (tailnet preview when known, otherwise the loopback URL).
+    if (!present(next.url) && !present(existing?.url)) {
+      next.url = next.tailnetHttpUrl || next.localUrl || `http://127.0.0.1:${parsedPort}`;
+    }
+    return next;
   },
 
   deleteProjectQuickLink(locator, linkId, context = {}) {

@@ -46,6 +46,9 @@ const registry = new OrcaRegistry({
   autoCompleteMs: Number.parseInt(process.env.ORCA_AUTO_COMPLETE_MS, 10) || undefined,
 });
 const privateAccess = new PrivateAccessStore();
+// Let the registry auto-fill a dev-server preview's tailnet URL (http://<magicDNS>:<port>)
+// from the live Tailscale identity, so an agent only has to register a port.
+registry.magicDnsResolver = () => privateAccess.magicDnsName();
 const authSessions = new AuthSessionStore();
 const rateLimiter = createRateLimiter({
   disabled: process.env.ORCA_RATE_LIMIT_DISABLED === 'true',
