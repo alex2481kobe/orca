@@ -50,8 +50,8 @@ function renderSidebar(data) {
       ${active ? `<span class="pill">${active}</span>` : '<span></span>'}
     </button>`;
   }).join('') || '<div class="sidebar-empty">No projects yet.</div>';
-  // Footer nav active state
-  document.querySelectorAll('.sidebar-footer [data-nav]').forEach((b) => b.classList.toggle('is-selected', b.dataset.nav === r));
+  // Nav active state (Remote devices pair-button + Settings footer row)
+  document.querySelectorAll('#sidebar [data-nav]').forEach((b) => b.classList.toggle('is-selected', b.dataset.nav === r));
 }
 
 // ---- home tree ----
@@ -662,7 +662,7 @@ sideProjects.addEventListener('click', (e) => {
   selectedProjectId = btn.dataset.pid || null;
   if (route() !== 'home') location.hash = ''; else renderScreen();
 });
-document.querySelector('.sidebar-footer').addEventListener('click', (e) => {
+document.getElementById('sidebar').addEventListener('click', (e) => {
   const btn = e.target.closest('[data-nav]');
   if (btn) location.hash = btn.dataset.nav;
 });

@@ -8,7 +8,7 @@
 .sidebar-folder { display: inline-flex; width: 17px; height: 14px; color: var(--muted); }
 .sidebar-folder svg { width: 17px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.4; }
 .sidebar-project .pill { justify-self: end; color: var(--accent-blue); background: color-mix(in srgb, var(--accent-blue) 14%, transparent); }
-.sidebar-footer [data-nav].is-selected { background: var(--active, var(--hover)); font-weight: 600; }
+#sidebar [data-nav].is-selected { background: var(--active, var(--hover)); color: var(--text); font-weight: 600; }
 .sidebar-empty { color: var(--muted); font-size: 0.82rem; padding: 0.4rem 0.55rem; }
 
 /* ---- centered empty state (fills the main column, middle-aligned) ---- */
