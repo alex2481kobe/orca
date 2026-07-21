@@ -1,7 +1,7 @@
 // Single source of truth for the per-role operating rulebook. EVERY surface that
 // onboards an agent — the stdio MCP server's `initialize` (Claude Code CLI / Codex
-// app / Claude Desktop), companion mode (`orca-agent`), and the docs — serves this
-// same text, so guidance can't drift across surfaces. The rulebook is only
+// app / Claude Desktop) and the docs — serves this MCP tool guidance, so it
+// can't drift across surfaces. The rulebook is only
 // guidance; the BINDING flow (legal next tool per state, role-scoped toolset,
 // exclusive ownership) is enforced server-side in one place via the agent-tool
 // gate + buildNextActionEnvelope, so no surface can actually drift from it.
