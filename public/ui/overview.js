@@ -27,15 +27,22 @@ const collapsed = new Set(); // project pids the operator explicitly collapsed
 let lastData = { projects: [] };
 function route() { return (location.hash.replace(/^#\/?/, '') || 'home'); }
 
-// ---- sidebar collapse (full collapse via body.sidebar-collapsed, old design system) ----
+// ---- sidebar collapse (desktop: body.sidebar-collapsed; mobile: body.nav-open drawer) ----
+const isMobile = () => window.matchMedia('(max-width: 880px)').matches;
+const closeMobileNav = () => { if (isMobile()) body.classList.remove('nav-open'); };
 try { if (localStorage.getItem('orca.sidebar') === 'collapsed') body.classList.add('sidebar-collapsed'); } catch { /* */ }
 document.addEventListener('click', (e) => {
+  // Backdrop tap closes the mobile drawer.
+  if (e.target.closest('#sidebar-backdrop')) { body.classList.remove('nav-open'); return; }
   const toggle = e.target.closest('[data-action="toggleNav"]');
   if (!toggle) return;
+  // On a phone the sidebar is a fixed drawer keyed on body.nav-open; on desktop
+  // it fully collapses via body.sidebar-collapsed.
+  if (isMobile()) { body.classList.toggle('nav-open'); return; }
   body.classList.toggle('sidebar-collapsed');
   try { localStorage.setItem('orca.sidebar', body.classList.contains('sidebar-collapsed') ? 'collapsed' : 'open'); } catch { /* */ }
 });
-document.getElementById('brand-home').addEventListener('click', (e) => { e.preventDefault(); selectedProjectId = null; location.hash = ''; });
+document.getElementById('brand-home').addEventListener('click', (e) => { e.preventDefault(); selectedProjectId = null; closeMobileNav(); location.hash = ''; renderScreen(); });
 
 // ---- sidebar project list ----
 function activeAgents(p) { return p.orchestrators.filter((o) => !o.stale).length; }
@@ -149,8 +156,9 @@ function formatRelative(iso) {
 let lastPairing = null;
 let pairingAccepted = false;
 let remoteAuthSessions = [];
-let openDeviceCard = null; // which summary card's dropdown is open: 'serve' | 'devices' | null
+let openDeviceCard = null; // which summary card's dropdown is open: 'serve' | 'https' | 'devices' | null
 let remoteAccessCache = {}; // last /api/private-access response, for in-place re-paint on card toggle
+let pairingCountdownTimer = null; // live mins:secs countdown on the pairing code
 
 const selectedOpt = (actual, expected) => String(actual || '') === String(expected || '') ? 'selected' : '';
 function localServeTarget() {
@@ -223,18 +231,22 @@ function pairedDevicesDisclosure({ uikey, summary, rows, emptyText, bodyPrefix =
 function pairingCodeBox(placeholder) {
   if (pairingAccepted) {
     return `
-            <div class="pairing-code-box pairing-accepted">
+            <div class="pairing-code-box paired">
               <span class="pairing-accepted-check" aria-hidden="true">✓</span>
               <strong>Device paired</strong>
-              <span class="tiny muted">The code was accepted and is now used up. Create a new one to pair another device.</span>
             </div>`;
   }
   if (lastPairing) {
     return `
             <div class="pairing-code-box">
-              <div class="tiny muted">One-time pairing code. Do not screenshot or paste into URLs.</div>
+              <div class="pairing-code-head">
+                <span class="pairing-countdown" data-expires="${safeAttr(lastPairing.expiresAt)}">—</span>
+                <span class="pairing-code-actions">
+                  <button class="icon-btn" data-action="createPairingCode" type="button" title="New code" aria-label="New code">${icon('refresh', { size: 15 })}</button>
+                  <button class="icon-btn" data-action="cancelPairing" type="button" title="Cancel" aria-label="Cancel">${icon('close', { size: 15 })}</button>
+                </span>
+              </div>
               <strong class="pairing-code-value">${safeText(lastPairing.code)}</strong>
-              <span class="pairing-countdown" data-expires="${safeAttr(lastPairing.expiresAt)}">Expires ${safeText(formatRelative(lastPairing.expiresAt))}</span>
             </div>`;
   }
   return `<div class="tiny muted">${safeText(placeholder)}</div>`;
@@ -282,41 +294,36 @@ function renderPairPanel(ctx) {
   const step1Body = tsReady
     ? `<div class="url-row"><code class="copy-url">${safeText(phoneUrl)}</code>${copyUrlButton(phoneUrl, 'Copy link', 'btn-ghost')}</div>
        <div class="tiny muted">Your private Tailscale URL — open it from any device on your tailnet.</div>
-       <div class="qr-wrap step-qr">${phoneQr}<span>Scan to open Orca on your phone</span></div>`
+       <div class="qr-wrap step-qr">${phoneQr}<span>Scan to open the URL</span></div>`
     : `<div class="tiny muted">Turn Tailscale on from the <b>${safeText(tailnetStatus)}</b> card above — a device URL appears here once it's serving.</div>`;
 
   const steps = `
     <div class="steps-card">
-      ${stepRow(1, 'Open this URL on the other device', step1Body)}
-      ${tsReady ? stepRow(2, 'Create a one-time code', `<div class="tiny muted">Single-use and short-lived — pairs a browser without exposing the API token.</div>${pairingCodeBox('Create a code, then enter it on the other device.')}`, pairingCodeButton(lastPairing ? 'New code' : 'Create code', 'btn')) : ''}
-      ${tsReady ? stepRow(3, 'Finish on the other device', '<div class="tiny muted">Open Orca there, enter the code, and it becomes paired.</div>') : ''}
+      ${stepRow(1, 'Open this URL on your remote device', step1Body)}
+      ${tsReady ? stepRow(2, 'Create a one-time code', `<div class="tiny muted">Single-use and short-lived — pairs a browser without exposing the API token.</div>${pairingCodeBox('Create a code, then enter it on your remote device.')}`, lastPairing || pairingAccepted ? '' : pairingCodeButton('Create code', 'btn')) : ''}
+      ${tsReady ? stepRow(3, 'Enter the code on your remote device', '<div class="tiny muted">Open Orca there, type the code, and the device becomes paired.</div>') : ''}
       ${tsReady ? stepRow('+', 'Install as an app', '<div class="tiny muted">Optional — after pairing, add Orca to the Home Screen or Dock.</div>') : ''}
     </div>`;
+
+  // HTTPS lives in the "Access mode" card dropdown (consistent with the others).
+  const httpsServeCommand = tailscaleServeCommand('https');
+  const httpsDetail = `
+    <p class="tiny muted">HTTP over the tailnet is enough for the dashboard and previews. HTTPS adds secure-context browser features (installing the PWA, web push) — but issuing a certificate publishes the <code>.ts.net</code> hostname to public certificate-transparency logs.</p>
+    <div class="ts-commands"><button class="btn-ghost" data-action="copyPrivateAccessCommand" data-command="${safeAttr(httpsServeCommand)}" type="button">Copy HTTPS command</button></div>`;
+  const detailFor = { serve: serveDetail, https: httpsDetail, devices: devicesDetail };
 
   return `
       <article class="card control-card pair-panel" data-panel-card="access">
         <h3>Pair a device</h3>
-        <div class="device-cards">
-          ${cardBtn('serve', tailnetStatus, 'Tailnet')}
-          <div class="device-card static"><b>${safeText(accessModeSummary)}</b><span>Access mode</span></div>
-          ${cardBtn('devices', `${pairedCount} device${pairedCount === 1 ? '' : 's'}`, 'Paired devices')}
+        <div class="device-cards-wrap">
+          <div class="device-cards">
+            ${cardBtn('serve', tailnetStatus, 'Tailnet')}
+            ${cardBtn('https', accessModeSummary, 'Access mode')}
+            ${cardBtn('devices', `${pairedCount} device${pairedCount === 1 ? '' : 's'}`, 'Paired devices')}
+          </div>
+          ${openDeviceCard && detailFor[openDeviceCard] ? `<div class="device-detail">${detailFor[openDeviceCard]}</div>` : ''}
         </div>
-        ${openDeviceCard === 'serve' ? `<div class="device-detail">${serveDetail}</div>` : ''}
-        ${openDeviceCard === 'devices' ? `<div class="device-detail">${devicesDetail}</div>` : ''}
         ${steps}
-      </article>`;
-}
-
-// HTTPS-optional info block (serve on/off lives in the Pair "Tailnet" card).
-function renderPrivateAccessPanel() {
-  const httpsServeCommand = tailscaleServeCommand('https');
-  return `
-      <article class="card control-card" data-panel-card="access">
-        <div class="ts-subhead">HTTPS <span class="tiny muted">optional</span></div>
-        <p class="tiny muted">HTTP over the tailnet is enough for the dashboard and previews. HTTPS adds secure-context browser features (installing the PWA, web push) — but issuing a certificate publishes the <code>.ts.net</code> hostname to public certificate-transparency logs.</p>
-        <div class="ts-commands">
-          <button class="btn-ghost" data-action="copyPrivateAccessCommand" data-command="${safeAttr(httpsServeCommand)}" type="button">Copy HTTPS command</button>
-        </div>
       </article>`;
 }
 
@@ -407,12 +414,30 @@ async function fetchRemote() {
   return access || {};
 }
 
+// Live "Expires in M:SS" countdown on the pairing code (ticks every second).
+function startPairingCountdown() {
+  if (pairingCountdownTimer) { clearInterval(pairingCountdownTimer); pairingCountdownTimer = null; }
+  const tick = () => {
+    const els = content.querySelectorAll('.pairing-countdown[data-expires]');
+    if (!els.length) { clearInterval(pairingCountdownTimer); pairingCountdownTimer = null; return; }
+    const now = Date.now();
+    els.forEach((el) => {
+      const remain = Math.max(0, Math.floor((Date.parse(el.dataset.expires) - now) / 1000));
+      if (remain <= 0) { el.textContent = 'Expired'; el.classList.add('expired'); return; }
+      el.textContent = `Expires in ${Math.floor(remain / 60)}:${String(remain % 60).padStart(2, '0')}`;
+    });
+  };
+  tick();
+  pairingCountdownTimer = setInterval(tick, 1000);
+}
+
 function paintRemote(access) {
   remoteAccessCache = access || {};
   const bodyEl = document.getElementById('remote-body');
   if (!bodyEl) return;
   const ctx = buildRemoteCtx(remoteAccessCache);
-  bodyEl.innerHTML = `${renderPairPanel(ctx)}${renderPrivateAccessPanel()}`;
+  bodyEl.innerHTML = renderPairPanel(ctx);
+  startPairingCountdown();
 }
 
 async function renderRemote() {
@@ -473,6 +498,19 @@ async function poll() {
     renderSidebar(lastData);
     if (route() === 'home') renderHome(lastData); // only the tree auto-refreshes
   } catch { /* */ }
+  // On the Remote screen, watch paired sessions so a code being accepted flips
+  // the card to green instantly and the device count updates (see auth audit).
+  if (route() === 'remote') {
+    const before = remoteAuthSessions.length;
+    try {
+      const s = await (await fetch('/api/auth/sessions', { headers: { accept: 'application/json' } })).json();
+      remoteAuthSessions = Array.isArray(s.sessions) ? s.sessions : remoteAuthSessions;
+    } catch { /* */ }
+    const acceptedNow = lastPairing && !pairingAccepted
+      && remoteAuthSessions.some((x) => x && x.pairedFromId === lastPairing.id && x.active !== false);
+    if (acceptedNow) pairingAccepted = true;
+    if (acceptedNow || remoteAuthSessions.length !== before) paintRemote(remoteAccessCache);
+  }
 }
 
 // ---- interactions ----
@@ -480,11 +518,12 @@ sideProjects.addEventListener('click', (e) => {
   const btn = e.target.closest('.sidebar-project');
   if (!btn) return;
   selectedProjectId = btn.dataset.pid || null;
+  closeMobileNav();
   if (route() !== 'home') location.hash = ''; else renderScreen();
 });
 document.getElementById('sidebar').addEventListener('click', (e) => {
   const btn = e.target.closest('[data-nav]');
-  if (btn) location.hash = btn.dataset.nav;
+  if (btn) { closeMobileNav(); location.hash = btn.dataset.nav; }
 });
 // Show a small inline note when a mutating action fails / hits an endpoint that
 // rejects the read-only phone (e.g. admin-only 401), rather than crashing.
@@ -523,10 +562,16 @@ content.addEventListener('click', async (e) => {
         const res = await fetch('/api/auth/pairing-codes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ actor: 'dashboard', label: 'Phone/browser pairing' }) });
         const data = await res.json();
         const pairing = data.pairing || data;
-        if (pairing && pairing.code) { lastPairing = { code: pairing.code, expiresAt: pairing.expiresAt }; pairingAccepted = false; await refreshRemote(); }
+        if (pairing && pairing.code) { lastPairing = { id: pairing.id, code: pairing.code, expiresAt: pairing.expiresAt }; pairingAccepted = false; await refreshRemote(); }
         else remoteNote(`Could not create a pairing code (${esc(data.error || res.status)}).`);
       } catch { remoteNote('Could not reach Orca to create a pairing code.'); }
       act.disabled = false;
+      return;
+    }
+    if (action === 'cancelPairing') {
+      e.preventDefault();
+      lastPairing = null; pairingAccepted = false;
+      paintRemote(remoteAccessCache);
       return;
     }
     if (action === 'setupTailscaleServe' || action === 'disableTailscaleServe') {

@@ -109,7 +109,18 @@
 .device-card.is-open { border-color: var(--accent-blue); background: color-mix(in srgb, var(--accent-blue) 8%, var(--panel-soft)); }
 .device-card.is-open .device-card-caret { transform: rotate(180deg); color: var(--accent-blue); }
 @media (hover: hover) { .device-card:not(.static):hover { border-color: var(--accent-blue); } }
-.device-detail { border: 1px solid color-mix(in srgb, var(--accent-blue) 30%, var(--line)); border-radius: var(--radius-md); background: var(--panel-soft); padding: var(--space-4); margin-bottom: var(--space-4); }
+.device-cards-wrap { position: relative; margin-bottom: var(--space-3); }
+.device-cards-wrap .device-cards { margin-bottom: 0; }
+/* overlay dropdown — floats over the content below instead of pushing it down */
+.device-detail { position: absolute; top: calc(100% + var(--space-2)); left: 0; right: 0; z-index: 30; border: 1px solid color-mix(in srgb, var(--accent-blue) 30%, var(--line)); border-radius: var(--radius-md); background: var(--panel); padding: var(--space-4); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); }
+.icon-btn { display: inline-grid; place-items: center; width: 1.7rem; height: 1.7rem; border: 1px solid var(--line); border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; }
+@media (hover: hover) { .icon-btn:hover { color: var(--text); border-color: var(--accent-blue); } }
+.pairing-code-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-2); }
+.pairing-code-actions { display: inline-flex; gap: 4px; }
+.pairing-countdown { font-size: 0.72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pairing-countdown.expired { color: #ff6b6b; }
+.pairing-code-box.paired { display: flex; align-items: center; gap: var(--space-3); border: 1px solid color-mix(in srgb, var(--accent-blue) 45%, transparent); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4); background: color-mix(in srgb, var(--accent-blue) 12%, transparent); }
+.pairing-code-box.paired .pairing-accepted-check { color: var(--accent-blue); font-weight: 700; }
 .device-list { display: flex; flex-direction: column; gap: var(--space-3); }
 .device-list .device-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding: var(--space-2) 0; }
 .device-list .device-row + .device-row { border-top: 1px solid var(--line); }

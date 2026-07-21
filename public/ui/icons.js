@@ -16,6 +16,8 @@ const STROKE_ICONS = {
   agent: { vb: '0 0 20 20', sw: 1.6, inner: '<rect x="4.5" y="6.5" width="11" height="8" rx="2.4"/><path d="M10 6.5V4M8 10.5h.01M12 10.5h.01"/><circle cx="10" cy="3.2" r="1"/>' },
   // External link / open-preview (a registered dev-server port, opened over Tailscale).
   external: { vb: '0 0 20 20', sw: 1.6, inner: '<path d="M11 4h5v5M16 4l-7 7"/><path d="M14 11.5V15a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 4 15V8a1.5 1.5 0 0 1 1.5-1.5H9"/>' },
+  // Refresh / regenerate (new pairing code).
+  refresh: { vb: '0 0 20 20', sw: 1.6, inner: '<path d="M16 6a6.5 6.5 0 1 0 1.2 4.5"/><path d="M16.5 3v3.2h-3.2"/>' },
 };
 
 export function icon(name, { cls = '', size = 16 } = {}) {
