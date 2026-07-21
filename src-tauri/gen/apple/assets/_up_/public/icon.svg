@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Orca">
-  <rect width="256" height="256" rx="56" fill="#10110f"/>
-  <path d="M60 78h74l20 24h42v76c0 13-10 24-24 24H84c-13 0-24-11-24-24V78Z" fill="#f5f1e8" opacity=".94"/>
-  <path d="M60 78V60c0-13 11-24 24-24h48l20 24h20c13 0 24 11 24 24v18" fill="none" stroke="#d8bf8f" stroke-width="16" stroke-linejoin="round"/>
-  <circle cx="178" cy="168" r="18" fill="#10110f"/>
-</svg>

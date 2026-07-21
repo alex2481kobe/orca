@@ -43,3 +43,6 @@ throwaway/
 .claudeignore
 .codexignore
 .claude/
+
+# Native wrapper is parked on the experimental branch; kept out of main.
+src-tauri/
