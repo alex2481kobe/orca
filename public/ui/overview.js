@@ -323,15 +323,15 @@ function renderPairPanel(ctx) {
 
 // Private-access card (old renderPrivateAccessPanel).
 function renderPrivateAccessPanel(ctx) {
-  const { accessModeSummary, tailnet, accessModeOptions, privateSettings, phoneUrl, commandRows, privateTargets, targetRows } = ctx;
+  const { tailnet, phoneUrl } = ctx;
   const httpsServeCommand = tailscaleServeCommand('https');
-  const targetCount = Array.isArray(privateTargets) ? privateTargets.filter((target) => !target.hidden).length : 0;
+  const serveSummary = tailnet.serveConfigured ? 'HTTP · on' : tailnet.loggedIn ? 'HTTP · off' : 'Tailscale setup';
   return `
       <article class="card control-card" id="section-private-access" data-panel-card="access">
         <details class="disclosure">
           <summary>
             <span>Private access</span>
-            <small>${safeText(accessModeSummary)} · ${safeText(targetCount)} target${targetCount === 1 ? '' : 's'}</small>
+            <small>${safeText(serveSummary)}</small>
           </summary>
           <div class="disclosure-body">
             <div class="access-summary">
@@ -375,125 +375,27 @@ function renderPrivateAccessPanel(ctx) {
               'HTTP over Tailscale is the default',
               'Private, encrypted by the tailnet, and avoids public certificate-transparency metadata.',
             )}
-            <form id="private-access-settings-form">
-              <label>Access mode
-                <select name="preferredMode">
-                  ${accessModeOptions}
-                </select>
-              </label>
-              <label>Open links
-                <select name="openTarget">
-                  <option value="external" ${selectedOpt(privateSettings.openTarget, 'external')}>External browser/tab</option>
-                  <option value="in_app" ${selectedOpt(privateSettings.openTarget, 'in_app')}>In-app preview</option>
-                </select>
-              </label>
-              <label>Notifications
-                <select name="notificationMode">
-                  <option value="in_app" ${selectedOpt(privateSettings.notificationMode, 'in_app')}>In-app only</option>
-                  <option value="browser" ${selectedOpt(privateSettings.notificationMode, 'browser')}>Browser where supported</option>
-                  <option value="off" ${selectedOpt(privateSettings.notificationMode, 'off')}>Off</option>
-                </select>
-              </label>
-              <button type="submit">Save private access settings</button>
-            </form>
+            ${(phoneUrl && phoneUrl.startsWith('http')) ? `
+            <div class="access-command">
+              <div>
+                <strong>Your Tailscale device URL</strong>
+                <div class="tiny muted">Open from any device signed in to your tailnet. localhost only works on this Mac.</div>
+                <code>${safeText(phoneUrl)}</code>
+              </div>
+              ${copyUrlButton(phoneUrl, 'Copy', 'btn-ghost')}
+            </div>` : ''}
             <details class="disclosure compact-disclosure">
-              <summary>
-                <span>Saved private targets</span>
-                <small>${safeText(targetCount)} configured</small>
-              </summary>
+              <summary><span>Optional: HTTPS</span><small>secure browser features</small></summary>
               <div class="disclosure-body">
-                ${targetRows || '<div class="muted">No private targets saved yet.</div>'}
+                <p class="tiny muted">HTTP over the tailnet is enough for the dashboard and dev-server previews. Enable HTTPS only if you want secure-context browser features (installing the PWA, web push). You run it in Terminal on this Mac; Orca just copies the command.</p>
+                ${settingsActionRows([
+                  { title: 'Enable HTTPS certificates', detail: 'Tailscale admin → DNS → HTTPS Certificates.' },
+                  { title: 'Run the HTTPS Serve command', detail: 'Copy it and run in Terminal on this Mac.', actions: `<button class="btn-ghost" data-action="copyPrivateAccessCommand" data-command="${safeAttr(httpsServeCommand)}" type="button">Copy HTTPS command</button>` },
+                  { title: 'Turn HTTPS off', detail: 'Reset when you no longer need secure-context.', actions: '<button class="btn-ghost" data-action="copyPrivateAccessCommand" data-command="tailscale serve reset" type="button">Copy reset command</button>' },
+                ])}
               </div>
             </details>
-            <details class="disclosure compact-disclosure">
-              <summary>
-                <span>Add private target</span>
-                <small>Project or dev server</small>
-              </summary>
-              <div class="disclosure-body">
-                <form id="private-access-target-form">
-                  <label>Label
-                    <input name="label" placeholder="Example app" required />
-                  </label>
-                  <label>Mode
-                    <select name="mode">
-                      <option value="local">Local only</option>
-                      <option value="tailnet-http">Tailnet HTTP</option>
-                      <option value="tailnet-https-serve">Tailnet HTTPS Serve</option>
-                    </select>
-                  </label>
-                  <label>Local URL
-                    <input name="localUrl" inputmode="url" placeholder="http://127.0.0.1:5173" />
-                  </label>
-                  <label>Tailnet HTTP URL
-                    <input name="tailnetHttpUrl" inputmode="url" placeholder="http://mac.tailnet.ts.net:5173" />
-                  </label>
-                  <label>HTTPS Serve URL
-                    <input name="httpsServeUrl" inputmode="url" placeholder="https://mac.tailnet.ts.net" />
-                  </label>
-                  <label class="settings-checkbox"><input type="checkbox" name="favorite" checked> <span>Show as a preferred private link</span></label>
-                  <button type="submit">Add target</button>
-                </form>
-              </div>
-            </details>
-            <details class="disclosure compact-disclosure">
-              <summary>
-                <span>Phone URL and HTTPS wizard</span>
-                <small>Tailscale Serve</small>
-              </summary>
-              <div class="disclosure-body">
-                <div class="access-command">
-                  <div>
-                    <strong>Your Tailscale device URL</strong>
-                    <div class="tiny muted">${phoneUrl && phoneUrl.startsWith('http') ? 'Open this from any device signed in to your tailnet. localhost only works on this Mac.' : 'Sign in to Tailscale above to get a device URL other devices can reach.'}</div>
-                    ${phoneUrl && phoneUrl.startsWith('http') ? `<code>${safeText(phoneUrl)}</code>` : ''}
-                  </div>
-                  ${phoneUrl && phoneUrl.startsWith('http') ? copyUrlButton(phoneUrl, 'Copy', 'btn-ghost') : ''}
-                </div>
-                <div class="settings-subsection">
-                  <h3>Optional: enable HTTPS Serve</h3>
-                  ${settingsActionRows([
-                    {
-                      title: 'Enable certificates in Tailscale admin',
-                      detail: 'DNS -> HTTPS Certificates must be enabled before the HTTPS Serve command works.',
-                    },
-                    {
-                      title: 'Run the HTTPS Serve command yourself',
-                      detail: 'Orca only copies commands here; it does not run HTTPS setup for you.',
-                      actions: `<button class="btn-ghost" data-action="copyPrivateAccessCommand" data-command="${safeAttr(httpsServeCommand)}" type="button">Copy HTTPS command</button>`,
-                    },
-                    {
-                      title: 'Disable HTTPS Serve',
-                      detail: 'Use reset if you no longer need browser secure-context behavior.',
-                      actions: '<button class="btn-ghost" data-action="copyPrivateAccessCommand" data-command="tailscale serve reset" type="button">Copy reset command</button>',
-                    },
-                  ])}
-                </div>
-                <div class="settings-subsection">
-                  <h3>Rotate or rename hostname</h3>
-                  ${settingsActionRows([
-                    {
-                      title: 'Rename before issuing certs',
-                      detail: 'Use Tailscale admin if the current Mac name should not appear in certificate metadata.',
-                    },
-                    {
-                      title: 'Update saved links afterward',
-                      detail: 'Tailnet DNS suffix changes can break existing private URLs.',
-                    },
-                  ])}
-                </div>
-              </div>
-            </details>
-            <details class="disclosure compact-disclosure">
-              <summary>
-                <span>Manual setup commands</span>
-                <small>Copy only</small>
-              </summary>
-              <div class="disclosure-body">
-                ${commandRows || '<div class="muted">No setup commands available for the current Tailscale state.</div>'}
-              </div>
-            </details>
-            <div class="tiny muted">Project live links still live on each project; private targets here are reusable workstation access entries.</div>
+            <p class="tiny muted">Agents register their dev-server ports as project previews automatically — those show on each project. The Tailscale setup here is a one-time workstation step.</p>
           </div>
         </details>
       </article>`;
@@ -722,26 +624,6 @@ content.addEventListener('click', async (e) => {
       } catch { remoteNote('Could not reach Orca to revoke the device.'); act.disabled = false; }
       return;
     }
-    if (action === 'checkPrivateAccessTarget') {
-      e.preventDefault(); act.disabled = true;
-      const id = act.dataset.targetId;
-      try {
-        const res = await fetch(`/api/private-access/targets/${encodeURIComponent(id)}/check`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ actor: 'dashboard' }) });
-        if (!res.ok) { const d = await res.json().catch(() => ({})); remoteNote(`Could not check target (${esc(d.error || res.status)}).`); }
-        await refreshRemote();
-      } catch { remoteNote('Could not reach Orca to check the target.'); act.disabled = false; }
-      return;
-    }
-    if (action === 'deletePrivateAccessTarget') {
-      e.preventDefault(); act.disabled = true;
-      const id = act.dataset.targetId;
-      try {
-        const res = await fetch(`/api/private-access/targets/${encodeURIComponent(id)}`, { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ actor: 'dashboard' }) });
-        if (!res.ok) { const d = await res.json().catch(() => ({})); remoteNote(`Could not remove target (${esc(d.error || res.status)}).`); }
-        await refreshRemote();
-      } catch { remoteNote('Could not reach Orca to remove the target.'); act.disabled = false; }
-      return;
-    }
     return;
   }
 
@@ -754,38 +636,6 @@ content.addEventListener('click', async (e) => {
     armed.delete(laneId); stop.disabled = true;
     try { await fetch('/api/emergency-stop', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ laneId }) }); } catch { /* */ }
     poll();
-  }
-});
-
-// Settings/Remote form submits (private-access settings + add target).
-content.addEventListener('submit', async (e) => {
-  const form = e.target;
-  if (!(form instanceof HTMLFormElement)) return;
-  if (form.id === 'private-access-settings-form') {
-    e.preventDefault();
-    const fd = new FormData(form);
-    const body = { preferredMode: fd.get('preferredMode'), openTarget: fd.get('openTarget'), notificationMode: fd.get('notificationMode'), actor: 'dashboard' };
-    try {
-      const res = await fetch('/api/private-access/settings', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-      if (!res.ok) { const d = await res.json().catch(() => ({})); remoteNote(`Could not save settings (${esc(d.error || res.status)}).`); }
-      await refreshRemote();
-    } catch { remoteNote('Could not reach Orca to save settings.'); }
-    return;
-  }
-  if (form.id === 'private-access-target-form') {
-    e.preventDefault();
-    const fd = new FormData(form);
-    const body = {
-      label: fd.get('label'), mode: fd.get('mode'),
-      localUrl: fd.get('localUrl') || undefined, tailnetHttpUrl: fd.get('tailnetHttpUrl') || undefined,
-      httpsServeUrl: fd.get('httpsServeUrl') || undefined, favorite: fd.get('favorite') === 'on', actor: 'dashboard',
-    };
-    try {
-      const res = await fetch('/api/private-access/targets', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-      if (!res.ok) { const d = await res.json().catch(() => ({})); remoteNote(`Could not add target (${esc(d.error || res.status)}).`); }
-      else await refreshRemote();
-    } catch { remoteNote('Could not reach Orca to add the target.'); }
-    return;
   }
 });
 
