@@ -157,23 +157,26 @@ test('rate limiter keys authenticated requests without echoing raw token values'
   const token = 'rate-limit-token-secret';
   const server = await startServerWithEnv({
     ORCA_API_TOKEN: token,
-    ORCA_RATE_LIMIT_PROVIDER_HEALTH_LIMIT: '1',
-    ORCA_RATE_LIMIT_PROVIDER_HEALTH_WINDOW_MS: '60000',
+    ORCA_RATE_LIMIT_DEFAULT_READ_LIMIT: '1',
+    ORCA_RATE_LIMIT_DEFAULT_READ_WINDOW_MS: '60000',
   });
   try {
-    const first = await server.requestJson('/api/providers/openai-compatible/health', {
+    // Any token-authenticated, rate-limited read works as the vehicle: the point
+    // of this test is that the limiter keys off a HASH of the token and never
+    // echoes the raw token in the 429 body/headers.
+    const first = await server.requestJson('/api/mcp/tools', {
       method: 'GET',
       headers: { 'x-orca-token': token },
     });
     assert.equal(first.status, 200);
-    assert.equal(first.headers['x-ratelimit-policy'], 'providerHealth');
+    assert.equal(first.headers['x-ratelimit-policy'], 'defaultRead');
 
-    const second = await server.requestJson('/api/providers/openai-compatible/health', {
+    const second = await server.requestJson('/api/mcp/tools', {
       method: 'GET',
       headers: { 'x-orca-token': token },
     });
     assert.equal(second.status, 429);
-    assert.equal(second.body?.rateLimit?.policy, 'providerHealth');
+    assert.equal(second.body?.rateLimit?.policy, 'defaultRead');
     assert.equal(JSON.stringify(second.body).includes(token), false);
     assert.equal(JSON.stringify(second.headers).includes(token), false);
   } finally {

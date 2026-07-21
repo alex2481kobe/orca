@@ -21,7 +21,6 @@ import { handleNotificationRoutes } from './server-routes/notifications.js';
 import { handleExecutorRoutes } from './server-routes/executors.js';
 import { handleOrchestratorRoutes } from './server-routes/orchestrators.js';
 import { handlePrivateAccessApi } from './server-routes/private-access.js';
-import { handleProvidersApi } from './server-routes/providers.js';
 import { handleSettingsRoutes } from './server-routes/settings.js';
 import { handleAgentToolRoutes } from './server-routes/agent-tools.js';
 import { handleMiscRoutes } from './server-routes/misc.js';
@@ -360,12 +359,6 @@ function toolLeaseRequirementForRoute(method, parts) {
   }
   if (parts[1] === 'private-access' && parts[2] === 'setup-plan' && parts.length === 3 && method === 'GET') {
     return { toolId: 'orca.setup_guide' };
-  }
-  if (parts[1] === 'providers' && parts.length === 2 && method === 'GET') {
-    return { toolId: 'provider.list' };
-  }
-  if (parts[1] === 'providers' && parts[2] && parts[3] === 'health' && method === 'GET') {
-    return { toolId: 'provider.health' };
   }
   if (parts[1] === 'sessions' && parts[2] && parts.length === 3 && method === 'GET') {
     return { toolId: 'session.describe', sessionId: parts[2] };
@@ -945,9 +938,6 @@ async function handleApi(req, res, pathname, method, parts) {
     return handlePrivateAccessApi(ROUTE_CTX, req, res, method, parts);
   }
 
-  if (parts[1] === 'providers') {
-    return handleProvidersApi(ROUTE_CTX, req, res, method, parts);
-  }
 
   if (parts[1] === 'executors') {
     const result = await handleExecutorRoutes(ROUTE_CTX, req, res, method, parts);

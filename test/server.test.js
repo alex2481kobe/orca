@@ -655,7 +655,6 @@ test('paired devices get operator access but are denied host administration', as
     // Host administration is refused (403) for a paired operator device.
     const adminAttempts = [
       ['POST', '/api/executors/codex/cli/reinstall', { actor: 'dashboard', approved: true, execute: false }],
-      ['POST', '/api/providers/openai-compatible/secret', { actor: 'dashboard', approved: true, secret: 'sk-test' }],
       ['PATCH', '/api/private-access/settings', { actor: 'dashboard', preferredMode: 'local' }],
       ['POST', '/api/private-access/serve', { actor: 'dashboard', action: 'enable' }],
       ['POST', '/api/private-access/targets', { actor: 'dashboard', label: 'phone target', mode: 'local', localUrl: 'http://127.0.0.1:3000' }],
@@ -663,7 +662,6 @@ test('paired devices get operator access but are denied host administration', as
       ['DELETE', '/api/private-access/targets/example-target', { actor: 'dashboard' }],
       ['POST', '/api/private-access/targets/example-target/check', { actor: 'dashboard' }],
       ['POST', '/api/auth/pairing-codes', { actor: 'dashboard', label: 'rogue' }],
-      ['GET', '/api/providers/export', undefined],
       // Dashboard/orchestrator/supervisor leases are off-origin host credentials —
       // a paired operator must not be able to mint them.
       ['POST', '/api/agent-tools/leases', { actor: 'dashboard', role: 'dashboard' }],
@@ -717,12 +715,6 @@ test('paired devices get operator access but are denied host administration', as
     });
     assert.notEqual(tokenReinstall.status, 401);
     assert.notEqual(tokenReinstall.status, 403);
-
-    const tokenExport = await server.requestJson('/api/providers/export', {
-      method: 'GET',
-      headers: { 'x-orca-token': token },
-    });
-    assert.equal(tokenExport.status, 200);
   } finally {
     await server.stop();
   }
@@ -3156,188 +3148,6 @@ test('private access API exposes mocked tailnet state, dry-run setup plans, and 
     assert.match(missingTailnetUrl.body?.error || '', /tailnetHttpUrl/);
   } finally {
     await server.stop();
-  }
-});
-
-test('provider profile API exposes first-class providers and memory-backed secret references without echoing values', async () => {
-  const token = 'route-token-providers';
-  const server = await startServer({ token, env: { ORCA_CREDENTIAL_BACKEND: 'memory' } });
-
-  try {
-    const list = await server.requestJson('/api/providers', { method: 'GET', headers: { 'x-orca-token': token } });
-    assert.equal(list.status, 200);
-    assert.equal(list.body?.credentialBackend, 'memory');
-    const ids = new Set((list.body?.profiles || []).map((profile) => profile.id));
-    for (const id of ['codex', 'claude', 'gemini-cli', 'composer-cli', 'custom-cli', 'openai-compatible', 'gemini', 'kimi', 'deepseek', 'openrouter', 'composer']) {
-      assert.equal(ids.has(id), true, `missing ${id}`);
-    }
-
-    const deniedSecret = await server.requestJson('/api/providers/openai-compatible/secret', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        approved: false,
-        secret: 'sk-test-secret',
-      },
-    });
-    assert.equal(deniedSecret.status, 409);
-
-    const setSecret = await server.requestJson('/api/providers/openai-compatible/secret', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        approved: true,
-        secret: 'sk-test-secret',
-      },
-    });
-    assert.equal(setSecret.status, 200);
-    assert.equal(JSON.stringify(setSecret.body).includes('sk-test-secret'), false);
-
-    const health = await server.requestJson('/api/providers/openai-compatible/health', { method: 'GET', headers: { 'x-orca-token': token } });
-    assert.equal(health.status, 200);
-    assert.equal(health.body?.status, 'configured');
-    assert.equal(typeof health.body?.baseUrl, 'string');
-    assert.equal(health.body?.credential?.backend, 'memory');
-    assert.equal(JSON.stringify(health.body).includes('sk-test-secret'), false);
-
-    const pairing = await server.requestJson('/api/auth/pairing-codes', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { actor: 'dashboard', label: 'provider-health-phone' },
-    });
-    assert.equal(pairing.status, 201);
-    const paired = await server.requestJson('/api/auth/pair', {
-      method: 'POST',
-      body: { code: pairing.body.pairing.code, label: 'provider-health-phone' },
-    });
-    assert.equal(paired.status, 200);
-    const operatorHealth = await server.requestJson('/api/providers/openai-compatible/health', {
-      method: 'GET',
-      headers: { cookie: paired.response.headers['set-cookie'] },
-    });
-    assert.equal(operatorHealth.status, 200);
-    assert.equal(operatorHealth.body?.status, 'configured');
-    assert.equal(operatorHealth.body?.baseUrl, undefined);
-    assert.equal(operatorHealth.body?.apiStyle, undefined);
-    assert.deepEqual(operatorHealth.body?.credential, { present: true });
-    const operatorHealthText = JSON.stringify(operatorHealth.body);
-    assert.equal(operatorHealthText.includes('OPENAI'), false);
-    assert.equal(operatorHealthText.includes('memory'), false);
-
-    const operatorList = await server.requestJson('/api/providers', {
-      method: 'GET',
-      headers: { cookie: paired.response.headers['set-cookie'] },
-    });
-    assert.equal(operatorList.status, 200);
-    assert.equal(operatorList.body?.credentialBackend, undefined);
-    assert.equal(operatorList.body?.credentialBackends, undefined);
-    const operatorListText = JSON.stringify(operatorList.body);
-    for (const text of ['OPENAI', 'memory', 'envName', 'backend', 'secretRef', 'apiKeyEnv']) {
-      assert.equal(operatorListText.includes(text), false, `operator provider list leaked ${text}`);
-    }
-    const operatorApiProfile = operatorList.body?.profiles?.find((profile) => profile.id === 'openai-compatible');
-    assert.ok(operatorApiProfile);
-    for (const field of ['baseUrl', 'apiStyle', 'secretRef', 'apiKeyEnv', 'binary', 'version']) {
-      assert.equal(operatorApiProfile[field], undefined, `operator profile leaked ${field}`);
-    }
-    assert.deepEqual(operatorApiProfile.credential, { present: true });
-    const operatorProfileText = JSON.stringify(operatorApiProfile);
-    for (const text of ['OPENAI', 'memory', 'envName', 'backend', 'ref']) {
-      assert.equal(operatorProfileText.includes(text), false, `operator profile leaked ${text}`);
-    }
-
-    const operatorProfileGet = await server.requestJson('/api/providers/openai-compatible', {
-      method: 'GET',
-      headers: { cookie: paired.response.headers['set-cookie'] },
-    });
-    assert.equal(operatorProfileGet.status, 200);
-    assert.equal(operatorProfileGet.body?.baseUrl, undefined);
-    assert.equal(operatorProfileGet.body?.secretRef, undefined);
-    assert.equal(operatorProfileGet.body?.credential, undefined);
-
-    const operatorCliHealth = await server.requestJson('/api/providers/codex/health', {
-      method: 'GET',
-      headers: { cookie: paired.response.headers['set-cookie'] },
-    });
-    assert.equal(operatorCliHealth.status, 200);
-    for (const field of ['binary', 'version', 'exitCode', 'errorCode']) {
-      assert.equal(operatorCliHealth.body?.[field], undefined, `operator CLI health leaked ${field}`);
-    }
-
-    const exported = await server.requestJson('/api/providers/export', { method: 'GET', headers: { 'x-orca-token': token } });
-    assert.equal(exported.status, 200);
-    assert.equal(exported.body?.excludesSecrets, true);
-    assert.equal(JSON.stringify(exported.body).includes('sk-test-secret'), false);
-  } finally {
-    await server.stop();
-  }
-});
-
-test('server API provider lanes use dashboard-stored credential references without leaking secrets', async () => {
-  const token = 'route-token-api-provider-lane';
-  const secret = 'server-api-provider-secret';
-  const dummy = await startDummyApiProvider(secret);
-  const server = await startServer({
-    token,
-    env: {
-      ORCA_CREDENTIAL_BACKEND: 'memory',
-      ORCA_OPENAI_COMPATIBLE_BASE_URL: dummy.baseUrl,
-    },
-  });
-
-  try {
-    const setSecret = await server.requestJson('/api/providers/openai-compatible/secret', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        approved: true,
-        secret,
-      },
-    });
-    assert.equal(setSecret.status, 200);
-    assert.equal(JSON.stringify(setSecret.body).includes(secret), false);
-
-    const project = await server.requestJson('/api/projects', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { name: 'API Provider Route Project', approved: true },
-    });
-    assert.equal(project.status, 201);
-    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { name: 'API Provider Route Session', approved: true },
-    });
-    assert.equal(session.status, 201);
-    const lane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        title: 'Dashboard credential API lane',
-        executorType: 'openai-compatible',
-        taskPrompt: 'Use the dashboard-stored provider credential.',
-        model: 'server-test-model',
-        owner: 'dashboard',
-        approved: true,
-      },
-    });
-    assert.equal(lane.status, 201);
-
-    const completed = await waitForServerLane(server, lane.body.id, token);
-    assert.equal(completed.status, 200);
-    assert.equal(completed.body?.state, 'done', completed.body?.exitReason || 'lane should complete');
-    assert.equal(dummy.requests.length, 1);
-    assert.equal(dummy.requests[0].headers.authorization, `Bearer ${secret}`);
-    assert.equal(dummy.requests[0].body.model, 'server-test-model');
-    assert.equal(completed.body.processMeta.secretRef, 'provider:openai-compatible');
-    assert.equal(completed.body.processMeta.credentialBackend, 'memory');
-    assert.equal(JSON.stringify(completed.body).includes(secret), false);
-  } finally {
-    await server.stop();
-    await dummy.close();
   }
 });
 
