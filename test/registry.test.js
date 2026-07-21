@@ -2336,6 +2336,45 @@ test('Worktree manager creates per-lane worktree under approved base and cleanup
   }
 });
 
+test('pruneInMemoryRecords reclaims the on-disk worktree of a dropped terminal lane', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  const prevCap = process.env.ORCA_MAX_TERMINAL_LANES_PER_SESSION;
+  try {
+    const repoDir = path.join(process.cwd(), 'prune-repo');
+    await fs.mkdir(repoDir, { recursive: true });
+    const { spawnSync } = await import('node:child_process');
+    const g = (...args) => spawnSync('git', args, { cwd: repoDir, encoding: 'utf8' });
+    g('init', '-q'); g('config', 'user.email', 't@local'); g('config', 'user.name', 'T');
+    await fs.writeFile(path.join(repoDir, 'README.md'), 'hi');
+    g('add', 'README.md'); g('commit', '-qm', 'init');
+
+    const project = registry.createProject({ name: 'Prune' }, { actor: 'test', approved: true });
+    const session = registry.createSession(project.id, { name: 'Prune', repoRoot: repoDir }, { actor: 'test', approved: true });
+    const older = registry.createLane(session.id, { title: 'older', executorType: 'mock', branch: 'a' }, { actor: 'test', approved: true });
+    const newer = registry.createLane(session.id, { title: 'newer', executorType: 'mock', branch: 'b' }, { actor: 'test', approved: true });
+    assert.ok(older.worktreePath && newer.worktreePath);
+
+    for (const [lane, when] of [[older, '2020-01-01T00:00:00.000Z'], [newer, '2020-06-01T00:00:00.000Z']]) {
+      const t = registry.getLane(lane.id); t.state = 'done'; t.completedAt = when;
+    }
+
+    // Cap at 1 terminal lane/session so the OLDER lane is pruned.
+    process.env.ORCA_MAX_TERMINAL_LANES_PER_SESSION = '1';
+    registry.pruneInMemoryRecords();
+
+    // The older lane's record is gone AND its worktree was reclaimed from disk;
+    // the newer lane (and its checkout) survive.
+    assert.equal(registry.getLane(older.id), undefined, 'older lane record should be pruned');
+    await assert.rejects(fs.access(older.worktreePath), (e) => e.code === 'ENOENT', 'pruned lane worktree should be removed');
+    assert.ok(registry.getLane(newer.id), 'newer lane should survive');
+    assert.equal((await fs.stat(newer.worktreePath)).isDirectory(), true, 'surviving lane keeps its worktree');
+  } finally {
+    if (prevCap === undefined) delete process.env.ORCA_MAX_TERMINAL_LANES_PER_SESSION;
+    else process.env.ORCA_MAX_TERMINAL_LANES_PER_SESSION = prevCap;
+    await cleanup();
+  }
+});
+
 test('Session shared worktree mode runs lanes in the session repoRoot without per-lane worktrees', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {

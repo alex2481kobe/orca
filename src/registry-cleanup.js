@@ -4,6 +4,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { LANE_STATES } from './worker-contract.js';
+import { removeLaneWorktree } from './worktree-manager.js';
 import { parsePositiveInteger, parsePositiveFloat, clonePayload, nowIso } from './registry-utils.js';
 import { defaultPolicy } from './registry-policy.js';
 
@@ -292,6 +293,20 @@ export const cleanupMethods = {
       ['completedAt', 'updatedAt'],
     );
     if (dropLaneIds.size) {
+      // Reclaim each pruned lane's on-disk git worktree before dropping the
+      // record — otherwise terminal-lane pruning orphans isolated checkouts
+      // under .orca/workspaces forever (deleteLane cleaned up, prune did not).
+      // Guarded like deleteLane: skip shared/non-managed worktrees and never
+      // touch the repo root; removeLaneWorktree also refuses any path git does
+      // not track as a worktree of the repo. Best-effort and synchronous.
+      for (const lane of this.lanes.filter((l) => dropLaneIds.has(l.id))) {
+        if (!lane.repoRoot || !lane.worktreePath) continue;
+        if (lane.sharedWorktree || lane.worktreeMode === 'shared') continue;
+        if (path.resolve(lane.worktreePath) === path.resolve(lane.repoRoot)) continue;
+        try {
+          removeLaneWorktree({ repoRoot: lane.repoRoot, worktreePath: lane.worktreePath, removeBranch: false });
+        } catch { /* best effort — a failed reclaim must not block pruning */ }
+      }
       this.lanes = this.lanes.filter((l) => !dropLaneIds.has(l.id));
       for (const id of dropLaneIds) { this.laneRuntimeEnv?.delete(String(id)); if (typeof this.clearLaneExecutor === 'function') this.clearLaneExecutor(id); }
       const existingLaneIds = new Set((this.lanes || []).map((lane) => String(lane.id)));
