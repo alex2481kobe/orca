@@ -63,8 +63,6 @@ export const persistenceMethods = {
       this.sessions = safeArray(parsed.sessions);
       this.orchestrators = safeArray(parsed.orchestrators);
       this.lanes = safeArray(parsed.lanes);
-      this.tasks = safeArray(parsed.tasks);
-      this.loops = safeArray(parsed.loops).filter((loop) => loop && typeof loop.id === 'string').slice(0, 500);
       this.auditEvents = safeArray(parsed.auditEvents, []).slice(0, 200);
       // Never let persisted (potentially tampered) state weaken an approval
       // gate. Start from the hardcoded defaults; for known actions the default
@@ -127,9 +125,6 @@ export const persistenceMethods = {
       }
       this.ensureSessionWorkspaces();
       this.recoverInterruptedLanes();
-      if (typeof this.recoverInterruptedTasks === 'function') {
-        this.recoverInterruptedTasks();
-      }
       if (this.stateLoadStatus?.recovered || this.stateLoadStatus?.ok === false) {
         this.auditEvents.unshift({
           id: randomUUID(),
@@ -201,8 +196,6 @@ export const persistenceMethods = {
       sessions: this.sessions,
       orchestrators: this.orchestrators,
       lanes: this.lanes,
-      tasks: this.tasks,
-      loops: this.loops,
       auditEvents: this.auditEvents,
       cleanupSchedule: this.cleanupSchedule,
       mcpTools: this.mcpTools,

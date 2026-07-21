@@ -255,10 +255,8 @@ export const cleanupMethods = {
   pruneInMemoryRecords() {
     const TERMINAL_LANES = new Set(['done', 'failed', 'stopped', 'accepted', 'archived']);
     const maxLanes = parsePositiveInteger(process.env.ORCA_MAX_TERMINAL_LANES_PER_SESSION, null) || 200;
-    const maxTasks = parsePositiveInteger(process.env.ORCA_MAX_TERMINAL_TASKS_PER_SESSION, null) || 500;
     const laneCount = Array.isArray(this.lanes) ? this.lanes.length : 0;
-    const taskCount = Array.isArray(this.tasks) ? this.tasks.length : 0;
-    if (laneCount <= maxLanes && taskCount <= maxTasks) return false; // no session can exceed its cap
+    if (laneCount <= maxLanes) return false; // no session can exceed its cap
     let changed = false;
     const ts = (record, ...keys) => {
       for (const k of keys) { const v = Date.parse(record?.[k] || 0); if (Number.isFinite(v) && v) return v; }
@@ -277,18 +275,8 @@ export const cleanupMethods = {
       }
       return drop;
     };
-    // A 'done' executor lane awaiting audit is terminal-by-state but its backlog
-    // task is still 'in_lane' (markLaneCompleted doesn't sync the task). Dropping
-    // that lane would strand the task forever (no lane to accept/fail it, not
-    // pending so never re-spawned, backlog never completes). Never prune a lane
-    // still referenced by a non-terminal task.
-    const linkedLaneIds = new Set(
-      (this.tasks || [])
-        .filter((t) => (t.state === 'in_lane' || t.state === 'assigned') && t.laneId)
-        .map((t) => String(t.laneId)),
-    );
     const dropLaneIds = dropOldest(
-      (this.lanes || []).filter((l) => TERMINAL_LANES.has(l.state) && !linkedLaneIds.has(String(l.id))),
+      (this.lanes || []).filter((l) => TERMINAL_LANES.has(l.state)),
       maxLanes,
       ['completedAt', 'updatedAt'],
     );
@@ -323,11 +311,6 @@ export const cleanupMethods = {
           thread.updatedAt = nowIso();
         }
       }
-      changed = true;
-    }
-    const dropTaskIds = dropOldest((this.tasks || []).filter((t) => t.state === 'accepted' || t.state === 'failed'), maxTasks, ['terminatedAt', 'updatedAt']);
-    if (dropTaskIds.size) {
-      this.tasks = this.tasks.filter((t) => !dropTaskIds.has(t.id));
       changed = true;
     }
     if (changed) this.persistState();

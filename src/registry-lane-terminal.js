@@ -8,7 +8,6 @@ import { nowIso, clonePayload } from './registry-utils.js';
 import { changedFilesIn } from './worktree-manager.js';
 
 const {
-  NEEDS_CRITIQUE: NEEDS_CRITIQUE_STATE,
   READY_FOR_AUDIT: READY_FOR_AUDIT_STATE,
   STOPPED: STOPPED_STATE,
   DONE: DONE_STATE,
@@ -25,14 +24,12 @@ export const laneTerminalMethods = {
   markLaneCompleted(lane) {
     if (!lane || TERMINAL_LANE_STATES.has(lane.state)) return;
     const now = nowIso();
-    const needsCritique = false;
-    lane.state = needsCritique ? NEEDS_CRITIQUE_STATE : DONE_STATE;
+    lane.state = DONE_STATE;
     lane.updatedAt = now;
     // Auto-queue the audit when a finished executor lane requires one — the
     // scheduler's dispatchPendingAudits() then runs it (orchestrator or a spawned
     // auditor). Guarded so auditor/orchestrator lanes never audit themselves.
     if (this.autoAuditEnabled
-      && !needsCritique
       && typeof this.isAuditableExecutorLane === 'function'
       && this.isAuditableExecutorLane(lane)
       && typeof this.auditRequiredForLane === 'function'
@@ -43,53 +40,40 @@ export const laneTerminalMethods = {
       // after a fix cycle) notifies exactly once. See dispatchPendingAudits().
       lane.auditNudgedAt = null;
     }
-    if (!needsCritique
-      && typeof this.auditRequiredForLane === 'function'
-      && !this.auditRequiredForLane(lane)
-      && typeof this.markTaskAcceptedFromLane === 'function') {
-      const syncedTask = this.markTaskAcceptedFromLane(lane.id);
-      if (syncedTask && typeof this.evaluateBacklogCompletion === 'function') {
-        this.evaluateBacklogCompletion(lane.sessionId);
-      }
-    }
     lane.completedAt = now;
     const executorLabel = String(lane.executorType || 'mock');
-    lane.exitReason = needsCritique
-      ? 'Execution completed; self-verification required before audit.'
-      : `${executorLabel} execution completed`;
+    lane.exitReason = `${executorLabel} execution completed`;
     this.appendLaneLog(lane, lane.exitReason, { persist: false });
     this.appendLaneAgentEvent(lane, {
-      type: needsCritique ? 'agent.needs_critique' : 'agent.done',
+      type: 'agent.done',
       source: lane.executorType,
-      title: needsCritique ? 'Needs self-check' : 'Agent completed',
+      title: 'Agent completed',
       content: lane.exitReason,
     });
     this.recordAudit({
-      type: needsCritique ? 'lane_needs_critique' : 'lane_completed',
+      type: 'lane_completed',
       // Attribute completion to the lane's actual executor, not always the mock.
       actor: `${executorLabel}-worker`,
       projectId: lane.projectId,
       sessionId: lane.sessionId,
       laneId: lane.id,
-      summary: needsCritique ? `Lane ${lane.title} needs self-verification` : `Lane ${lane.title} completed`,
+      summary: `Lane ${lane.title} completed`,
       evidence: { lane },
-      status: needsCritique ? 'pending' : 'passed',
-      followUpQueued: needsCritique,
+      status: 'passed',
+      followUpQueued: false,
     });
     this.notifyLaneTerminal(
       lane,
-      needsCritique ? 'warning' : 'success',
-      needsCritique ? 'Lane needs self-check' : 'Lane completed',
-      needsCritique
-        ? `${lane.title} needs self-verification before audit.`
-        : `${lane.title} finished successfully.`,
+      'success',
+      'Lane completed',
+      `${lane.title} finished successfully.`,
     );
     this._trackAsync(this.writeLaneArtifacts(lane, lane.state).catch(() => {}));
     this.clearLaneExecutor(lane.id);
     if (typeof this.revokeToolLeasesForLane === 'function') {
       this.revokeToolLeasesForLane(lane.id, {
         actor: `${executorLabel}-worker`,
-        reason: needsCritique ? 'lane_needs_critique' : 'lane_completed',
+        reason: 'lane_completed',
         persist: false,
       });
     }

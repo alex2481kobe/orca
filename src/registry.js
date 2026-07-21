@@ -48,8 +48,6 @@ export class OrcaRegistry {
     this.sessions = [];
     this.orchestrators = [];
     this.lanes = [];
-    this.tasks = [];
-    this.loops = [];
     this.auditEvents = [];
     this.mcpTools = [];
     this.toolLeases = [];

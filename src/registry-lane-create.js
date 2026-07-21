@@ -310,9 +310,7 @@ export const laneCreateMethods = {
       // Set on a dedicated auditor lane (owner='auditor') — points at the
       // executor lane it was spawned to review.
       auditTargetLaneId: auditTargetLaneId ? String(auditTargetLaneId).slice(0, 80) : null,
-      // Set when a backlog task auto-spawns this lane — lets recoverInterruptedTasks
-      // relink an 'assigned' task to its already-live lane after a restart instead
-      // of blindly requeuing it (which would double-spawn).
+      // Inert lane metadata (nullable passthrough).
       metadataTaskId: metadataTaskId ? String(metadataTaskId).slice(0, 80) : null,
       // Set when a durable loop queues the task that spawned this lane.
       metadataLoopId: metadataLoopId ? String(metadataLoopId).slice(0, 80) : null,

@@ -54,14 +54,7 @@ export const sessionMethods = {
       if (!['active', 'archived'].includes(nextState)) {
         throw { status: 422, message: 'Session state must be active or archived.' };
       }
-      const wasArchived = session.state === 'archived';
       session.state = nextState;
-      // Restoring an archived session: reconcile any backlog tasks left pointing
-      // at lanes that were removed/finished while it was parked (auto-spawn was
-      // skipped for archived sessions).
-      if (wasArchived && nextState === 'active' && typeof this.recoverInterruptedTasks === 'function') {
-        this.recoverInterruptedTasks();
-      }
     }
 
     if (patch.name) {
@@ -313,7 +306,6 @@ export const sessionMethods = {
       worktreeRoot: path.join(this.workspacesRoot, sessionId),
       repoRoot: validatedRepoRoot,
       notes: [],
-      agentMemory: [],
       orchestratorThread: {
         id: randomUUID(),
         messages: [],
@@ -479,9 +471,6 @@ export const sessionMethods = {
       }
     }
     this.lanes = (this.lanes || []).filter((lane) => lane.sessionId !== session.id);
-    // Backlog tasks are top-level state keyed by sessionId — drop this session's
-    // so they don't orphan in state.json after the session is gone.
-    this.tasks = (this.tasks || []).filter((task) => task.sessionId !== session.id);
     if (session.worktreeRoot) {
       try { await fs.rm(session.worktreeRoot, { recursive: true, force: true }); } catch { /* best effort */ }
     }

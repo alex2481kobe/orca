@@ -53,31 +53,6 @@ export const laneOpsMethods = {
       }
       thread.updatedAt = nowIso();
     }
-    const affectedSessions = new Set();
-    for (const task of this.tasks || []) {
-      if (task.laneId !== lane.id) continue;
-      // A backlog task still linked to this lane would be stranded: a non-terminal
-      // task (in_lane/assigned) whose lane just vanished can never be accepted/failed
-      // by the (now gone) lane, so dispatchPendingTasks won't re-spawn it and the
-      // backlog never completes. Requeue it (within attempt budget) or fail it.
-      if (task.state === 'in_lane' || task.state === 'assigned') {
-        if ((task.attempts || 0) < (task.maxAttempts || 1)) {
-          task.state = 'pending';
-          task.laneId = null;
-        } else {
-          task.state = 'failed';
-          task.laneId = null;
-          task.terminatedAt = nowIso();
-        }
-        task.updatedAt = nowIso();
-        affectedSessions.add(task.sessionId);
-      } else {
-        task.laneId = null;
-      }
-    }
-    for (const sessionId of affectedSessions) {
-      if (typeof this.evaluateBacklogCompletion === 'function') this.evaluateBacklogCompletion(sessionId);
-    }
     this.recordAudit({
       type: 'lane_deleted',
       actor: String(actor || 'dashboard').slice(0, 120),
@@ -103,8 +78,7 @@ export const laneOpsMethods = {
       lane.changedFiles = changedFiles.map((file) => String(file).slice(0, 400)).slice(0, 500);
     }
     if (handoff) lane.handoff = String(handoff).slice(0, 4000);
-    const needsCritique = false;
-    lane.state = needsCritique ? NEEDS_CRITIQUE_STATE : READY_FOR_AUDIT_STATE;
+    lane.state = READY_FOR_AUDIT_STATE;
     lane.submittedAt = nowIso();
     lane.updatedAt = nowIso();
     this.appendLaneAgentEvent(lane, {
@@ -118,12 +92,14 @@ export const laneOpsMethods = {
       projectId: lane.projectId,
       sessionId: lane.sessionId,
       laneId: lane.id,
-      summary: `Lane ${lane.title} submitted (${needsCritique ? 'needs self-verification' : 'ready for audit'})`,
-      status: needsCritique ? 'pending' : 'passed',
+      summary: `Lane ${lane.title} submitted (ready for audit)`,
+      status: 'passed',
       evidence: { summary: lane.summary || '', changedFiles: lane.changedFiles || [] },
     });
     this.persistState();
-    return { lane: clonePayload(lane), needsCritique };
+    // `needsCritique` is retained in the return shape (always false) as a stable
+    // API field consumed by callers/tests; the critique flow itself was removed.
+    return { lane: clonePayload(lane), needsCritique: false };
   },
 
   // --- Permission-approval relay (Codex-app-style approval loop) -----------
