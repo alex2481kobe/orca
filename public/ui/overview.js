@@ -87,8 +87,8 @@ root.addEventListener('click', async (event) => {
   if (!armed.has(laneId)) {
     armed.add(laneId);
     render(lastData, openSet()); // reflect the armed state immediately
-    // auto-disarm after 5s if not confirmed
-    setTimeout(() => { if (armed.delete(laneId)) render(lastData, openSet()); }, 5000);
+    // auto-disarm after 30s if not confirmed (long enough for an operator to react)
+    setTimeout(() => { if (armed.delete(laneId)) render(lastData, openSet()); }, 30000);
     return;
   }
   armed.delete(laneId);
