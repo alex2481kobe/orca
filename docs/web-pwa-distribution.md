@@ -1,27 +1,25 @@
 # Web/PWA distribution
 
-Orca can run without the Tauri desktop wrapper. The validated host path today is
-macOS: the user runs the Node server locally and opens the dashboard in a
-browser. Windows and Linux are intended portable host targets, but they have not
-been release-validated yet.
+Orca v2 ships as a Node daemon plus a read-only web dashboard — there is no native
+desktop wrapper. The user runs the daemon locally and opens the dashboard in a
+browser. The validated host path today is macOS; Windows and Linux are intended
+portable host targets but have not been release-validated yet.
 
 ## What users get today
 
-- Same local HTTP API and dashboard as the desktop app.
-- Same pairing, auth, provider, live-link, MCP, evidence, backup, and security
-  routes.
+- Local HTTP API and the read-only dashboard (projects → orchestrators →
+  executors).
+- Pairing, auth, MCP, and security routes.
 - PWA install support from browsers that expose an install action.
 - Tailscale Serve private phone access when Tailscale is installed and
   configured by the user.
 
-## What users do not get without Tauri
+## Host lifecycle notes
 
-- No native app bundle or installer.
-- No native menu/tray controls.
-- No automatic server lifecycle on app launch.
-- No OS credential storage for `ORCA_API_TOKEN`; use a local env var or
-  a user-managed service wrapper.
-- No Tauri updater.
+- There is no native app bundle, menu/tray control, or auto-start on launch; the
+  daemon is a plain Node process.
+- Keep `ORCA_API_TOKEN` in a local env var or a user-managed service wrapper (see
+  the durable-operation section below); there is no OS credential-store integration.
 
 ## Local web quick start
 
@@ -76,13 +74,3 @@ validated. Those service wrappers are not yet packaged:
 
 Keep tokens in local user-owned env files or secret stores. Do not commit env
 files or generated service configs containing tokens.
-
-## Native installer roadmap
-
-The macOS Tauri app is the first production installer path. Windows and Linux
-native installers should be added after the macOS release path is proven:
-
-- Windows: Tauri build target, Windows credential backend validation, code
-  signing certificate, installer format, and updater validation.
-- Linux: Tauri build target, Secret Service/libsecret validation, AppImage/deb/
-  rpm packaging decision, desktop integration, and updater validation.

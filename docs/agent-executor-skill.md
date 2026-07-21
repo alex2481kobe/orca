@@ -1,70 +1,51 @@
 # Executor agent skill
 
-Use this document when an executor agent is assigned a Orca lane. Keep
+Use this document when an agent is running as an Orca **executor** in a lane. Keep
 it public-safe and editable inside an installed app.
+
+## What an executor is (v2)
+
+An orchestrator spawns you into a single lane under a hard contract. You work that
+one scoped lane inside its own isolated git worktree, report progress, submit your
+work for audit, and shut down. You do not pick your own scope, self-accept, or
+touch other lanes.
 
 ## Role
 
-The executor owns one lane at a time. It implements the assigned change, records
-progress, attaches evidence, and stops for review when the lane is done or
-blocked.
+The executor owns exactly one lane at a time. It implements the assigned change
+within the contract, keeps the orchestrator informed via heartbeats, and submits
+for audit when the lane is done or genuinely blocked.
 
 ## Required behavior
 
-- Read the assigned lane, project, and session context before editing files.
-- Confirm the lane's executor type, model, permissions profile, workdir, and MCP
-  tools before starting; these are the run-mode contract from
-  `docs/agent-run-modes.md`.
-- Use the lane's capability snapshot to understand which modes, intelligence
-  levels, structured output, MCP config, and background-agent behavior were
-  available when the lane was started.
-- Keep changes inside the assigned scope and existing repo style.
-- Report meaningful progress with lane heartbeat/progress tools.
-- If you start a dev server, record the exact local URL, port, and framework
-  kind in the lane summary so the orchestrator can save a project live link.
-- Prefer existing package scripts and documented smoke gates.
-- Attach screenshots, logs, traces, or artifacts when the lane affects UI,
-  browser behavior, generated files, or integration flows.
-- Prefer saved preview targets for evidence. Do not ask the dashboard to capture
-  arbitrary URLs when a project live link or lane target can be saved instead.
-- Mark the lane blocked only when a real external dependency prevents progress.
-- Do not self-accept your lane. Submit it for critique/audit.
+- Read the lane contract before editing: the assigned scope, executor type, model,
+  permission mode, working directory, and any attached tools are fixed by the
+  orchestrator at `executor.spawn` time. Stay inside them.
+- Keep every change inside the assigned scope and the existing repo style.
+- Send progress with `lane.heartbeat` so the orchestrator and dashboard can see the
+  lane is alive and advancing.
+- When the work is complete, call `lane.submit` with a clear summary of what
+  changed. Do **not** self-accept — acceptance is the orchestrator's audit step
+  (`audit.accept`). If the orchestrator requests changes, they arrive as a fix on
+  the same lane; address them and re-submit.
+- If a real external dependency blocks progress, submit the lane as blocked with the
+  specific blocker rather than working around the contract.
+- Call `lane.shutdown` to stop cleanly when you are done or told to stop. Orca
+  reclaims the lane's isolated worktree automatically when the lane is deleted or
+  pruned — you do not clean up the worktree yourself.
 
-## Dev server handoff
+## Approvals
 
-When a server is running, include a compact handoff like:
-
-```text
-live link: label=Example App url=http://localhost:5173 port=5173 kind=vite
-```
-
-If a remote/tailnet URL is known, include it separately:
-
-```text
-tailnet: http://device.tailnet.ts.net:5173
-https serve: https://device.tailnet.ts.net
-```
-
-The orchestrator or dashboard should save those values through Orca so
-future agents use the server-authoritative link instead of stale chat text.
-
-## Preview evidence handoff
-
-For browser projects, include the local dev-server URL and the intended preview
-profile, such as desktop, phone, tablet, trace, or artifact. For native mobile
-or desktop app work, report the actual host prerequisite you used, such as
-Android ADB, Xcode Simulator, or Tauri desktop host. If that prerequisite is not
-available, keep the lane evidence to browser/PWA previews and mark native
-preview as blocked by host setup.
+If an action falls outside your permission mode (installing tooling, a network or
+credential mutation, anything gated), request it rather than forcing it. The
+orchestrator responds through the approval flow; wait for the decision.
 
 ## Security rules
 
 - Never put provider secrets, API tokens, pairing codes, or credential values in
-  logs, artifacts, screenshots, exports, MCP config, or committed files.
-- Do not install or update CLIs, package managers, browsers, Tailscale, native
-  runtimes, or credential helpers unless the lane explicitly requests it and the
-  dashboard policy approves it.
-- Do not expose Orca through public tunnels. Use private tailnet access
-  only.
-- Do not weaken tests, route inventory, auth, URL validation, or approval gates
-  to make a lane pass.
+  logs, artifacts, summaries, or committed files.
+- Do not install or update CLIs, package managers, runtimes, Tailscale, or
+  credential helpers unless the lane contract explicitly allows it and the action is
+  approved.
+- Do not weaken tests, auth, URL validation, or approval gates to make a lane pass.
+- Do not expose Orca through public tunnels; private tailnet access only.

@@ -47,13 +47,10 @@ lane workdirs), etc. before `npm run dev`.
 npm run smoke
 ```
 
-This starts an isolated local test server and walks the full operator flow:
-token auth, browser pairing, project/session/lane creation, mock lane
-completion, MCP tool CRUD + Codex lane attachment, OpenAI-compatible and
-Gemini dummy API provider lanes, evidence capture, audit, cleanup dry-run,
-private-access fake states, PWA guards, notifications, import/export redaction,
-and desktop/phone/lane screenshots. Exit code `0` means the app-side flow is
-ready for live Tailscale verification.
+This starts an isolated local test server and walks the core flow: token auth,
+browser pairing, orchestrator registration, executor lane spawn/monitor, audit
+accept/fix, private-access states, and the read-only dashboard. Exit code `0`
+means the app-side flow is ready for live Tailscale verification.
 
 ## 4. Expose privately through Tailscale Serve
 
@@ -114,52 +111,19 @@ Open the following in mobile Safari/Chrome:
    session, or lane data. After pairing (browser session cookie), the same
    routes return your workspace.
 
-The connected phone is an **operator**: it can run and customize the workflow
-(projects, sessions, lanes, MCP tools, evidence, cleanup) but cannot perform
-host administration (CLI reinstalls, provider secrets, private-access settings,
-minting pairing codes, or app export). Those stay on the workstation. If any
-step above fails, walk the steps before mutating anything from the phone.
+The connected phone is a **read-only viewer**: it can browse projects,
+orchestrators, executor lanes, and lane detail, but it cannot mutate the
+workflow or perform host administration (CLI reinstalls, private-access
+settings, minting pairing codes). Those stay on the workstation. Orchestration
+itself is driven by agents over MCP, not from the phone UI.
 
-## 6. Operating from the phone
+## 6. Viewing from the phone
 
-- Use the project list to navigate sessions and lanes.
-- Lane detail shows live logs, PID/exit metadata (for real lanes), and the
-  attached MCP tools.
-- Use the evidence panel to capture screenshots/traces/videos. Without
-  Playwright installed the capture is recorded as degraded — see
-  "Playwright" below.
-- Approve high-risk actions explicitly. Stops, cleanups, reinstalls, and MCP
-  changes all require an explicit `approved: true` (or the in-UI button).
+- Use the project list to navigate to orchestrators and their executor lanes.
+- Lane detail shows live logs, PID/exit metadata (for real lanes), the lane
+  contract, and status — read-only.
 
-## 7. Playwright (proven)
-
-Playwright 1.60.0 is now in `devDependencies` and locked in
-`package-lock.json`. `npm ci --ignore-scripts` installs the package; the first
-`npx playwright install chromium` downloads the browser into
-`~/Library/Caches/ms-playwright/`. After that,
-evidence captures produce real PNG/zip/webm files served back via
-`/artifacts/<session>/<lane>/<file>`.
-
-If Playwright ever becomes unavailable (deleted node_modules, etc.) the
-evidence runner falls back to `captured: false` with a `degraded`
-marker. `/api/system/blockers` surfaces the exact `npm ci --ignore-scripts` command
-and the dashboard banner shows it at the top — captures never silently
-succeed.
-
-## 7a. Browser UI smoke
-
-```bash
-ORCA_API_TOKEN=$ORCA_API_TOKEN \
-ORCA_BASE_URL=http://127.0.0.1:3000 \
-  npm run smoke:ui
-```
-
-This launches Chromium headless, loads the dashboard at 1366x900 and
-390x844, asserts the operator shell renders, status tags exist, no text
-overflows the viewport, and saves screenshots into
-`artifacts/ui-smoke/{desktop,phone}.png`.
-
-## 8. Shutdown
+## 7. Shutdown
 
 - `Ctrl-C` the `npm run dev` process.
 - If you used HTTP Serve:
@@ -180,7 +144,7 @@ tailscale serve --https=443 localhost:3000 off
 tailscale serve reset
 ```
 
-## 9. Things that must stay off
+## 8. Things that must stay off
 
 - Public Tailscale Funnel.
 - Auto-seed of demo data (set `ORCA_SEED=1` only if you want a

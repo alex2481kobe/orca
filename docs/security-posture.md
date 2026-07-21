@@ -1,7 +1,9 @@
 # Dependency audit posture
 
-Run both audits any time with `npm run audit` (npm + cargo). This file records what
-the audits report today and why the remaining items are not user-facing risks.
+Run the audit any time with `npm run audit` (`npm audit --omit=dev`). This file
+records what the audit reports today. Orca v2 ships as a Node daemon plus a
+read-only web/PWA dashboard — there is no native/Rust build in the tree — so the
+dependency surface is JavaScript only.
 
 ## JavaScript app (what users actually run — web / PWA / server)
 
@@ -13,55 +15,11 @@ npm audit --omit=dev → 0 vulnerabilities   (also enforced by manual CI)
 The server, dashboard, and PWA — the code every user runs — have **zero** known
 vulnerable dependencies.
 
-## Rust desktop shell (`src-tauri/`, Tauri v2.11.3)
-
-```
-cargo audit → 0 vulnerabilities, 17 warnings
-```
-
-There are **zero** actual vulnerabilities. The 17 warnings are all
-`unmaintained` / `unsound` advisories on **transitive** crates that Tauri pulls in
-for its **Linux GTK3 webview backend** (the `gtk-rs` family — `atk`, `gdk`, `gtk`,
-`glib`, … — plus `proc-macro-error` and the `unic-*` set). None of these are crates
-Orca depends on directly.
-
-**Why this is not a user risk:**
-
-- Orca's validated release path today is **macOS** plus **phone web/PWA access**.
-  The macOS shell uses WKWebView, and the web/PWA path does not compile or load
-  the GTK3/glib stack. Those crates are only in `Cargo.lock` because the Tauri
-  dependency graph also covers a Linux build.
-- They are **unmaintained / unsound notices**, not exploitable CVEs, and they are
-  **pinned by Tauri** — there is no in-semver-range fix to apply. They clear when
-  Tauri bumps its webview dependency stack upstream; we'll pick that up on the next
-  Tauri update.
-
-Checked against GitHub Dependabot on 2026-06-24: the open "1 moderate" alert is
-`glib` `GHSA-wrw7-89jp-8q8g` / `RUSTSEC-2024-0429`, fixed upstream at
-`glib 0.20.0`. The exact resolved chain is:
-
-```
-tauri 2.11.3
-└─ tauri-runtime-wry 2.11.3
-   └─ wry 0.55.1 / webkit2gtk 2.0.2 / tray-icon 0.24.1
-      └─ gtk-rs 0.18.x
-         └─ glib 0.18.5
-```
-
-The dependency is transitive, Linux-only, and not reachable in Orca's shipped
-targets, so it can be dismissed in the GitHub UI as "vulnerable code is not
-actually used" with a link to this file. Do not dismiss future `glib` alerts by
-pattern; re-check the resolved chain first, because the action is only justified
-while Orca's validated release targets remain macOS + phone web/PWA and Tauri/Wry
-still pin the Linux GTK stack below `glib 0.20.0`.
-
 ## Keeping it clean
 
-- `npm run audit` runs both audits locally.
+- `npm run audit` runs the production audit locally.
 - Manual CI runs `npm audit --omit=dev`; keep CI manual unless untrusted PR
   execution is deliberately re-designed.
 - `npm test` + the `smoke:*` gates include the app's own security checks (auth tiers,
   SSRF policy, secret redaction, path containment, rate limits, prototype‑pollution
   rejection, XSS‑safe rendering).
-- Routine `cargo update` (within semver) keeps the Rust deps patched; the last pass
-  bumped 8 minor crate versions with the build still green.

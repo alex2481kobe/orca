@@ -59,8 +59,5 @@ jobs:
       - name: Run security smoke
         run: npm run smoke:security
 
-      - name: Check release ledger
-        run: npm run smoke:full-buildout-ledger
-
       - name: Audit production dependencies
         run: npm audit --omit=dev
