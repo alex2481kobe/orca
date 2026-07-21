@@ -39,7 +39,7 @@
     "tauri:release-manifest": "node scripts/tauri-release-manifest.mjs",
     "tauri:version": "node scripts/tauri-version-bump.mjs",
     "tauri:check": "cargo check --manifest-path src-tauri/Cargo.toml",
-    "test": "ORCA_AUTO_AUDIT=false node --test ./test/**/*.test.js",
+    "test": "ORCA_AUTO_AUDIT=false node --test --test-concurrency=1 ./test/**/*.test.js",
     "smoke": "node scripts/smoke.mjs",
     "smoke:api": "node scripts/smoke.mjs",
     "smoke:full-flow": "node scripts/smoke.mjs",
