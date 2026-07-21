@@ -33,6 +33,29 @@ export async function handleMiscRoutes(ctx, req, res, method, parts) {
     return sendJson(res, 200, payload);
   }
 
+  if (parts[1] === 'emergency-stop' && method === 'POST') {
+    // Break-glass infrastructure control (not a workflow tool): the read-only
+    // dashboard's only mutating action. Operator-gated. Kills a runaway executor
+    // (or all) that the reaper's 30-min silence window wouldn't catch in time.
+    if (!hasOperatorAuth(req)) {
+      return sendJson(res, 401, { error: 'Operator authentication required.' });
+    }
+    const body = await parseJsonBody(req).catch(() => ({}));
+    try {
+      if (body && body.all) {
+        const count = await registry.stopAllExecutors('emergency stop (operator break-glass)');
+        return sendJson(res, 200, { stopped: 'all', count: count ?? null });
+      }
+      if (body && body.laneId) {
+        await registry.stopLane(body.laneId, { actor: 'operator', approved: true, reason: 'emergency stop (operator break-glass)' });
+        return sendJson(res, 200, { stopped: body.laneId });
+      }
+      return sendJson(res, 400, { error: 'Provide {laneId} or {all:true}.' });
+    } catch (error) {
+      return sendJson(res, error.status || 500, { error: error.message || 'Could not stop executor.' });
+    }
+  }
+
   if (parts[1] === 'overview' && method === 'GET') {
     // The v2 read-only dashboard poll: projects-by-cwd -> orchestrators ->
     // executor tree. Workspace data, so operator-gated.

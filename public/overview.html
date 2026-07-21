@@ -37,6 +37,11 @@
     .ov-tag.waiting { color: #e0b34d; border-color: color-mix(in srgb, #e0b34d 40%, transparent); }
     .ov-tag.failed { color: #ff6b6b; border-color: color-mix(in srgb, #ff6b6b 40%, transparent); }
     .ov-etext { color: var(--muted); font-size: 0.72rem; }
+    .ov-stop { flex: 0 0 auto; font-size: 0.7rem; line-height: 1; padding: 3px 7px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer; font-family: inherit; opacity: 0.55; transition: opacity 0.12s; }
+    .ov-exec:hover .ov-stop { opacity: 1; }
+    .ov-stop.armed { color: #ff6b6b; border-color: #ff6b6b; background: color-mix(in srgb, #ff6b6b 12%, transparent); opacity: 1; font-weight: 600; }
+    .ov-stop:disabled { opacity: 0.3; cursor: default; }
+    @media (hover: none) { .ov-stop { opacity: 1; } }
   </style>
 </head>
 <body>
