@@ -21,7 +21,6 @@ import { handleNotificationRoutes } from './server-routes/notifications.js';
 import { handleExecutorRoutes } from './server-routes/executors.js';
 import { handleOrchestratorRoutes } from './server-routes/orchestrators.js';
 import { handlePrivateAccessApi } from './server-routes/private-access.js';
-import { handleSettingsRoutes } from './server-routes/settings.js';
 import { handleAgentToolRoutes } from './server-routes/agent-tools.js';
 import { handleMiscRoutes } from './server-routes/misc.js';
 import { createStaticServer } from './server-routes/static-server.js';
@@ -343,16 +342,6 @@ function toolLeaseRequirementForRoute(method, parts) {
   if (parts[1] === 'projects' && parts[2] && parts[3] === 'sessions' && parts.length === 4) {
     if (method === 'GET') return { toolId: 'session.list', projectId: parts[2] };
     if (method === 'POST') return { toolId: 'session.create', projectId: parts[2] };
-  }
-  if (parts[1] === 'settings' && ['project', 'session', 'lane'].includes(parts[2]) && parts[3] && method === 'PATCH') {
-    // Scope the requirement to the targeted record so a lease pinned to one
-    // project/session/lane cannot edit another's settings (and so the
-    // active-orchestrator ownership gate applies to session/lane-scoped settings).
-    const key = parts[2] === 'project' ? 'projectId' : parts[2] === 'session' ? 'sessionId' : 'laneId';
-    return { toolId: 'settings.update', [key]: parts[3] };
-  }
-  if (parts[1] === 'policy' && parts.length === 2 && method === 'GET') {
-    return { toolId: 'settings.describe_effective' };
   }
   if (parts[1] === 'private-access' && parts[2] === 'tailnet' && parts.length === 3 && method === 'GET') {
     return { toolId: 'tailscale.status' };
@@ -916,10 +905,6 @@ async function handleApi(req, res, pathname, method, parts) {
   if (await handleMiscRoutes(ROUTE_CTX, req, res, method, parts) !== LANE_FALL_THROUGH) return;
 
 
-  if (parts[1] === 'settings') {
-    const result = await handleSettingsRoutes(ROUTE_CTX, req, res, method, parts);
-    if (result !== LANE_FALL_THROUGH) return;
-  }
 
   if (parts[1] === 'notifications') {
     const result = await handleNotificationRoutes(ROUTE_CTX, req, res, method, parts);
