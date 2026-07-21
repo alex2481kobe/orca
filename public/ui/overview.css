@@ -113,7 +113,9 @@
 .device-cards-wrap .device-cards { margin-bottom: 0; }
 /* overlay dropdown — floats over the content below instead of pushing it down */
 .device-detail { position: absolute; top: calc(100% + var(--space-2)); left: 0; right: 0; z-index: 30; border: 1px solid color-mix(in srgb, var(--accent-blue) 30%, var(--line)); border-radius: var(--radius-md); background: var(--panel); padding: var(--space-4); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); }
-.icon-btn { display: inline-grid; place-items: center; width: 1.7rem; height: 1.7rem; border: 1px solid var(--line); border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; }
+.icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 1.7rem; height: 1.7rem; padding: 0; line-height: 0; border: 1px solid var(--line); border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; }
+/* SVG as a block removes the inline baseline descender that pushed the glyph up. */
+.icon-btn svg { display: block; }
 @media (hover: hover) { .icon-btn:hover { color: var(--text); border-color: var(--accent-blue); } }
 /* Code on top (value left, refresh/cancel right); countdown sits below it. */
 .pairing-code-top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
@@ -152,3 +154,21 @@ body.access-gated #sidebar-backdrop { display: none !important; }
 body.access-gated .ops-shell { grid-template-columns: 1fr; }
 body.access-gated .ops-main { padding: 0; }
 .connect-error { color: #ff6b6b; margin-top: var(--space-2); }
+
+/* ---- Mobile: keep the Pair-a-device page to a single screen (no long scroll) ----
+   The desktop QR + generous step spacing overflow a phone. Shrink the QR, tighten
+   every gap, and trim the panel margins so the whole flow fits without scrolling. */
+@media (max-width: 880px) {
+  .home-panels { margin: 0.35rem auto; padding: 0 0.9rem; }
+  .pair-panel h3 { margin: 0 0 var(--space-3); }
+  .device-cards-wrap { margin-bottom: var(--space-2); }
+  .qr-wrap, .qr-wrap .qr-code, .qr-code { width: 116px; }
+  .qr-code { height: 116px; padding: 0.35rem; }
+  .qr-wrap span { max-width: 130px; font-size: 0.64rem; }
+  .onboarding-card { padding: var(--space-3); }
+  .steps-card { padding: var(--space-3); gap: var(--space-3); margin-top: var(--space-2); }
+  .step { gap: var(--space-3); }
+  .step-main { gap: 2px; }
+  .step-qr { margin-top: var(--space-1); }
+  .settings-summary-grid { gap: var(--space-2); }
+}
