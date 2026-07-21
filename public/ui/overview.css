@@ -2,6 +2,8 @@
    shell/sidebar/cards; this file only adds the read-only tree, port previews,
    centered empty state, and the settings/remote screen internals. */
 
+/* ---- sidebar: Remote-devices pair button (left-align; styles.css sets it center) ---- */
+.sidebar-pair-button { text-align: left; }
 /* ---- sidebar project rows (extend .sidebar-link from styles.css) ---- */
 .sidebar-project { grid-template-columns: auto minmax(0, 1fr) auto; }
 .sidebar-project.is-selected { background: var(--active, var(--hover)); border-color: var(--line-soft); font-weight: 600; }

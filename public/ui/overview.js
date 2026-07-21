@@ -104,7 +104,7 @@ function renderHome(data) {
     content.innerHTML = `<div class="ov-empty-wrap"><div class="ov-empty">
       ${icon('agent', { size: 26 })}
       <div class="ov-empty-title">No agents registered</div>
-      <div class="ov-empty-sub">Register an orchestrator from your CLI (<code>orchestrator.register</code>) and it will appear here.</div>
+      <div class="ov-empty-sub">Register an orchestrator from your CLI (<code>orchestrator.register</code>).</div>
     </div></div>`;
     return;
   }
@@ -502,14 +502,12 @@ function renderPrivateAccessPanel(ctx) {
 // ---- settings screen ----
 function renderSettings() {
   topbarTitle.textContent = 'Settings';
+  // .home-panels flattens the .control-card into a borderless section (760px,
+  // centered, hairline dividers) — the exact old settings layout. No Back button:
+  // Settings is a top-level page reachable from the sidebar.
   content.innerHTML = `
-    <div class="screen">
-      <div class="screen-head"><button class="btn-back" data-back type="button">${icon('chevron-left')}<span>Back</span></button><h1>Settings</h1></div>
+    <div class="home-panels" data-active-panel="system">
       ${renderAppearancePanel()}
-      <article class="card control-card" data-panel-card="system">
-        <h3>About</h3>
-        <p class="card-text">Orca is your agents' local headquarters. Agents register over MCP (<code>orca-mcp</code>) and spawn executors under contract; you watch them here. Open <b>Remote devices</b> to reach this dashboard from your phone over Tailscale.</p>
-      </article>
     </div>`;
 }
 
@@ -597,10 +595,10 @@ function paintRemote(access) {
 
 async function renderRemote() {
   topbarTitle.textContent = 'Remote devices';
-  content.innerHTML = `<div class="screen">
-    <div class="screen-head"><button class="btn-back" data-back type="button">${icon('chevron-left')}<span>Back</span></button><h1>Remote devices</h1></div>
-    <div id="remote-body"><div class="ov-empty-sub" style="padding:var(--space-5)">Loading…</div></div>
-  </div>`;
+  // .home-panels[data-active-panel=access] flattens the cards into the exact old
+  // borderless sections (760px, centered, dividers) and shows only the access
+  // panels. No Back button: Remote devices is a top-level sidebar page.
+  content.innerHTML = `<div id="remote-body" class="home-panels" data-active-panel="access"><div class="ov-empty-sub" style="padding:var(--space-5)">Loading…</div></div>`;
   const access = await fetchRemote();
   paintRemote(access);
 }
