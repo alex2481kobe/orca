@@ -4,6 +4,7 @@
 // Settings, Remote devices. Hash-routed. CSP: script-src 'self' (external module only).
 import { icon, FOLDER_ICON } from './icons.js';
 import { shouldRenderProjectOpen } from './home-disclosure.js';
+import { qrSvgForText } from './qr.js';
 
 const body = document.body;
 const sideProjects = document.getElementById('sidebar-projects');
@@ -148,21 +149,28 @@ async function renderRemote() {
   let access = {};
   try { access = await (await fetch('/api/private-access', { headers: { accept: 'application/json' } })).json(); } catch { /* */ }
   const tailnet = access.tailnet || {};
-  const serveOn = Boolean(access.serve?.enabled || tailnet.serving);
-  const magicDns = tailnet.magicDnsName || tailnet.dnsName || tailnet.hostname || '';
+  const magicDns = tailnet.hostname || tailnet.magicDnsName || tailnet.dnsName || '';
+  const serveOn = Boolean(tailnet.serveConfigured || tailnet.servedUrl);
+  const tailnetUp = Boolean(tailnet.binaryAvailable && tailnet.loggedIn);
+  // The URL a phone/laptop on the tailnet opens to reach this dashboard.
+  const phoneUrl = tailnet.servedUrl || (magicDns ? `http://${esc(magicDns)}:${location.port || '3000'}/` : '');
+  const statusText = serveOn
+    ? `Serving privately on your tailnet${magicDns ? ` — <code>${esc(magicDns)}</code>` : ''}.`
+    : tailnetUp
+      ? 'Tailscale is up. Enable Serve (or open the tailnet address directly) so other devices can reach this dashboard.'
+      : 'Not connected. Bring up Tailscale on this machine so your phone/laptop on the same tailnet can reach the dashboard and your projects’ dev-server previews.';
   bodyEl.innerHTML = `
     <article class="card control-card">
       <div class="card-row">
-        <div><div class="card-label">Tailscale</div>
-        <div class="card-text">${serveOn
-          ? `This dashboard is reachable on your private tailnet${magicDns ? ` at <code>${esc(magicDns)}</code>` : ''}. Open that address on your phone.`
-          : 'Not yet serving. Bring up Tailscale on this machine so your phone/laptop on the same tailnet can reach the dashboard and your projects’ dev-server previews.'}</div></div>
-        <span class="status-pill ${serveOn ? 'ok' : ''}">${serveOn ? 'on' : 'off'}</span>
+        <div><div class="card-label">Tailscale</div><div class="card-text">${statusText}</div></div>
+        <span class="status-pill ${serveOn ? 'ok' : ''}">${serveOn ? 'on' : tailnetUp ? 'ready' : 'off'}</span>
       </div>
+      ${phoneUrl ? `<div class="qr-wrap">${qrSvgForText(phoneUrl)}<span>Scan with your phone to open this dashboard over Tailscale</span></div>
+      <p class="card-text" style="margin-top:var(--space-3)">Or open <code>${esc(phoneUrl)}</code></p>` : ''}
     </article>
     <article class="card control-card">
       <div class="card-label">Pair a device</div>
-      <p class="card-text">Generate a one-time code, then open the dashboard URL on the device (over Tailscale) and enter it. No public exposure; the session is an HttpOnly cookie.</p>
+      <p class="card-text">Generate a one-time code, then open the dashboard on the device (over Tailscale) and enter it. No public exposure; the session is an HttpOnly cookie.</p>
       <button class="btn" id="gen-pair" type="button">Generate pairing code</button>
       <div id="pair-out" class="pair-out"></div>
     </article>
