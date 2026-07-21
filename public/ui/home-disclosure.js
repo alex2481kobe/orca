@@ -1,19 +1,11 @@
 // Pure decision: should a project's disclosure render open on this paint?
 //
-// The home tree re-renders its innerHTML every 2s poll, so open/closed state
-// must be recomputed from the state captured just before the re-render
-// (`wasOpen` = the pids that were open in the DOM). Two entry modes:
-//
-//   freshEntry — first paint or (re)entering the home screen via nav: default
-//     to open so the operator sees the tree expanded.
-//   poll refresh (freshEntry=false) — preserve the EXACT prior set, including
-//     "user closed everything" (an empty wasOpen stays empty). The earlier
-//     `wasOpen.size === 0 → open all` fallback conflated "never painted" with
-//     "user collapsed the last one", so collapsing the final project made it
-//     pop back open on the next poll. See render-ephemeral-state-invariant.
-//
-// A selected (drilled-in) project always renders open.
-export function shouldRenderProjectOpen({ pid, wasOpen, freshEntry, hasSelection }) {
-  if (freshEntry || hasSelection) return true;
-  return wasOpen.has(pid);
+// The home tree is a monitoring view, so a project renders OPEN by default —
+// including new projects/agents that appear via the 2s poll. It stays collapsed
+// only if the operator explicitly collapsed it (tracked in collapsedPids, which
+// the toggle handler maintains across the innerHTML re-render). This is what
+// preserves ephemeral disclosure state across polls — see
+// render-ephemeral-state-invariant.
+export function shouldRenderProjectOpen({ pid, collapsedPids }) {
+  return !collapsedPids.has(pid);
 }

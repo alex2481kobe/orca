@@ -3,33 +3,27 @@ import assert from 'node:assert/strict';
 import { shouldRenderProjectOpen } from '../public/ui/home-disclosure.js';
 
 // Guards the home-tree disclosure-persistence invariant: the 2s poll re-renders
-// innerHTML, so open/closed state must be recomputed from the pre-render open
-// set without a background refresh silently reopening what the operator closed.
-// Re-points the coverage previously in the removed disclosure-persistence smoke.
+// innerHTML, so open/closed state is recomputed from the operator's explicit
+// collapses. Everything is open by default (a monitoring view); a project stays
+// collapsed across polls only while the operator has it collapsed. New
+// projects/agents that appear via a poll render open.
 
-test('fresh entry (nav / first paint) renders every project open', () => {
-  const wasOpen = new Set();
-  assert.equal(shouldRenderProjectOpen({ pid: 'prj_a', wasOpen, freshEntry: true, hasSelection: false }), true);
+test('a project renders open by default (monitoring view)', () => {
+  assert.equal(shouldRenderProjectOpen({ pid: 'prj_a', collapsedPids: new Set() }), true);
 });
 
-test('poll refresh preserves a project the operator left open', () => {
-  const wasOpen = new Set(['prj_a']);
-  assert.equal(shouldRenderProjectOpen({ pid: 'prj_a', wasOpen, freshEntry: false, hasSelection: false }), true);
+test('a newly-appeared project (not previously seen) renders open', () => {
+  const collapsedPids = new Set(['prj_b']); // only b was collapsed
+  assert.equal(shouldRenderProjectOpen({ pid: 'prj_new', collapsedPids }), true);
 });
 
-test('poll refresh keeps a project the operator collapsed collapsed', () => {
-  const wasOpen = new Set(['prj_b']); // a is closed, b is open
-  assert.equal(shouldRenderProjectOpen({ pid: 'prj_a', wasOpen, freshEntry: false, hasSelection: false }), false);
+test('a project the operator collapsed stays collapsed across a poll re-render', () => {
+  const collapsedPids = new Set(['prj_a']);
+  assert.equal(shouldRenderProjectOpen({ pid: 'prj_a', collapsedPids }), false);
 });
 
-test('poll refresh does NOT reopen everything after the last project is collapsed', () => {
-  // The regression: an empty open-set on a poll refresh must stay empty, not
-  // fall back to "open all" (which made collapsing the final card pop it back open).
-  const wasOpen = new Set();
-  assert.equal(shouldRenderProjectOpen({ pid: 'prj_a', wasOpen, freshEntry: false, hasSelection: false }), false);
-});
-
-test('a drilled-in (selected) project always renders open', () => {
-  const wasOpen = new Set();
-  assert.equal(shouldRenderProjectOpen({ pid: 'prj_a', wasOpen, freshEntry: false, hasSelection: true }), true);
+test('collapsing every project keeps each one collapsed (no reopen)', () => {
+  const collapsedPids = new Set(['prj_a', 'prj_b']);
+  assert.equal(shouldRenderProjectOpen({ pid: 'prj_a', collapsedPids }), false);
+  assert.equal(shouldRenderProjectOpen({ pid: 'prj_b', collapsedPids }), false);
 });

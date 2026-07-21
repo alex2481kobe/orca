@@ -1,13 +1,14 @@
-// v2 read-only dashboard app: collapsible sidebar (logo→home, projects, nav),
-// and three screens — Home (the projects→orchestrators→executors tree),
-// Settings, and Remote (pairing + Tailscale). Hash-routed. CSP: script-src 'self'.
+// v2 read-only dashboard — rendered on the shared Orca design system (styles.css):
+// app-topbar + .ops-shell grid + .ops-sidebar (full collapse via body.sidebar-collapsed)
+// + .ops-main/.ops-content. Screens: Home (projects→orchestrators→executors tree),
+// Settings, Remote devices. Hash-routed. CSP: script-src 'self' (external module only).
 import { icon, FOLDER_ICON } from './icons.js';
 import { shouldRenderProjectOpen } from './home-disclosure.js';
 
-const app = document.getElementById('app');
-const sideProjects = document.getElementById('side-projects');
-const sideNav = document.getElementById('side-nav');
-const main = document.getElementById('main');
+const body = document.body;
+const sideProjects = document.getElementById('sidebar-projects');
+const topbarTitle = document.getElementById('topbar-title');
+const content = document.getElementById('content');
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const tagClass = (tag) => {
@@ -18,50 +19,48 @@ const tagClass = (tag) => {
   return '';
 };
 
-// ---- state (survives the 2s re-render) ----
+// ---- state ----
 let selectedProjectId = null;
 const armed = new Set();
+const collapsed = new Set(); // project pids the operator explicitly collapsed
 let lastData = { projects: [] };
 function route() { return (location.hash.replace(/^#\/?/, '') || 'home'); }
 
-// ---- collapse ----
-try { if (localStorage.getItem('orca.sidebar') === 'collapsed') app.classList.add('collapsed'); } catch { /* */ }
-document.getElementById('collapse').innerHTML = icon('panel-left', { size: 18 });
-document.getElementById('collapse').addEventListener('click', () => {
-  app.classList.toggle('collapsed');
-  try { localStorage.setItem('orca.sidebar', app.classList.contains('collapsed') ? 'collapsed' : 'open'); } catch { /* */ }
+// ---- sidebar collapse (full collapse via body.sidebar-collapsed, old design system) ----
+try { if (localStorage.getItem('orca.sidebar') === 'collapsed') body.classList.add('sidebar-collapsed'); } catch { /* */ }
+document.addEventListener('click', (e) => {
+  const toggle = e.target.closest('[data-action="toggleNav"]');
+  if (!toggle) return;
+  body.classList.toggle('sidebar-collapsed');
+  try { localStorage.setItem('orca.sidebar', body.classList.contains('sidebar-collapsed') ? 'collapsed' : 'open'); } catch { /* */ }
 });
-document.getElementById('logo-home').addEventListener('click', () => { selectedProjectId = null; location.hash = ''; });
+document.getElementById('brand-home').addEventListener('click', (e) => { e.preventDefault(); selectedProjectId = null; location.hash = ''; });
 
-// ---- sidebar ----
+// ---- sidebar project list ----
 function activeAgents(p) { return p.orchestrators.filter((o) => !o.stale).length; }
 function renderSidebar(data) {
   const r = route();
   sideProjects.innerHTML = data.projects.map((p) => {
     const active = activeAgents(p);
-    const sel = (r === 'home' && p.id === selectedProjectId) ? ' selected' : '';
-    return `
-      <button class="side-project${sel}" data-pid="${esc(p.id)}" title="${esc(p.cwd)}">
-        ${FOLDER_ICON}
-        <span class="side-pname">${esc(p.name)}</span>
-        <span class="side-dot${active ? ' live' : ''}"></span>
-        ${active ? `<span class="side-count">${active}</span>` : ''}
-      </button>`;
-  }).join('') || '<div class="side-empty">No projects yet.</div>';
-  sideNav.innerHTML = `
-    <button class="side-nav-btn${r === 'remote' ? ' selected' : ''}" data-nav="remote">${icon('remote')}<span>Remote devices</span></button>
-    <button class="side-nav-btn${r === 'settings' ? ' selected' : ''}" data-nav="settings">${icon('settings')}<span>Settings</span></button>`;
+    const sel = (r === 'home' && p.id === selectedProjectId) ? ' is-selected' : '';
+    return `<button class="sidebar-link sidebar-project${sel}" data-pid="${esc(p.id)}" type="button" title="${esc(p.cwd)}">
+      <span class="sidebar-folder" aria-hidden="true">${FOLDER_ICON}</span>
+      <span>${esc(p.name)}</span>
+      ${active ? `<span class="pill">${active}</span>` : '<span></span>'}
+    </button>`;
+  }).join('') || '<div class="sidebar-empty">No projects yet.</div>';
+  // Footer nav active state
+  document.querySelectorAll('.sidebar-footer [data-nav]').forEach((b) => b.classList.toggle('is-selected', b.dataset.nav === r));
 }
 
-// ---- home (tree) ----
+// ---- home tree ----
 function stopControl(id) {
   return armed.has(id)
     ? `<button class="ov-stop armed" data-lane="${esc(id)}" title="Click again to stop">⚠ stop?</button>`
     : `<button class="ov-stop" data-lane="${esc(id)}" title="Break-glass: stop this executor">⏹</button>`;
 }
 function executorRow(e) {
-  return `
-    <div class="ov-exec${e.terminal ? ' terminal' : ''}">
+  return `<div class="ov-exec${e.terminal ? ' terminal' : ''}">
       <span class="ov-dot"></span>
       <span class="ov-etitle">${esc(e.title) || '<span class="ov-etype">untitled</span>'}</span>
       <span class="ov-etype">${esc(e.executorType || '')}</span>
@@ -76,13 +75,12 @@ function previewChip(v) {
   const h = String(v.healthStatus || '').toLowerCase();
   const cls = /ok|health|reachable|up|200/.test(h) ? ' up' : /unreach|fail|down|error|refus/.test(h) ? ' down' : '';
   const remote = Boolean(v.tailnetUrl);
-  return `<a class="ov-preview" href="${esc(href)}" target="_blank" rel="noopener"
-      title="${esc(v.tailnetUrl || v.localUrl || href)}${remote ? '' : ' (local only — Tailscale not detected)'}">
+  return `<a class="ov-preview" href="${esc(href)}" target="_blank" rel="noopener" title="${esc(v.tailnetUrl || v.localUrl || href)}${remote ? '' : ' (local only — Tailscale not detected)'}">
     <span class="ov-preview-dot${cls}"></span>${icon('external', { cls: 'ov-preview-ic', size: 13 })}<span class="ov-preview-label">${esc(v.label) || 'Preview'}</span>${v.port ? `<span class="ov-preview-port">:${esc(v.port)}</span>` : ''}
   </a>`;
 }
-function projectCard(p, wasOpen, freshEntry) {
-  const open = shouldRenderProjectOpen({ pid: p.id, wasOpen, freshEntry, hasSelection: Boolean(selectedProjectId) }) ? ' open' : '';
+function projectCard(p) {
+  const open = shouldRenderProjectOpen({ pid: p.id, collapsedPids: collapsed }) ? ' open' : '';
   const previews = (p.previews || []).filter((v) => v.url || v.localUrl);
   const previewsHtml = previews.length ? `<div class="ov-previews">${previews.map(previewChip).join('')}</div>` : '';
   const orchs = p.orchestrators.map((o) => `
@@ -98,74 +96,91 @@ function projectCard(p, wasOpen, freshEntry) {
       ${orchs}
     </details>`;
 }
-function homeOpenSet() {
-  return new Set([...main.querySelectorAll('.ov-project[open]')].map((d) => d.dataset.pid));
-}
-function renderHome(data, freshEntry = false) {
-  const wasOpen = homeOpenSet();
+function renderHome(data) {
   const shown = selectedProjectId ? data.projects.filter((p) => p.id === selectedProjectId) : data.projects;
-  const title = selectedProjectId ? (data.projects.find((p) => p.id === selectedProjectId)?.name || 'Orca') : 'All projects';
-  const n = selectedProjectId ? (shown[0]?.orchestrators.length || 0) : data.projects.length;
-  const noun = selectedProjectId ? 'orchestrator' : 'project';
-  const count = n ? `${n} ${noun}${n > 1 ? 's' : ''}` : '';
-  main.innerHTML = `
-    <div class="screen-head"><h1>${esc(title)}</h1><span class="screen-sub">${count}</span></div>
-    <div id="ov-root">${shown.length ? shown.map((p) => projectCard(p, wasOpen, freshEntry)).join('') : '<div class="ov-empty">No agents registered. Register an orchestrator from your CLI to see it here.</div>'}</div>`;
+  topbarTitle.textContent = selectedProjectId ? (data.projects.find((p) => p.id === selectedProjectId)?.name || '') : '';
+  if (!shown.length) {
+    content.innerHTML = `<div class="ov-empty-wrap"><div class="ov-empty">
+      ${icon('agent', { size: 26 })}
+      <div class="ov-empty-title">No agents registered</div>
+      <div class="ov-empty-sub">Register an orchestrator from your CLI (<code>orchestrator.register</code>) and it will appear here.</div>
+    </div></div>`;
+    return;
+  }
+  content.innerHTML = `<div class="ov-tree">${shown.map((p) => projectCard(p)).join('')}</div>`;
 }
+// A project renders open by default; remember the operator's explicit collapses
+// so the 2s poll re-render preserves them (toggle doesn't bubble → capture).
+content.addEventListener('toggle', (e) => {
+  const d = e.target;
+  if (!(d instanceof HTMLDetailsElement) || !d.classList.contains('ov-project') || !d.dataset.pid) return;
+  if (d.open) collapsed.delete(d.dataset.pid); else collapsed.add(d.dataset.pid);
+}, true);
 
-// ---- settings (full screen) ----
+// ---- settings screen ----
 function renderSettings() {
+  topbarTitle.textContent = 'Settings';
   const pref = (() => { try { return localStorage.getItem('orca.theme') || 'system'; } catch { return 'system'; } })();
-  main.innerHTML = `
-    <div class="screen-head"><button class="back-btn" data-back>${icon('chevron-left')}<span>Back</span></button><h1>Settings</h1></div>
-    <div class="card">
-      <div class="card-row">
-        <div class="card-label">Theme</div>
-        <div class="theme-toggle">
-          ${['system', 'light', 'dark'].map((t) => `<button class="theme-opt${t === pref ? ' selected' : ''}" data-theme="${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}
+  content.innerHTML = `
+    <div class="screen">
+      <div class="screen-head"><button class="btn-back" data-back type="button">${icon('chevron-left')}<span>Back</span></button><h1>Settings</h1></div>
+      <article class="card">
+        <div class="card-row">
+          <div class="card-label">Theme</div>
+          <div class="seg-theme">${['system', 'light', 'dark'].map((t) => `<button class="seg-opt${t === pref ? ' is-active' : ''}" data-theme="${t}" type="button">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div>
         </div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-label">About</div>
-      <p class="card-text">Orca runs locally as your agents' headquarters. Agents register over MCP (<code>orca-mcp</code>) and spawn executors; you watch them here. Open <b>Remote devices</b> to view this dashboard on your phone over Tailscale.</p>
+      </article>
+      <article class="card">
+        <div class="card-label">About</div>
+        <p class="card-text">Orca is your agents' local headquarters. Agents register over MCP (<code>orca-mcp</code>) and spawn executors under contract; you watch them here. Open <b>Remote devices</b> to reach this dashboard from your phone over Tailscale.</p>
+      </article>
     </div>`;
 }
 
-// ---- remote (pairing + tailscale) ----
+// ---- remote devices screen ----
 async function renderRemote() {
-  main.innerHTML = `<div class="screen-head"><button class="back-btn" data-back>${icon('chevron-left')}<span>Back</span></button><h1>Remote devices</h1></div><div id="remote-body"><div class="ov-empty">Loading…</div></div>`;
-  const body = document.getElementById('remote-body');
+  topbarTitle.textContent = 'Remote devices';
+  content.innerHTML = `<div class="screen">
+    <div class="screen-head"><button class="btn-back" data-back type="button">${icon('chevron-left')}<span>Back</span></button><h1>Remote devices</h1></div>
+    <div id="remote-body"><div class="ov-empty-sub" style="padding:var(--space-5)">Loading…</div></div>
+  </div>`;
+  const bodyEl = document.getElementById('remote-body');
   let access = {};
   try { access = await (await fetch('/api/private-access', { headers: { accept: 'application/json' } })).json(); } catch { /* */ }
   const tailnet = access.tailnet || {};
   const serveOn = Boolean(access.serve?.enabled || tailnet.serving);
-  const magicDns = tailnet.magicDnsName || tailnet.dnsName || '';
-  body.innerHTML = `
-    <div class="card">
-      <div class="card-row"><div><div class="card-label">Tailscale</div><div class="card-text">${serveOn ? `Serving privately${magicDns ? ` at <code>${esc(magicDns)}</code>` : ''}.` : 'Not yet serving. Enable Tailscale Serve to reach this dashboard from your phone on your private tailnet.'}</div></div><span class="pill ${serveOn ? 'ok' : 'off'}">${serveOn ? 'on' : 'off'}</span></div>
-    </div>
-    <div class="card">
-      <div class="card-label">Pair a phone</div>
-      <p class="card-text">Generate a one-time pairing code, then open the dashboard URL on your phone (over Tailscale) and enter it. No public exposure; the session is an HttpOnly cookie.</p>
-      <button class="btn" id="gen-pair">Generate pairing code</button>
+  const magicDns = tailnet.magicDnsName || tailnet.dnsName || tailnet.hostname || '';
+  bodyEl.innerHTML = `
+    <article class="card control-card">
+      <div class="card-row">
+        <div><div class="card-label">Tailscale</div>
+        <div class="card-text">${serveOn
+          ? `This dashboard is reachable on your private tailnet${magicDns ? ` at <code>${esc(magicDns)}</code>` : ''}. Open that address on your phone.`
+          : 'Not yet serving. Bring up Tailscale on this machine so your phone/laptop on the same tailnet can reach the dashboard and your projects’ dev-server previews.'}</div></div>
+        <span class="status-pill ${serveOn ? 'ok' : ''}">${serveOn ? 'on' : 'off'}</span>
+      </div>
+    </article>
+    <article class="card control-card">
+      <div class="card-label">Pair a device</div>
+      <p class="card-text">Generate a one-time code, then open the dashboard URL on the device (over Tailscale) and enter it. No public exposure; the session is an HttpOnly cookie.</p>
+      <button class="btn" id="gen-pair" type="button">Generate pairing code</button>
       <div id="pair-out" class="pair-out"></div>
-    </div>
-    <div class="card">
+    </article>
+    <article class="card control-card">
       <div class="card-label">Setup</div>
       <p class="card-text">Full walkthrough: <code>docs/tailscale-mobile-access.md</code>.</p>
-    </div>`;
+    </article>`;
   const gen = document.getElementById('gen-pair');
   if (gen) gen.addEventListener('click', async () => {
     gen.disabled = true;
     try {
-      const res = await fetch('/api/auth/pairing-codes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ actor: 'dashboard', label: 'phone' }) });
+      const res = await fetch('/api/auth/pairing-codes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ actor: 'dashboard', label: 'device' }) });
       const data = await res.json();
       const code = data.code || data.pairingCode || (data.pairing && data.pairing.code);
       document.getElementById('pair-out').innerHTML = code
-        ? `<div class="pair-code">${esc(code)}</div><div class="card-text">Enter this on the phone within the expiry window.</div>`
+        ? `<div class="pair-code">${esc(code)}</div><div class="card-text">Enter this on the device within the expiry window.</div>`
         : `<div class="card-text">Could not generate a code (${esc(data.error || res.status)}).</div>`;
-    } catch (e) {
+    } catch {
       document.getElementById('pair-out').innerHTML = '<div class="card-text">Could not reach Orca.</div>';
     }
     gen.disabled = false;
@@ -177,16 +192,17 @@ function applyTheme(pref) {
   try { if (pref === 'system') localStorage.removeItem('orca.theme'); else localStorage.setItem('orca.theme', pref); } catch { /* */ }
   const dark = pref === 'dark' || (pref === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
   document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
-  main.querySelectorAll('.theme-opt').forEach((b) => b.classList.toggle('selected', b.dataset.theme === pref));
+  content.querySelectorAll('.seg-opt').forEach((b) => b.classList.toggle('is-active', b.dataset.theme === pref));
 }
 
 // ---- render dispatch ----
 function renderScreen() {
+  content.removeAttribute('aria-busy');
   renderSidebar(lastData);
   const r = route();
   if (r === 'settings') renderSettings();
   else if (r === 'remote') renderRemote();
-  else renderHome(lastData, true); // fresh entry to home: expand the tree
+  else renderHome(lastData);
 }
 
 async function poll() {
@@ -199,20 +215,20 @@ async function poll() {
   } catch { /* */ }
 }
 
-// ---- interactions (delegated) ----
+// ---- interactions ----
 sideProjects.addEventListener('click', (e) => {
-  const btn = e.target.closest('.side-project');
+  const btn = e.target.closest('.sidebar-project');
   if (!btn) return;
   selectedProjectId = btn.dataset.pid || null;
   if (route() !== 'home') location.hash = ''; else renderScreen();
 });
-sideNav.addEventListener('click', (e) => {
-  const btn = e.target.closest('.side-nav-btn');
+document.querySelector('.sidebar-footer').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-nav]');
   if (btn) location.hash = btn.dataset.nav;
 });
-main.addEventListener('click', async (e) => {
+content.addEventListener('click', async (e) => {
   if (e.target.closest('[data-back]')) { location.hash = ''; return; }
-  const opt = e.target.closest('.theme-opt');
+  const opt = e.target.closest('.seg-opt');
   if (opt) { applyTheme(opt.dataset.theme); return; }
   const stop = e.target.closest('.ov-stop');
   if (stop) {

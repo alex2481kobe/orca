@@ -20,26 +20,40 @@
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/ui/overview.css" />
   </head>
-  <body>
-    <div class="app" id="app">
-      <aside class="side" id="side">
-        <div class="side-top">
-          <button class="side-logo-btn" id="logo-home" type="button" title="Home" aria-label="Home">
-            <img class="side-logo" src="/orca-mark.png" alt="Orca" width="26" height="26" />
-            <span class="side-title">Orca</span>
-          </button>
-          <button class="side-collapse" id="collapse" type="button" title="Collapse sidebar" aria-label="Collapse sidebar"></button>
+  <body data-app="orca">
+    <header class="app-topbar">
+      <button id="nav-toggle" class="shell-toggle" data-action="toggleNav" type="button" aria-label="Toggle navigation" aria-controls="sidebar"><span class="panel-toggle-icon" aria-hidden="true"></span></button>
+      <div id="topbar-title" class="app-topbar-title"></div>
+      <div class="app-topbar-actions" aria-hidden="true"></div>
+    </header>
+    <div id="sidebar-backdrop" class="sidebar-backdrop" aria-hidden="true"></div>
+    <main id="shell" class="ops-shell">
+      <button id="sidebar-reopen" class="sidebar-reopen" data-action="toggleNav" type="button" aria-label="Open sidebar" title="Open sidebar"><span class="panel-toggle-icon" aria-hidden="true"></span></button>
+      <aside id="sidebar" class="ops-sidebar" aria-label="navigation">
+        <div class="sidebar-head">
+          <div class="sidebar-head-main">
+            <a href="#" id="brand-home" class="sidebar-brand-link" aria-label="Orca home" title="Home">
+              <img class="sidebar-brand-logo" src="/orca-mark.png" alt="Orca" width="28" height="28" />
+            </a>
+          </div>
+          <button class="sidebar-collapse" data-action="toggleNav" type="button" aria-label="Collapse sidebar" title="Collapse sidebar"><span class="panel-toggle-icon" aria-hidden="true"></span></button>
         </div>
-        <div class="side-scroll">
-          <div class="side-section-label">Projects</div>
-          <div class="side-projects" id="side-projects"></div>
+        <div class="sidebar-section">
+          <div class="sidebar-title">Projects</div>
+          <div id="sidebar-projects" class="sidebar-list"></div>
         </div>
-        <div class="side-nav" id="side-nav"></div>
+        <div class="sidebar-spacer"></div>
+        <div class="sidebar-footer">
+          <button class="sidebar-link" data-nav="remote" type="button"><span class="sidebar-link-icon" aria-hidden="true"></span><span>Remote devices</span></button>
+          <button class="sidebar-link" data-nav="settings" type="button"><span class="sidebar-link-icon" aria-hidden="true"></span><span>Settings</span></button>
+        </div>
       </aside>
-      <main class="main" id="main">
-        <div class="ov-empty">Loading…</div>
-      </main>
-    </div>
+      <section class="ops-main">
+        <div id="content" class="ops-content" aria-busy="true">
+          <div class="app-loading" role="status" aria-label="Connecting"><img class="app-loading-logo" src="/orca-mark.png" alt="" width="44" height="44" /><span class="app-loading-spinner" aria-hidden="true"></span><span class="app-loading-text">Connecting…</span></div>
+        </div>
+      </section>
+    </main>
     <script type="module" src="/ui/overview.js"></script>
   </body>
 </html>

@@ -143,8 +143,8 @@ async function captureBrowserScreenshots({ sessionCookie = null, projectId = nul
       });
       await page.goto(new URL(viewport.path, base).toString(), { waitUntil: 'networkidle', timeout: 20000 });
       await page.waitForFunction(() => {
-        const content = document.getElementById('main');
-        return content && !content.textContent.trim().startsWith('Loading');
+        const content = document.getElementById('content');
+        return content && !content.textContent.trim().startsWith('Connecting');
       }, { timeout: 15000 });
       const overflowPx = await page.evaluate((width) => document.documentElement.scrollWidth - width, viewport.width);
       if (overflowPx > 1) fail(`browser ${viewport.name} horizontal overflow`, `${overflowPx}px`);
