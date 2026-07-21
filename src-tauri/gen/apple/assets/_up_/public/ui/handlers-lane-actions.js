@@ -1,0 +1,243 @@
+// Split from handlers-actions.js.
+
+import { refresh, showArtifacts } from './controller.js';
+import { confirmDialog, promptDialog } from './dialog.js';
+import { confirmHighRiskAction, isLiveLaneState } from './render-helpers.js';
+import { api } from './api.js';
+import { renderAlert } from './dom.js';
+import { loadEvidenceGallery } from './render-lane.js';
+import { shell } from './state.js';
+
+export async function handleLaneActions(event) {
+  const action = event.currentTarget.dataset.action;
+  const laneId = event.currentTarget.dataset.laneId;
+  if (action === 'showArtifacts') {
+    await showArtifacts(laneId);
+    return;
+  }
+  if (action === 'overrideAcceptAudit') {
+    // Irreversible: accepts work that FAILED its audit. Always confirm explicitly
+    // rather than deferring to server policy (which may not require approval).
+    const approved = await confirmDialog('Accept this lane and override the escalated audit? This accepts work that failed review.', { danger: true, confirmLabel: 'Accept override' });
+    if (!approved) { renderAlert('Override canceled.'); return; }
+    const response = await api(`/api/lanes/${laneId}/audit/accept`, {
+      method: 'POST',
+      body: { actor: 'dashboard', findings: ['operator override of escalated audit'] },
+    });
+    renderAlert(response.ok ? 'Lane accepted (audit overridden).' : (response.data?.error || 'Could not accept lane.'), response.ok ? 'ok' : 'bad');
+    if (response.ok) await refresh();
+    return;
+  }
+  if (action === 'deleteLane') {
+    const title = event.currentTarget.dataset.laneTitle || 'this lane';
+    const ok = await confirmDialog(`Permanently delete "${title}" and its worktree?`, { danger: true, confirmLabel: 'Delete' });
+    if (!ok) return;
+    const lane = shell.lanes.find((item) => item.id === laneId);
+    const sessionRoute = lane ? shell.sessions.find((s) => s.id === lane.sessionId)?.route : null;
+    const response = await api(`/api/lanes/${laneId}`, { method: 'DELETE', body: { actor: 'dashboard' } });
+    if (response.ok) {
+      renderAlert('Lane deleted.');
+      // If we were viewing the now-deleted lane, navigate back to its session.
+      if (sessionRoute && shell.route.laneId === laneId) { window.location.assign(sessionRoute); return; }
+      await refresh();
+    } else {
+      renderAlert(response.data?.error || 'Could not delete lane.', 'bad');
+    }
+    return;
+  }
+  if (action === 'captureEvidencePreset') {
+    const presetId = event.currentTarget.dataset.presetId;
+    const label = event.currentTarget.dataset.presetLabel || 'saved preview';
+    if (!presetId) return;
+    const approved = await confirmHighRiskAction(`Capture screenshot for ${label}?`, 'captureEvidence');
+    if (!approved) { renderAlert('Capture canceled.'); return; }
+    const response = await api(`/api/lanes/${laneId}/evidence`, {
+      method: 'POST',
+      body: { approved, actor: 'dashboard', presetId, modes: ['screenshot'] },
+    });
+    if (response.ok) {
+      renderAlert(response.data?.captured ? 'Evidence captured.' : `Evidence attempt finished: ${response.data?.reason || 'degraded'}`);
+      await loadEvidenceGallery(laneId);
+    } else {
+      renderAlert(response.data?.error || 'Evidence preset capture failed.', 'bad');
+    }
+    return;
+  }
+  if (action === 'removeWorktree') {
+    if (!await confirmHighRiskAction(`Remove the git worktree for lane ${laneId}? Branch is kept.`, 'cleanupArtifacts')) {
+      renderAlert('Worktree removal canceled.');
+      return;
+    }
+    const response = await api(`/api/lanes/${laneId}/worktree/remove`, {
+      method: 'POST',
+      body: { approved: true, actor: 'dashboard' },
+    });
+    if (response.ok) {
+      renderAlert(response.data?.removed ? 'Worktree removed.' : 'Worktree was not removed.');
+      await refresh();
+    } else {
+      renderAlert(response.data?.error || 'Could not remove worktree.', 'bad');
+    }
+    return;
+  }
+  if (action === 'restartLane') {
+    const lane = shell.lanes.find((item) => item.id === laneId);
+    const approved = await confirmHighRiskAction('Restart this agent process?', 'retryLane');
+    if (!approved) {
+      renderAlert('Lane restart canceled.');
+      return;
+    }
+    if (lane && isLiveLaneState(lane.state)) {
+      const stopped = await api(`/api/lanes/${laneId}/stop`, {
+        method: 'POST',
+        body: { approved, actor: 'dashboard' },
+      });
+      if (!stopped.ok) {
+        renderAlert(stopped.data?.error || 'Could not stop lane before restart.', 'bad');
+        return;
+      }
+    }
+    const restarted = await api(`/api/lanes/${laneId}/retry`, {
+      method: 'POST',
+      body: { approved, actor: 'dashboard' },
+    });
+    if (restarted.ok) {
+      renderAlert('Lane restarted.');
+      await refresh();
+    } else if (restarted.data?.requiresApproval) {
+      renderAlert('Approval required. Retry with approval enabled.', 'bad');
+    } else {
+      renderAlert(restarted.data?.error || 'Could not restart lane.', 'bad');
+    }
+    return;
+  }
+  if (action === 'markCritiqueDone') {
+    const ok = await confirmDialog('Mark self-review complete? The lane moves on to audit.');
+    if (!ok) { renderAlert('Self-review canceled.'); return; }
+    // A critique bundle issues the current nonce; record a ready finding against it.
+    const bundle = await api(`/api/lanes/${laneId}/critique/bundle`, {
+      method: 'POST', body: { actor: 'dashboard' },
+    });
+    if (!bundle.ok || !bundle.data?.critiqueNonce) {
+      renderAlert(bundle.data?.error || 'Could not start self-review.', 'bad');
+      return;
+    }
+    const response = await api(`/api/lanes/${laneId}/critique/findings`, {
+      method: 'POST',
+      body: {
+        actor: 'dashboard',
+        critiqueNonce: bundle.data.critiqueNonce,
+        ready: true,
+        visualEvidenceReviewed: true,
+        checksRun: ['Manual self-review from dashboard'],
+      },
+    });
+    if (response.ok) { renderAlert('Self-review complete — ready for audit.'); await refresh(); }
+    else { renderAlert(response.data?.error || 'Could not complete self-review.', 'bad'); }
+    return;
+  }
+  if (action === 'waiveCritique') {
+    const reason = await promptDialog('Reason for waiving self-review:');
+    if (reason === null) { renderAlert('Waiver canceled.'); return; }
+    const trimmed = String(reason || '').trim();
+    if (!trimmed) { renderAlert('A reason is required to waive self-review.', 'bad'); return; }
+    const approved = await confirmHighRiskAction('Waive the self-review gate for this lane?', 'waiveCritique');
+    if (!approved) { renderAlert('Waiver canceled.'); return; }
+    const response = await api(`/api/lanes/${laneId}/critique/waive`, {
+      method: 'POST', body: { actor: 'dashboard', approved, reason: trimmed },
+    });
+    if (response.ok) { renderAlert('Self-review waived — ready for audit.'); await refresh(); }
+    else { renderAlert(response.data?.error || 'Could not waive self-review.', 'bad'); }
+    return;
+  }
+  const routeMap = {
+    stopLane: { url: `/api/lanes/${laneId}/stop`, method: 'POST' },
+    retryLane: { url: `/api/lanes/${laneId}/retry`, method: 'POST' },
+    auditLane: { url: `/api/lanes/${laneId}/audit`, method: 'POST' },
+    captureEvidence: { url: `/api/lanes/${laneId}/evidence`, method: 'POST' },
+    clearEvidence: { url: `/api/lanes/${laneId}/evidence/clear`, method: 'POST' },
+  };
+  if (!routeMap[action]) return;
+  const endpoint = routeMap[action];
+  const policyKey = {
+    stopLane: 'stopLane',
+    retryLane: 'retryLane',
+    auditLane: 'auditLane',
+    captureEvidence: 'captureEvidence',
+    clearEvidence: 'clearEvidenceArtifacts',
+  }[action];
+  const policy = shell.policy[policyKey] || { requiresApproval: false };
+  const approved = await confirmHighRiskAction('This is a higher-risk action. Continue?', policyKey);
+  // Cancelling the confirm must abort — don't fall through to the per-mode prompts
+  // and a doomed approved:false request.
+  if (!approved) { renderAlert('Canceled.'); return; }
+
+  if (action === 'captureEvidence') {
+    const modes = [];
+    if (await confirmDialog('Capture screenshot?')) modes.push('screenshot');
+    if (await confirmDialog('Capture trace (more expensive)?')) modes.push('trace');
+    if (await confirmDialog('Capture video (heavier)?')) modes.push('video');
+    const response = await api(endpoint.url, {
+      method: endpoint.method,
+      body: {
+        approved,
+        actor: 'dashboard',
+        modes: modes.length ? modes : ['screenshot'],
+      },
+    });
+    if (response.ok) {
+      renderAlert(response.data?.captured ? 'Evidence captured.' : `Evidence attempt finished: ${response.data?.reason || 'queued/degraded'}`);
+      await refresh();
+    } else if (response.data?.requiresApproval) {
+      renderAlert('Approval required. Retry with approval enabled.', 'bad');
+    } else {
+      renderAlert(response.data?.error || 'Evidence capture failed.', 'bad');
+    }
+    return;
+  }
+
+  if (action === 'clearEvidence') {
+    const confirmed = await confirmDialog('Clear evidence files for this lane?');
+    if (!confirmed) {
+      renderAlert('Evidence clear canceled.');
+      return;
+    }
+    const response = await api(endpoint.url, {
+      method: endpoint.method,
+      body: {
+        approved,
+        actor: 'dashboard',
+        confirmed: true,
+      },
+    });
+    if (response.ok) {
+      renderAlert('Evidence files cleared.');
+      await refresh();
+    } else if (response.data?.requiresApproval) {
+      renderAlert('Approval required. Retry with approval enabled.', 'bad');
+    } else {
+      renderAlert(response.data?.error || 'Could not clear evidence.', 'bad');
+    }
+    return;
+  }
+
+  const response = await api(endpoint.url, {
+    method: endpoint.method,
+    body: {
+        approved,
+        actor: 'dashboard',
+      },
+    });
+  if (response.ok) {
+    if (action === 'auditLane' && response.data?.alreadyQueued) {
+      renderAlert('Audit for this lane is already queued.');
+    } else {
+      renderAlert(`${action} submitted.`);
+    }
+    await refresh();
+  } else if (response.data?.requiresApproval) {
+    renderAlert('Approval required. Retry with approval enabled.', 'bad');
+  } else {
+    renderAlert(response.data?.error || `${action} failed.`, 'bad');
+  }
+}

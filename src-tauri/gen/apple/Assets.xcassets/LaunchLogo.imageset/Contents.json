@@ -1,8 +1,0 @@
-{
-  "images" : [
-    { "idiom" : "universal", "filename" : "orca-110.png", "scale" : "1x" },
-    { "idiom" : "universal", "filename" : "orca-220.png", "scale" : "2x" },
-    { "idiom" : "universal", "filename" : "orca-256.png", "scale" : "3x" }
-  ],
-  "info" : { "author" : "xcode", "version" : 1 }
-}
