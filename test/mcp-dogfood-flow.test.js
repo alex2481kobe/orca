@@ -345,21 +345,28 @@ test('real MCP orchestrator creates repo-backed sessions and worktree lanes', as
     try {
       const listed = await mcp.request('tools/list');
       const toolNames = listed.result.tools.map((tool) => tool.name);
-      assert.ok(toolNames.includes('session__create'));
+      // v2 removed session.create from the MCP surface — sessions are created over
+      // the HTTP route by the operator, not as an agent tool. worktree-policy and
+      // lane tools stay callable over MCP.
+      assert.equal(toolNames.includes('session__create'), false);
       assert.ok(toolNames.includes('session__worktree_policy__update'));
       assert.ok(toolNames.includes('lane__create'));
 
-      const unsafeSession = await mcp.callTool('session__create', {
+      // registry.createSession still enforces repoRoot ∈ approved roots — exercised
+      // here through the surviving HTTP route POST /api/projects/{id}/sessions.
+      const unsafeSession = await requestJson(`/api/projects/${project.body.id}/sessions`, {
+        method: 'POST',
         body: {
           name: 'Unsafe repo session',
           approved: true,
           repoRoot: unsafeRoot,
         },
       });
-      assert.equal(unsafeSession.result.isError, true);
-      assert.match(mcpText(unsafeSession), /outside the approved repo roots/i);
+      assert.notEqual(unsafeSession.status, 201);
+      assert.match(unsafeSession.body?.error || '', /outside the approved repo roots/i);
 
-      const session = parseMcpJson(await mcp.callTool('session__create', {
+      const created = await requestJson(`/api/projects/${project.body.id}/sessions`, {
+        method: 'POST',
         body: {
           name: 'MCP Repo Session',
           leader: 'codex',
@@ -369,7 +376,9 @@ test('real MCP orchestrator creates repo-backed sessions and worktree lanes', as
           worktreeMode: 'isolated',
           repoRoot: repoDir,
         },
-      }));
+      });
+      assert.equal(created.status, 201);
+      const session = created.body;
       assert.equal(await realPath(session.repoRoot), repoReal);
       assert.equal(session.worktreeMode, 'isolated');
 

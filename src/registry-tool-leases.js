@@ -314,9 +314,6 @@ export const toolLeaseMethods = {
     }
     const leaseScope = this._resolveToolLeaseScope(lease, { allowMissing: true });
     const requestedScope = this._resolveToolLeaseScope({ projectId, sessionId, laneId }, { allowMissing: true });
-    if (toolId === 'project.create' && (leaseScope.projectId || leaseScope.sessionId || leaseScope.laneId)) {
-      throw { status: 403, message: 'Project creation requires an unscoped tool lease.' };
-    }
     if (requestedScope.projectId && leaseScope.projectId && leaseScope.projectId !== requestedScope.projectId) {
       throw { status: 403, message: 'Tool lease project mismatch.' };
     }

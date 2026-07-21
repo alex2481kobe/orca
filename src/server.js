@@ -321,17 +321,8 @@ function toolLeaseRequirementForRoute(method, parts) {
   if (parts[1] === 'projects' && parts.length === 2 && method === 'GET') {
     return { toolId: 'project.list' };
   }
-  if (parts[1] === 'projects' && parts.length === 2 && method === 'POST') {
-    return { toolId: 'project.create' };
-  }
   if (parts[1] === 'projects' && parts[2] && parts.length === 3 && method === 'GET') {
     return { toolId: 'project.describe', projectId: parts[2] };
-  }
-  if (parts[1] === 'projects' && parts[2] && parts[3] === 'archive' && parts.length === 4 && method === 'POST') {
-    return { toolId: 'project.archive', projectId: parts[2] };
-  }
-  if (parts[1] === 'projects' && parts[2] && parts[3] === 'restore' && parts.length === 4 && method === 'POST') {
-    return { toolId: 'project.restore', projectId: parts[2] };
   }
   if (parts[1] === 'projects' && parts[2] && parts[3] === 'quick-links' && parts.length === 4 && method === 'POST') {
     return { toolId: 'project.quick_link.upsert', projectId: parts[2] };
@@ -342,21 +333,14 @@ function toolLeaseRequirementForRoute(method, parts) {
   if (parts[1] === 'projects' && parts[2] && parts[3] === 'quick-links' && parts[4] && parts[5] === 'check' && method === 'POST') {
     return { toolId: 'project.quick_link.health', projectId: parts[2] };
   }
-  if (parts[1] === 'projects' && parts[2] && parts[3] === 'sessions' && parts.length === 4) {
-    if (method === 'GET') return { toolId: 'session.list', projectId: parts[2] };
-    if (method === 'POST') return { toolId: 'session.create', projectId: parts[2] };
-  }
   if (parts[1] === 'private-access' && parts[2] === 'tailnet' && parts.length === 3 && method === 'GET') {
     return { toolId: 'tailscale.status' };
   }
   if (parts[1] === 'private-access' && parts[2] === 'setup-plan' && parts.length === 3 && method === 'GET') {
     return { toolId: 'orca.setup_guide' };
   }
-  if (parts[1] === 'sessions' && parts[2] && parts.length === 3 && method === 'GET') {
-    return { toolId: 'session.describe', sessionId: parts[2] };
-  }
   if (parts[1] === 'sessions' && parts[2] && parts[3] === 'lanes') {
-    if (method === 'GET') return { toolId: 'session.describe', sessionId: parts[2] };
+    if (method === 'GET') return { toolId: 'lane.list', sessionId: parts[2] };
     if (method === 'POST') return { toolId: 'lane.create', sessionId: parts[2] };
   }
   if (parts[1] === 'sessions' && parts[2] && parts[3] === 'worktree-policy' && method === 'POST') {

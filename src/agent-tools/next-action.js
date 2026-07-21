@@ -61,7 +61,7 @@ export function chooseNextTool({ registry, role, project, session, lane, auditQu
   // supervisor is deprecated (v2 has no supervisor); it falls through to the
   // read-only path below and never gets a supervisor-only tool.
   if (!project) return normalizedRole === 'orchestrator' || normalizedRole === 'dashboard'
-    ? 'project.create'
+    ? 'orchestrator.register'
     : 'project.list';
   if (!session) return 'project.describe';
   if (normalizedRole === 'orchestrator') {
@@ -75,7 +75,7 @@ export function chooseNextTool({ registry, role, project, session, lane, auditQu
     if (flow?.template === 'orchestrator-only') return 'session.next_action';
     return normalizedRole === 'orchestrator' || normalizedRole === 'dashboard'
       ? 'lane.create'
-      : 'session.describe';
+      : 'session.next_action';
   }
   if (lane.state === 'queued') return 'session.next_action';
   if (lane.state === 'starting' || lane.state === 'running') return normalizedRole === 'executor' ? 'lane.heartbeat' : 'session.next_action';

@@ -37,7 +37,6 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
   assert.equal(discovery.publicSafe, true);
   const ids = new Set(discovery.tools.map((tool) => tool.id));
   for (const id of [
-    'session.describe',
     'session.next_action',
     'executor.capabilities',
     'lane.create',
@@ -54,13 +53,10 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
     'audit.request_fix',
     'audit.block',
     'project.list',
-    'project.create',
     'project.describe',
     'project.quick_link.upsert',
     'project.quick_link.delete',
     'project.quick_link.health',
-    'project.archive',
-    'project.restore',
     'event.drain',
     'event.replay',
     'event.ack',
@@ -73,21 +69,23 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
   assert.match(discovery.leasePolicy, /Scoped tool leases authenticate MCP and CLI agent calls/);
   assert.equal(discovery.leasePolicy.includes('future guarded'), false);
   assert.equal(discovery.leasePolicy.includes('normal dashboard auth today'), false);
-  assert.equal(findTool('project.create')?.method, 'POST');
-  assert.equal(findTool('project.create')?.route, '/api/projects');
-  assert.equal(availableToolIdsForRole('orchestrator').includes('project.create'), true);
-  assert.equal(availableToolIdsForRole('supervisor').includes('project.create'), false);
+  assert.equal(findTool('project.list')?.method, 'GET');
+  assert.equal(findTool('project.list')?.route, '/api/projects');
+  assert.equal(availableToolIdsForRole('orchestrator').includes('project.list'), true);
+  // v2 removed the agent-facing session/project CRUD tools from the MCP surface.
+  assert.equal(findTool('project.create'), null);
+  assert.equal(findTool('project.archive'), null);
+  assert.equal(findTool('project.restore'), null);
+  assert.equal(findTool('session.create'), null);
+  assert.equal(findTool('session.list'), null);
+  assert.equal(findTool('session.describe'), null);
+  assert.equal(availableToolIdsForRole('orchestrator').includes('project.create'), false);
+  assert.equal(availableToolIdsForRole('dashboard').includes('project.archive'), false);
   assert.equal(findTool('project.quick_link.upsert')?.method, 'POST');
   assert.equal(findTool('project.quick_link.upsert')?.route, '/api/projects/{projectId}/quick-links');
   assert.equal(findTool('project.quick_link.delete')?.route, '/api/projects/{projectId}/quick-links/{linkId}');
   assert.equal(findTool('project.quick_link.health')?.route, '/api/projects/{projectId}/quick-links/{linkId}/check');
   assert.equal(findTool('project.quick_link.health')?.implemented, true);
-  assert.equal(findTool('project.archive')?.route, '/api/projects/{projectId}/archive');
-  assert.equal(findTool('project.archive')?.implemented, true);
-  assert.equal(findTool('project.restore')?.route, '/api/projects/{projectId}/restore');
-  assert.equal(findTool('project.restore')?.implemented, true);
-  assert.equal(availableToolIdsForRole('orchestrator').includes('project.archive'), false);
-  assert.equal(availableToolIdsForRole('dashboard').includes('project.archive'), true);
 });
 
 test('supervisor docs match the bounded read/audit role contract', async () => {

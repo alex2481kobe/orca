@@ -21,8 +21,6 @@ const OWNERSHIP_EXEMPT_TOOLS = new Set([
   'orchestrator.register',
   'orchestrator.update',
   'executor.spawn',
-  'project.create',
-  'session.create',
 ]);
 
 export const orchestratorMethods = {

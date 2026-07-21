@@ -1541,6 +1541,10 @@ test('dashboard-scoped orchestrator leases enroll and gate cross-scope actions',
     assert.equal(leaseLane.status, 201);
     assert.equal(leaseLane.body?.title, 'Lease-created executor lane');
 
+    // v2 removed project.create from the agent tool surface — POST /api/projects
+    // is no longer a lease-gated agent route (projects are created by the operator
+    // or implicitly via orchestrator.register), so a scoped tool lease cannot
+    // create a top-level project: the call is refused as unauthenticated-operator.
     const forbidden = await server.requestJson('/api/projects', {
       method: 'POST',
       headers: { 'x-orca-tool-lease': lease.body.leaseToken },
@@ -1549,8 +1553,9 @@ test('dashboard-scoped orchestrator leases enroll and gate cross-scope actions',
         approved: true,
       },
     });
-    assert.equal(forbidden.status, 403);
-    assert.match(forbidden.body?.error || '', /unscoped tool lease/i);
+    assert.notEqual(forbidden.status, 201);
+    assert.equal(forbidden.status, 401);
+    assert.match(forbidden.body?.error || '', /Unauthorized/i);
   } finally {
     await server.stop();
   }
@@ -2552,7 +2557,10 @@ test('project-scoped tool leases cannot cross into sessions from another project
   }
 });
 
-test('project archive and restore are dashboard-only scoped tool routes', async () => {
+test('project archive and restore HTTP routes toggle project state (operator-authed)', async () => {
+  // v2 removed project.archive / project.restore from the agent MCP tool surface;
+  // the HTTP routes + registry.updateProject stay and are exercised here via the
+  // workstation operator token (dashboard UI path), not a scoped tool lease.
   const token = 'route-token-project-archive-tools';
   const server = await startServer({ token });
 
@@ -2567,42 +2575,9 @@ test('project archive and restore are dashboard-only scoped tool routes', async 
     });
     assert.equal(project.status, 201);
 
-    const orchestratorLease = await server.requestJson('/api/agent-tools/leases', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        role: 'orchestrator',
-        projectId: project.body.id,
-        ttlMs: 60_000,
-      },
-    });
-    assert.equal(orchestratorLease.status, 201);
-    assert.equal(orchestratorLease.body?.lease?.allowedTools.includes('project.archive'), false);
-
-    const deniedArchive = await server.requestJson(`/api/projects/${project.body.id}/archive`, {
-      method: 'POST',
-      headers: { 'x-orca-tool-lease': orchestratorLease.body.leaseToken },
-      body: { approved: true },
-    });
-    assert.equal(deniedArchive.status, 403);
-    assert.match(deniedArchive.body.error, /Tool lease does not grant this tool/);
-
-    const dashboardLease = await server.requestJson('/api/agent-tools/leases', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        role: 'dashboard',
-        projectId: project.body.id,
-        ttlMs: 60_000,
-      },
-    });
-    assert.equal(dashboardLease.status, 201);
-    assert.equal(dashboardLease.body?.lease?.allowedTools.includes('project.archive'), true);
-    assert.equal(dashboardLease.body?.lease?.allowedTools.includes('project.restore'), true);
-
     const archived = await server.requestJson(`/api/projects/${project.body.id}/archive`, {
       method: 'POST',
-      headers: { 'x-orca-tool-lease': dashboardLease.body.leaseToken },
+      headers: { 'x-orca-token': token },
       body: { approved: true },
     });
     assert.equal(archived.status, 200);
@@ -2617,7 +2592,7 @@ test('project archive and restore are dashboard-only scoped tool routes', async 
 
     const restored = await server.requestJson(`/api/projects/${project.body.id}/restore`, {
       method: 'POST',
-      headers: { 'x-orca-tool-lease': dashboardLease.body.leaseToken },
+      headers: { 'x-orca-token': token },
       body: { approved: true },
     });
     assert.equal(restored.status, 200);
@@ -2687,11 +2662,16 @@ test('scoped supervisor tool leases can read only their project/session/lane con
     assert.equal(project.status, 200);
     assert.equal(project.body.id, projectA.body.id);
 
-    const sessions = await server.requestJson(`/api/projects/${projectA.body.id}/sessions`, { headers: leaseHeaders });
+    // GET /api/projects/{id}/sessions and GET /api/sessions/{id} are no longer
+    // agent MCP tools in v2 (session.list / session.describe were removed), so a
+    // scoped tool lease can't call them — the routes stay and are read via the
+    // operator token (dashboard path) instead. Lease scoping is asserted below on
+    // the still-gated project.describe / lane.get reads.
+    const sessions = await server.requestJson(`/api/projects/${projectA.body.id}/sessions`, { headers: { 'x-orca-token': token } });
     assert.equal(sessions.status, 200);
     assert.deepEqual(sessions.body.map((session) => session.id), [sessionA.body.id]);
 
-    const session = await server.requestJson(`/api/sessions/${sessionA.body.id}`, { headers: leaseHeaders });
+    const session = await server.requestJson(`/api/sessions/${sessionA.body.id}`, { headers: { 'x-orca-token': token } });
     assert.equal(session.status, 200);
     assert.equal(session.body.id, sessionA.body.id);
 
