@@ -220,13 +220,6 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
       }
     }
 
-    if (parts.length === 4 && parts[3] === 'orchestrator' && method === 'GET') {
-      try {
-        return sendJson(res, 200, registry.getOrchestratorThread(session.id));
-      } catch (error) {
-        return sendJson(res, error.status || 500, { error: error.message || 'Could not load orchestrator thread.' });
-      }
-    }
 
     // Become / leave the active orchestrator for this session. The caller's
     // identity is its tool lease (resolved from the header); a dashboard operator

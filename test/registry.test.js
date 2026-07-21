@@ -1383,47 +1383,6 @@ test('lane-scoped tool leases are revoked when Orca-authored lanes stop being li
   }
 });
 
-test('orchestrator thread messages are capped when restored or appended', async () => {
-  const { registry, cleanup } = await withIsolatedRegistry();
-
-  try {
-    const project = registry.createProject({ name: 'Thread Cap Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Thread Cap Session' }, { actor: 'test', approved: true });
-    const storedSession = registry.getSession(session.id);
-    storedSession.orchestratorThread = {
-      id: 'thread-cap',
-      messages: Array.from({ length: 505 }, (_, index) => ({
-        id: `message-${index}`,
-        role: 'user',
-        content: `message ${index}`,
-        createdAt: new Date(0).toISOString(),
-      })),
-      laneIds: [],
-      activeLaneId: null,
-      executorType: 'mock',
-      updatedAt: new Date(0).toISOString(),
-    };
-
-    const restored = registry.getOrchestratorThread(session.id);
-    assert.equal(restored.messages.length, 500);
-    assert.equal(restored.messages[0].id, 'message-5');
-
-    const thread = registry.ensureOrchestratorThread(storedSession);
-    registry.appendOrchestratorThreadMessage(thread, {
-      id: 'message-new',
-      role: 'assistant',
-      content: 'new message',
-      createdAt: new Date().toISOString(),
-    });
-
-    const appended = registry.getOrchestratorThread(session.id);
-    assert.equal(appended.messages.length, 500);
-    assert.equal(appended.messages.at(-1).id, 'message-new');
-  } finally {
-    await cleanup();
-  }
-});
-
 test('executor CLI reinstall execute mode requires confirmation', async () => {
   const restore = restoreEnv({
     ORCA_CODEX_BINARY: process.env.ORCA_CODEX_BINARY,

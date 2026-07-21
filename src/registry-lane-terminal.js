@@ -155,7 +155,6 @@ export const laneTerminalMethods = {
       title: 'Agent stopped',
       content: reason,
     });
-    this.notifyOrchestratorManualLaneStop(lane, actor, reason);
     this.recordAudit({
       type: 'lane_stopped',
       actor,

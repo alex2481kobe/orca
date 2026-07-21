@@ -358,7 +358,6 @@ export const laneOpsMethods = {
         title: 'Agent stopped',
         content: lane.exitReason,
       });
-      this.notifyOrchestratorManualLaneStop(lane, context.actor || 'dashboard', lane.exitReason);
       this.recordAudit({
         type: 'lane_stopped',
         actor: context.actor || 'dashboard',
