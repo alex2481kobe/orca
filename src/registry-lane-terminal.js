@@ -39,6 +39,9 @@ export const laneTerminalMethods = {
       && this.auditRequiredForLane(lane)
       && !['queued', 'auditing', 'accepted'].includes(String(lane.auditState || ''))) {
       lane.auditState = 'queued';
+      // Re-arm the orchestrator audit notification so a fresh completion (e.g.
+      // after a fix cycle) notifies exactly once. See dispatchPendingAudits().
+      lane.auditNudgedAt = null;
     }
     if (!needsCritique
       && typeof this.auditRequiredForLane === 'function'

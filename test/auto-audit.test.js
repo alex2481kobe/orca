@@ -107,20 +107,53 @@ test('auto-audit: an auditor that finishes without a verdict re-dispatches, then
   });
 });
 
-test('auto-audit: orchestrator-tier audit is NOT reconciled while a turn lane is live', async () => {
+test('auto-audit: orchestrator-tier audit is left queued for the orchestrator (no auto-auditor, no escalation)', async () => {
   await withAutoAuditRegistry(async (registry) => {
     const { lane } = seed(registry, {
       settingsOverrides: { flow: { auditTier: 'orchestrator', requireAuditPass: true } },
     });
     registry.markLaneCompleted(registry.getLane(lane.id));
     await registry.dispatchPendingAudits();
-    // Keep the spawned turn lane live (running) — the audit is being worked, so a
-    // re-tick must leave it 'auditing', never escalate it out from under the agent.
-    registry.lanes
-      .filter((l) => l.owner === 'orchestrator' && l.sessionId === lane.sessionId)
-      .forEach((o) => { o.state = 'running'; });
+    // v2 contract: the owning orchestrator audits its executor. Orca never
+    // auto-spawns a separate auditor for the orchestrator tier and leaves the
+    // lane 'queued' for the orchestrator to accept or bounce.
+    assert.equal(registry.getLane(lane.id).auditState, 'queued');
+    assert.equal(registry.lanes.filter((l) => l.owner === 'auditor').length, 0);
+    // Re-ticking must not escalate it out from under the orchestrator.
     await registry.dispatchPendingAudits();
-    assert.equal(registry.getLane(lane.id).auditState, 'auditing');
+    assert.equal(registry.getLane(lane.id).auditState, 'queued');
+  });
+});
+
+test('auto-audit: an orchestrator-container lane notifies its orchestrator and stays queued (never spawns an auditor)', async () => {
+  await withAutoAuditRegistry(async (registry) => {
+    // A real v2 orchestrator registered for the (approved) temp cwd; its
+    // executor lanes run in the getSession orchestrator-container bridge.
+    const orch = await registry.registerOrchestrator(
+      { cwd: process.cwd(), actor: 'claude', title: 'v2' },
+      { leaseId: 'L1' },
+    );
+    const lane = await registry.createLane(
+      orch.id, { title: 'Work', executorType: 'mock' }, { actor: 'test', approved: true },
+    );
+    registry.markLaneCompleted(registry.getLane(lane.id));
+    assert.equal(registry.getLane(lane.id).auditState, 'queued');
+
+    await registry.dispatchPendingAudits();
+    // Left queued for the orchestrator; NO separate auditor lane spawned.
+    assert.equal(registry.getLane(lane.id).auditState, 'queued');
+    assert.equal(registry.lanes.filter((l) => l.owner === 'auditor').length, 0);
+    // A durable wakeup event was queued for the orchestrator to drain.
+    const { events } = registry.drainAgentEvents(orch.id, { role: 'orchestrator' });
+    const nudge = events.find((e) => e.type === 'audit_required' && e.laneId === lane.id);
+    assert.ok(nudge, 'an audit_required event should be enqueued for the orchestrator');
+
+    // Idempotent: a second tick must not duplicate the event or escalate.
+    await registry.dispatchPendingAudits();
+    assert.equal(registry.getLane(lane.id).auditState, 'queued');
+    const again = registry.replayAgentEvents(orch.id, { role: 'orchestrator' })
+      .events.filter((e) => e.type === 'audit_required' && e.laneId === lane.id);
+    assert.equal(again.length, 1, 'exactly one audit_required event per completion');
   });
 });
 

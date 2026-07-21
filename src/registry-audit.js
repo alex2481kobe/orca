@@ -122,45 +122,70 @@ export const auditMethods = {
     for (const lane of queued) {
       const session = this.getSession(lane.sessionId);
       if (!session) continue;
+
+      // v2 contract: an orchestrator-container lane is audited BY its owning
+      // orchestrator (v2 has no supervisor). The finished lane already surfaces
+      // as "done — awaiting reply" in the orchestrator's status view and the
+      // dashboard, so we emit ONE durable wakeup event and leave the lane
+      // 'queued' for the orchestrator to accept (audit.accept) or bounce
+      // (audit.request_fix). We do NOT auto-spawn a separate auditor lane (that
+      // burned tokens on every completion) and never flip it out of 'queued'.
+      // auditNudgedAt is cleared whenever a lane re-enters 'queued' after a fix
+      // cycle (see markLaneCompleted), so each completion notifies exactly once.
+      if (session._orchestratorContainer) {
+        if (!lane.auditNudgedAt) {
+          lane.auditNudgedAt = nowIso();
+          lane.updatedAt = lane.auditNudgedAt;
+          try {
+            this.enqueueAgentEvent({
+              type: 'audit_required',
+              targetRole: 'orchestrator',
+              title: `Audit executor lane "${lane.title}"`.slice(0, 160),
+              body: `Executor lane ${lane.id} ("${lane.title}") finished and needs your audit: review its work, then accept it (audit.accept) or request fixes (audit.request_fix).`,
+              actor: 'scheduler',
+              projectId: lane.projectId,
+              sessionId: session.id,
+              laneId: lane.id,
+              dedupeKey: `audit-required:${lane.id}`,
+            });
+            this.appendLaneLog(lane, 'Audit required — notified orchestrator', { persist: false });
+          } catch (error) {
+            lane.auditNudgedAt = null;
+            this.appendLaneLog(lane, `Audit notify failed: ${error?.message || error}`, { persist: false });
+          }
+          this.persistState();
+        }
+        continue;
+      }
+
+      // Legacy non-orchestrator sessions: an UNATTENDED auto session has no agent
+      // to act on the queued audit, so fall back to a separate auditor lane or it
+      // would stall forever. A configured self-audit tier is left 'queued'.
       const flow = this.getLaneFlowConfig(lane);
-      // Resolve the effective audit tier. An UNATTENDED auto session (no live
-      // orchestrator to act on a nudge) MUST use a separate auditor lane, or it
-      // would stall at 'auditing' forever. A live enrolled orchestrator keeps the
-      // configured tier (it will audit itself).
       let tier = flow.auditTier;
       if (tier !== 'separate-auditor' && normalizeSpawnPolicy(session.spawnPolicy) === 'auto') {
-        const active = session.orchestratorThread && session.orchestratorThread.activeOrchestrator;
-        const liveOrch = active && typeof this._activeOrchestratorStale === 'function'
-          && !this._activeOrchestratorStale(active, session);
-        if (!liveOrch) tier = 'separate-auditor';
+        tier = 'separate-auditor';
       }
+      if (tier !== 'separate-auditor') continue;
+      if (liveAuditorTargets.has(lane.id)) continue;
       // Mark dispatched up front so a throw can't cause re-dispatch every tick.
       lane.auditState = 'auditing';
       lane.updatedAt = nowIso();
+      lane.auditDispatchCount = (lane.auditDispatchCount || 0) + 1;
       try {
-        if (tier === 'separate-auditor') {
-          if (liveAuditorTargets.has(lane.id)) continue;
-          lane.auditDispatchCount = (lane.auditDispatchCount || 0) + 1;
-          await this.createLane(session.id, {
-            title: `Audit · ${lane.title}`.slice(0, 200),
-            taskDescription: `Review the work produced by lane "${lane.title}".`,
-            executorType: lane.executorType,
-            owner: 'auditor',
-            auditTargetLaneId: lane.id,
-            workdir: lane.workdir,
-            sharedWorktree: true,
-            taskPrompt: this.buildAuditorPrompt(lane),
-          }, { actor: 'scheduler', approved: true });
-        } else if (typeof this.sendOrchestratorMessage === 'function') {
-          // Count the nudge so a dead-orchestrator session escalates after the
-          // bound instead of re-nudging into the void forever.
-          lane.auditDispatchCount = (lane.auditDispatchCount || 0) + 1;
-          await this.sendOrchestratorMessage(session.id, {
-            message: `Audit completed executor lane "${lane.title}" (lane ${lane.id}): review its work, then accept it or request fixes.`,
-          }, { actor: 'scheduler', approved: true });
-        }
-        this.appendLaneLog(lane, `Audit auto-dispatched (${tier === 'separate-auditor' ? 'separate auditor' : 'orchestrator'})`, { persist: false });
+        await this.createLane(session.id, {
+          title: `Audit · ${lane.title}`.slice(0, 200),
+          taskDescription: `Review the work produced by lane "${lane.title}".`,
+          executorType: lane.executorType,
+          owner: 'auditor',
+          auditTargetLaneId: lane.id,
+          workdir: lane.workdir,
+          sharedWorktree: true,
+          taskPrompt: this.buildAuditorPrompt(lane),
+        }, { actor: 'scheduler', approved: true });
+        this.appendLaneLog(lane, 'Audit auto-dispatched (separate auditor)', { persist: false });
       } catch (error) {
+        lane.auditState = 'queued';
         this.appendLaneLog(lane, `Audit auto-dispatch failed: ${error?.message || error}`, { persist: false });
       }
       this.persistState();
