@@ -118,89 +118,521 @@ content.addEventListener('toggle', (e) => {
   if (d.open) collapsed.delete(d.dataset.pid); else collapsed.add(d.dataset.pid);
 }, true);
 
+// ================= Settings + Remote panels (ported verbatim from the old
+// experimental render-home-panels.js — EXACT markup/classes, all defined in
+// styles.css). Helpers below (settingsSummaryGrid, settingsActionRows,
+// settingsCallout, pairedDevicesDisclosure, pairingCodeBox, pairingCodeButton,
+// copyUrlButton, tailscaleServeCommand) are inlined from that file. ================
+
+// safeText/safeAttr map to esc (the old format.js helpers); a small relative
+// time formatter replaces the old formatRelative.
+const safeText = esc;
+const safeAttr = esc;
+function formatRelative(iso) {
+  if (!iso) return '';
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return String(iso);
+  const diff = t - Date.now();
+  const abs = Math.abs(diff);
+  const MIN = 60000, HR = 3600000, DAY = 86400000;
+  const unit = (n, u) => `${n} ${u}${n === 1 ? '' : 's'}`;
+  let s;
+  if (abs < MIN) return 'just now';
+  else if (abs < HR) s = unit(Math.round(abs / MIN), 'min');
+  else if (abs < DAY) s = unit(Math.round(abs / HR), 'hour');
+  else s = unit(Math.round(abs / DAY), 'day');
+  return diff < 0 ? `${s} ago` : `in ${s}`;
+}
+
+// Module-level pairing + remote-fetch state (replaces old shell.lastPairing /
+// shell.pairingAccepted / shell.authSessions).
+let lastPairing = null;
+let pairingAccepted = false;
+let remoteAuthSessions = [];
+
+const selectedOpt = (actual, expected) => String(actual || '') === String(expected || '') ? 'selected' : '';
+function localServeTarget() {
+  const port = (typeof window !== 'undefined' && window.location.port) ? window.location.port : '3000';
+  return `http://127.0.0.1:${port || '3000'}`;
+}
+function tailscaleServeCommand(mode = 'http') {
+  const target = localServeTarget();
+  if (mode === 'https') return `tailscale serve --bg --https=443 ${target}`;
+  return `tailscale serve --bg ${target}`;
+}
+function pairedDeviceCount() {
+  if (!Array.isArray(remoteAuthSessions)) return null;
+  return remoteAuthSessions.filter((s) => s && (s.paired || s.pairedFromId) && s.active !== false).length;
+}
+function pairedDeviceSummary(unit = 'device') {
+  const n = pairedDeviceCount() ?? 0;
+  return `${n} ${unit}${n === 1 ? '' : 's'}`;
+}
+function pairingCodeButton(label, cls = 'secondary') {
+  return `<button class="${cls}" data-action="createPairingCode" type="button">${safeText(label)}</button>`;
+}
+function copyUrlButton(url, label, cls = 'secondary') {
+  return `<button class="${cls}" data-action="copyPhoneUrl" data-url="${safeAttr(url)}" type="button">${safeText(label)}</button>`;
+}
+function settingsSummaryGrid(items = []) {
+  const rows = items
+    .filter((item) => item && item.label)
+    .map((item) => `
+      <div class="settings-summary-item">
+        <strong>${safeText(item.value ?? '')}</strong>
+        <span>${safeText(item.label)}</span>
+      </div>
+    `).join('');
+  return rows ? `<div class="settings-summary-grid">${rows}</div>` : '';
+}
+function settingsActionRows(rows = []) {
+  const html = rows
+    .filter((row) => row && row.title)
+    .map((row) => `
+      <div class="settings-action-row">
+        <div class="settings-action-main">
+          ${row.kicker ? `<span class="settings-row-kicker">${safeText(row.kicker)}</span>` : ''}
+          <strong>${safeText(row.title)}</strong>
+          ${row.detail ? `<span class="tiny muted">${safeText(row.detail)}</span>` : ''}
+          ${row.content || ''}
+        </div>
+        ${row.actions ? `<div class="settings-action-controls">${row.actions}</div>` : ''}
+      </div>
+    `).join('');
+  return html ? `<div class="settings-action-list">${html}</div>` : '';
+}
+function settingsCallout(title, detail, actions = '') {
+  return `
+    <div class="settings-callout">
+      <div>
+        <strong>${safeText(title)}</strong>
+        ${detail ? `<span class="tiny muted">${safeText(detail)}</span>` : ''}
+      </div>
+      ${actions ? `<div class="lane-row">${actions}</div>` : ''}
+    </div>`;
+}
+function pairedDevicesDisclosure({ uikey, summary, rows, emptyText, bodyPrefix = '' }) {
+  return `
+        <details class="disclosure compact-disclosure" data-uikey="${uikey}">
+          <summary><span>Paired devices</span><small>${safeText(summary)}</small></summary>
+          <div class="disclosure-body">${bodyPrefix}${rows || `<div class="muted">${safeText(emptyText)}</div>`}</div>
+        </details>`;
+}
+function pairingCodeBox(placeholder) {
+  if (pairingAccepted) {
+    return `
+            <div class="pairing-code-box pairing-accepted">
+              <span class="pairing-accepted-check" aria-hidden="true">✓</span>
+              <strong>Device paired</strong>
+              <span class="tiny muted">The code was accepted and is now used up. Create a new one to pair another device.</span>
+            </div>`;
+  }
+  if (lastPairing) {
+    return `
+            <div class="pairing-code-box">
+              <div class="tiny muted">One-time pairing code. Do not screenshot or paste into URLs.</div>
+              <strong class="pairing-code-value">${safeText(lastPairing.code)}</strong>
+              <span class="pairing-countdown" data-expires="${safeAttr(lastPairing.expiresAt)}">Expires ${safeText(formatRelative(lastPairing.expiresAt))}</span>
+            </div>`;
+  }
+  return `<div class="tiny muted">${safeText(placeholder)}</div>`;
+}
+
+// Appearance (light/dark) control — the Settings theme control.
+function renderAppearancePanel() {
+  const pref = themePref();
+  const opt = (mode, label) => `<button class="seg-btn${pref === mode ? ' is-on' : ''}" data-action="setTheme" data-theme-mode="${mode}" type="button" aria-pressed="${pref === mode}">${label}</button>`;
+  return `
+      <article class="card control-card" data-panel-card="system">
+        <h3>Appearance</h3>
+        <p class="muted">Light or dark theme. "System" follows your device setting.</p>
+        <div class="seg-control" role="group" aria-label="Appearance">
+          ${opt('system', 'System')}${opt('light', 'Light')}${opt('dark', 'Dark')}
+        </div>
+      </article>`;
+}
+
+// Pair-devices card (old renderPairPanel).
+function renderPairPanel(ctx) {
+  const { phoneUrl, phoneDeepLinkQr, accessModeSummary, authSessionRows, tailnet = {} } = ctx;
+  const tsReady = Boolean(tailnet.binaryAvailable && tailnet.loggedIn && phoneUrl && phoneUrl.startsWith('http'));
+  const step1 = tsReady ? `
+          <div>
+            <strong>1. Open this URL on the other device</strong>
+            <div class="url-row">
+              <code class="copy-url">${safeText(phoneUrl)}</code>
+              ${copyUrlButton(phoneUrl, 'Copy link', 'btn')}
+            </div>
+            <div class="tiny muted">Your private Tailscale URL — open it from any device signed in to your tailnet.</div>
+          </div>
+          <div class="qr-wrap">${phoneDeepLinkQr}<span>Scan with your iPhone to open the Orca app</span></div>`
+    : `
+          <div>
+            <strong>1. Set up Tailscale first ${tailnet.binaryAvailable ? '(sign in)' : '(required)'}</strong>
+            <div class="tiny muted">${tailnet.binaryAvailable
+              ? 'Tailscale is installed but not signed in. Sign in so this Mac gets a private device URL other devices can reach.'
+              : 'Pairing needs Tailscale so other devices can privately reach this Mac. A localhost URL only works on this machine.'}</div>
+            <div class="lane-row">
+              ${tailnet.binaryAvailable
+                ? '<a class="btn" href="https://login.tailscale.com" target="_blank" rel="noopener noreferrer">Sign in to Tailscale</a>'
+                : '<a class="btn" href="https://tailscale.com/download" target="_blank" rel="noopener noreferrer">Install Tailscale</a><a class="btn-ghost" href="https://login.tailscale.com/start" target="_blank" rel="noopener noreferrer">Create account</a>'}
+            </div>
+            <div class="tiny muted">After signing in, refresh Orca — step 1 will show your private device URL automatically.</div>
+          </div>`;
+  const tailnetStatus = tailnet.loggedIn ? 'Signed in' : tailnet.binaryAvailable ? 'Sign in' : 'Install';
+  const pairingSteps = tsReady ? settingsActionRows([
+    {
+      kicker: 'Step 2',
+      title: 'Create a one-time code',
+      detail: 'Single-use and short-lived. The code pairs a browser without exposing the API token.',
+      actions: pairingCodeButton(lastPairing ? 'New code' : 'Create code', 'btn'),
+      content: pairingCodeBox('Create a code here, then type it into the access screen on the other device.'),
+    },
+    {
+      kicker: 'Step 3',
+      title: 'Finish on the other device',
+      detail: 'Open Orca there, enter the code, and the device becomes paired.',
+    },
+    {
+      kicker: 'Optional',
+      title: 'Install as an app',
+      detail: 'After pairing, the device can add Orca to its Home Screen or Dock.',
+    },
+  ]) : '';
+  return `
+      <article class="card control-card pair-panel" id="section-pair" data-panel-card="access">
+        <details class="disclosure" open>
+          <summary>
+            <span>Pair devices</span>
+            <small>${safeText(tsReady ? 'Tailscale ready' : 'Tailscale setup')}</small>
+          </summary>
+          <div class="disclosure-body">
+            ${settingsSummaryGrid([
+              { label: 'Tailnet', value: tailnetStatus },
+              { label: 'Access mode', value: accessModeSummary },
+              { label: 'Paired devices', value: pairedDeviceSummary('device') },
+            ])}
+            <div class="onboarding-card">${step1}
+            </div>
+            ${pairingSteps}
+            ${pairedDevicesDisclosure({ uikey: 'pair-paired-devices', summary: pairedDeviceSummary('device'), rows: authSessionRows, emptyText: 'No paired devices yet.' })}
+          </div>
+        </details>
+      </article>`;
+}
+
+// Private-access card (old renderPrivateAccessPanel).
+function renderPrivateAccessPanel(ctx) {
+  const { accessModeSummary, tailnet, accessModeOptions, privateSettings, phoneUrl, commandRows, privateTargets, targetRows } = ctx;
+  const httpsServeCommand = tailscaleServeCommand('https');
+  const targetCount = Array.isArray(privateTargets) ? privateTargets.filter((target) => !target.hidden).length : 0;
+  return `
+      <article class="card control-card" id="section-private-access" data-panel-card="access">
+        <details class="disclosure">
+          <summary>
+            <span>Private access</span>
+            <small>${safeText(accessModeSummary)} · ${safeText(targetCount)} target${targetCount === 1 ? '' : 's'}</small>
+          </summary>
+          <div class="disclosure-body">
+            <div class="access-summary">
+              <div class="stat">
+                <b>${tailnet.binaryAvailable ? 'Yes' : 'No'}</b>
+                <span>Tailscale detected</span>
+              </div>
+              <div class="stat">
+                <b>${tailnet.loggedIn ? 'Yes' : 'No'}</b>
+                <span>Tailnet login</span>
+              </div>
+              <div class="stat">
+                <b>${safeText(tailnet.serveMode || 'Pending')}</b>
+                <span>Serve mode</span>
+              </div>
+            </div>
+            ${!tailnet.binaryAvailable ? `
+            <div class="ts-setup-callout">
+              <strong>Tailscale isn't installed on this Mac.</strong>
+              <div class="tiny muted">Tailscale is what lets your other devices reach Orca privately. Install it and sign in, then refresh.</div>
+              <div class="lane-row">
+                <a class="btn" href="https://tailscale.com/download" target="_blank" rel="noopener noreferrer">Install Tailscale</a>
+                <a class="btn-ghost" href="https://login.tailscale.com/start" target="_blank" rel="noopener noreferrer">Create an account</a>
+              </div>
+            </div>` : !tailnet.loggedIn ? `
+            <div class="ts-setup-callout">
+              <strong>Tailscale is installed but not signed in.</strong>
+              <div class="lane-row"><a class="btn" href="https://login.tailscale.com" target="_blank" rel="noopener noreferrer">Sign in to Tailscale</a></div>
+            </div>` : (tailnet.serveConfigured ? `
+            <div class="ts-setup-callout">
+              <strong>✓ Tailscale Serve is active</strong>
+              <div class="tiny muted">Your device URL works from any device on your tailnet.</div>
+              <div class="lane-row"><button class="btn-ghost" data-action="disableTailscaleServe" type="button">Turn off Serve</button></div>
+            </div>` : `
+            <div class="ts-setup-callout">
+              <strong>Make Orca reachable from your other devices</strong>
+              <div class="tiny muted">One tap runs Tailscale Serve (HTTP, tailnet-only) so a phone/laptop can open Orca — no commands to copy. You can still do it manually in Terminal if you prefer.</div>
+              <div class="lane-row"><button class="btn" data-action="setupTailscaleServe" type="button">Set up Tailscale Serve</button></div>
+            </div>`)}
+            ${settingsCallout(
+              'HTTP over Tailscale is the default',
+              'Private, encrypted by the tailnet, and avoids public certificate-transparency metadata.',
+            )}
+            <form id="private-access-settings-form">
+              <label>Access mode
+                <select name="preferredMode">
+                  ${accessModeOptions}
+                </select>
+              </label>
+              <label>Open links
+                <select name="openTarget">
+                  <option value="external" ${selectedOpt(privateSettings.openTarget, 'external')}>External browser/tab</option>
+                  <option value="in_app" ${selectedOpt(privateSettings.openTarget, 'in_app')}>In-app preview</option>
+                </select>
+              </label>
+              <label>Notifications
+                <select name="notificationMode">
+                  <option value="in_app" ${selectedOpt(privateSettings.notificationMode, 'in_app')}>In-app only</option>
+                  <option value="browser" ${selectedOpt(privateSettings.notificationMode, 'browser')}>Browser where supported</option>
+                  <option value="off" ${selectedOpt(privateSettings.notificationMode, 'off')}>Off</option>
+                </select>
+              </label>
+              <button type="submit">Save private access settings</button>
+            </form>
+            <details class="disclosure compact-disclosure">
+              <summary>
+                <span>Saved private targets</span>
+                <small>${safeText(targetCount)} configured</small>
+              </summary>
+              <div class="disclosure-body">
+                ${targetRows || '<div class="muted">No private targets saved yet.</div>'}
+              </div>
+            </details>
+            <details class="disclosure compact-disclosure">
+              <summary>
+                <span>Add private target</span>
+                <small>Project or dev server</small>
+              </summary>
+              <div class="disclosure-body">
+                <form id="private-access-target-form">
+                  <label>Label
+                    <input name="label" placeholder="Example app" required />
+                  </label>
+                  <label>Mode
+                    <select name="mode">
+                      <option value="local">Local only</option>
+                      <option value="tailnet-http">Tailnet HTTP</option>
+                      <option value="tailnet-https-serve">Tailnet HTTPS Serve</option>
+                    </select>
+                  </label>
+                  <label>Local URL
+                    <input name="localUrl" inputmode="url" placeholder="http://127.0.0.1:5173" />
+                  </label>
+                  <label>Tailnet HTTP URL
+                    <input name="tailnetHttpUrl" inputmode="url" placeholder="http://mac.tailnet.ts.net:5173" />
+                  </label>
+                  <label>HTTPS Serve URL
+                    <input name="httpsServeUrl" inputmode="url" placeholder="https://mac.tailnet.ts.net" />
+                  </label>
+                  <label class="settings-checkbox"><input type="checkbox" name="favorite" checked> <span>Show as a preferred private link</span></label>
+                  <button type="submit">Add target</button>
+                </form>
+              </div>
+            </details>
+            <details class="disclosure compact-disclosure">
+              <summary>
+                <span>Phone URL and HTTPS wizard</span>
+                <small>Tailscale Serve</small>
+              </summary>
+              <div class="disclosure-body">
+                <div class="access-command">
+                  <div>
+                    <strong>Your Tailscale device URL</strong>
+                    <div class="tiny muted">${phoneUrl && phoneUrl.startsWith('http') ? 'Open this from any device signed in to your tailnet. localhost only works on this Mac.' : 'Sign in to Tailscale above to get a device URL other devices can reach.'}</div>
+                    ${phoneUrl && phoneUrl.startsWith('http') ? `<code>${safeText(phoneUrl)}</code>` : ''}
+                  </div>
+                  ${phoneUrl && phoneUrl.startsWith('http') ? copyUrlButton(phoneUrl, 'Copy', 'btn-ghost') : ''}
+                </div>
+                <div class="settings-subsection">
+                  <h3>Optional: enable HTTPS Serve</h3>
+                  ${settingsActionRows([
+                    {
+                      title: 'Enable certificates in Tailscale admin',
+                      detail: 'DNS -> HTTPS Certificates must be enabled before the HTTPS Serve command works.',
+                    },
+                    {
+                      title: 'Run the HTTPS Serve command yourself',
+                      detail: 'Orca only copies commands here; it does not run HTTPS setup for you.',
+                      actions: `<button class="btn-ghost" data-action="copyPrivateAccessCommand" data-command="${safeAttr(httpsServeCommand)}" type="button">Copy HTTPS command</button>`,
+                    },
+                    {
+                      title: 'Disable HTTPS Serve',
+                      detail: 'Use reset if you no longer need browser secure-context behavior.',
+                      actions: '<button class="btn-ghost" data-action="copyPrivateAccessCommand" data-command="tailscale serve reset" type="button">Copy reset command</button>',
+                    },
+                  ])}
+                </div>
+                <div class="settings-subsection">
+                  <h3>Rotate or rename hostname</h3>
+                  ${settingsActionRows([
+                    {
+                      title: 'Rename before issuing certs',
+                      detail: 'Use Tailscale admin if the current Mac name should not appear in certificate metadata.',
+                    },
+                    {
+                      title: 'Update saved links afterward',
+                      detail: 'Tailnet DNS suffix changes can break existing private URLs.',
+                    },
+                  ])}
+                </div>
+              </div>
+            </details>
+            <details class="disclosure compact-disclosure">
+              <summary>
+                <span>Manual setup commands</span>
+                <small>Copy only</small>
+              </summary>
+              <div class="disclosure-body">
+                ${commandRows || '<div class="muted">No setup commands available for the current Tailscale state.</div>'}
+              </div>
+            </details>
+            <div class="tiny muted">Project live links still live on each project; private targets here are reusable workstation access entries.</div>
+          </div>
+        </details>
+      </article>`;
+}
+
 // ---- settings screen ----
 function renderSettings() {
   topbarTitle.textContent = 'Settings';
-  const pref = (() => { try { return localStorage.getItem('orca.theme') || 'system'; } catch { return 'system'; } })();
   content.innerHTML = `
     <div class="screen">
       <div class="screen-head"><button class="btn-back" data-back type="button">${icon('chevron-left')}<span>Back</span></button><h1>Settings</h1></div>
-      <article class="card">
-        <div class="card-row">
-          <div class="card-label">Theme</div>
-          <div class="seg-theme">${['system', 'light', 'dark'].map((t) => `<button class="seg-opt${t === pref ? ' is-active' : ''}" data-theme="${t}" type="button">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div>
-        </div>
-      </article>
-      <article class="card">
-        <div class="card-label">About</div>
+      ${renderAppearancePanel()}
+      <article class="card control-card" data-panel-card="system">
+        <h3>About</h3>
         <p class="card-text">Orca is your agents' local headquarters. Agents register over MCP (<code>orca-mcp</code>) and spawn executors under contract; you watch them here. Open <b>Remote devices</b> to reach this dashboard from your phone over Tailscale.</p>
       </article>
     </div>`;
 }
 
 // ---- remote devices screen ----
+// Build the ctx from the live read-only APIs, then compose the exact old
+// Pair-devices + Private-access panels.
+function buildRemoteCtx(access) {
+  const tailnet = access.tailnet || {};
+  const privateSettings = access.settings || {};
+  const privateTargets = Array.isArray(access.targets) ? access.targets : [];
+  const httpsSelected = privateSettings.preferredMode === 'tailnet-https-serve';
+  const accessModeSummary = httpsSelected ? 'Tailscale HTTPS' : 'Tailscale HTTP';
+  const accessModeOptions = `
+    <option value="tailnet-http" ${httpsSelected ? '' : 'selected'}>HTTP — recommended</option>
+    <option value="tailnet-https-serve" ${httpsSelected ? 'selected' : ''}>HTTPS</option>
+  `;
+  const phoneUrl = tailnet.servedUrl || (tailnet.hostname ? `http://${tailnet.hostname}:${location.port || '3000'}/` : '');
+  // v2 has no orca:// deep link — reuse the same tailnet-URL QR for both slots.
+  const phoneQr = phoneUrl ? qrSvgForText(phoneUrl) : '';
+  const phoneDeepLinkQr = phoneQr;
+  const setupCommands = Array.isArray(access.setupPlan?.commands) ? access.setupPlan.commands : [];
+  const commandRows = setupCommands.map((item) => `
+    <div class="access-command">
+      <div>
+        <strong>${safeText(item.label)}</strong>
+        <div class="tiny muted">${safeText(item.note || '')}</div>
+        <code>${safeText(item.copyText || 'No command needed')}</code>
+      </div>
+      <button class="secondary" data-action="copyPrivateAccessCommand" data-command="${safeAttr(item.copyText || '')}" type="button">Copy</button>
+    </div>
+  `).join('');
+  const targetUrlForMode = (t) => (t.mode === 'tailnet-https-serve' ? t.httpsServeUrl : t.mode === 'tailnet-http' ? t.tailnetHttpUrl : t.localUrl)
+    || t.localUrl || t.tailnetHttpUrl || t.httpsServeUrl || '';
+  const targetRows = privateTargets.map((target) => {
+    const targetUrl = targetUrlForMode(target);
+    return `
+      <div class="access-target">
+        <div>
+          <strong>${safeText(target.label)}</strong>
+          <div class="tiny muted">${safeText(target.mode)} · ${safeText(target.healthStatus || 'configured_unchecked')} · ${safeText(targetUrl)}</div>
+          ${target.lastHealthDetail ? `<div class="tiny muted">${safeText(target.lastHealthDetail)}</div>` : ''}
+        </div>
+        <div class="lane-row">
+          ${targetUrl && /^https?:\/\//i.test(targetUrl) ? `<a class="secondary" href="${safeAttr(targetUrl)}" target="_blank" rel="noopener noreferrer">Open</a>` : ''}
+          <button class="secondary" data-action="checkPrivateAccessTarget" data-target-id="${safeAttr(target.id)}" type="button">Check</button>
+          <button class="secondary" data-action="deletePrivateAccessTarget" data-target-id="${safeAttr(target.id)}" type="button">Remove</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+  const authSessionRows = remoteAuthSessions
+    .filter((session) => session && (session.paired || session.pairedFromId) && session.active !== false)
+    .map((session) => `
+    <div class="provider-row device-row">
+      <div class="device-row-info">
+        <strong>${safeText(session.label || 'Paired device')}</strong>
+        <div class="tiny muted">${session.active ? 'active' : 'inactive'} · paired ${safeText(formatRelative(session.createdAt))} · expires ${safeText(formatRelative(session.expiresAt))}</div>
+        ${session.userAgent ? `<div class="tiny muted device-row-ua">${safeText(session.userAgent)}</div>` : ''}
+      </div>
+      <button class="device-revoke" data-action="revokePairing" data-id="${safeAttr(session.id)}" type="button" ${session.active ? '' : 'disabled'}>Revoke</button>
+    </div>
+  `).join('');
+  return {
+    tailnet, privateSettings, privateTargets, accessModeSummary, accessModeOptions,
+    phoneUrl, phoneQr, phoneDeepLinkQr, commandRows, targetRows, authSessionRows,
+  };
+}
+
+async function fetchRemote() {
+  let access = {};
+  try { access = await (await fetch('/api/private-access', { headers: { accept: 'application/json' } })).json(); } catch { /* */ }
+  try {
+    const s = await (await fetch('/api/auth/sessions', { headers: { accept: 'application/json' } })).json();
+    remoteAuthSessions = Array.isArray(s.sessions) ? s.sessions : [];
+  } catch { remoteAuthSessions = []; }
+  return access || {};
+}
+
+function paintRemote(access) {
+  const bodyEl = document.getElementById('remote-body');
+  if (!bodyEl) return;
+  const ctx = buildRemoteCtx(access);
+  bodyEl.innerHTML = `${renderPairPanel(ctx)}${renderPrivateAccessPanel(ctx)}`;
+}
+
 async function renderRemote() {
   topbarTitle.textContent = 'Remote devices';
   content.innerHTML = `<div class="screen">
     <div class="screen-head"><button class="btn-back" data-back type="button">${icon('chevron-left')}<span>Back</span></button><h1>Remote devices</h1></div>
     <div id="remote-body"><div class="ov-empty-sub" style="padding:var(--space-5)">Loading…</div></div>
   </div>`;
-  const bodyEl = document.getElementById('remote-body');
-  let access = {};
-  try { access = await (await fetch('/api/private-access', { headers: { accept: 'application/json' } })).json(); } catch { /* */ }
-  const tailnet = access.tailnet || {};
-  const magicDns = tailnet.hostname || tailnet.magicDnsName || tailnet.dnsName || '';
-  const serveOn = Boolean(tailnet.serveConfigured || tailnet.servedUrl);
-  const tailnetUp = Boolean(tailnet.binaryAvailable && tailnet.loggedIn);
-  // The URL a phone/laptop on the tailnet opens to reach this dashboard.
-  const phoneUrl = tailnet.servedUrl || (magicDns ? `http://${esc(magicDns)}:${location.port || '3000'}/` : '');
-  const statusText = serveOn
-    ? `Serving privately on your tailnet${magicDns ? ` — <code>${esc(magicDns)}</code>` : ''}.`
-    : tailnetUp
-      ? 'Tailscale is up. Enable Serve (or open the tailnet address directly) so other devices can reach this dashboard.'
-      : 'Not connected. Bring up Tailscale on this machine so your phone/laptop on the same tailnet can reach the dashboard and your projects’ dev-server previews.';
-  bodyEl.innerHTML = `
-    <article class="card control-card">
-      <div class="card-row">
-        <div><div class="card-label">Tailscale</div><div class="card-text">${statusText}</div></div>
-        <span class="status-pill ${serveOn ? 'ok' : ''}">${serveOn ? 'on' : tailnetUp ? 'ready' : 'off'}</span>
-      </div>
-      ${phoneUrl ? `<div class="qr-wrap">${qrSvgForText(phoneUrl)}<span>Scan with your phone to open this dashboard over Tailscale</span></div>
-      <p class="card-text" style="margin-top:var(--space-3)">Or open <code>${esc(phoneUrl)}</code></p>` : ''}
-    </article>
-    <article class="card control-card">
-      <div class="card-label">Pair a device</div>
-      <p class="card-text">Generate a one-time code, then open the dashboard on the device (over Tailscale) and enter it. No public exposure; the session is an HttpOnly cookie.</p>
-      <button class="btn" id="gen-pair" type="button">Generate pairing code</button>
-      <div id="pair-out" class="pair-out"></div>
-    </article>
-    <article class="card control-card">
-      <div class="card-label">Setup</div>
-      <p class="card-text">Full walkthrough: <code>docs/tailscale-mobile-access.md</code>.</p>
-    </article>`;
-  const gen = document.getElementById('gen-pair');
-  if (gen) gen.addEventListener('click', async () => {
-    gen.disabled = true;
-    try {
-      const res = await fetch('/api/auth/pairing-codes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ actor: 'dashboard', label: 'device' }) });
-      const data = await res.json();
-      const code = data.code || data.pairingCode || (data.pairing && data.pairing.code);
-      document.getElementById('pair-out').innerHTML = code
-        ? `<div class="pair-code">${esc(code)}</div><div class="card-text">Enter this on the device within the expiry window.</div>`
-        : `<div class="card-text">Could not generate a code (${esc(data.error || res.status)}).</div>`;
-    } catch {
-      document.getElementById('pair-out').innerHTML = '<div class="card-text">Could not reach Orca.</div>';
-    }
-    gen.disabled = false;
-  });
+  const access = await fetchRemote();
+  paintRemote(access);
+}
+
+// Re-fetch the read-only APIs and repaint the remote body in place (used after a
+// mutating data-action succeeds).
+async function refreshRemote() {
+  const access = await fetchRemote();
+  paintRemote(access);
 }
 
 // ---- theme ----
+function themePref() { try { return localStorage.getItem('orca.theme') || 'system'; } catch { return 'system'; } }
 function applyTheme(pref) {
   try { if (pref === 'system') localStorage.removeItem('orca.theme'); else localStorage.setItem('orca.theme', pref); } catch { /* */ }
   const dark = pref === 'dark' || (pref === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
   document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
-  content.querySelectorAll('.seg-opt').forEach((b) => b.classList.toggle('is-active', b.dataset.theme === pref));
+  content.querySelectorAll('.seg-btn[data-theme-mode]').forEach((b) => {
+    const on = b.dataset.themeMode === pref;
+    b.classList.toggle('is-on', on);
+    b.setAttribute('aria-pressed', String(on));
+  });
+}
+
+// Brief "Copied" affordance on a copy button.
+async function copyToClipboard(text, btn) {
+  try { await navigator.clipboard.writeText(text || ''); } catch { /* */ }
+  if (btn) {
+    const prev = btn.textContent;
+    btn.textContent = 'Copied';
+    setTimeout(() => { if (btn.isConnected) btn.textContent = prev; }, 1200);
+  }
 }
 
 // ---- render dispatch ----
@@ -234,10 +666,87 @@ document.querySelector('.sidebar-footer').addEventListener('click', (e) => {
   const btn = e.target.closest('[data-nav]');
   if (btn) location.hash = btn.dataset.nav;
 });
+// Show a small inline note when a mutating action fails / hits an endpoint that
+// rejects the read-only phone (e.g. admin-only 401), rather than crashing.
+function remoteNote(text) {
+  const bodyEl = document.getElementById('remote-body');
+  if (!bodyEl) return;
+  let note = bodyEl.querySelector('.remote-inline-note');
+  if (!note) {
+    note = document.createElement('div');
+    note.className = 'tiny muted remote-inline-note';
+    bodyEl.prepend(note);
+  }
+  note.textContent = text;
+}
+
 content.addEventListener('click', async (e) => {
   if (e.target.closest('[data-back]')) { location.hash = ''; return; }
   const opt = e.target.closest('.seg-opt');
   if (opt) { applyTheme(opt.dataset.theme); return; }
+
+  // ---- Settings / Remote data-action handlers ----
+  const act = e.target.closest('[data-action]');
+  if (act) {
+    const action = act.dataset.action;
+    if (action === 'setTheme') { applyTheme(act.dataset.themeMode); return; }
+    if (action === 'copyPhoneUrl') { e.preventDefault(); copyToClipboard(act.dataset.url, act); return; }
+    if (action === 'copyPrivateAccessCommand') { e.preventDefault(); copyToClipboard(act.dataset.command, act); return; }
+    if (action === 'createPairingCode') {
+      e.preventDefault(); act.disabled = true;
+      try {
+        const res = await fetch('/api/auth/pairing-codes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ actor: 'dashboard', label: 'Phone/browser pairing' }) });
+        const data = await res.json();
+        const pairing = data.pairing || data;
+        if (pairing && pairing.code) { lastPairing = { code: pairing.code, expiresAt: pairing.expiresAt }; pairingAccepted = false; await refreshRemote(); }
+        else remoteNote(`Could not create a pairing code (${esc(data.error || res.status)}).`);
+      } catch { remoteNote('Could not reach Orca to create a pairing code.'); }
+      act.disabled = false;
+      return;
+    }
+    if (action === 'setupTailscaleServe' || action === 'disableTailscaleServe') {
+      e.preventDefault(); act.disabled = true;
+      const enable = action === 'setupTailscaleServe';
+      try {
+        const res = await fetch('/api/private-access/serve', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: enable ? 'enable' : 'disable', port: Number(location.port) || 3000, actor: 'dashboard' }) });
+        if (!res.ok) { const d = await res.json().catch(() => ({})); remoteNote(`Could not ${enable ? 'enable' : 'disable'} Serve (${esc(d.error || res.status)}).`); }
+        await refreshRemote();
+      } catch { remoteNote('Could not reach Orca to configure Tailscale Serve.'); act.disabled = false; }
+      return;
+    }
+    if (action === 'revokePairing') {
+      e.preventDefault(); act.disabled = true;
+      const id = act.dataset.id;
+      try {
+        const res = await fetch('/api/auth/logout', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId: id, actor: 'dashboard' }) });
+        if (!res.ok) { const d = await res.json().catch(() => ({})); remoteNote(`Could not revoke device (${esc(d.error || res.status)}).`); act.disabled = false; }
+        else await refreshRemote();
+      } catch { remoteNote('Could not reach Orca to revoke the device.'); act.disabled = false; }
+      return;
+    }
+    if (action === 'checkPrivateAccessTarget') {
+      e.preventDefault(); act.disabled = true;
+      const id = act.dataset.targetId;
+      try {
+        const res = await fetch(`/api/private-access/targets/${encodeURIComponent(id)}/check`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ actor: 'dashboard' }) });
+        if (!res.ok) { const d = await res.json().catch(() => ({})); remoteNote(`Could not check target (${esc(d.error || res.status)}).`); }
+        await refreshRemote();
+      } catch { remoteNote('Could not reach Orca to check the target.'); act.disabled = false; }
+      return;
+    }
+    if (action === 'deletePrivateAccessTarget') {
+      e.preventDefault(); act.disabled = true;
+      const id = act.dataset.targetId;
+      try {
+        const res = await fetch(`/api/private-access/targets/${encodeURIComponent(id)}`, { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ actor: 'dashboard' }) });
+        if (!res.ok) { const d = await res.json().catch(() => ({})); remoteNote(`Could not remove target (${esc(d.error || res.status)}).`); }
+        await refreshRemote();
+      } catch { remoteNote('Could not reach Orca to remove the target.'); act.disabled = false; }
+      return;
+    }
+    return;
+  }
+
   const stop = e.target.closest('.ov-stop');
   if (stop) {
     e.preventDefault();
@@ -247,6 +756,38 @@ content.addEventListener('click', async (e) => {
     armed.delete(laneId); stop.disabled = true;
     try { await fetch('/api/emergency-stop', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ laneId }) }); } catch { /* */ }
     poll();
+  }
+});
+
+// Settings/Remote form submits (private-access settings + add target).
+content.addEventListener('submit', async (e) => {
+  const form = e.target;
+  if (!(form instanceof HTMLFormElement)) return;
+  if (form.id === 'private-access-settings-form') {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const body = { preferredMode: fd.get('preferredMode'), openTarget: fd.get('openTarget'), notificationMode: fd.get('notificationMode'), actor: 'dashboard' };
+    try {
+      const res = await fetch('/api/private-access/settings', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); remoteNote(`Could not save settings (${esc(d.error || res.status)}).`); }
+      await refreshRemote();
+    } catch { remoteNote('Could not reach Orca to save settings.'); }
+    return;
+  }
+  if (form.id === 'private-access-target-form') {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const body = {
+      label: fd.get('label'), mode: fd.get('mode'),
+      localUrl: fd.get('localUrl') || undefined, tailnetHttpUrl: fd.get('tailnetHttpUrl') || undefined,
+      httpsServeUrl: fd.get('httpsServeUrl') || undefined, favorite: fd.get('favorite') === 'on', actor: 'dashboard',
+    };
+    try {
+      const res = await fetch('/api/private-access/targets', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); remoteNote(`Could not add target (${esc(d.error || res.status)}).`); }
+      else await refreshRemote();
+    } catch { remoteNote('Could not reach Orca to add the target.'); }
+    return;
   }
 });
 
