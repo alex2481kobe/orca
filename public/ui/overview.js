@@ -321,81 +321,53 @@ function renderPairPanel(ctx) {
       </article>`;
 }
 
-// Private-access card (old renderPrivateAccessPanel).
+// Tailscale access card — combines the old Private-access + Optional-HTTPS. The
+// three status cards already show serve state, so we only render a setup callout
+// when an ACTION is needed (install / sign in / turn Serve on).
 function renderPrivateAccessPanel(ctx) {
-  const { tailnet, phoneUrl } = ctx;
+  const { tailnet } = ctx;
   const httpsServeCommand = tailscaleServeCommand('https');
   const serveSummary = tailnet.serveConfigured ? 'HTTP · on' : tailnet.loggedIn ? 'HTTP · off' : 'Tailscale setup';
+  let setup = '';
+  if (!tailnet.binaryAvailable) {
+    setup = `<div class="ts-setup-callout">
+      <strong>Tailscale isn't installed on this Mac.</strong>
+      <div class="tiny muted">Install it and sign in so your other devices can reach Orca privately.</div>
+      <div class="lane-row"><a class="btn" href="https://tailscale.com/download" target="_blank" rel="noopener noreferrer">Install Tailscale</a><a class="btn-ghost" href="https://login.tailscale.com/start" target="_blank" rel="noopener noreferrer">Create an account</a></div>
+    </div>`;
+  } else if (!tailnet.loggedIn) {
+    setup = `<div class="ts-setup-callout">
+      <strong>Tailscale is installed but not signed in.</strong>
+      <div class="lane-row"><a class="btn" href="https://login.tailscale.com" target="_blank" rel="noopener noreferrer">Sign in to Tailscale</a></div>
+    </div>`;
+  } else if (!tailnet.serveConfigured) {
+    setup = `<div class="ts-setup-callout">
+      <strong>Make Orca reachable from your other devices</strong>
+      <div class="tiny muted">One tap runs Tailscale Serve over HTTP (tailnet-only) so a phone or laptop can open Orca.</div>
+      <div class="lane-row"><button class="btn" data-action="setupTailscaleServe" type="button">Set up Tailscale Serve</button></div>
+    </div>`;
+  }
   return `
-      <article class="card control-card" id="section-private-access" data-panel-card="access">
+      <article class="card control-card" data-panel-card="access">
         <details class="disclosure">
-          <summary>
-            <span>Private access</span>
-            <small>${safeText(serveSummary)}</small>
-          </summary>
+          <summary><span>Tailscale access</span><small>${safeText(serveSummary)}</small></summary>
           <div class="disclosure-body">
             <div class="access-summary">
-              <div class="stat">
-                <b>${tailnet.binaryAvailable ? 'Yes' : 'No'}</b>
-                <span>Tailscale detected</span>
-              </div>
-              <div class="stat">
-                <b>${tailnet.loggedIn ? 'Yes' : 'No'}</b>
-                <span>Tailnet login</span>
-              </div>
-              <div class="stat">
-                <b>${safeText(tailnet.serveMode || 'Pending')}</b>
-                <span>Serve mode</span>
+              <div class="stat"><b>${tailnet.binaryAvailable ? 'Yes' : 'No'}</b><span>Tailscale detected</span></div>
+              <div class="stat"><b>${tailnet.loggedIn ? 'Yes' : 'No'}</b><span>Tailnet login</span></div>
+              <div class="stat"><b>${safeText(tailnet.serveConfigured ? 'HTTP' : 'Off')}</b><span>Serve</span></div>
+            </div>
+            ${setup}
+            <div class="ts-https">
+              <h3>HTTPS (optional)</h3>
+              <p class="tiny muted">HTTP over the tailnet is enough for the dashboard and previews. HTTPS adds secure-context browser features (installing the PWA, web push) — but issuing a certificate publishes this Mac's <code>.ts.net</code> hostname to public certificate-transparency logs. You run it in Terminal; Orca just copies the command.</p>
+              <div class="ts-commands">
+                <button class="btn-ghost" data-action="copyPrivateAccessCommand" data-command="${safeAttr(httpsServeCommand)}" type="button">Copy HTTPS command</button>
+                <button class="btn-ghost" data-action="copyPrivateAccessCommand" data-command="tailscale serve reset" type="button">Copy reset command</button>
+                ${tailnet.serveConfigured ? '<button class="btn-ghost" data-action="disableTailscaleServe" type="button">Turn off Serve</button>' : ''}
               </div>
             </div>
-            ${!tailnet.binaryAvailable ? `
-            <div class="ts-setup-callout">
-              <strong>Tailscale isn't installed on this Mac.</strong>
-              <div class="tiny muted">Tailscale is what lets your other devices reach Orca privately. Install it and sign in, then refresh.</div>
-              <div class="lane-row">
-                <a class="btn" href="https://tailscale.com/download" target="_blank" rel="noopener noreferrer">Install Tailscale</a>
-                <a class="btn-ghost" href="https://login.tailscale.com/start" target="_blank" rel="noopener noreferrer">Create an account</a>
-              </div>
-            </div>` : !tailnet.loggedIn ? `
-            <div class="ts-setup-callout">
-              <strong>Tailscale is installed but not signed in.</strong>
-              <div class="lane-row"><a class="btn" href="https://login.tailscale.com" target="_blank" rel="noopener noreferrer">Sign in to Tailscale</a></div>
-            </div>` : (tailnet.serveConfigured ? `
-            <div class="ts-setup-callout">
-              <strong>✓ Tailscale Serve is active</strong>
-              <div class="tiny muted">Your device URL works from any device on your tailnet.</div>
-              <div class="lane-row"><button class="btn-ghost" data-action="disableTailscaleServe" type="button">Turn off Serve</button></div>
-            </div>` : `
-            <div class="ts-setup-callout">
-              <strong>Make Orca reachable from your other devices</strong>
-              <div class="tiny muted">One tap runs Tailscale Serve (HTTP, tailnet-only) so a phone/laptop can open Orca — no commands to copy. You can still do it manually in Terminal if you prefer.</div>
-              <div class="lane-row"><button class="btn" data-action="setupTailscaleServe" type="button">Set up Tailscale Serve</button></div>
-            </div>`)}
-            ${settingsCallout(
-              'HTTP over Tailscale is the default',
-              'Private, encrypted by the tailnet, and avoids public certificate-transparency metadata.',
-            )}
-            ${(phoneUrl && phoneUrl.startsWith('http')) ? `
-            <div class="access-command">
-              <div>
-                <strong>Your Tailscale device URL</strong>
-                <div class="tiny muted">Open from any device signed in to your tailnet. localhost only works on this Mac.</div>
-                <code>${safeText(phoneUrl)}</code>
-              </div>
-              ${copyUrlButton(phoneUrl, 'Copy', 'btn-ghost')}
-            </div>` : ''}
-            <details class="disclosure compact-disclosure">
-              <summary><span>Optional: HTTPS</span><small>secure browser features</small></summary>
-              <div class="disclosure-body">
-                <p class="tiny muted">HTTP over the tailnet is enough for the dashboard and dev-server previews. Enable HTTPS only if you want secure-context browser features (installing the PWA, web push). You run it in Terminal on this Mac; Orca just copies the command.</p>
-                ${settingsActionRows([
-                  { title: 'Enable HTTPS certificates', detail: 'Tailscale admin → DNS → HTTPS Certificates.' },
-                  { title: 'Run the HTTPS Serve command', detail: 'Copy it and run in Terminal on this Mac.', actions: `<button class="btn-ghost" data-action="copyPrivateAccessCommand" data-command="${safeAttr(httpsServeCommand)}" type="button">Copy HTTPS command</button>` },
-                  { title: 'Turn HTTPS off', detail: 'Reset when you no longer need secure-context.', actions: '<button class="btn-ghost" data-action="copyPrivateAccessCommand" data-command="tailscale serve reset" type="button">Copy reset command</button>' },
-                ])}
-              </div>
-            </details>
-            <p class="tiny muted">Agents register their dev-server ports as project previews automatically — those show on each project. The Tailscale setup here is a one-time workstation step.</p>
+            <p class="tiny muted">Agents register their dev-server ports as project previews automatically. The Tailscale setup here is a one-time workstation step.</p>
           </div>
         </details>
       </article>`;

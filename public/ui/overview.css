@@ -85,3 +85,13 @@
 .status-pill.ok { color: var(--accent-blue); border-color: color-mix(in srgb, var(--accent-blue) 40%, transparent); }
 .pair-out { margin-top: var(--space-4); }
 .pair-code { font-size: 1.6rem; font-weight: 700; letter-spacing: 0.14em; font-variant-numeric: tabular-nums; color: var(--accent-blue); margin-bottom: var(--space-2); }
+
+/* ---- Remote: Tailscale HTTPS block + step alignment (fix clumping) ---- */
+.ts-https { margin-top: var(--space-3); }
+.ts-https h3 { font-size: 0.95rem; font-weight: 600; margin: 0 0 var(--space-2); }
+.ts-commands { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
+/* Pairing/access step rows: vertically-center the action button with the text,
+   give the copy per line more room, and keep the button from stretching. */
+.home-panels .settings-action-row { align-items: center; padding: 0.9rem 0; gap: var(--space-5); }
+.home-panels .settings-action-main { gap: 0.3rem; }
+.home-panels .settings-action-controls { flex: 0 0 auto; }
