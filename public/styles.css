@@ -2439,6 +2439,26 @@ body.sidebar-collapsed .pill {
   body.sidebar-collapsed .sidebar-compose {
     display: inline-flex;
   }
+  /* sidebar-collapsed is a DESKTOP-only concept. On a phone the drawer is driven
+     by body.nav-open and must always slide out at FULL width with FULL labels,
+     regardless of a collapsed preference the user saved on desktop. Neutralize
+     every collapsed effect (narrow width, centered icon-only links, hidden
+     labels — including the Remote-devices pair label and the Settings word). */
+  body.sidebar-collapsed .ops-sidebar {
+    align-items: stretch;
+    width: min(82vw, 300px);
+  }
+  body.sidebar-collapsed .sidebar-link,
+  body.sidebar-collapsed .settings-row,
+  body.sidebar-collapsed .sidebar-pair-button {
+    justify-content: flex-start;
+    width: auto;
+  }
+  body.sidebar-collapsed .sidebar-pair-label,
+  body.sidebar-collapsed .settings-row span,
+  body.sidebar-collapsed .sidebar-link span {
+    display: initial;
+  }
   /* No topbar. Top padding = notch/status-bar inset + room for the floating
      reopen button; bottom padding = home-indicator inset + breathing room. In a
      normal browser both insets are 0, so this is just 2.6rem / 2rem. */
