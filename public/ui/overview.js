@@ -149,6 +149,8 @@ function formatRelative(iso) {
 let lastPairing = null;
 let pairingAccepted = false;
 let remoteAuthSessions = [];
+let openDeviceCard = null; // which summary card's dropdown is open: 'serve' | 'devices' | null
+let remoteAccessCache = {}; // last /api/private-access response, for in-place re-paint on card toggle
 
 const selectedOpt = (actual, expected) => String(actual || '') === String(expected || '') ? 'selected' : '';
 function localServeTarget() {
@@ -254,106 +256,67 @@ function renderAppearancePanel() {
 
 // Pair-devices card (old renderPairPanel).
 function renderPairPanel(ctx) {
-  const { phoneUrl, phoneDeepLinkQr, accessModeSummary, authSessionRows, tailnet = {} } = ctx;
+  const { phoneUrl, phoneQr, accessModeSummary, authSessionRows, tailnet = {} } = ctx;
   const tsReady = Boolean(tailnet.binaryAvailable && tailnet.loggedIn && phoneUrl && phoneUrl.startsWith('http'));
-  const step1 = tsReady ? `
-          <div>
-            <strong>1. Open this URL on the other device</strong>
-            <div class="url-row">
-              <code class="copy-url">${safeText(phoneUrl)}</code>
-              ${copyUrlButton(phoneUrl, 'Copy link', 'btn')}
-            </div>
-            <div class="tiny muted">Your private Tailscale URL — open it from any device signed in to your tailnet.</div>
-          </div>
-          <div class="qr-wrap">${phoneDeepLinkQr}<span>Scan with your iPhone to open the Orca app</span></div>`
-    : `
-          <div>
-            <strong>1. Set up Tailscale first ${tailnet.binaryAvailable ? '(sign in)' : '(required)'}</strong>
-            <div class="tiny muted">${tailnet.binaryAvailable
-              ? 'Tailscale is installed but not signed in. Sign in so this Mac gets a private device URL other devices can reach.'
-              : 'Pairing needs Tailscale so other devices can privately reach this Mac. A localhost URL only works on this machine.'}</div>
-            <div class="lane-row">
-              ${tailnet.binaryAvailable
-                ? '<a class="btn" href="https://login.tailscale.com" target="_blank" rel="noopener noreferrer">Sign in to Tailscale</a>'
-                : '<a class="btn" href="https://tailscale.com/download" target="_blank" rel="noopener noreferrer">Install Tailscale</a><a class="btn-ghost" href="https://login.tailscale.com/start" target="_blank" rel="noopener noreferrer">Create account</a>'}
-            </div>
-            <div class="tiny muted">After signing in, refresh Orca — step 1 will show your private device URL automatically.</div>
-          </div>`;
   const tailnetStatus = tailnet.loggedIn ? 'Signed in' : tailnet.binaryAvailable ? 'Sign in' : 'Install';
-  const pairingSteps = tsReady ? settingsActionRows([
-    {
-      kicker: 'Step 2',
-      title: 'Create a one-time code',
-      detail: 'Single-use and short-lived. The code pairs a browser without exposing the API token.',
-      actions: pairingCodeButton(lastPairing ? 'New code' : 'Create code', 'btn'),
-      content: pairingCodeBox('Create a code here, then type it into the access screen on the other device.'),
-    },
-    {
-      kicker: 'Step 3',
-      title: 'Finish on the other device',
-      detail: 'Open Orca there, enter the code, and the device becomes paired.',
-    },
-    {
-      kicker: 'Optional',
-      title: 'Install as an app',
-      detail: 'After pairing, the device can add Orca to its Home Screen or Dock.',
-    },
-  ]) : '';
+  const pairedCount = remoteAuthSessions.filter((s) => s && (s.paired || s.pairedFromId) && s.active !== false).length;
+
+  // Left card dropdown → Tailscale sign-in + Serve on/off.
+  let serveDetail;
+  if (!tailnet.binaryAvailable) serveDetail = `<p class="tiny muted">Tailscale isn't installed on this Mac.</p><div class="lane-row"><a class="btn" href="https://tailscale.com/download" target="_blank" rel="noopener noreferrer">Install Tailscale</a><a class="btn-ghost" href="https://login.tailscale.com/start" target="_blank" rel="noopener noreferrer">Create account</a></div>`;
+  else if (!tailnet.loggedIn) serveDetail = `<p class="tiny muted">Installed but not signed in.</p><div class="lane-row"><a class="btn" href="https://login.tailscale.com" target="_blank" rel="noopener noreferrer">Sign in to Tailscale</a></div>`;
+  else if (!tailnet.serveConfigured) serveDetail = `<p class="tiny muted">Signed in. Turn on Tailscale Serve (HTTP, tailnet-only) so other devices can open Orca.</p><div class="lane-row"><button class="btn" data-action="setupTailscaleServe" type="button">Turn on Serve</button></div>`;
+  else serveDetail = `<p class="tiny muted">Serving on your tailnet — signed-in devices can open the URL in step 1.</p><div class="lane-row"><button class="btn-ghost" data-action="disableTailscaleServe" type="button">Turn off Serve</button></div>`;
+
+  // Right card dropdown → paired devices.
+  const devicesDetail = authSessionRows ? `<div class="device-list">${authSessionRows}</div>` : '<p class="tiny muted">No paired devices yet.</p>';
+
+  const cardBtn = (card, value, label) => `<button class="device-card${openDeviceCard === card ? ' is-open' : ''}" data-action="toggleDeviceCard" data-card="${card}" type="button"><b>${safeText(value)}</b><span>${safeText(label)}</span>${icon('chevron-down', { cls: 'device-card-caret', size: 16 })}</button>`;
+
+  const stepRow = (num, title, bodyHtml, action = '') => `
+    <div class="step">
+      <span class="step-num">${num}</span>
+      <div class="step-main"><div class="step-title">${safeText(title)}</div>${bodyHtml}</div>
+      ${action ? `<div class="step-action">${action}</div>` : ''}
+    </div>`;
+  const step1Body = tsReady
+    ? `<div class="url-row"><code class="copy-url">${safeText(phoneUrl)}</code>${copyUrlButton(phoneUrl, 'Copy link', 'btn-ghost')}</div>
+       <div class="tiny muted">Your private Tailscale URL — open it from any device on your tailnet.</div>
+       <div class="qr-wrap step-qr">${phoneQr}<span>Scan to open Orca on your phone</span></div>`
+    : `<div class="tiny muted">Turn Tailscale on from the <b>${safeText(tailnetStatus)}</b> card above — a device URL appears here once it's serving.</div>`;
+
+  const steps = `
+    <div class="steps-card">
+      ${stepRow(1, 'Open this URL on the other device', step1Body)}
+      ${tsReady ? stepRow(2, 'Create a one-time code', `<div class="tiny muted">Single-use and short-lived — pairs a browser without exposing the API token.</div>${pairingCodeBox('Create a code, then enter it on the other device.')}`, pairingCodeButton(lastPairing ? 'New code' : 'Create code', 'btn')) : ''}
+      ${tsReady ? stepRow(3, 'Finish on the other device', '<div class="tiny muted">Open Orca there, enter the code, and it becomes paired.</div>') : ''}
+      ${tsReady ? stepRow('+', 'Install as an app', '<div class="tiny muted">Optional — after pairing, add Orca to the Home Screen or Dock.</div>') : ''}
+    </div>`;
+
   return `
       <article class="card control-card pair-panel" data-panel-card="access">
         <h3>Pair a device</h3>
-        ${settingsSummaryGrid([
-          { label: 'Tailnet', value: tailnetStatus },
-          { label: 'Access mode', value: accessModeSummary },
-          { label: 'Paired devices', value: pairedDeviceSummary('device') },
-        ])}
-        <div class="onboarding-card">${step1}
+        <div class="device-cards">
+          ${cardBtn('serve', tailnetStatus, 'Tailnet')}
+          <div class="device-card static"><b>${safeText(accessModeSummary)}</b><span>Access mode</span></div>
+          ${cardBtn('devices', `${pairedCount} device${pairedCount === 1 ? '' : 's'}`, 'Paired devices')}
         </div>
-        ${pairingSteps}
-        <div class="ts-subhead">Paired devices <span class="tiny muted">${safeText(pairedDeviceSummary('device'))}</span></div>
-        <div>${authSessionRows || '<div class="tiny muted">No paired devices yet.</div>'}</div>
+        ${openDeviceCard === 'serve' ? `<div class="device-detail">${serveDetail}</div>` : ''}
+        ${openDeviceCard === 'devices' ? `<div class="device-detail">${devicesDetail}</div>` : ''}
+        ${steps}
       </article>`;
 }
 
-// Tailscale access — flat section (no disclosure, no status cards). We only show
-// a setup callout when an ACTION is needed (install / sign in / turn Serve on);
-// otherwise it's just the HTTPS-optional block.
-function renderPrivateAccessPanel(ctx) {
-  const { tailnet } = ctx;
+// HTTPS-optional info block (serve on/off lives in the Pair "Tailnet" card).
+function renderPrivateAccessPanel() {
   const httpsServeCommand = tailscaleServeCommand('https');
-  let setup = '';
-  if (!tailnet.binaryAvailable) {
-    setup = `<div class="ts-setup-callout">
-      <strong>Tailscale isn't installed on this Mac.</strong>
-      <div class="tiny muted">Install it and sign in so your other devices can reach Orca privately.</div>
-      <div class="lane-row"><a class="btn" href="https://tailscale.com/download" target="_blank" rel="noopener noreferrer">Install Tailscale</a><a class="btn-ghost" href="https://login.tailscale.com/start" target="_blank" rel="noopener noreferrer">Create an account</a></div>
-    </div>`;
-  } else if (!tailnet.loggedIn) {
-    setup = `<div class="ts-setup-callout">
-      <strong>Tailscale is installed but not signed in.</strong>
-      <div class="lane-row"><a class="btn" href="https://login.tailscale.com" target="_blank" rel="noopener noreferrer">Sign in to Tailscale</a></div>
-    </div>`;
-  } else if (!tailnet.serveConfigured) {
-    setup = `<div class="ts-setup-callout">
-      <strong>Make Orca reachable from your other devices</strong>
-      <div class="tiny muted">One tap runs Tailscale Serve over HTTP (tailnet-only) so a phone or laptop can open Orca.</div>
-      <div class="lane-row"><button class="btn" data-action="setupTailscaleServe" type="button">Set up Tailscale Serve</button></div>
-    </div>`;
-  } else {
-    setup = `<p class="tiny muted">Serving over HTTP on your tailnet — any signed-in device can open the URL above.</p>`;
-  }
   return `
       <article class="card control-card" data-panel-card="access">
-        <h3>Tailscale access</h3>
-        ${setup}
         <div class="ts-subhead">HTTPS <span class="tiny muted">optional</span></div>
-        <p class="tiny muted">HTTP over the tailnet is enough for the dashboard and previews. HTTPS adds secure-context browser features (installing the PWA, web push) — but issuing a certificate publishes this Mac's <code>.ts.net</code> hostname to public certificate-transparency logs. You run it in Terminal; Orca just copies the command.</p>
+        <p class="tiny muted">HTTP over the tailnet is enough for the dashboard and previews. HTTPS adds secure-context browser features (installing the PWA, web push) — but issuing a certificate publishes the <code>.ts.net</code> hostname to public certificate-transparency logs.</p>
         <div class="ts-commands">
           <button class="btn-ghost" data-action="copyPrivateAccessCommand" data-command="${safeAttr(httpsServeCommand)}" type="button">Copy HTTPS command</button>
-          <button class="btn-ghost" data-action="copyPrivateAccessCommand" data-command="tailscale serve reset" type="button">Copy reset command</button>
-          ${tailnet.serveConfigured ? '<button class="btn-ghost" data-action="disableTailscaleServe" type="button">Turn off Serve</button>' : ''}
         </div>
-        <p class="tiny muted">Agents register their dev-server ports as project previews automatically. The Tailscale setup here is a one-time workstation step.</p>
       </article>`;
 }
 
@@ -445,10 +408,11 @@ async function fetchRemote() {
 }
 
 function paintRemote(access) {
+  remoteAccessCache = access || {};
   const bodyEl = document.getElementById('remote-body');
   if (!bodyEl) return;
-  const ctx = buildRemoteCtx(access);
-  bodyEl.innerHTML = `${renderPairPanel(ctx)}${renderPrivateAccessPanel(ctx)}`;
+  const ctx = buildRemoteCtx(remoteAccessCache);
+  bodyEl.innerHTML = `${renderPairPanel(ctx)}${renderPrivateAccessPanel()}`;
 }
 
 async function renderRemote() {
@@ -546,6 +510,11 @@ content.addEventListener('click', async (e) => {
   if (act) {
     const action = act.dataset.action;
     if (action === 'setTheme') { applyTheme(act.dataset.themeMode); return; }
+    if (action === 'toggleDeviceCard') {
+      openDeviceCard = openDeviceCard === act.dataset.card ? null : act.dataset.card;
+      paintRemote(remoteAccessCache);
+      return;
+    }
     if (action === 'copyPhoneUrl') { e.preventDefault(); copyToClipboard(act.dataset.url, act); return; }
     if (action === 'copyPrivateAccessCommand') { e.preventDefault(); copyToClipboard(act.dataset.command, act); return; }
     if (action === 'createPairingCode') {
