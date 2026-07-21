@@ -25,6 +25,11 @@ let selectedProjectId = null;
 const armed = new Set();
 const collapsed = new Set(); // project pids the operator explicitly collapsed
 let lastData = { projects: [] };
+// An unpaired remote device (a phone over Tailscale) gets a 401 from /api/overview.
+// When that happens we take over the whole screen with the pairing GATE below
+// instead of leaving the device stuck on "Connecting…". Cleared once pairing sets
+// the session cookie and /api/overview returns 200.
+let accessBlocked = false;
 function route() { return (location.hash.replace(/^#\/?/, '') || 'home'); }
 
 // ---- sidebar collapse (desktop: body.sidebar-collapsed; mobile: body.nav-open drawer) ----
@@ -480,9 +485,59 @@ async function copyToClipboard(text, btn) {
   }
 }
 
+// ---- remote-device pairing GATE ----
+// What an unpaired device (a phone that opened the tailnet URL) sees INSTEAD of
+// the dashboard: the workstation 401s all data until the device is paired, so the
+// gate is the only way in. Ported from experimental render-shell.js
+// (renderMobilePairGate) — same connect-* markup, all classes already in
+// styles.css. Tauri/multi-workstation bits dropped (v2 is web-only, one origin).
+// The device that loaded this URL is already "connected" (step 1 done); it just
+// needs the one-time code the operator creates under Remote devices.
+function renderPairGate(errorText = '') {
+  const host = (typeof window !== 'undefined' ? window.location.host : '');
+  const defaultLabel = isMobile() ? 'Phone browser' : 'Browser';
+  return `
+    <section class="connect-shell connect-gate">
+      <div class="connect-brand">
+        <img class="connect-logo" src="/orca-mark.png" alt="" width="40" height="40" />
+        <span class="connect-wordmark">Orca</span>
+      </div>
+      <h1 class="connect-title">Pair this device</h1>
+      <p class="connect-sub">You're connected to your workstation over Tailscale. Enter the one-time pairing code to finish — no data is shown until this device is paired.</p>
+      <ol class="connect-steps">
+        <li class="connect-step is-done">
+          <span class="connect-step-mark" aria-hidden="true">✓</span>
+          <div class="connect-step-body">
+            <strong>Connected to workstation</strong>
+            <span class="connect-step-host">${safeText(host)}</span>
+          </div>
+        </li>
+        <li class="connect-step is-active">
+          <span class="connect-step-mark" aria-hidden="true">2</span>
+          <div class="connect-step-body">
+            <strong>Enter the pairing code</strong>
+            <span class="connect-step-hint">On your Mac: Orca → Remote devices → Create a one-time code.</span>
+          </div>
+        </li>
+      </ol>
+      <div class="connect-card">
+        <label class="connect-label" for="pairing-code-input">Pairing code</label>
+        <input id="pairing-code-input" class="connect-input" autocomplete="one-time-code" autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="XXXX-XXXX-XXXX" />
+        <label class="connect-label" for="pairing-label-input">Device label</label>
+        <input id="pairing-label-input" class="connect-input" value="${safeAttr(defaultLabel)}" />
+        <button class="connect-go" data-action="pairBrowserSession" type="button">Pair device</button>
+        ${errorText ? `<div class="connect-error tiny" role="alert">${safeText(errorText)}</div>` : ''}
+      </div>
+    </section>`;
+}
+
 // ---- render dispatch ----
 function renderScreen() {
   content.removeAttribute('aria-busy');
+  // Unpaired remote: full-screen gate takeover (chrome hidden via body class), no
+  // sidebar/topbar — there's nothing to navigate to until this device pairs.
+  body.classList.toggle('access-gated', accessBlocked);
+  if (accessBlocked) { topbarTitle.textContent = ''; content.innerHTML = renderPairGate(); return; }
   renderSidebar(lastData);
   const r = route();
   if (r === 'settings') renderSettings();
@@ -493,14 +548,23 @@ function renderScreen() {
 async function poll() {
   try {
     const res = await fetch('/api/overview', { headers: { accept: 'application/json' } });
+    if (res.status === 401) {
+      // Unpaired remote device. Render the gate ONCE on the transition into the
+      // blocked state so the 2s poll never clobbers a half-typed code (the
+      // "opens then wipes" ephemeral-state bug class). It clears when the pair
+      // handler sets the cookie and the next poll gets a 200.
+      if (!accessBlocked) { accessBlocked = true; renderScreen(); }
+      return;
+    }
     if (!res.ok) return;
     lastData = await res.json();
+    if (accessBlocked) { accessBlocked = false; renderScreen(); } // just got paired → leave the gate
     renderSidebar(lastData);
     if (route() === 'home') renderHome(lastData); // only the tree auto-refreshes
   } catch { /* */ }
   // On the Remote screen, watch paired sessions so a code being accepted flips
   // the card to green instantly and the device count updates (see auth audit).
-  if (route() === 'remote') {
+  if (!accessBlocked && route() === 'remote') {
     const before = remoteAuthSessions.length;
     try {
       const s = await (await fetch('/api/auth/sessions', { headers: { accept: 'application/json' } })).json();
@@ -549,6 +613,20 @@ content.addEventListener('click', async (e) => {
   if (act) {
     const action = act.dataset.action;
     if (action === 'setTheme') { applyTheme(act.dataset.themeMode); return; }
+    if (action === 'pairBrowserSession') {
+      // Remote-device gate: submit the one-time code. No auth needed — the whole
+      // point is to let an UNpaired device pair itself (server sets the cookie).
+      e.preventDefault(); act.disabled = true;
+      const code = (document.getElementById('pairing-code-input')?.value || '').trim();
+      const label = (document.getElementById('pairing-label-input')?.value || '').trim() || 'Paired device';
+      if (!code) { content.innerHTML = renderPairGate('Enter the pairing code from your workstation.'); return; }
+      try {
+        const res = await fetch('/api/auth/pair', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ actor: 'dashboard', code, label }) });
+        if (res.ok) { accessBlocked = false; await poll(); renderScreen(); } // cookie set → 200 → dashboard
+        else { const d = await res.json().catch(() => ({})); content.innerHTML = renderPairGate(d.error || 'Could not pair. Create a new code and try again.'); }
+      } catch { content.innerHTML = renderPairGate('Could not reach Orca. Check your Tailscale connection and try again.'); }
+      return;
+    }
     if (action === 'toggleDeviceCard') {
       openDeviceCard = openDeviceCard === act.dataset.card ? null : act.dataset.card;
       paintRemote(remoteAccessCache);

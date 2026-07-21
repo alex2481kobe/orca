@@ -161,6 +161,56 @@ async function captureBrowserScreenshots({ sessionCookie = null, projectId = nul
   return { screenshots };
 }
 
+// Regression guard for the remote-device pairing GATE. An unpaired device behind
+// Tailscale Serve arrives PROXIED (x-forwarded-* headers), which disables the
+// loopback bootstrap-admin trust → /api/overview 401s. The UI MUST render the
+// pairing gate (code entry) rather than sit on "Connecting…" forever — the exact
+// gate-less-phone regression this proves against. Then a valid code must pair the
+// device through the UI and drop it onto the dashboard.
+async function capturePairingGateProof() {
+  let chromium;
+  try { ({ chromium } = await import('playwright')); }
+  catch (error) { log('pairing gate proof', `skipped (${error.message})`); return { skipped: true }; }
+  let browser;
+  try { browser = await chromium.launch({ headless: true }); }
+  catch (error) { log('pairing gate proof', `skipped (${error.message})`); return { skipped: true }; }
+  try {
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    // Make every request look like it came through the Serve proxy.
+    await context.route('**/*', (route) => {
+      const h = { ...route.request().headers() };
+      h['x-forwarded-for'] = '100.115.92.33';
+      h['x-forwarded-proto'] = 'http';
+      route.continue({ headers: h });
+    });
+    const page = await context.newPage();
+    const errors = [];
+    page.on('pageerror', (error) => errors.push(error.message || String(error)));
+    await page.goto(new URL('/', base).toString(), { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await page.waitForSelector('#pairing-code-input', { timeout: 15000 })
+      .catch(() => fail('pairing gate not rendered for unpaired remote', 'no #pairing-code-input — phone would be stuck on Connecting'));
+    if (!(await page.evaluate(() => document.body.classList.contains('access-gated')))) {
+      fail('pairing gate should set body.access-gated', 'missing');
+    }
+    // A fresh, valid code pairs the device THROUGH THE UI → dashboard.
+    const mk = await req('POST', '/api/auth/pairing-codes', { actor: 'dashboard', label: 'Gate proof', ttlMs: 60_000 });
+    const code = mk.body?.pairing?.code;
+    if (!code) fail('pairing gate proof: could not mint code', JSON.stringify(mk));
+    await page.fill('#pairing-code-input', code);
+    await page.click('[data-action="pairBrowserSession"]');
+    await page.waitForFunction(
+      () => !document.getElementById('pairing-code-input') && !document.body.classList.contains('access-gated'),
+      { timeout: 15000 },
+    ).catch(() => fail('pairing gate did not clear after a valid code', 'still gated'));
+    if (errors.length) fail('pairing gate console errors', errors.join(' | '));
+    await context.close();
+    log('pairing gate proof', 'unpaired remote → gate → valid code → dashboard');
+    return { ok: true };
+  } finally {
+    await browser.close();
+  }
+}
+
 async function cleanupStartedServer() {
   if (stopServer) await stopServer();
   if (server) await new Promise((resolve) => server.close(resolve));
@@ -406,6 +456,9 @@ const browserProof = await captureBrowserScreenshots({
 if (!browserProof.skipped && (!browserProof.screenshots || browserProof.screenshots.length < 2)) {
   fail('browser screenshot proof incomplete', JSON.stringify(browserProof));
 }
+
+// --- pairing gate proof: unpaired remote sees the gate, then pairs into the app ---
+await capturePairingGateProof();
 
 const elapsed = Date.now() - start;
 log('done', `${elapsed}ms`);

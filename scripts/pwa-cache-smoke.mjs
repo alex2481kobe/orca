@@ -213,7 +213,7 @@ async function main() {
   await harness.runLifecycle('install');
   await harness.runLifecycle('activate');
   const precache = harness.addAllCalls[0] || [];
-  const expectedPrecache = ['/', '/styles.css', '/app.js', '/manifest.webmanifest', '/favicon-32.png'];
+  const expectedPrecache = ['/', '/styles.css', '/ui/overview.js', '/manifest.webmanifest', '/favicon-32.png'];
   for (const item of expectedPrecache) {
     if (!precache.includes(item)) fail('precache missing static asset', item);
   }
@@ -242,13 +242,13 @@ async function main() {
   const postResponse = await harness.runFetch(request('http://127.0.0.1:3000/api/projects', { method: 'POST' }));
   if (postResponse) fail('mutating POST should bypass service worker respondWith');
 
-  await harness.runFetch(request('http://127.0.0.1:3000/app.js?v=20260528', { destination: 'script' }));
+  await harness.runFetch(request('http://127.0.0.1:3000/ui/overview.js?v=v2-15', { destination: 'script' }));
   await harness.runFetch(request('http://127.0.0.1:3000/?apiToken=manual-test-token', { destination: 'document' }));
   await harness.runFetch(request('http://127.0.0.1:3000/projects/demo/sessions/one', { destination: 'document' }));
 
   assertNoSensitiveCacheWrites(harness.cachePuts);
   const keys = harness.cachePuts.map((item) => item.key);
-  if (!keys.includes('/app.js')) fail('versioned app.js should cache under normalized static key');
+  if (!keys.includes('/ui/overview.js')) fail('versioned overview.js should cache under normalized static key');
   if (keys.includes('/?apiToken=manual-test-token') || keys.includes('/')) {
     const rootWrites = harness.cachePuts.filter((item) => item.key === '/');
     if (rootWrites.length > 0) fail('token-bearing root document must not write root cache entry after install');
