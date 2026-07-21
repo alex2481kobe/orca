@@ -56,9 +56,10 @@ function evidenceFreshForLane(registry, lane) {
   return Boolean(lane.lastEvidence && lane.lastEvidenceCaptureAt);
 }
 
-function chooseNextTool({ registry, role, project, session, lane, auditQueued, flow }) {
+export function chooseNextTool({ registry, role, project, session, lane, auditQueued, flow }) {
   const normalizedRole = normalizeRole(role);
-  if (normalizedRole === 'supervisor') return 'supervisor.overview';
+  // supervisor is deprecated (v2 has no supervisor); it falls through to the
+  // read-only path below and never gets a supervisor-only tool.
   if (!project) return normalizedRole === 'orchestrator' || normalizedRole === 'dashboard'
     ? 'project.create'
     : 'project.list';
@@ -79,10 +80,9 @@ function chooseNextTool({ registry, role, project, session, lane, auditQueued, f
   if (lane.state === 'queued') return 'session.next_action';
   if (lane.state === 'starting' || lane.state === 'running') return normalizedRole === 'executor' ? 'lane.heartbeat' : 'session.next_action';
   if (lane.state === 'needs_critique') {
-    if (lane.critiqueMode === 'visual-required' && !evidenceFreshForLane(registry, lane)) {
-      return 'evidence.capture_screenshot';
-    }
-    return lane.critiqueNonce ? 'critique.findings.record' : 'critique.bundle.create';
+    // v2 removed the critique/evidence tools; self-verification folds into the
+    // orchestrator audit. Point at a live read so callers inspect the lane.
+    return 'lane.get';
   }
   if (lane.state === 'done' || lane.state === 'ready_for_audit') return auditQueued ? 'audit.findings.record' : 'audit.queue_one';
   if (lane.state === 'fix_requested') {
@@ -120,26 +120,13 @@ function nextToolForLane({ registry, role, project, session, lane }) {
   };
 }
 
-function manualBacklogCanCreateLane(registry, session) {
-  if (!session?.id) return false;
-  let backlog = null;
-  let capacity = null;
-  try { backlog = registry.sessionBacklogStatus(session.id); } catch { backlog = null; }
-  try { capacity = registry.getSessionCapacity(session.id); } catch { capacity = null; }
-  return Number(backlog?.counts?.pending || 0) > 0
-    && String(backlog?.capacity?.spawnPolicy || capacity?.spawnPolicy || '') !== 'auto'
-    && Number(capacity?.idleSlots || 0) > 0;
-}
-
 const SESSION_LANE_ACTION_PRIORITY = {
   'orchestrator.enroll': 5,
-  'evidence.capture_screenshot': 10,
-  'critique.bundle.create': 20,
-  'critique.findings.record': 20,
   'audit.queue_one': 30,
   'audit.findings.record': 30,
   'lane.retry': 40,
   'lane.create': 45,
+  'lane.get': 50,
   'lane.heartbeat': 80,
   'session.next_action': 90,
 };
@@ -167,18 +154,12 @@ function chooseSessionLane(registry, { role, project, session }) {
     })
     .sort((a, b) => (a.priority - b.priority) || (b.updatedAt - a.updatedAt));
   const best = candidates[0] || null;
-  if (['orchestrator', 'dashboard'].includes(normalizedRole)
-    && manualBacklogCanCreateLane(registry, session)
-    && (!best || best.priority > SESSION_LANE_ACTION_PRIORITY['lane.create'])) {
-    return null;
-  }
   return best?.lane || null;
 }
 
-function buildCapacity(registry, session) {
-  if (session?.id && typeof registry?.getSessionCapacity === 'function') {
-    return registry.getSessionCapacity(session.id);
-  }
+function buildCapacity() {
+  // v2 removed per-session backlog capacity accounting (executor.spawn is the
+  // fan-out path). Return a stable, non-authoritative default shape.
   return {
     spawnPolicy: 'within_capacity',
     approvedCapacity: 2,
@@ -295,7 +276,7 @@ export function buildNextActionEnvelope(registry, {
     auditSatisfied: auditRequired ? auditSatisfied : true,
     flow,
     turnPolicy: lane?.turnPolicy || null,
-    capacity: buildCapacity(registry, session),
+    capacity: buildCapacity(),
     executorCapabilities: (!lean && typeof registry?.getExecutorCapabilitiesMatrix === 'function')
       ? registry.getExecutorCapabilitiesMatrix()
       : {},

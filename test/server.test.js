@@ -3315,3 +3315,62 @@ test('workstation directory picker lists jailed dirs and refuses escapes', async
     await server.stop();
   }
 });
+
+test('removed v2 routes fail closed as 404 (not 500) for an authenticated request', async () => {
+  // Regression lock-in for the v2 refactor: the capacity / supervisor /
+  // agent-memory / tasks / backlog / loops / critique / evidence HTTP handlers
+  // (and their registry methods) were deleted. Their tool-lease requirement
+  // entries were removed from toolLeaseRequirementForRoute too, so an authed
+  // request must dispatch straight through to the global 404 — never a 500 from
+  // a route block calling a now-missing registry method.
+  const token = 'removed-routes-404-token';
+  const server = await startServer({ token });
+  const auth = { 'x-orca-token': token };
+
+  try {
+    const project = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: auth,
+      body: { name: 'Removed Routes Project', approved: true },
+    });
+    assert.equal(project.status, 201, JSON.stringify(project.body));
+
+    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
+      method: 'POST',
+      headers: auth,
+      body: { name: 'Removed Routes Session', approved: true },
+    });
+    assert.equal(session.status, 201, JSON.stringify(session.body));
+    const sid = session.body.id;
+
+    const lane = await server.requestJson(`/api/sessions/${sid}/lanes`, {
+      method: 'POST',
+      headers: auth,
+      body: { title: 'Removed Routes Lane', executorType: 'mock', approved: true },
+    });
+    assert.equal(lane.status, 201, JSON.stringify(lane.body));
+    const lid = lane.body.id;
+
+    const removed = [
+      ['GET', `/api/sessions/${sid}/agent-memory`, undefined],
+      ['POST', `/api/sessions/${sid}/tasks`, { actor: 'dashboard', approved: true, title: 'x' }],
+      ['GET', `/api/sessions/${sid}/backlog`, undefined],
+      ['GET', `/api/sessions/${sid}/loops`, undefined],
+      ['POST', `/api/sessions/${sid}/supervisor/audit`, { actor: 'dashboard', approved: true }],
+      ['POST', `/api/lanes/${lid}/critique/bundle`, { actor: 'dashboard', approved: true }],
+    ];
+
+    for (const [method, routePath, body] of removed) {
+      const res = await server.requestJson(routePath, { method, headers: auth, body });
+      assert.equal(
+        res.status,
+        404,
+        `${method} ${routePath} should be a removed-route 404, got ${res.status} ${JSON.stringify(res.body)}`,
+      );
+      // Explicitly guard against a 500 leaking from a dangling registry call.
+      assert.notEqual(res.status, 500, `${method} ${routePath} must not 500`);
+    }
+  } finally {
+    await server.stop();
+  }
+});

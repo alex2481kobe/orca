@@ -8,7 +8,10 @@ import {
   buildAgentToolDiscovery,
   buildNextActionEnvelope,
   findTool,
+  ROLE_INSTRUCTIONS,
+  TOOL_DEFINITIONS,
 } from '../src/agent-tools.js';
+import { chooseNextTool } from '../src/agent-tools/next-action.js';
 import { OrcaRegistry } from '../src/registry.js';
 
 async function withIsolatedRegistry(callback) {
@@ -92,6 +95,79 @@ test('supervisor docs match the bounded read/audit role contract', async () => {
   assert.match(doc, /does not mutate session plans, backlog tasks, capacity, worktree\s+policy, settings, lanes, or orchestrator ownership/i);
   assert.doesNotMatch(doc, /session\.plan\.update/);
   assert.doesNotMatch(doc, /task\.add|task\.bulk_add|task\.update/);
+});
+
+test('role instructions and next-action only reference live tool ids (v2 coherence guard)', () => {
+  const liveIds = new Set(TOOL_DEFINITIONS.map((tool) => tool.id));
+  // Dotted tokens that appear in the rulebook prose but are NOT tool ids. Kept
+  // empty on purpose so the rulebook can only name real tools — add here only if a
+  // non-tool dotted token is genuinely unavoidable.
+  const NON_TOOL_WHITELIST = new Set([]);
+
+  // 1. Every dotted-tool-shaped token in every role's rulebook must be a live tool
+  // (mcp-server.js rewrites each id to its "__" MCP name, so a dead id would ship a
+  // broken instruction to every agent on `initialize`).
+  const TOOL_ID_SHAPE = /[a-z_]+\.[a-z_.]+/g;
+  for (const [role, text] of Object.entries(ROLE_INSTRUCTIONS)) {
+    for (const raw of text.match(TOOL_ID_SHAPE) || []) {
+      const token = raw.replace(/\.+$/, ''); // strip trailing sentence periods
+      if (NON_TOOL_WHITELIST.has(token)) continue;
+      assert.equal(liveIds.has(token), true, `role "${role}" instructions reference dead tool id "${token}"`);
+    }
+  }
+  // Explicitly prove the deleted-v1 tools are gone from the rulebook.
+  const rulebook = Object.values(ROLE_INSTRUCTIONS).join('\n');
+  for (const dead of [
+    'supervisor.overview', 'supervisor.resign', 'session.memory', 'task.bulk_add',
+    'loop.create', 'evidence.', 'critique.bundle', 'critique.findings', 'orchestrator.thread',
+  ]) {
+    assert.equal(rulebook.includes(dead), false, `rulebook still references deleted v1 tool "${dead}"`);
+  }
+
+  // 2. Drive chooseNextTool across every role x lane-state x flow branch it has and
+  // assert each returned nextRequiredTool is live (or null). A mock registry
+  // exercises both the enrolled and un-enrolled orchestrator gates.
+  const roles = ['supervisor', 'orchestrator', 'executor', 'auditor', 'critique', 'dashboard'];
+  const laneStates = [
+    null, 'queued', 'starting', 'running', 'needs_critique', 'done', 'ready_for_audit',
+    'auditing', 'fix_requested', 'accepted', 'failed', 'stopped', 'blocked', 'unknown-state',
+  ];
+  const flows = [
+    { template: 'orchestrator-executor', fixRouting: 'same-agent' },
+    { template: 'orchestrator-only', fixRouting: 'new-agent' },
+  ];
+  const registries = [
+    { getActiveOrchestrator: () => ({ active: true, stale: false }) },
+    { getActiveOrchestrator: () => ({ active: false, stale: true }) },
+  ];
+  const project = { id: 'p1', slug: 'p1', name: 'P' };
+  const session = { id: 's1', name: 'S' };
+  const scopes = [[null, null], [project, null], [project, session]];
+
+  let returned = new Set();
+  for (const role of roles) {
+    for (const registry of registries) {
+      for (const [proj, sess] of scopes) {
+        for (const flow of flows) {
+          for (const laneState of laneStates) {
+            const lane = laneState === null ? null : { id: 'l1', state: laneState };
+            for (const auditQueued of [false, true]) {
+              const next = chooseNextTool({ registry, role, project: proj, session: sess, lane, auditQueued, flow });
+              returned.add(next);
+              assert.ok(
+                next === null || liveIds.has(next),
+                `chooseNextTool returned dead tool "${next}" (role=${role}, lane=${laneState}, auditQueued=${auditQueued}, flow=${flow.template})`,
+              );
+            }
+          }
+        }
+      }
+    }
+  }
+  // None of the deleted v1 tools may ever be returned.
+  for (const dead of ['supervisor.overview', 'evidence.capture_screenshot', 'critique.bundle.create', 'critique.findings.record']) {
+    assert.equal(returned.has(dead), false, `chooseNextTool can still return deleted tool "${dead}"`);
+  }
 });
 
 test('nextAction envelope only advertises an implemented nextRequiredTool', async () => {

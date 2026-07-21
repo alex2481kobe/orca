@@ -72,7 +72,9 @@ npm start                 # Orca daemon on http://127.0.0.1:3000  (open it: the 
 Point an agent at it over MCP (the orchestrator role mints a scoped lease):
 
 ```bash
-claude mcp add orca -- npx orca-mcp        # or: codex mcp add orca -- npx orca-mcp
+# Run from your Orca checkout — the package isn't published to npm, so point the
+# client at the bundled server by absolute path:
+claude mcp add orca -- node "$PWD/src/mcp-server.js"   # or: codex mcp add orca -- node "$PWD/src/mcp-server.js"
 ```
 
 Then, from inside that agent, register and spawn:

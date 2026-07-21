@@ -112,40 +112,6 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
       }
     }
 
-    if (parts.length === 4 && parts[3] === 'agent-memory') {
-      if (method === 'GET') {
-        const sp = getSearchParams(req.url || '/');
-        if (!sp) return sendJson(res, 400, { error: 'Invalid request query string.' });
-        try {
-          const result = registry.listSessionAgentMemory(session.id, {
-            role: req._toolLease?.role || 'dashboard',
-            actor: req._toolLease?.actor || 'dashboard',
-            laneId: req._toolLease?.laneId || null,
-            limit: sp.get('limit') || 20,
-          });
-          return sendJson(res, 200, result);
-        } catch (error) {
-          return sendJson(res, error.status || 500, { error: error.message || 'Could not read agent memory.' });
-        }
-      }
-      if (method === 'PATCH') {
-        const body = await parseJsonBody(req);
-        if (body === null) return sendBodyError(req, res);
-        if (rejectSpoofedActor(body, res)) return;
-        try {
-          const result = registry.updateSessionAgentMemory(session.id, body, {
-            role: req._toolLease?.role || 'dashboard',
-            actor: req._toolLease?.actor || 'dashboard',
-            laneId: req._toolLease?.laneId || null,
-          });
-          return sendJson(res, 200, result);
-        } catch (error) {
-          return sendJson(res, error.status || 500, { error: error.message || 'Could not update agent memory.' });
-        }
-      }
-      return sendJson(res, 405, { error: 'Method not allowed.' });
-    }
-
     if (parts.length === 4 && parts[3] === 'attachments' && method === 'POST') {
       // Larger cap than normal JSON: attachments (screenshots/docs) arrive base64-encoded.
       const body = await parseJsonBody(req, { maxBytes: 13 * 1024 * 1024 });
@@ -214,21 +180,6 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
     }
 
 
-    if (parts.length === 5 && parts[3] === 'supervisor' && parts[4] === 'audit' && method === 'POST') {
-      const body = await parseJsonBody(req);
-      if (body === null) return sendBodyError(req, res);
-      if (rejectSpoofedActor(body, res)) return;
-      try {
-        const result = registry.recordSupervisorSessionAudit(session.id, {
-          ...body,
-          actor: req._toolLease?.actor || body.actor || 'supervisor',
-        });
-        return sendJson(res, 200, result);
-      } catch (error) {
-        return sendJson(res, error.status || 500, { error: error.message || 'Could not record supervisor audit.' });
-      }
-    }
-
     if (parts.length === 4 && parts[3] === 'lanes') {
       // Compact list (no logs, last-20 agentEvents + counts). The full lane is
       // fetched per-lane via GET /api/lanes/:id when opened. Keeps the poll cheap.
@@ -263,50 +214,6 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
 
     // Backlog tasks: list / add (and bulk add). The auto-spawn engine fans these
     // out across executor lanes when the session's spawnPolicy is 'auto'.
-    if (parts.length === 4 && parts[3] === 'tasks') {
-      if (method === 'GET') {
-        const sp = getSearchParams(req.url || '/');
-        return sendJson(res, 200, registry.listTasks(session.id, { state: sp ? sp.get('state') : null }));
-      }
-      if (method === 'POST') {
-        const body = await parseJsonBody(req);
-        if (body === null) return sendBodyError(req, res);
-        if (rejectSpoofedActor(body, res)) return;
-        try {
-          const task = registry.addTask(session.id, body, { actor: req._toolLease?.actor || body.actor || 'orchestrator', approved: body.approved });
-          return sendJson(res, 201, task);
-        } catch (error) {
-          return sendJson(res, error.status || 500, { error: error.message || 'Could not add task.' });
-        }
-      }
-      return sendJson(res, 405, { error: 'Method not allowed.' });
-    }
-
-    if (parts.length === 5 && parts[3] === 'tasks' && parts[4] === 'bulk' && method === 'POST') {
-      const body = await parseJsonBody(req);
-      if (body === null) return sendBodyError(req, res);
-      if (rejectSpoofedActor(body, res)) return;
-      try {
-        const result = registry.bulkAddTasks(session.id, body, { actor: req._toolLease?.actor || body.actor || 'orchestrator' });
-        // If nothing was added but there were per-task errors, that's a failure —
-        // don't report 201 success with the errors buried in the body.
-        if (result.added === 0 && Array.isArray(result.errors) && result.errors.length) {
-          return sendJson(res, 422, { error: 'No tasks could be added.', ...result });
-        }
-        return sendJson(res, 201, result);
-      } catch (error) {
-        return sendJson(res, error.status || 500, { error: error.message || 'Could not add tasks.' });
-      }
-    }
-
-    if (parts.length === 4 && parts[3] === 'backlog' && method === 'GET') {
-      try {
-        return sendJson(res, 200, registry.sessionBacklogStatus(session.id));
-      } catch (error) {
-        return sendJson(res, error.status || 500, { error: error.message || 'Could not read backlog status.' });
-      }
-    }
-
     if (parts.length >= 4 && parts[3] === 'events') {
       if (parts.length === 5 && ['drain', 'replay'].includes(parts[4]) && method === 'GET') {
         const sp = getSearchParams(req.url || '/');
@@ -337,57 +244,6 @@ export async function handleSessionRoutes(ctx, req, res, method, parts) {
           return sendJson(res, 200, result);
         } catch (error) {
           return sendJson(res, error.status || 500, { error: error.message || 'Could not acknowledge agent event.' });
-        }
-      }
-      return sendJson(res, 405, { error: 'Method not allowed.' });
-    }
-
-    if (parts.length >= 4 && parts[3] === 'loops') {
-      if (parts.length === 4 && method === 'GET') {
-        const sp = getSearchParams(req.url || '/');
-        return sendJson(res, 200, registry.listLoops(session.id, { state: sp ? sp.get('state') : null }));
-      }
-      if (parts.length === 4 && method === 'POST') {
-        const body = await parseJsonBody(req);
-        if (body === null) return sendBodyError(req, res);
-        if (rejectSpoofedActor(body, res)) return;
-        try {
-          const loop = registry.createLoop(session.id, body, {
-            actor: req._toolLease?.actor || body.actor || 'orchestrator',
-            approved: body.approved,
-          });
-          return sendJson(res, 201, loop);
-        } catch (error) {
-          return sendJson(res, error.status || 500, {
-            error: error.message || 'Could not create loop.',
-            requiresApproval: error.requiresApproval || false,
-            risk: error.risk || null,
-          });
-        }
-      }
-      if (parts.length === 5 && method === 'GET') {
-        const loop = registry.getLoop(parts[4]);
-        if (!loop || loop.sessionId !== session.id) return sendJson(res, 404, { error: 'Loop not found.' });
-        return sendJson(res, 200, registry.publicLoop(loop));
-      }
-      if (parts.length === 5 && method === 'PATCH') {
-        const body = await parseJsonBody(req);
-        if (body === null) return sendBodyError(req, res);
-        if (rejectSpoofedActor(body, res)) return;
-        const loop = registry.getLoop(parts[4]);
-        if (!loop || loop.sessionId !== session.id) return sendJson(res, 404, { error: 'Loop not found.' });
-        try {
-          const updated = registry.updateLoop(loop.id, body, {
-            actor: req._toolLease?.actor || body.actor || 'orchestrator',
-            approved: body.approved,
-          });
-          return sendJson(res, 200, updated);
-        } catch (error) {
-          return sendJson(res, error.status || 500, {
-            error: error.message || 'Could not update loop.',
-            requiresApproval: error.requiresApproval || false,
-            risk: error.risk || null,
-          });
         }
       }
       return sendJson(res, 405, { error: 'Method not allowed.' });

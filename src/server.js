@@ -356,23 +356,8 @@ function toolLeaseRequirementForRoute(method, parts) {
     if (method === 'GET') return { toolId: 'session.describe', sessionId: parts[2] };
     if (method === 'POST') return { toolId: 'lane.create', sessionId: parts[2] };
   }
-  if (parts[1] === 'sessions' && parts[2] && parts[3] === 'capacity' && parts[4] === 'request' && method === 'POST') {
-    return { toolId: 'capacity.request', sessionId: parts[2] };
-  }
-  if (parts[1] === 'sessions' && parts[2] && parts[3] === 'capacity' && parts[4] === 'policy' && method === 'POST') {
-    return { toolId: 'capacity.set_policy', sessionId: parts[2] };
-  }
   if (parts[1] === 'sessions' && parts[2] && parts[3] === 'worktree-policy' && method === 'POST') {
     return { toolId: 'session.worktree_policy.update', sessionId: parts[2] };
-  }
-  if (parts[1] === 'supervisor' && parts[2] === 'overview' && method === 'GET') {
-    return { toolId: 'supervisor.overview' };
-  }
-  if (parts[1] === 'supervisor' && parts[2] === 'resign' && method === 'POST') {
-    return { toolId: 'supervisor.resign' };
-  }
-  if (parts[1] === 'sessions' && parts[2] && parts[3] === 'supervisor' && parts[4] === 'audit' && method === 'POST') {
-    return { toolId: 'session.supervisor_audit', sessionId: parts[2] };
   }
   if (parts[1] === 'sessions' && parts[2] && parts[3] === 'audit-done-lanes' && method === 'POST') {
     return { toolId: 'audit.queue_all_ready', sessionId: parts[2] };
@@ -380,30 +365,10 @@ function toolLeaseRequirementForRoute(method, parts) {
   if (parts[1] === 'sessions' && parts[2] && parts[3] === 'plan' && method === 'POST') {
     return { toolId: 'session.plan.update', sessionId: parts[2] };
   }
-  if (parts[1] === 'sessions' && parts[2] && parts[3] === 'agent-memory' && parts.length === 4) {
-    if (method === 'GET') return { toolId: 'session.memory.get', sessionId: parts[2] };
-    if (method === 'PATCH') return { toolId: 'session.memory.update', sessionId: parts[2] };
-  }
-  if (parts[1] === 'sessions' && parts[2] && parts[3] === 'tasks' && parts.length === 4) {
-    if (method === 'GET') return { toolId: 'task.list', sessionId: parts[2] };
-    if (method === 'POST') return { toolId: 'task.add', sessionId: parts[2] };
-  }
-  if (parts[1] === 'sessions' && parts[2] && parts[3] === 'tasks' && parts[4] === 'bulk' && method === 'POST') {
-    return { toolId: 'task.bulk_add', sessionId: parts[2] };
-  }
-  if (parts[1] === 'sessions' && parts[2] && parts[3] === 'backlog' && method === 'GET') {
-    return { toolId: 'backlog.status', sessionId: parts[2] };
-  }
   if (parts[1] === 'sessions' && parts[2] && parts[3] === 'events') {
     if (parts[4] === 'drain' && method === 'GET') return { toolId: 'event.drain', sessionId: parts[2] };
     if (parts[4] === 'replay' && method === 'GET') return { toolId: 'event.replay', sessionId: parts[2] };
     if (parts[4] === 'ack' && method === 'POST') return { toolId: 'event.ack', sessionId: parts[2] };
-  }
-  if (parts[1] === 'sessions' && parts[2] && parts[3] === 'loops') {
-    if (parts.length === 4 && method === 'GET') return { toolId: 'loop.list', sessionId: parts[2] };
-    if (parts.length === 4 && method === 'POST') return { toolId: 'loop.create', sessionId: parts[2] };
-    if (parts.length === 5 && method === 'GET') return { toolId: 'loop.describe', sessionId: parts[2] };
-    if (parts.length === 5 && method === 'PATCH') return { toolId: 'loop.update', sessionId: parts[2] };
   }
   if (parts[1] === 'orchestrators' && parts.length === 2 && method === 'POST') {
     return { toolId: 'orchestrator.register' };
@@ -425,10 +390,6 @@ function toolLeaseRequirementForRoute(method, parts) {
   }
   if (parts[1] === 'sessions' && parts[2] && parts[3] === 'orchestrator' && parts[4] === 'status' && method === 'GET') {
     return { toolId: 'orchestrator.status', sessionId: parts[2] };
-  }
-  if (parts[1] === 'tasks' && parts[2] && parts.length === 3) {
-    if (method === 'PATCH') return { toolId: 'task.update' };
-    if (method === 'DELETE') return { toolId: 'task.delete' };
   }
   if (parts[1] === 'lanes' && parts[2] && parts.length === 3 && method === 'GET') {
     return { toolId: 'lane.get', laneId: parts[2] };
@@ -461,15 +422,6 @@ function toolLeaseRequirementForRoute(method, parts) {
   if (parts[1] === 'lanes' && parts[2] && parts[3] === 'controls' && method === 'PATCH') {
     return { toolId: 'lane.controls.update', laneId: parts[2] };
   }
-  if (parts[1] === 'lanes' && parts[2] && parts[3] === 'critique' && parts[4] === 'bundle' && method === 'POST') {
-    return { toolId: 'critique.bundle.create', laneId: parts[2] };
-  }
-  if (parts[1] === 'lanes' && parts[2] && parts[3] === 'critique' && parts[4] === 'findings' && method === 'POST') {
-    return { toolId: 'critique.findings.record', laneId: parts[2] };
-  }
-  if (parts[1] === 'lanes' && parts[2] && parts[3] === 'critique' && parts[4] === 'waive' && method === 'POST') {
-    return { toolId: 'critique.waive', laneId: parts[2] };
-  }
   if (parts[1] === 'lanes' && parts[2] && parts[3] === 'audit' && parts.length === 4 && method === 'POST') {
     return { toolId: 'audit.queue_one', laneId: parts[2] };
   }
@@ -484,13 +436,6 @@ function toolLeaseRequirementForRoute(method, parts) {
   }
   if (parts[1] === 'lanes' && parts[2] && parts[3] === 'audit' && parts[4] === 'block' && method === 'POST') {
     return { toolId: 'audit.block', laneId: parts[2] };
-  }
-  if (parts[1] === 'lanes' && parts[2] && parts[3] === 'evidence' && parts.length === 4) {
-    if (method === 'GET') return { toolId: 'evidence.list', laneId: parts[2] };
-    if (method === 'POST') return { toolIds: ['evidence.capture_screenshot', 'evidence.capture_video'], laneId: parts[2] };
-  }
-  if (parts[1] === 'lanes' && parts[2] && parts[3] === 'evidence' && parts[4] === 'latest' && method === 'GET') {
-    return { toolId: 'evidence.latest', laneId: parts[2] };
   }
   return null;
 }
@@ -536,7 +481,7 @@ function hasSpecificToolLeaseAuth(req, requirement) {
       req._toolLease = lease;
       return true;
     } catch {
-      // Keep checking alternate tool ids for shared routes such as evidence capture.
+      // Keep checking alternate tool ids for routes that accept multiple candidate leases.
     }
   }
   return false;

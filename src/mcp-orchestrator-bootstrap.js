@@ -158,7 +158,6 @@ export function buildOrchestratorMcpConfigs({
   nodePath,
   serverPath = MCP_SERVER_PATH,
 } = {}) {
-  const resolvedRole = String(role || 'orchestrator');
   const env = buildEnv({ baseUrl, leaseToken, role, projectId, sessionId });
   const resolvedNode = validateLauncherPath(nodePath || process.execPath, 'nodePath');
   const resolvedServerPath = validateLauncherPath(serverPath || MCP_SERVER_PATH, 'serverPath');
@@ -188,9 +187,7 @@ export function buildOrchestratorMcpConfigs({
       `Fastest path (Claude Code CLI / Codex CLI): run the one-line "claude mcp add"/"codex mcp add" command below, then restart your session.`,
       `Otherwise paste the Claude Desktop JSON or Codex TOML into that client's config and restart it. The config uses an absolute node + bundled mcp-server.js path, so no Orca source checkout is required (Orca is not published to npm; the 'orca-mcp' bin variant only works after 'npm link' in a checkout).`,
       `Open ${dashboardUrl || baseUrl || 'the Orca dashboard URL'} in the desktop app's in-app browser to drive Orca visually.`,
-      resolvedRole === 'supervisor'
-        ? `The server exposes Orca's supervisor tools; call supervisor__overview first, then inspect orchestrator__thread__get / orchestrator__status and use session__supervisor_audit for review feedback; the server enforces the workflow.`
-        : `The server exposes Orca's orchestrator tools; call session__next_action first, then orchestrator__enroll — the server enforces the workflow.`,
+      `The server exposes Orca's orchestrator tools. Call orchestrator__register with your working directory first (Orca binds you to the project keyed by that cwd), then orchestrator__update to set your title + focus, executor__spawn to launch executors under contract, lane__list / lane__get / lane__terminal__tail to monitor them, and audit__queue_one + audit__accept / audit__request_fix to enforce the completion contract before resigning with orchestrator__resign. The server enforces the workflow.`,
     ],
     clients,
     // Same configs but launched via the PATH-resolved 'orca-mcp' command instead

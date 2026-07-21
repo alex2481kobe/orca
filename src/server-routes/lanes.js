@@ -216,58 +216,6 @@ export async function handleLaneRoutes(ctx, req, res, method, parts) {
       }
     }
 
-    if (parts.length === 5 && parts[3] === 'critique' && parts[4] === 'bundle' && method === 'POST') {
-      const body = await parseJsonBody(req);
-      if (body === null) return sendBodyError(req, res);
-    if (rejectSpoofedActor(body, res)) return;
-      try {
-        const bundle = registry.createCritiqueBundle(lane.id, {
-          actor: body.actor || 'dashboard',
-        });
-        return sendJson(res, 201, bundle);
-      } catch (error) {
-        return sendJson(res, error.status || 500, {
-          error: error.message || 'Could not create critique bundle.',
-        });
-      }
-    }
-
-    if (parts.length === 5 && parts[3] === 'critique' && parts[4] === 'findings' && method === 'POST') {
-      const body = await parseJsonBody(req);
-      if (body === null) return sendBodyError(req, res);
-    if (rejectSpoofedActor(body, res)) return;
-      try {
-        const result = registry.recordCritiqueFindings(lane.id, {
-          ...body,
-          actor: body.actor || 'dashboard',
-        });
-        return sendJson(res, 200, result);
-      } catch (error) {
-        return sendJson(res, error.status || 500, {
-          error: error.message || 'Could not record critique findings.',
-        });
-      }
-    }
-
-    if (parts.length === 5 && parts[3] === 'critique' && parts[4] === 'waive' && method === 'POST') {
-      const body = await parseJsonBody(req);
-      if (body === null) return sendBodyError(req, res);
-    if (rejectSpoofedActor(body, res)) return;
-      try {
-        const result = registry.waiveCritique(lane.id, {
-          ...body,
-          actor: body.actor || 'dashboard',
-        });
-        return sendJson(res, 200, result);
-      } catch (error) {
-        return sendJson(res, error.status || 500, {
-          error: error.message || 'Could not waive critique.',
-          requiresApproval: error.requiresApproval || false,
-          risk: error.risk || null,
-        });
-      }
-    }
-
     if (parts.length === 5 && parts[3] === 'audit' && ['accept', 'findings', 'request-fix', 'block'].includes(parts[4]) && method === 'POST') {
       const body = await parseJsonBody(req);
       if (body === null) return sendBodyError(req, res);
