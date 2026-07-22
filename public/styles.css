@@ -3356,7 +3356,9 @@ body.no-voice .composer-mic { display: none; }
 /* One unified solid button for the whole app (workstation + remote + dropdowns):
    white in dark theme, black in light theme. Black-and-white design system. */
 .btn, .btn-ghost { background: var(--text); border: 1px solid var(--text); color: var(--ink-on-light); font-weight: 550; }
-@media (hover: hover) { .btn:hover, .btn-ghost:hover { opacity: 0.88; } }
+/* Hover stays fully SOLID (never fades to transparent) — shifts to pure white in
+   dark theme / pure black in light theme via --accent-strong. */
+@media (hover: hover) { .btn:hover, .btn-ghost:hover { background: var(--accent-strong); border-color: var(--accent-strong); } }
 .btn:disabled, .btn-ghost:disabled { opacity: 0.45; cursor: default; }
 .ts-setup-callout {
   background: var(--panel-soft, #303030); border: 1px solid var(--line); border-radius: var(--radius-md); display: flex;

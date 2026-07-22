@@ -16,10 +16,9 @@ const STROKE_ICONS = {
   agent: { vb: '0 0 20 20', sw: 1.6, inner: '<rect x="4.5" y="6.5" width="11" height="8" rx="2.4"/><path d="M10 6.5V4M8 10.5h.01M12 10.5h.01"/><circle cx="10" cy="3.2" r="1"/>' },
   // External link / open-preview (a registered dev-server port, opened over Tailscale).
   external: { vb: '0 0 20 20', sw: 1.6, inner: '<path d="M11 4h5v5M16 4l-7 7"/><path d="M14 11.5V15a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 4 15V8a1.5 1.5 0 0 1 1.5-1.5H9"/>' },
-  // Refresh / regenerate (new pairing code). A ~270° arc centered at (10,10) with
-  // an OBVIOUS ~90° gap at the top and an arrowhead at the top-right terminus, so
-  // it clearly reads as a circular arrow (not a closed circle).
-  refresh: { vb: '0 0 20 20', sw: 1.5, inner: '<path d="M14.2 5.8A6 6 0 1 1 5.8 5.8"/><path d="M11.4 4.2l2.8 1.6 1.5-2.9"/>' },
+  // Refresh / regenerate (new pairing code) — the standard rotate-cw glyph: a
+  // circular arc with a clear gap and a proper arrowhead at the top-right.
+  refresh: { vb: '0 0 20 20', sw: 1.6, inner: '<path d="M17.5 10a7.5 7.5 0 1 1-7.5-7.5c2.1 0 4.11 0.83 5.62 2.28L17.5 6.67"/><path d="M17.5 2.5v4.17h-4.17"/>' },
 };
 
 export function icon(name, { cls = '', size = 16 } = {}) {

@@ -117,7 +117,7 @@
 .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 1.7rem; height: 1.7rem; padding: 0; line-height: 0; border: 1px solid var(--text); border-radius: var(--radius-sm); background: var(--text); color: var(--ink-on-light); cursor: pointer; }
 /* SVG as a block removes the inline baseline descender that pushed the glyph up. */
 .icon-btn svg { display: block; }
-@media (hover: hover) { .icon-btn:hover { opacity: 0.88; } }
+@media (hover: hover) { .icon-btn:hover { background: var(--accent-strong); border-color: var(--accent-strong); } }
 /* Code on top (value left, refresh/cancel right); countdown sits below it. */
 .pairing-code-top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
 .pairing-code-actions { display: inline-flex; gap: 4px; }
