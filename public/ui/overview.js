@@ -582,7 +582,20 @@ async function poll() {
     } catch { /* */ }
     const acceptedNow = lastPairing && !pairingAccepted
       && remoteAuthSessions.some((x) => x && x.pairedFromId === lastPairing.id && x.active !== false);
-    if (acceptedNow) pairingAccepted = true;
+    if (acceptedNow) {
+      // Flip the code card to the green "Device paired" state, then auto-collapse
+      // it after 2s (back to the "Create code" button). Guard on the accepted id
+      // so a code created during the window isn't cleared.
+      pairingAccepted = true;
+      const acceptedId = lastPairing.id;
+      setTimeout(() => {
+        if (pairingAccepted && lastPairing && lastPairing.id === acceptedId) {
+          pairingAccepted = false;
+          lastPairing = null;
+          if (route() === 'remote') paintRemote(remoteAccessCache);
+        }
+      }, 2000);
+    }
     if (acceptedNow || remoteAuthSessions.length !== before) paintRemote(remoteAccessCache);
   }
 }
