@@ -26,29 +26,19 @@ async function withTempRegistry(callback) {
   }
 }
 
-test('effective settings expose locked product defaults without secrets', () => {
+// The resolved settings surface is intentionally flow-only: the agent-flow engine
+// (registry-audit.js -> getLaneFlowConfig) is the sole runtime reader.
+test('effective settings expose the flow-engine defaults without secrets', () => {
   const effective = buildEffectiveSettings();
 
   assert.equal(effective.contractVersion, 'orca.effective-settings.v1');
-  assert.equal(effective.settings.spawn.spawnPolicy, 'within_capacity');
-  assert.equal(effective.settings.spawn.approvedCapacity, 2);
-  assert.equal(effective.settings.spawn.soloMode, true);
-  assert.equal(effective.settings.spawn.idleShutdownMode, 'immediate');
-  assert.equal(effective.settings.spawn.worktreeMode, 'auto');
-  assert.equal(effective.settings.critique.mode, 'suggested');
-  assert.equal(effective.settings.critique.visualBrowserMode, 'visual-required');
-  assert.equal(effective.settings.provider.secretPriority[0], 'os-credential');
-  assert.equal(effective.settings.privateAccess.preferredMode, 'auto');
-  assert.equal(effective.settings.privateAccess.funnelAllowed, false);
-  assert.equal(effective.settings.urlOpening.defaultMode, 'external');
-  assert.equal(effective.settings.mobile.pwaStaticCacheOnly, true);
-  assert.equal(JSON.stringify(effective).includes('apiKey'), false);
-  // Agent-flow engine defaults.
+  assert.deepEqual(Object.keys(effective.settings), ['flow']);
   assert.equal(effective.settings.flow.template, 'orchestrator-executor');
   assert.equal(effective.settings.flow.auditTier, 'orchestrator');
   assert.equal(effective.settings.flow.fixRouting, 'same-agent');
   assert.equal(effective.settings.flow.maxAuditLoops, 2);
   assert.equal(effective.settings.flow.requireAuditPass, true);
+  assert.equal(JSON.stringify(effective).includes('apiKey'), false);
 });
 
 test('agent-flow settings layer and validate per scope', () => {
@@ -69,7 +59,7 @@ test('agent-flow settings layer and validate per scope', () => {
   assert.equal(effective.settings.flow.fixRouting, 'new-agent');
   assert.equal(effective.settings.flow.maxAuditLoops, 4);
 
-  // Invalid flow values are rejected by the sanitizer.
+  // Recognized flow fields with bad VALUES are still hard-rejected by the sanitizer.
   assert.throws(() => sanitizeSettingsOverrides({ flow: { template: 'nonsense' } }), (e) => e.status === 422);
   assert.throws(() => sanitizeSettingsOverrides({ flow: { maxAuditLoops: 99 } }), (e) => e.status === 422);
 });
@@ -80,86 +70,71 @@ test('effective settings precedence applies project, session, lane, and action o
       id: 'project-1',
       slug: 'project-1',
       settingsOverrides: {
-        spawn: { approvedCapacity: 3 },
+        flow: { template: 'orchestrator-executor-audit', maxAuditLoops: 1 },
+        // Non-flow legacy group is carried on the record but dropped on resolve.
         privateAccess: { preferredMode: 'local' },
       },
     },
     session: {
       id: 'session-1',
       projectId: 'project-1',
-      spawnPolicy: 'ask',
-      approvedCapacity: 4,
-      soloMode: false,
-      idleShutdownMode: 'policy',
-      worktreeMode: 'shared',
-      critiqueMode: 'required',
-      artifactRetentionDays: 30,
       settingsOverrides: {
-        spawn: { approvedCapacity: 5 },
+        flow: { auditTier: 'separate-auditor' },
       },
     },
     lane: {
       id: 'lane-1',
       projectId: 'project-1',
       sessionId: 'session-1',
-      targetUrl: 'http://127.0.0.1:4173',
-      critiqueMode: 'off',
       settingsOverrides: {
-        critique: { mode: 'visual-required' },
-        urlOpening: { defaultMode: 'in-app' },
+        flow: { fixRouting: 'new-agent' },
       },
     },
     actionOverride: {
-      spawn: { approvedCapacity: 1 },
-      cleanup: { dryRunDefault: false },
+      flow: { maxAuditLoops: 5 },
     },
   });
 
-  assert.equal(effective.settings.spawn.spawnPolicy, 'ask');
-  assert.equal(effective.settings.spawn.approvedCapacity, 1);
-  assert.equal(effective.settings.spawn.soloMode, false);
-  assert.equal(effective.settings.spawn.idleShutdownMode, 'policy');
-  assert.equal(effective.settings.spawn.worktreeMode, 'shared');
-  assert.equal(effective.settings.critique.mode, 'visual-required');
-  assert.equal(effective.settings.critique.visualBrowserMode, 'visual-required');
-  assert.equal(effective.settings.evidence.retentionDays, 30);
-  assert.equal(effective.settings.cleanup.retentionDays, 30);
-  assert.equal(effective.settings.cleanup.dryRunDefault, false);
-  assert.equal(effective.settings.privateAccess.preferredMode, 'local');
-  assert.equal(effective.settings.urlOpening.defaultMode, 'in-app');
+  assert.deepEqual(Object.keys(effective.settings), ['flow']);
+  assert.equal(effective.settings.flow.template, 'orchestrator-executor-audit');
+  assert.equal(effective.settings.flow.auditTier, 'separate-auditor');
+  assert.equal(effective.settings.flow.fixRouting, 'new-agent');
+  // action override wins over the project's maxAuditLoops.
+  assert.equal(effective.settings.flow.maxAuditLoops, 5);
   assert.deepEqual(
     effective.sourcesApplied.map((source) => `${source.scope}:${source.source}`),
     [
       'global:defaults',
       'project:settingsOverrides',
-      'session:fields',
       'session:settingsOverrides',
-      'lane:fields',
       'lane:settingsOverrides',
       'action:oneTimeOverride',
     ],
   );
 });
 
-test('settings override sanitizer rejects unknown and prototype-polluting fields', () => {
-  assert.equal(sanitizeSettingsOverrides({ privateAccess: { preferredMode: 'auto' } }).privateAccess.preferredMode, 'auto');
-  assert.throws(
-    () => sanitizeSettingsOverrides({ provider: { apiKey: 'secret-value' } }),
-    (error) => error.status === 422 && /not supported/.test(error.message),
+test('settings override sanitizer drops unknown groups and blocks prototype pollution', () => {
+  // Unknown (non-flow) groups degrade gracefully to "no override" — accepted-and-ignored.
+  assert.deepEqual(sanitizeSettingsOverrides({ privateAccess: { preferredMode: 'auto' } }), {});
+  // Unknown keys within the known flow group are dropped, valid siblings survive.
+  assert.deepEqual(
+    sanitizeSettingsOverrides({ flow: { template: 'orchestrator-only', apiKey: 'secret-value' } }),
+    { flow: { template: 'orchestrator-only' } },
   );
+  // Prototype-pollution keys still HARD-fail (security is not relaxed).
   assert.throws(
     () => sanitizeSettingsOverrides(JSON.parse('{"__proto__":{"polluted":true}}')),
     (error) => error.status === 422 && /prototype-pollution/.test(error.message),
   );
+  // Bad enum values on a recognized flow field still 422.
   assert.throws(
-    () => sanitizeSettingsOverrides({ privateAccess: { preferredMode: 'funnel' } }),
+    () => sanitizeSettingsOverrides({ flow: { auditTier: 'nope' } }),
     (error) => error.status === 422 && /must be one of/.test(error.message),
   );
 });
 
-// v2 orchestrator-native container: registerOrchestrator creates the project
-// keyed by cwd and returns the orc_ container id. The "session" scope of the
-// effective-settings stack now maps to that orchestrator container via the
+// v2 orchestrator-native container: registerOrchestrator creates the project keyed
+// by cwd and returns the orc_ container id. Lanes hang off the orchestrator via the
 // getSession() seam (lane.sessionId === orchestrator.id).
 async function makeOrchestrator(registry, { actor = 'test', title = 'Orch' } = {}) {
   const { lease } = registry.createToolLease({ role: 'orchestrator', actor });
@@ -170,75 +145,48 @@ async function makeOrchestrator(registry, { actor = 'test', title = 'Orch' } = {
   return { orchestrator, lease };
 }
 
-// PORTED from the Model-A session-scoped version. In v3 the orchestrator RECORD
-// is the container: its spawn capacity is set through updateOrchestrator (the seam
-// then feeds it into the "session:fields" layer), and durable settingsOverrides
-// live at project + lane scope. Arbitrary session-scoped settingsOverrides have no
-// backing record on the ephemeral container seam, so the container-level override
-// (privateAccess) is asserted at PROJECT scope — the durable
-// container scope in v3 — while the update/audit path is exercised there too.
-test('registry persists scoped settings overrides and audits updates', async () => {
+// The entanglement guard: createProject/createLane still ACCEPT a settingsOverrides
+// input after the schema was reduced to flow-only. Non-flow groups are dropped
+// (never throw); a flow override is retained on the record and resolves through.
+test('createProject and createLane accept overrides, dropping non-flow groups', async () => {
   await withTempRegistry(async (registry) => {
-    const { orchestrator, lease } = await makeOrchestrator(registry);
-    const projectId = orchestrator.projectId;
-
-    // Container-level (project) overrides are durable on the project record.
-    registry.updateSettingsOverrides({
-      scope: 'project',
-      locator: projectId,
-      settingsOverrides: {
-        privateAccess: { preferredMode: 'local' },
-      },
-      actor: 'dashboard',
-      approved: true,
-    });
-
-    // Container capacity now lives on the orchestrator record; the seam feeds it
-    // into the effective-settings "session:fields" layer.
-    registry.updateOrchestrator(orchestrator.id, { approvedCapacity: 6 }, { leaseId: lease.id });
-
-    const lane = registry.createLane(orchestrator.id, {
-      title: 'Effective Settings Lane',
-      executorType: 'mock',
-      targetUrl: 'http://127.0.0.1:4173',
-      settingsOverrides: {
-        urlOpening: { defaultMode: 'in-app' },
-      },
-    }, { approved: true });
-
-    const laneEffective = registry.getEffectiveSettings({ laneId: lane.id });
-    assert.equal(laneEffective.scope.projectId, projectId);
-    assert.equal(laneEffective.scope.sessionId, orchestrator.id);
-    assert.equal(laneEffective.scope.laneId, lane.id);
-    assert.equal(laneEffective.settings.spawn.approvedCapacity, 6);
-    assert.equal(laneEffective.settings.privateAccess.preferredMode, 'local');
-    assert.equal(laneEffective.settings.urlOpening.defaultMode, 'in-app');
-
-    assert.throws(
-      () => registry.updateSettingsOverrides({
-        scope: 'project',
-        locator: projectId,
-        settingsOverrides: { spawn: { spawnPolicy: 'auto' } },
-        actor: 'dashboard',
-        approved: false,
-      }),
-      (error) => error.status === 409 && /requires explicit approval/.test(error.message),
-    );
-
-    const updated = registry.updateSettingsOverrides({
-      scope: 'project',
-      locator: projectId,
-      settingsOverrides: {
-        spawn: {
-          spawnPolicy: 'auto',
-          approvedCapacity: 7,
+    // createProject with a mixed override must not throw; only flow survives.
+    const project = registry.createProject(
+      {
+        name: 'Flow Project',
+        slug: 'flow-project',
+        settingsOverrides: {
+          flow: { template: 'orchestrator-executor-audit' },
+          spawn: { spawnPolicy: 'auto' }, // legacy non-flow group -> dropped
         },
       },
-      actor: 'dashboard',
-      approved: true,
-    });
-    assert.equal(updated.settings.spawn.spawnPolicy, 'auto');
-    assert.equal(updated.settings.spawn.approvedCapacity, 7);
-    assert.equal(registry.auditEvents.some((event) => event.type === 'settings_overrides_updated'), true);
+      { actor: 'test', approved: true },
+    );
+    assert.deepEqual(project.settingsOverrides, { flow: { template: 'orchestrator-executor-audit' } });
+
+    // createLane with a mixed override must not throw; only flow survives, and it
+    // resolves through the layered effective-settings.
+    const { orchestrator } = await makeOrchestrator(registry);
+    const lane = registry.createLane(
+      orchestrator.id,
+      {
+        title: 'Flow Lane',
+        executorType: 'mock',
+        settingsOverrides: {
+          flow: { maxAuditLoops: 4, fixRouting: 'new-agent' },
+          urlOpening: { defaultMode: 'in-app' }, // legacy non-flow group -> dropped
+        },
+      },
+      { approved: true },
+    );
+    assert.deepEqual(lane.settingsOverrides, { flow: { maxAuditLoops: 4, fixRouting: 'new-agent' } });
+
+    const laneEffective = registry.getEffectiveSettings({ laneId: lane.id });
+    assert.equal(laneEffective.scope.laneId, lane.id);
+    assert.deepEqual(Object.keys(laneEffective.settings), ['flow']);
+    assert.equal(laneEffective.settings.flow.maxAuditLoops, 4);
+    assert.equal(laneEffective.settings.flow.fixRouting, 'new-agent');
+    // And getLaneFlowConfig (the sole runtime reader) sees the resolved value.
+    assert.equal(registry.getLaneFlowConfig(lane).maxAuditLoops, 4);
   });
 });

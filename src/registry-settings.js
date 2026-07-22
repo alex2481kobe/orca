@@ -2,8 +2,8 @@
 // mixin for OrcaRegistry. Extracted from registry.js. (evaluateActionPolicy stays
 // in the core class — it is called by nearly every mutating method.)
 
-import { nowIso, clonePayload } from './registry-utils.js';
-import { buildEffectiveSettings, sanitizeSettingsOverrides } from './effective-settings.js';
+import { clonePayload } from './registry-utils.js';
+import { buildEffectiveSettings } from './effective-settings.js';
 
 export const settingsMethods = {
   getPolicyMap() {
@@ -48,62 +48,6 @@ export const settingsMethods = {
       session,
       lane,
       actionOverride,
-    });
-  },
-
-  updateSettingsOverrides({
-    scope,
-    locator,
-    settingsOverrides = {},
-    actor = 'dashboard',
-    approved,
-  } = {}) {
-    const normalizedScope = String(scope || '').trim().toLowerCase();
-    const policyCheck = this.evaluateActionPolicy('updateProject', { actor, approved });
-    if (!policyCheck.allowed) {
-      throw {
-        status: 409,
-        message: policyCheck.message,
-        requiresApproval: true,
-        risk: policyCheck.policy.risk,
-      };
-    }
-
-    const sanitized = sanitizeSettingsOverrides(settingsOverrides);
-    let target = null;
-    if (normalizedScope === 'project') {
-      target = this.getProject(locator);
-    } else if (normalizedScope === 'session') {
-      target = this.getSession(locator);
-    } else if (normalizedScope === 'lane') {
-      target = this.getLane(locator);
-    } else {
-      throw { status: 422, message: 'Settings scope must be project, session, or lane.' };
-    }
-    if (!target) throw { status: 404, message: `${normalizedScope} not found.` };
-
-    target.settingsOverrides = sanitized;
-    target.updatedAt = nowIso();
-    this.recordAudit({
-      type: 'settings_overrides_updated',
-      actor: String(actor || 'dashboard').slice(0, 120),
-      projectId: target.projectId || target.id || null,
-      sessionId: normalizedScope === 'session' ? target.id : target.sessionId || null,
-      laneId: normalizedScope === 'lane' ? target.id : null,
-      summary: `Updated ${normalizedScope} effective settings overrides`,
-      evidence: {
-        scope: normalizedScope,
-        targetId: target.id,
-        settingsGroups: Object.keys(sanitized),
-      },
-      status: 'passed',
-    });
-    this.persistState();
-
-    return this.getEffectiveSettings({
-      projectId: normalizedScope === 'project' ? target.id : target.projectId,
-      sessionId: normalizedScope === 'session' ? target.id : target.sessionId,
-      laneId: normalizedScope === 'lane' ? target.id : null,
     });
   },
 };
