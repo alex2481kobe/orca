@@ -131,7 +131,10 @@ export const schedulerMethods = {
       const write = (async () => {
         try {
           await fs.mkdir(this.storageDir, { recursive: true });
-          await writeJsonFileAtomic(this.stateFile, this.snapshotState());
+          // forceBackup: the per-persist `.bak` copy is throttled during normal
+          // running, so on shutdown flush force a fresh backup to guarantee the
+          // on-disk `.bak` matches the final state for crash recovery.
+          await writeJsonFileAtomic(this.stateFile, this.snapshotState(), { forceBackup: true });
         } catch {
           // Stop is best-effort; ignore persist failures during teardown.
         }

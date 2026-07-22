@@ -194,7 +194,9 @@ export class ApiExecutorAdapter {
       headers.authorization = `Bearer ${secret}`;
     }
     const timeout = setTimeout(() => runtime.controller.abort(), profile.timeoutMs || 30000);
+    const maxResponseBytes = profile.maxResponseBytes || API_RESPONSE_BYTES;
     let responseText = '';
+    let responseBytes = 0;
     try {
       const response = await fetch(runtime.endpoint, {
         method: 'POST',
@@ -206,10 +208,33 @@ export class ApiExecutorAdapter {
         // Refuse to follow redirects so the validated endpoint is the only target.
         redirect: 'error',
       });
-      responseText = await response.text();
-      if (responseText.length > (profile.maxResponseBytes || API_RESPONSE_BYTES)) {
-        throw new Error('API provider response exceeded configured size cap.');
+      // Stream the body and count BYTES as chunks arrive instead of buffering the
+      // whole `response.text()` up front. An oversized or malicious provider
+      // response would otherwise be fully materialized into memory before any
+      // size check runs. The moment the running byte total exceeds the cap we
+      // abort via the existing controller and fail the lane, so only bounded data
+      // is ever held. Bytes are decoded to text only on success (below).
+      const chunks = [];
+      if (response.body) {
+        const reader = response.body.getReader();
+        try {
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (!value || value.byteLength === 0) continue;
+            responseBytes += value.byteLength;
+            if (responseBytes > maxResponseBytes) {
+              try { runtime.controller.abort(); } catch { /* already settled */ }
+              try { await reader.cancel(); } catch { /* body already torn down */ }
+              throw new Error('API provider response exceeded configured size cap.');
+            }
+            chunks.push(value);
+          }
+        } finally {
+          try { reader.releaseLock(); } catch { /* reader already released */ }
+        }
       }
+      responseText = chunks.length ? Buffer.concat(chunks).toString('utf8') : '';
       if (runtime.status !== 'active') return;
       if (!response.ok) {
         throw new Error(`API provider returned HTTP ${response.status}: ${trimForLog(redactedText(responseText, [secret]), 1000)}`);
@@ -244,7 +269,7 @@ export class ApiExecutorAdapter {
         lane.processMeta.endedAt = new Date().toISOString();
         lane.processMeta.exitCode = 0;
         lane.processMeta.httpStatus = response.status;
-        lane.processMeta.responseBytes = responseText.length;
+        lane.processMeta.responseBytes = responseBytes;
       }
       runtime.status = 'done';
       this.runtimes.delete(String(lane.id));

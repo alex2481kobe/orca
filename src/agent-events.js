@@ -1,4 +1,8 @@
 const MAX_EVENT_CONTENT = 12000;
+// Ceiling for the un-flushed partial (newline-free) line buffer. An executor that
+// emits megabytes without a newline would otherwise grow buffers[stream] unbounded;
+// once the retained partial exceeds this we flush + reset it as a truncated event.
+const MAX_PARTIAL_LINE = 64 * 1024;
 
 function cleanText(value, max = MAX_EVENT_CONTENT) {
   return String(value ?? '')
@@ -293,6 +297,17 @@ function createAgentEventNormalizer(executorType) {
           }
         } catch {
           events.push(event('command.output', { source: executorType, stream: safeStream, content: cleanText(trimmed) }));
+        }
+      }
+      // The trailing partial (newline-free) line is retained for the next chunk. Cap it:
+      // if it has grown past the ceiling, flush the buffered prefix as a truncated
+      // command.output event (same shape as the newline path, capped downstream by
+      // cleanText/MAX_EVENT_CONTENT) and reset so no line-buffer exceeds MAX_PARTIAL_LINE.
+      if (buffers[safeStream].length > MAX_PARTIAL_LINE) {
+        const truncated = buffers[safeStream].trim();
+        buffers[safeStream] = '';
+        if (truncated) {
+          events.push(event('command.output', { source: executorType, stream: safeStream, content: cleanText(truncated) }));
         }
       }
       return events;

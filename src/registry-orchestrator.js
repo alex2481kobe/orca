@@ -217,6 +217,20 @@ export const orchestratorMethods = {
     if (!session) return;
     const thread = this.ensureOrchestratorThread(session);
     const marker = thread.activeOrchestrator;
+    // Model-B (register-path) orchestrators don't carry a session-thread marker:
+    // their ownership lives in this.orchestrators, and getSession() returns a
+    // synthetic _orchestratorContainer view (registry-sessions.js) whose id is the
+    // orc_ owner. Grant ownership when the calling lease owns that orchestrator and
+    // it hasn't resigned or gone stale — mirroring the marker owner-check below —
+    // so audit.* (and every mutating tool) works for the shipping orchestrator
+    // model. A lease that doesn't own it falls through to the existing 409s.
+    if (session._orchestratorContainer) {
+      const orch = (this.orchestrators || []).find((o) => o.id === session.orchestratorId);
+      if (orch && orch.leaseId === lease.id && !orch.resignedAt && !this._orchestratorStale(orch)) {
+        orch.lastSeenAt = nowIso();
+        return;
+      }
+    }
     const nextAction = buildNextActionEnvelope(this, {
       role: 'orchestrator',
       projectId: session.projectId,

@@ -78,6 +78,53 @@ test('Cursor/Composer stream-json tool calls normalize into tool events', () => 
   assert.equal(events[0].callId, 'call-1');
 });
 
+test('a single newline-free multi-MB chunk flushes a truncated event and never accumulates', () => {
+  const MAX_EVENT_CONTENT = 12000;
+  const MAX_PARTIAL_LINE = 64 * 1024;
+  const normalizer = createAgentEventNormalizer('codex');
+
+  // ~10MB with NO newline: previously this grew buffers[stream] unbounded.
+  const giant = 'x'.repeat(10 * 1024 * 1024);
+  const events = normalizer.consume('stdout', giant);
+
+  // A truncated command.output event is emitted for the over-ceiling partial line...
+  const outputs = events.filter((e) => e.type === 'command.output');
+  assert.ok(outputs.length >= 1, 'expected a flushed command.output event');
+  // ...and every emitted event's content respects the downstream MAX_EVENT_CONTENT cap
+  // (proving no multi-MB payload leaked through, i.e. the buffer never exceeded the ceiling).
+  for (const e of events) {
+    assert.ok((e.content || '').length <= MAX_EVENT_CONTENT);
+  }
+
+  // Feeding another giant newline-free chunk produces its own bounded flush rather than
+  // stacking on top of the first — the internal buffer was reset, not accumulated.
+  const events2 = normalizer.consume('stdout', giant);
+  assert.ok(events2.filter((e) => e.type === 'command.output').length >= 1);
+  for (const e of events2) {
+    assert.ok((e.content || '').length <= MAX_EVENT_CONTENT);
+  }
+
+  // The retained buffer was reset: a following newline-terminated marker flushes as ITSELF,
+  // not prefixed by the previously-buffered megabytes.
+  const marker = JSON.stringify({ msg: { type: 'text', content: 'still-here' } });
+  const events3 = normalizer.consume('stdout', `${marker}\n`);
+  assert.deepEqual(events3.map((e) => e.type), ['message.assistant.delta']);
+  assert.equal(events3[0].content, 'still-here');
+
+  // Cross-chunk accumulation is also capped: many sub-ceiling pieces that together exceed
+  // the ceiling get flushed rather than retained forever.
+  const piece = 'y'.repeat(20 * 1024); // < ceiling on its own
+  let accumulated = [];
+  for (let i = 0; i < 8; i += 1) {
+    accumulated = accumulated.concat(normalizer.consume('stdout', piece));
+  }
+  assert.ok(accumulated.filter((e) => e.type === 'command.output').length >= 1);
+  for (const e of accumulated) {
+    assert.ok((e.content || '').length <= MAX_EVENT_CONTENT);
+  }
+  assert.ok(MAX_PARTIAL_LINE > 0);
+});
+
 test('Gemini JSON response normalizes into final assistant event', () => {
   const normalizer = createAgentEventNormalizer('gemini-cli');
   const events = normalizer.consume('stdout', `${JSON.stringify({

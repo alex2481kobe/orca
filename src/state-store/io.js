@@ -23,7 +23,39 @@ export function corruptPathFor(filePath) {
 }
 
 function serializeJson(payload) {
-  return `${JSON.stringify(payload, null, 2)}\n`;
+  // COMPACT by default: no indentation keeps per-persist serialize CPU + write
+  // size from growing with retained state on a busy daemon. Recovery/parse
+  // (readJson -> JSON.parse) is format-agnostic, so nothing depends on the
+  // pretty layout. Escape hatch: ORCA_PRETTY_STATE=1 restores 2-space output
+  // for humans eyeballing state files.
+  if (process.env.ORCA_PRETTY_STATE === '1') {
+    return `${JSON.stringify(payload, null, 2)}\n`;
+  }
+  return `${JSON.stringify(payload)}\n`;
+}
+
+// Throttle the best-effort `.bak` copy so it happens at most once per window
+// instead of on every debounced persist — copying the full file each time was
+// the other half of the per-persist I/O cost that grew with total state.
+//
+// The atomic write-temp-then-fsync-then-rename of the PRIMARY is unchanged, so
+// crash/power-loss durability of the canonical file is untouched. Only the
+// backup freshness relaxes: after a skipped backup the `.bak` may lag the
+// primary by up to the window; a fresh backup is forced on shutdown flush.
+const BACKUP_THROTTLE_MS = 60_000;
+const lastBackupAt = new Map();
+
+// forceBackup wins outright (shutdown flush). Otherwise back up only if we have
+// never backed this target up (undefined -> first backup is NEVER skipped) or
+// the throttle window has elapsed.
+function shouldWriteBackup(target, forceBackup) {
+  if (forceBackup) return true;
+  const last = lastBackupAt.get(target);
+  return last === undefined || (Date.now() - last) >= BACKUP_THROTTLE_MS;
+}
+
+function markBackupWritten(target) {
+  lastBackupAt.set(target, Date.now());
 }
 
 // Drop prototype-pollution keys from anything parsed off disk. State files are a
@@ -50,7 +82,7 @@ export function resolveFallback(fallback) {
   return cloneJson(fallback);
 }
 
-export async function writeJsonFileAtomic(filePath, payload, { backup = true } = {}) {
+export async function writeJsonFileAtomic(filePath, payload, { backup = true, forceBackup = false } = {}) {
   const target = path.resolve(filePath);
   await fs.mkdir(path.dirname(target), { recursive: true });
   const tempPath = `${target}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
@@ -66,7 +98,8 @@ export async function writeJsonFileAtomic(filePath, payload, { backup = true } =
       await handle.close();
     }
     await fs.rename(tempPath, target);
-    if (backup) {
+    if (backup && shouldWriteBackup(target, forceBackup)) {
+      markBackupWritten(target);
       await fs.copyFile(target, backupPathFor(target)).catch(() => {});
     }
   } catch (error) {
@@ -81,7 +114,7 @@ export async function writeJsonFileAtomic(filePath, payload, { backup = true } =
   };
 }
 
-export function writeJsonFileAtomicSync(filePath, payload, { backup = true } = {}) {
+export function writeJsonFileAtomicSync(filePath, payload, { backup = true, forceBackup = false } = {}) {
   const target = path.resolve(filePath);
   fsSync.mkdirSync(path.dirname(target), { recursive: true });
   const tempPath = `${target}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
@@ -94,7 +127,8 @@ export function writeJsonFileAtomicSync(filePath, payload, { backup = true } = {
       fsSync.closeSync(fd);
     }
     fsSync.renameSync(tempPath, target);
-    if (backup) {
+    if (backup && shouldWriteBackup(target, forceBackup)) {
+      markBackupWritten(target);
       try {
         fsSync.copyFileSync(target, backupPathFor(target));
       } catch {

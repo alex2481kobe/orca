@@ -11,6 +11,12 @@ import { writeSse, streamHeartbeatMs } from '../event-streams.js';
 const SNAPSHOT_MAX = 64 * 1024; // last 64KB sent on connect (bounds initial payload)
 const READ_MAX = 256 * 1024; // max bytes pushed per poll tick
 const POLL_MS = 350;
+const MAX_CONCURRENT_LANE_STREAMS = 128; // guard against fd/interval exhaustion
+
+// Number of live lane streams currently holding a persistent FileHandle + poll
+// interval. Bounded by MAX_CONCURRENT_LANE_STREAMS so a flood of connections
+// can't exhaust file descriptors.
+let activeLaneStreams = 0;
 
 export function createLaneStream(deps) {
   const { registry, applySecurityHeaders, setCacheHeaders, sendJson, hasStreamAuth, hasLaneStreamAuth } = deps;
@@ -25,20 +31,23 @@ export function createLaneStream(deps) {
     return path.join(process.cwd(), 'artifacts', String(lane.sessionId || 'orphan'), String(lane.id), 'terminal.log');
   }
 
-  async function readRange(logPath, start, maxLen) {
-    let fh;
-    try {
-      fh = await fsp.open(logPath, 'r');
-      const stat = await fh.stat();
-      if (stat.size < start) return { text: '', offset: 0, reset: true }; // truncated/rotated
-      if (stat.size === start) return { text: '', offset: start, reset: false };
-      const len = Math.min(maxLen, stat.size - start);
-      const buf = Buffer.alloc(len);
-      await fh.read(buf, 0, len, start);
-      return { text: buf.toString('utf8'), offset: start + len, reset: false };
-    } finally {
-      if (fh) await fh.close().catch(() => {});
-    }
+  // Read the newly-appended bytes from an already-open handle. `fh.stat()` is an
+  // fstat on the live descriptor, so it reflects the file's current size as the
+  // executor appends. Keeping ONE handle open across ticks avoids the open/stat/
+  // close syscall churn that used to run every POLL_MS per connected client. The
+  // executor (cli-adapter.js) rotates by truncating terminal.log in place, which
+  // shrinks the size on this same inode — so `stat.size < start` still catches a
+  // rotation/reset, and the caller closes + reopens the handle against the fresh
+  // file. The 256KB per-tick cap and the exact { text, offset, reset } shape are
+  // preserved unchanged.
+  async function readNewBytes(fh, start, maxLen) {
+    const stat = await fh.stat();
+    if (stat.size < start) return { text: '', offset: 0, reset: true }; // truncated/rotated
+    if (stat.size === start) return { text: '', offset: start, reset: false };
+    const len = Math.min(maxLen, stat.size - start);
+    const buf = Buffer.alloc(len);
+    await fh.read(buf, 0, len, start);
+    return { text: buf.toString('utf8'), offset: start + len, reset: false };
   }
 
   function handleLaneStream(req, res, laneId) {
@@ -50,6 +59,9 @@ export function createLaneStream(deps) {
       return sendJson(res, 401, { error: 'Unauthorized stream. Pair this device, supply a valid token, or use a lane.get tool lease.' });
     }
     if (!lane) return sendJson(res, 404, { error: 'Lane not found.' });
+    if (activeLaneStreams >= MAX_CONCURRENT_LANE_STREAMS) {
+      return sendJson(res, 503, { error: 'Too many concurrent lane streams. Close an open lane terminal and retry.' });
+    }
     const logPath = laneTerminalLogPath(lane);
 
     res.statusCode = 200;
@@ -64,10 +76,28 @@ export function createLaneStream(deps) {
     let offset = 0;
     let closed = false;
     let reading = false;
+    let pollFh = null; // ONE persistent handle for the poll loop's lifetime
     const heartbeatMs = streamHeartbeatMs();
     let lastHeartbeat = Date.now();
 
-    const cleanup = () => { closed = true; clearInterval(interval); };
+    activeLaneStreams += 1;
+
+    // Drop the persistent poll handle (rotation recovery, error recovery, or
+    // teardown). Fire-and-forget close; pollFh is nulled first so the next tick
+    // reopens against the current file.
+    const dropPollHandle = () => {
+      const stale = pollFh;
+      pollFh = null;
+      if (stale) stale.close().catch(() => {});
+    };
+
+    const cleanup = () => {
+      if (closed) return; // idempotent: registered on both res.close and req.close
+      closed = true;
+      clearInterval(interval);
+      dropPollHandle();
+      activeLaneStreams -= 1;
+    };
 
     // Initial snapshot: the tail of whatever already exists (file may not exist yet
     // if the lane is still queued — that's fine, we start at 0 and tail as it grows).
@@ -104,10 +134,17 @@ export function createLaneStream(deps) {
       if (!streamAuthorized()) { writeSse(res, 'stream_close', { reason: 'auth_revoked' }); cleanup(); try { res.end(); } catch { /* ignore */ } return; }
       reading = true;
       try {
+        // Lazily (re)open the persistent handle. The file may not exist yet if the
+        // lane is still queued — open() throws, we swallow it, and retry next tick.
+        if (!pollFh) pollFh = await fsp.open(logPath, 'r');
         const startOffset = offset;
-        const { text, offset: next, reset } = await readRange(logPath, offset, READ_MAX);
-        if (reset) { offset = 0; }
-        else if (text) {
+        const { text, offset: next, reset } = await readNewBytes(pollFh, offset, READ_MAX);
+        if (reset) {
+          // Rotation / in-place truncation: rewind to 0 and reopen against the
+          // fresh file (the current handle may point at the pre-truncation inode).
+          offset = 0;
+          dropPollHandle();
+        } else if (text) {
           offset = next;
           if (!closed) writeSse(res, 'append', {
             text,
@@ -120,7 +157,11 @@ export function createLaneStream(deps) {
           lastHeartbeat = Date.now();
           writeSse(res, 'heartbeat', { at: new Date().toISOString() });
         }
-      } catch { /* file not ready / transient — retry next tick */ } finally { reading = false; }
+      } catch {
+        // File not ready / transient read error — drop the (possibly bad) handle
+        // so we reopen cleanly next tick, matching the old open-per-tick recovery.
+        dropPollHandle();
+      } finally { reading = false; }
     }, POLL_MS);
     if (typeof interval.unref === 'function') interval.unref();
     if (typeof res.on === 'function') res.on('close', cleanup);

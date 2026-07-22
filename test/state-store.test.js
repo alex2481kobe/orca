@@ -236,6 +236,75 @@ test('registry restores persisted sessions and normalizes invalid session config
   });
 });
 
+test('state store writes compact JSON by default that round-trips, and recovers a corrupt primary from backup', async () => {
+  await withTempDir('orca-state-compact-', async (dir) => {
+    const stateFile = path.join(dir, 'state.json');
+    const payload = { schemaVersion: 1, nested: { a: 1, b: [2, 3] }, value: 'compact' };
+    await writeJsonFileAtomic(stateFile, payload);
+
+    // Compact by default: single line, no indentation (only a trailing newline).
+    const raw = await fs.readFile(stateFile, 'utf8');
+    assert.equal(raw, `${JSON.stringify(payload)}\n`);
+    assert.equal(raw.includes('\n  '), false, 'no pretty-print indentation');
+    assert.equal(raw.trimEnd().includes('\n'), false, 'primary JSON is a single line');
+
+    // The compact form must still round-trip through the recovery read path.
+    const primary = await readJsonFileWithRecovery(stateFile, { fallback: {} });
+    assert.equal(primary.status.source, 'primary');
+    assert.deepEqual(primary.data, payload);
+
+    // The very first backup is never throttled away, so a corrupt primary still
+    // recovers from `.bak`.
+    assert.deepEqual(JSON.parse(await fs.readFile(backupPathFor(stateFile), 'utf8')), payload);
+    await fs.writeFile(stateFile, '{ corrupt');
+    const recovered = await readJsonFileWithRecovery(stateFile, { fallback: {} });
+    assert.equal(recovered.status.source, 'backup');
+    assert.equal(recovered.status.recovered, true);
+    assert.deepEqual(recovered.data, payload);
+  });
+});
+
+test('ORCA_PRETTY_STATE=1 writes indented JSON that still round-trips', async () => {
+  await withTempDir('orca-state-pretty-', async (dir) => {
+    const stateFile = path.join(dir, 'state.json');
+    const payload = { schemaVersion: 1, value: 'pretty' };
+    const prev = process.env.ORCA_PRETTY_STATE;
+    process.env.ORCA_PRETTY_STATE = '1';
+    try {
+      await writeJsonFileAtomic(stateFile, payload);
+    } finally {
+      if (prev === undefined) delete process.env.ORCA_PRETTY_STATE;
+      else process.env.ORCA_PRETTY_STATE = prev;
+    }
+    const raw = await fs.readFile(stateFile, 'utf8');
+    assert.equal(raw.includes('\n  '), true, 'pretty output is indented');
+    const read = await readJsonFileWithRecovery(stateFile, { fallback: {} });
+    assert.deepEqual(read.data, payload);
+  });
+});
+
+test('backup copy is throttled per write but the first and forced backups always fire', async () => {
+  await withTempDir('orca-state-throttle-', async (dir) => {
+    const stateFile = path.join(dir, 'state.json');
+    const bak = backupPathFor(stateFile);
+
+    // First write: backup is always taken (throttle can never skip the first).
+    await writeJsonFileAtomic(stateFile, { v: 1 });
+    assert.equal(JSON.parse(await fs.readFile(bak, 'utf8')).v, 1);
+
+    // Immediate second write within the 60s window: primary advances, backup is
+    // throttled (still the previous value).
+    await writeJsonFileAtomic(stateFile, { v: 2 });
+    assert.equal(JSON.parse(await fs.readFile(stateFile, 'utf8')).v, 2);
+    assert.equal(JSON.parse(await fs.readFile(bak, 'utf8')).v, 1);
+
+    // forceBackup (the shutdown-flush path) always refreshes `.bak` regardless
+    // of the throttle window.
+    await writeJsonFileAtomic(stateFile, { v: 3 }, { forceBackup: true });
+    assert.equal(JSON.parse(await fs.readFile(bak, 'utf8')).v, 3);
+  });
+});
+
 test('state-store strips prototype-pollution keys when reading from disk', async () => {
   await withTempDir('orca-proto-pollution-', async (dir) => {
     const target = path.join(dir, 'state.json');

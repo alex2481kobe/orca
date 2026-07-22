@@ -273,6 +273,52 @@ test('Gemini API provider lane executes through native dummy endpoint and redact
   }
 });
 
+test('API provider lane fails with a size-cap error when the response streams past the byte cap', async () => {
+  const restore = snapshotEnv();
+  const secret = 'oversized-provider-secret';
+  // Stream well past the 4KiB cap we set below, in chunks, WITHOUT calling
+  // res.end() until we've flushed more than the cap — the adapter must abort on
+  // the running byte count rather than buffer the whole body first.
+  const capBytes = 4096;
+  const chunk = 'x'.repeat(1024);
+  const totalChunks = 64; // 64 KiB total, 16x the cap
+  const dummy = await startDummyApi(async (record, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    let sent = 0;
+    const pump = () => {
+      // Once the socket is torn down by the adapter's abort, stop pumping.
+      if (res.writableEnded || res.destroyed) return;
+      if (sent >= totalChunks) {
+        try { res.end(); } catch { /* already closed */ }
+        return;
+      }
+      sent += 1;
+      try {
+        res.write(chunk, () => setTimeout(pump, 1));
+      } catch { /* socket closed by abort */ }
+    };
+    pump();
+  });
+  process.env.ORCA_OPENAI_COMPATIBLE_BASE_URL = dummy.baseUrl;
+  process.env.ORCA_OPENAI_COMPATIBLE_API_KEY = secret;
+  process.env.ORCA_OPENAI_COMPATIBLE_MAX_RESPONSE_BYTES = String(capBytes);
+
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const lane = createApiLane(registry, 'openai-compatible');
+    await registry.advanceLanes();
+    const failed = await waitForLane(registry, lane.id, (item) => ['done', 'failed'].includes(item?.state));
+    // Assert the ERROR surfaced (not memory): the lane fails with the size-cap message.
+    assert.equal(failed.state, 'failed', failed.exitReason || 'oversized response must fail the lane');
+    assert.match(failed.exitReason, /exceeded configured size cap/);
+    assert.equal(JSON.stringify(failed).includes(secret), false, 'lane leaked API secret');
+  } finally {
+    await cleanup();
+    await dummy.close();
+    restore();
+  }
+});
+
 test('Kimi, DeepSeek, and Composer use the shared OpenAI-compatible provider path safely', async () => {
   const restore = snapshotEnv();
   const providers = [
