@@ -14,7 +14,6 @@ import {
   buildNextActionEnvelope,
 } from './agent-tools.js';
 import { handleLaneRoutes, FALL_THROUGH as LANE_FALL_THROUGH } from './server-routes/lanes.js';
-import { handleSessionRoutes } from './server-routes/sessions.js';
 import { handleProjectRoutes } from './server-routes/projects.js';
 import { handleMcpRoutes } from './server-routes/mcp.js';
 import { handleNotificationRoutes } from './server-routes/notifications.js';
@@ -339,24 +338,6 @@ function toolLeaseRequirementForRoute(method, parts) {
   if (parts[1] === 'private-access' && parts[2] === 'setup-plan' && parts.length === 3 && method === 'GET') {
     return { toolId: 'orca.setup_guide' };
   }
-  if (parts[1] === 'sessions' && parts[2] && parts[3] === 'lanes') {
-    if (method === 'GET') return { toolId: 'lane.list', sessionId: parts[2] };
-    if (method === 'POST') return { toolId: 'lane.create', sessionId: parts[2] };
-  }
-  if (parts[1] === 'sessions' && parts[2] && parts[3] === 'worktree-policy' && method === 'POST') {
-    return { toolId: 'session.worktree_policy.update', sessionId: parts[2] };
-  }
-  if (parts[1] === 'sessions' && parts[2] && parts[3] === 'audit-done-lanes' && method === 'POST') {
-    return { toolId: 'audit.queue_all_ready', sessionId: parts[2] };
-  }
-  if (parts[1] === 'sessions' && parts[2] && parts[3] === 'plan' && method === 'POST') {
-    return { toolId: 'session.plan.update', sessionId: parts[2] };
-  }
-  if (parts[1] === 'sessions' && parts[2] && parts[3] === 'events') {
-    if (parts[4] === 'drain' && method === 'GET') return { toolId: 'event.drain', sessionId: parts[2] };
-    if (parts[4] === 'replay' && method === 'GET') return { toolId: 'event.replay', sessionId: parts[2] };
-    if (parts[4] === 'ack' && method === 'POST') return { toolId: 'event.ack', sessionId: parts[2] };
-  }
   if (parts[1] === 'orchestrators' && parts.length === 2 && method === 'POST') {
     return { toolId: 'orchestrator.register' };
   }
@@ -369,13 +350,21 @@ function toolLeaseRequirementForRoute(method, parts) {
   if (parts[1] === 'orchestrators' && parts[2] && parts[3] === 'executors' && parts.length === 4 && method === 'POST') {
     return { toolId: 'executor.spawn' };
   }
-  if (parts[1] === 'sessions' && parts[2] && parts[3] === 'orchestrator' && parts[4] === 'enroll' && method === 'POST') {
-    return { toolId: 'orchestrator.enroll', sessionId: parts[2] };
+  // v2: lane/audit/event/status capabilities are re-homed onto the orchestrator
+  // container (parts[2] is the orc_ id, which is the lane container id).
+  if (parts[1] === 'orchestrators' && parts[2] && parts[3] === 'lanes' && parts.length === 4) {
+    if (method === 'GET') return { toolId: 'lane.list', sessionId: parts[2] };
+    if (method === 'POST') return { toolId: 'lane.create', sessionId: parts[2] };
   }
-  if (parts[1] === 'sessions' && parts[2] && parts[3] === 'orchestrator' && parts[4] === 'resign' && method === 'POST') {
-    return { toolId: 'orchestrator.resign', sessionId: parts[2] };
+  if (parts[1] === 'orchestrators' && parts[2] && parts[3] === 'audit-done-lanes' && method === 'POST') {
+    return { toolId: 'audit.queue_all_ready', sessionId: parts[2] };
   }
-  if (parts[1] === 'sessions' && parts[2] && parts[3] === 'orchestrator' && parts[4] === 'status' && method === 'GET') {
+  if (parts[1] === 'orchestrators' && parts[2] && parts[3] === 'events') {
+    if (parts[4] === 'drain' && method === 'GET') return { toolId: 'event.drain', sessionId: parts[2] };
+    if (parts[4] === 'replay' && method === 'GET') return { toolId: 'event.replay', sessionId: parts[2] };
+    if (parts[4] === 'ack' && method === 'POST') return { toolId: 'event.ack', sessionId: parts[2] };
+  }
+  if (parts[1] === 'orchestrators' && parts[2] && parts[3] === 'status' && parts.length === 4 && method === 'GET') {
     return { toolId: 'orchestrator.status', sessionId: parts[2] };
   }
   if (parts[1] === 'lanes' && parts[2] && parts.length === 3 && method === 'GET') {
@@ -878,11 +867,6 @@ async function handleApi(req, res, pathname, method, parts) {
     if (result !== LANE_FALL_THROUGH) return;
   }
 
-
-  if (parts[1] === 'sessions') {
-    const result = await handleSessionRoutes(ROUTE_CTX, req, res, method, parts);
-    if (result !== LANE_FALL_THROUGH) return;
-  }
 
   if (parts[1] === 'lanes') {
     const result = await handleLaneRoutes(ROUTE_CTX, req, res, method, parts);

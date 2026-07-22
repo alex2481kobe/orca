@@ -162,147 +162,83 @@ async function createGitFixture(baseDir, name = 'fixture-repo') {
   return { repoDir, originDir };
 }
 
-async function collectLaneStreamEvents({ baseUrl, sessionId, laneId, leaseToken }) {
-  const logPath = await writeLaneTerminalLog(sessionId, laneId, 'DOGFOOD INITIAL OUTPUT\n');
-
-  const events = [];
-  const response = await fetch(`${baseUrl}/api/lanes/${laneId}/stream`, {
-    headers: { 'x-orca-tool-lease': leaseToken },
-  });
-  assert.equal(response.status, 200);
-  assert.equal(response.headers.get('content-type').includes('text/event-stream'), true);
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let appended = false;
-  const readLoop = (async () => {
-    for (let i = 0; i < 50; i += 1) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      let idx;
-      while ((idx = buffer.indexOf('\n\n')) >= 0) {
-        const frame = buffer.slice(0, idx);
-        buffer = buffer.slice(idx + 2);
-        const event = frame.match(/^event: (.+)$/m)?.[1] || '';
-        const rawData = frame.match(/^data: (.+)$/m)?.[1] || '{}';
-        if (event) events.push({ event, data: JSON.parse(rawData) });
-      }
-      if (!appended && events.some((entry) => entry.event === 'snapshot')) {
-        appended = true;
-        await fs.appendFile(logPath, 'DOGFOOD LIVE OUTPUT\n');
-      }
-      if (events.some((entry) => entry.event === 'append')) {
-        break;
-      }
-    }
-  })();
-
-  const waitForAppend = (async () => {
-    for (let i = 0; i < 40; i += 1) {
-      if (events.some((entry) => entry.event === 'append')) return;
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-  })();
-  await Promise.race([readLoop, waitForAppend, new Promise((resolve) => setTimeout(resolve, 4000))]);
-  try { await reader.cancel(); } catch { /* ignore stream close races */ }
-  return events;
-}
-
-async function writeLaneTerminalLog(sessionId, laneId, text) {
-  const logPath = path.join(process.cwd(), 'artifacts', sessionId, laneId, 'terminal.log');
-  await fs.mkdir(path.dirname(logPath), { recursive: true });
-  await fs.writeFile(logPath, text);
-  return logPath;
-}
+// v2 orchestrator-native takeover: two external MCP orchestrators drive the REAL
+// MCP server. A registers by cwd (implicitly creating the project) and spawns a
+// lane; B cannot steal a live holder, but after A resigns B takes over the SAME
+// orchestrator record (no duplicate project/orchestrator/lane), and the resigned
+// former owner can no longer mutate the container.
 test('real orchestrator MCP takeover attaches to existing state without duplicate records', async () => {
   await withRealOrcaServer(async ({ requestJson, token }) => {
-    const project = await requestJson('/api/projects', {
-      method: 'POST',
-      body: { name: 'Real MCP Takeover Project', approved: true },
-    });
-    assert.equal(project.status, 201);
-    const session = await requestJson(`/api/projects/${project.body.id}/sessions`, {
-      method: 'POST',
-      body: { name: 'Real MCP Takeover Session', approved: true },
-    });
-    assert.equal(session.status, 201);
-    const lane = await requestJson(`/api/sessions/${session.body.id}/lanes`, {
-      method: 'POST',
-      body: { title: 'Existing takeover lane', executorType: 'mock', approved: true },
-    });
-    assert.equal(lane.status, 201);
-
-    const counts = async () => {
-      const projects = await requestJson('/api/projects');
-      const sessions = await requestJson(`/api/projects/${project.body.id}/sessions`);
-      const lanes = await requestJson(`/api/sessions/${session.body.id}/lanes`);
-      assert.equal(projects.status, 200);
-      assert.equal(sessions.status, 200);
-      assert.equal(lanes.status, 200);
-      return {
-        projects: projects.body.length,
-        sessions: sessions.body.length,
-        lanes: lanes.body.length,
-      };
-    };
-    const beforeBootstrap = await counts();
+    const cwd = await realPath(process.cwd());
 
     const bootstrapA = await requestJson('/api/mcp/orchestrator-bootstrap', {
       method: 'POST',
       headers: { 'x-orca-token': token },
-      body: {
-        actor: 'real-mcp-orchestrator-a',
-        projectId: project.body.id,
-        sessionId: session.body.id,
-        ttlMs: 10 * 60 * 1000,
-        nodePath: process.execPath,
-      },
+      body: { actor: 'real-mcp-orchestrator-a', ttlMs: 10 * 60 * 1000, nodePath: process.execPath },
     });
     assert.equal(bootstrapA.status, 201);
     const bootstrapB = await requestJson('/api/mcp/orchestrator-bootstrap', {
       method: 'POST',
       headers: { 'x-orca-token': token },
-      body: {
-        actor: 'real-mcp-orchestrator-b',
-        projectId: project.body.id,
-        sessionId: session.body.id,
-        ttlMs: 10 * 60 * 1000,
-        nodePath: process.execPath,
-      },
+      body: { actor: 'real-mcp-orchestrator-b', ttlMs: 10 * 60 * 1000, nodePath: process.execPath },
     });
     assert.equal(bootstrapB.status, 201);
-    assert.deepEqual(await counts(), beforeBootstrap);
 
     const mcpA = startMcpClient(bootstrapA.body.bootstrap.clients.claudeDesktop.config.mcpServers.orca.env);
     const mcpB = startMcpClient(bootstrapB.body.bootstrap.clients.claudeDesktop.config.mcpServers.orca.env);
     try {
-      const enrolledA = parseMcpJson(await mcpA.callTool('orchestrator__enroll'));
-      assert.equal(enrolledA.activeOrchestrator.actor, 'real-mcp-orchestrator-a');
-      assert.deepEqual(await counts(), beforeBootstrap);
-
-      const refusedB = await mcpB.callTool('orchestrator__enroll');
-      assert.equal(refusedB.result.isError, true);
-      assert.match(mcpText(refusedB), /already has an active orchestrator/i);
-      assert.match(mcpText(refusedB), /real-mcp-orchestrator-a/);
-      assert.deepEqual(await counts(), beforeBootstrap);
-
-      const takeoverB = parseMcpJson(await mcpB.callTool('orchestrator__enroll', {
-        body: { takeover: true },
+      // A registers as the orchestrator for the working dir and spawns a lane.
+      const registered = parseMcpJson(await mcpA.callTool('orchestrator__register', {
+        cwd, title: 'Takeover orchestrator',
       }));
-      assert.equal(takeoverB.activeOrchestrator.actor, 'real-mcp-orchestrator-b');
-      assert.deepEqual(await counts(), beforeBootstrap);
+      assert.equal(String(registered.id).startsWith('orc_'), true);
+      const orchestratorId = registered.id;
 
+      const lane = parseMcpJson(await mcpA.callTool('lane__create', {
+        orchestratorId,
+        body: { title: 'Existing takeover lane', executorType: 'mock', approved: true, taskPrompt: 'pre-takeover work' },
+      }));
+      assert.ok(lane.id, 'A spawned the pre-existing lane');
+
+      // Count durable records: projects + lanes under the orchestrator container.
+      const counts = async () => {
+        const projects = await requestJson('/api/projects');
+        const lanes = await requestJson(`/api/orchestrators/${orchestratorId}/lanes`);
+        assert.equal(projects.status, 200);
+        assert.equal(lanes.status, 200);
+        return { projects: projects.body.length, lanes: lanes.body.length };
+      };
+      const before = await counts();
+
+      // B cannot steal a LIVE holder — takeover of a non-stale orchestrator is refused.
+      const refusedB = await mcpB.callTool('orchestrator__register', {
+        cwd, takeoverOrchestratorId: orchestratorId,
+      });
+      assert.equal(refusedB.result.isError, true);
+      assert.match(mcpText(refusedB), /not eligible for takeover/i);
+      assert.deepEqual(await counts(), before);
+
+      // A resigns; B takes over the SAME record (id unchanged, no new records).
+      const resign = await mcpA.callTool('orchestrator__resign', { orchestratorId });
+      assert.equal(resign.result.isError, false, mcpText(resign));
+      const takeoverB = parseMcpJson(await mcpB.callTool('orchestrator__register', {
+        cwd, takeoverOrchestratorId: orchestratorId,
+      }));
+      assert.equal(takeoverB.id, orchestratorId, 'takeover attaches to the existing orchestrator record');
+      assert.deepEqual(await counts(), before);
+
+      // The resigned former owner may no longer mutate the container.
       const staleA = await mcpA.callTool('lane__create', {
+        orchestratorId,
         body: { title: 'Former owner must not spawn', executorType: 'mock', approved: true },
       });
       assert.equal(staleA.result.isError, true);
       assert.match(mcpText(staleA), /not the active orchestrator/i);
-      assert.deepEqual(await counts(), beforeBootstrap);
+      assert.deepEqual(await counts(), before);
 
-      const statusB = parseMcpJson(await mcpB.callTool('orchestrator__status'));
-      assert.equal(statusB.activeOrchestrator.actor, 'real-mcp-orchestrator-b');
+      // Status shows B as the active owner and still surfaces A's existing lane.
+      const statusB = parseMcpJson(await mcpB.callTool('orchestrator__status', { orchestratorId }));
+      assert.equal(statusB.activeOrchestrator.active, true);
       assert.equal(String(statusB.tree || '').includes('Existing takeover lane'), true);
     } finally {
       mcpA.close();
@@ -311,7 +247,11 @@ test('real orchestrator MCP takeover attaches to existing state without duplicat
   });
 });
 
-test('real MCP orchestrator creates repo-backed sessions and worktree lanes', async () => {
+// v2 orchestrator-native worktree isolation: an external MCP orchestrator
+// registers a git repo by cwd and spawns executor lanes that run in isolated git
+// worktrees under the orchestrator container. registerOrchestrator enforces the
+// cwd ∈ approved-roots guard the old session repoRoot validation used to.
+test('real MCP orchestrator registers a repo by cwd and spawns isolated worktree lanes', async () => {
   let unsafeRoot = null;
   try {
     await withRealOrcaServer(async ({ requestJson, token }) => {
@@ -319,118 +259,63 @@ test('real MCP orchestrator creates repo-backed sessions and worktree lanes', as
       const repoReal = await realPath(repoDir);
       unsafeRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-mcp-outside-repo-'));
 
-    const project = await requestJson('/api/projects', {
-      method: 'POST',
-      body: { name: 'MCP Worktree Project', approved: true },
-    });
-    assert.equal(project.status, 201);
-    const bootstrap = await requestJson('/api/mcp/orchestrator-bootstrap', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'codex-worktree-dogfood',
-        projectId: project.body.id,
-        ttlMs: 10 * 60 * 1000,
-        nodePath: process.execPath,
-      },
-    });
-    assert.equal(bootstrap.status, 201);
-    assert.equal(bootstrap.body.lease.role, 'orchestrator');
-    assert.equal(bootstrap.body.lease.projectId, project.body.id);
-
-    const env = bootstrap.body.bootstrap.clients.claudeDesktop.config.mcpServers.orca.env;
-    assert.equal(env.ORCA_PROJECT_ID, project.body.id);
-    assert.equal(env.ORCA_SESSION_ID || '', '');
-    const mcp = startMcpClient(env);
-    try {
-      const listed = await mcp.request('tools/list');
-      const toolNames = listed.result.tools.map((tool) => tool.name);
-      // v2 removed session.create from the MCP surface — sessions are created over
-      // the HTTP route by the operator, not as an agent tool. worktree-policy and
-      // lane tools stay callable over MCP.
-      assert.equal(toolNames.includes('session__create'), false);
-      assert.ok(toolNames.includes('session__worktree_policy__update'));
-      assert.ok(toolNames.includes('lane__create'));
-
-      // registry.createSession still enforces repoRoot ∈ approved roots — exercised
-      // here through the surviving HTTP route POST /api/projects/{id}/sessions.
-      const unsafeSession = await requestJson(`/api/projects/${project.body.id}/sessions`, {
+      // Unscoped orchestrator bootstrap: the agent registers by cwd, not a session.
+      const bootstrap = await requestJson('/api/mcp/orchestrator-bootstrap', {
         method: 'POST',
-        body: {
-          name: 'Unsafe repo session',
-          approved: true,
-          repoRoot: unsafeRoot,
-        },
+        headers: { 'x-orca-token': token },
+        body: { actor: 'codex-worktree-dogfood', ttlMs: 10 * 60 * 1000, nodePath: process.execPath },
       });
-      assert.notEqual(unsafeSession.status, 201);
-      assert.match(unsafeSession.body?.error || '', /outside the approved repo roots/i);
+      assert.equal(bootstrap.status, 201);
+      assert.equal(bootstrap.body.lease.role, 'orchestrator');
 
-      const created = await requestJson(`/api/projects/${project.body.id}/sessions`, {
-        method: 'POST',
-        body: {
-          name: 'MCP Repo Session',
-          leader: 'codex',
-          approved: true,
-          approvedCapacity: 2,
-          spawnPolicy: 'within_capacity',
-          worktreeMode: 'isolated',
-          repoRoot: repoDir,
-        },
-      });
-      assert.equal(created.status, 201);
-      const session = created.body;
-      assert.equal(await realPath(session.repoRoot), repoReal);
-      assert.equal(session.worktreeMode, 'isolated');
+      const env = bootstrap.body.bootstrap.clients.claudeDesktop.config.mcpServers.orca.env;
+      const mcp = startMcpClient(env);
+      try {
+        const listed = await mcp.request('tools/list');
+        const toolNames = listed.result.tools.map((tool) => tool.name);
+        // v2 removed the session.* MCP surface (session.create + worktree-policy);
+        // orchestrator registration + lane tools stay callable over MCP.
+        assert.equal(toolNames.includes('session__create'), false);
+        assert.equal(toolNames.includes('session__worktree_policy__update'), false);
+        assert.ok(toolNames.includes('orchestrator__register'));
+        assert.ok(toolNames.includes('lane__create'));
 
-      const enrolled = parseMcpJson(await mcp.callTool('orchestrator__enroll', {
-        sessionId: session.id,
-        body: { takeover: true },
-      }));
-      assert.equal(enrolled.activeOrchestrator.active, true);
-      assert.equal(enrolled.activeOrchestrator.actor, 'codex-worktree-dogfood');
+        // registerOrchestrator enforces cwd ∈ approved roots (the repoRoot guard).
+        const unsafe = await mcp.callTool('orchestrator__register', { cwd: unsafeRoot });
+        assert.equal(unsafe.result.isError, true);
+        assert.match(mcpText(unsafe), /outside the approved repo roots/i);
 
-      const isolatedLane = parseMcpJson(await mcp.callTool('lane__create', {
-        sessionId: session.id,
-        body: {
-          title: 'MCP isolated worktree lane',
-          executorType: 'mock',
-          approved: true,
-          branch: 'origin/main',
-          taskPrompt: 'Prove origin/main becomes an isolated workflow branch.',
-        },
-      }));
-      assert.equal(await realPath(isolatedLane.repoRoot), repoReal);
-      assert.equal(isolatedLane.worktreeMode, 'isolated');
-      assert.match(isolatedLane.branch, /^orca\/lane\//);
-      assert.equal(isolatedLane.branch.startsWith('codex/'), false);
-      const isolatedWorktreeReal = await realPath(isolatedLane.worktreePath);
-      const isolatedBaseReal = await realPath(path.join(process.cwd(), '.orca', 'workspaces', session.id, 'worktrees'));
-      assert.equal(pathWithin(isolatedWorktreeReal, isolatedBaseReal), true);
-      const remoteHead = runGit(['rev-parse', 'origin/main'], repoDir);
-      const isolatedHead = runGit(['rev-parse', 'HEAD'], isolatedLane.worktreePath);
-      assert.equal(isolatedHead, remoteHead);
+        // Register the git repo as the orchestrator container (project keyed by cwd).
+        const registered = parseMcpJson(await mcp.callTool('orchestrator__register', {
+          cwd: repoReal, title: 'MCP Repo Orchestrator',
+        }));
+        assert.equal(String(registered.id).startsWith('orc_'), true);
+        const orchestratorId = registered.id;
+        assert.equal(await realPath((await requestJson('/api/projects')).body
+          .find((p) => p.id === registered.projectId).cwd), repoReal);
 
-      const policy = parseMcpJson(await mcp.callTool('session__worktree_policy__update', {
-        sessionId: session.id,
-        body: { worktreeMode: 'shared', approved: true },
-      }));
-      assert.equal(policy.worktreeMode, 'shared');
-
-      const sharedLane = parseMcpJson(await mcp.callTool('lane__create', {
-        sessionId: session.id,
-        body: {
-          title: 'MCP shared worktree lane',
-          executorType: 'mock',
-          approved: true,
-          branch: 'dogfood/shared-worktree',
-          taskPrompt: 'Prove shared worktree mode uses the session repo root.',
-        },
-      }));
-      assert.equal(sharedLane.worktreeMode, 'shared');
-      assert.equal(await realPath(sharedLane.worktreePath), repoReal);
-      assert.equal(await realPath(sharedLane.workdir), repoReal);
-      assert.equal(sharedLane.branch, 'dogfood/shared-worktree');
-      assert.equal(sharedLane.warnings.some((warning) => warning.kind === 'shared_worktree'), true);
+        // Spawn an executor lane that isolates in its own managed git worktree.
+        const isolatedLane = parseMcpJson(await mcp.callTool('lane__create', {
+          orchestratorId,
+          body: {
+            title: 'MCP isolated worktree lane',
+            executorType: 'mock',
+            approved: true,
+            branch: 'origin/main',
+            taskPrompt: 'Prove origin/main becomes an isolated workflow branch.',
+          },
+        }));
+        assert.equal(await realPath(isolatedLane.repoRoot), repoReal);
+        assert.equal(isolatedLane.worktreeMode, 'isolated');
+        assert.match(isolatedLane.branch, /^orca\/lane\//);
+        assert.equal(isolatedLane.branch.startsWith('codex/'), false);
+        const isolatedWorktreeReal = await realPath(isolatedLane.worktreePath);
+        assert.notEqual(isolatedWorktreeReal, repoReal);
+        const isolatedBaseReal = await realPath(path.join(process.cwd(), '.orca', 'workspaces', orchestratorId, 'worktrees'));
+        assert.equal(pathWithin(isolatedWorktreeReal, isolatedBaseReal), true);
+        const remoteHead = runGit(['rev-parse', 'origin/main'], repoDir);
+        const isolatedHead = runGit(['rev-parse', 'HEAD'], isolatedLane.worktreePath);
+        assert.equal(isolatedHead, remoteHead);
       } finally {
         mcp.close();
       }

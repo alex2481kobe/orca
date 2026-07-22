@@ -16,7 +16,7 @@ function parsePositiveInteger(value, fallback) {
 // every revision bump and every heartbeat, for every connection).
 function buildStreamSignal(registry) {
   const projects = Array.isArray(registry.projects) ? registry.projects : [];
-  const sessions = Array.isArray(registry.sessions) ? registry.sessions : [];
+  const orchestrators = Array.isArray(registry.orchestrators) ? registry.orchestrators : [];
   const lanes = Array.isArray(registry.lanes) ? registry.lanes : [];
   const auditEvents = Array.isArray(registry.auditEvents) ? registry.auditEvents : [];
   let pendingAudits = 0;
@@ -27,7 +27,7 @@ function buildStreamSignal(registry) {
     revision: typeof registry.getStreamRevision === 'function' ? registry.getStreamRevision() : 0,
     counts: {
       projects: projects.length,
-      sessions: sessions.length,
+      orchestrators: orchestrators.length,
       lanes: lanes.length,
       auditEvents: auditEvents.length,
       pendingAudits,

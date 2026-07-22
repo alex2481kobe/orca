@@ -23,12 +23,19 @@ async function withRegistry(callback, options = {}) {
   }
 }
 
-let projectCounter = 0;
-function makeSession(registry, sessionBody = {}) {
-  projectCounter += 1;
-  const project = registry.createProject({ name: `Queue Project ${projectCounter}` }, { actor: 'test', approved: true });
-  const session = registry.createSession(project.id, { name: 'Queue Session', leader: 'mock', ...sessionBody }, { actor: 'test', approved: true });
-  return { project, session };
+// v2 orchestrator-native container: the orchestrator RECORD is the container the
+// agent queue is keyed by (getSession resolves the orc_ id via the seam). It has
+// `.id` and `.projectId`, so callers can keep using `session.id`/`session.projectId`.
+let orchCounter = 0;
+async function makeSession(registry) {
+  orchCounter += 1;
+  const { lease } = registry.createToolLease({ role: 'orchestrator', actor: `queue-orch-${orchCounter}` });
+  const orchestrator = await registry.registerOrchestrator(
+    { cwd: process.cwd(), actor: `queue-orch-${orchCounter}`, title: 'Queue Orch' },
+    { leaseId: lease.id },
+  );
+  const project = registry.projects.find((entry) => entry.id === orchestrator.projectId);
+  return { project, session: orchestrator, lease };
 }
 
 function makeLane(registry, sessionId, body = {}) {
@@ -37,7 +44,7 @@ function makeLane(registry, sessionId, body = {}) {
 
 test('agent queue: drain, replay, and ack are ordered and per consumer', async () => {
   await withRegistry(async (registry) => {
-    const { project, session } = makeSession(registry);
+    const { project, session } = await makeSession(registry);
     const first = registry.enqueueAgentEvent({
       type: 'backlog_completed',
       targetRole: 'orchestrator',
@@ -96,7 +103,7 @@ test('agent queue: drain, replay, and ack are ordered and per consumer', async (
 
 test('agent queue: dedupe preserves ack state and caps per-event consumers', async () => {
   await withRegistry(async (registry) => {
-    const { session } = makeSession(registry);
+    const { session } = await makeSession(registry);
     const event = registry.enqueueAgentEvent({
       type: 'loop_paused',
       targetRole: 'orchestrator',
@@ -149,7 +156,7 @@ test('agent queue: dedupe preserves ack state and caps per-event consumers', asy
 
 test('agent queue: ack state persists and remains scoped per consumer after reload', async () => {
   await withRegistry(async (registry, tempDir) => {
-    const { session } = makeSession(registry);
+    const { session } = await makeSession(registry);
     const event = registry.enqueueAgentEvent({
       type: 'loop_paused',
       targetRole: 'orchestrator',

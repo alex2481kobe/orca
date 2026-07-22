@@ -51,57 +51,29 @@ function nearestExistingPathSync(targetPath) {
 }
 
 export const workspaceMethods = {
+  // v2: containers are orchestrator records. Ensure each orchestrator's on-disk
+  // workspace + artifact dirs exist (keyed by orchestrator id) and backfill
+  // capacity defaults onto records restored from an older store.
   ensureSessionWorkspaces() {
     let migrated = false;
-    for (const session of this.sessions) {
-      if (!session) continue;
-      if (!session.id) {
-        session.id = randomUUID();
+    const DEFAULT_ORCHESTRATOR_CAPACITY = 4;
+    for (const orchestrator of (this.orchestrators || [])) {
+      if (!orchestrator || !orchestrator.id) continue;
+      if (!Number.isFinite(Number.parseInt(orchestrator.approvedCapacity, 10))) {
+        orchestrator.approvedCapacity = normalizeApprovedCapacity(orchestrator.laneConcurrencyLimit, DEFAULT_ORCHESTRATOR_CAPACITY);
         migrated = true;
       }
-
-      if (!session.artifactsRoot) {
-        session.artifactsRoot = path.join(this.artifactRoot, session.id);
+      if (!Number.isFinite(Number.parseInt(orchestrator.laneConcurrencyLimit, 10))) {
+        orchestrator.laneConcurrencyLimit = normalizeApprovedCapacity(orchestrator.approvedCapacity, DEFAULT_ORCHESTRATOR_CAPACITY);
         migrated = true;
       }
-      if (!session.worktreeRoot) {
-        session.worktreeRoot = path.join(this.workspacesRoot, session.id);
+      const normalizedSpawn = normalizeSpawnPolicy(orchestrator.spawnPolicy, 'auto');
+      if (normalizedSpawn !== orchestrator.spawnPolicy) {
+        orchestrator.spawnPolicy = normalizedSpawn;
         migrated = true;
       }
-      if (!Number.isFinite(Number.parseInt(session.approvedCapacity, 10))) {
-        session.approvedCapacity = normalizeApprovedCapacity(session.laneConcurrencyLimit, DEFAULT_APPROVED_CAPACITY);
-        migrated = true;
-      }
-      const normalizedSpawn = normalizeSpawnPolicy(session.spawnPolicy);
-      if (normalizedSpawn !== session.spawnPolicy) {
-        session.spawnPolicy = normalizedSpawn;
-        migrated = true;
-      }
-      if (typeof session.soloMode !== 'boolean') {
-        session.soloMode = true;
-        migrated = true;
-      }
-      const normalizedIdle = normalizeIdleShutdownMode(session.idleShutdownMode);
-      if (normalizedIdle !== session.idleShutdownMode) {
-        session.idleShutdownMode = normalizedIdle;
-        migrated = true;
-      }
-      if (!Array.isArray(session.capacityRequests)) {
-        session.capacityRequests = [];
-        migrated = true;
-      }
-      const normalizedCritique = normalizeCritiqueMode(session.critiqueMode);
-      if (normalizedCritique !== session.critiqueMode) {
-        session.critiqueMode = normalizedCritique;
-        migrated = true;
-      }
-      const normalizedWorktreeMode = normalizeWorktreeMode(session.worktreeMode);
-      if (normalizedWorktreeMode !== session.worktreeMode) {
-        session.worktreeMode = normalizedWorktreeMode;
-        migrated = true;
-      }
-      ensureDirectorySync(session.artifactsRoot);
-      ensureDirectorySync(session.worktreeRoot);
+      ensureDirectorySync(path.join(this.artifactRoot, orchestrator.id));
+      ensureDirectorySync(path.join(this.workspacesRoot, orchestrator.id));
     }
 
     if (migrated) {

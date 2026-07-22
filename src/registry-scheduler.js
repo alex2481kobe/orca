@@ -1,12 +1,10 @@
 // Executor-adapter management + the scheduler run loop (lane lifecycle engine)
 // as a prototype mixin for OrcaRegistry. Extracted from registry.js.
 
-import fs from 'node:fs/promises';
 import { LANE_STATES, isRunningLaneState } from './worker-contract.js';
 import { nowIso } from './registry-utils.js';
 import { createExecutorAdapter } from './executor-factory.js';
 import { normalizeApprovedCapacity, normalizeSpawnPolicy } from './registry-lane-config.js';
-import { writeJsonFileAtomic } from './state-store.js';
 
 // The scheduler heartbeat must NOT, by itself, keep the Node process alive — a
 // listening HTTP server (the real entrypoint) is what should. Without unref(),
@@ -125,21 +123,11 @@ export const schedulerMethods = {
   stopScheduler() {
     this._schedulerRunning = false;
     if (this._persistTimer) {
-      clearTimeout(this._persistTimer);
-      this._persistTimer = null;
-      // Flush a final persist synchronously so drainPendingWrites can await it.
-      const write = (async () => {
-        try {
-          await fs.mkdir(this.storageDir, { recursive: true });
-          // forceBackup: the per-persist `.bak` copy is throttled during normal
-          // running, so on shutdown flush force a fresh backup to guarantee the
-          // on-disk `.bak` matches the final state for crash recovery.
-          await writeJsonFileAtomic(this.stateFile, this.snapshotState(), { forceBackup: true });
-        } catch {
-          // Stop is best-effort; ignore persist failures during teardown.
-        }
-      })();
-      this._trackAsync(write);
+      // Flush a final persist so drainPendingWrites can await it. forceBackup:
+      // the per-persist `.bak` copy is throttled during normal running, so on
+      // shutdown force a fresh backup to guarantee the on-disk `.bak` matches
+      // the final state for crash recovery.
+      this._flushPersistTimer({ forceBackup: true });
     }
   },
 
@@ -153,8 +141,16 @@ export const schedulerMethods = {
 
   async drainPendingWrites() {
     if (!this._pendingWrites) return;
-    while (this._pendingWrites.size > 0) {
-      await Promise.allSettled([...this._pendingWrites]);
+    // A pending debounce timer holds an untracked write; force it into
+    // _pendingWrites first so its in-flight fs.mkdir can't escape the drain
+    // and resolve during process teardown (the AfterMkdirp crash).
+    while (this._persistTimer || this._pendingWrites.size > 0) {
+      if (this._persistTimer && typeof this._flushPersistTimer === 'function') {
+        this._flushPersistTimer();
+      }
+      if (this._pendingWrites.size > 0) {
+        await Promise.allSettled([...this._pendingWrites]);
+      }
       await Promise.resolve();
     }
   },
@@ -163,15 +159,11 @@ export const schedulerMethods = {
     await this.tickExecutors();
     await this.runCleanupSchedulerTick().catch(() => {});
 
-    // Launch queued lanes for both legacy sessions AND v2 orchestrator containers
-    // (getSession returns a session-shaped, launchable view for an orchestrator id).
-    const containers = [
-      ...this.sessions,
-      ...(this.orchestrators || []).map((orchestrator) => this.getSession(orchestrator.id)).filter(Boolean),
-    ];
-
-    for (const session of containers) {
-      const sessionLanes = this.lanes.filter((lane) => lane.sessionId === session.id);
+    // Launch queued lanes per v2 orchestrator container (the orchestrator record
+    // IS the container; there are no session records). Capacity lives on the record.
+    for (const orchestrator of (this.orchestrators || [])) {
+      const containerId = orchestrator.id;
+      const sessionLanes = this.lanes.filter((lane) => lane.sessionId === containerId);
       const queued = sessionLanes
         .filter((lane) => lane.state === QUEUED_STATE)
         .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
@@ -180,8 +172,8 @@ export const schedulerMethods = {
       // reported active runtimes) could undercount a RUNNING lane and let the
       // start loop exceed approvedCapacity.
       const runningCount = sessionLanes.filter((lane) => isRunningLaneState(lane.state)).length;
-      const approvedCapacity = normalizeApprovedCapacity(session.approvedCapacity, normalizeApprovedCapacity(session.laneConcurrencyLimit));
-      const capacityLimit = normalizeSpawnPolicy(session.spawnPolicy) === 'never' ? 0 : approvedCapacity;
+      const approvedCapacity = normalizeApprovedCapacity(orchestrator.approvedCapacity, normalizeApprovedCapacity(orchestrator.laneConcurrencyLimit, 4));
+      const capacityLimit = normalizeSpawnPolicy(orchestrator.spawnPolicy, 'auto') === 'never' ? 0 : approvedCapacity;
       let availableSlots = Math.max(0, capacityLimit - runningCount);
 
       // Walk the queued list consuming a slot per actually-started lane, so a lane
@@ -211,7 +203,7 @@ export const schedulerMethods = {
           type: 'lane_started',
           actor: 'scheduler',
           projectId: lane.projectId,
-          sessionId: session.id,
+          sessionId: containerId,
           laneId: lane.id,
           summary: `Lane ${lane.title} started`,
           evidence: { lane },

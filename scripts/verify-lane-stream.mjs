@@ -8,9 +8,15 @@ import path from 'node:path';
 
 const projectCwd = process.cwd();
 const stateDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'orca-lane-stream-'));
-process.chdir(stateDir);
+const realStateDir = await fsp.realpath(stateDir);
+process.chdir(realStateDir);
 process.env.PORT = '0'; process.env.ORCA_HOST = '127.0.0.1';
 process.env.ORCA_CREDENTIAL_BACKEND = 'memory'; process.env.ORCA_RATE_LIMIT_DISABLED = 'true';
+// registerOrchestrator validates cwd against the approved repo roots; point them
+// at the isolated state dir so its cwd registers cleanly.
+process.env.ORCA_REPO_ROOTS = realStateDir;
+// No ORCA_API_TOKEN: loopback requests get local-bootstrap admin, so these
+// same-process 127.0.0.1 calls register/spawn without a token (as before).
 const sm = await import(path.join(projectCwd, 'src/server.js'));
 const { OrcaRegistry } = await import(path.join(projectCwd, 'src/registry.js'));
 // The server module has its own registry singleton; we need to drive THAT lane's
@@ -19,11 +25,14 @@ const { OrcaRegistry } = await import(path.join(projectCwd, 'src/registry.js'));
 const s = await sm.startServer(0, '127.0.0.1');
 const base = `http://127.0.0.1:${s.address().port}`;
 
-const project = await fetch(base + '/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Stream Proj', actor: 'test', approved: true }) }).then((r) => r.json());
-const session = await fetch(`${base}/api/projects/${project.id}/sessions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Stream Sess', actor: 'test', approved: true }) }).then((r) => r.json());
-const lane = await fetch(`${base}/api/sessions/${session.id}/lanes`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: 'Stream Lane', executorType: 'mock', actor: 'test', approved: true }) }).then((r) => r.json());
+// v2: no session container — register an orchestrator by cwd (which implicitly
+// creates the project) and spawn the lane under the orchestrator record. The
+// lane's sessionId === orchestratorId, which is the artifacts/ path segment.
+const register = await fetch(base + '/api/orchestrators', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cwd: realStateDir, actor: 'test', title: 'Stream Orchestrator' }) }).then((r) => r.json());
+const orchestratorId = register.id;
+const lane = await fetch(`${base}/api/orchestrators/${orchestratorId}/lanes`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: 'Stream Lane', executorType: 'mock', actor: 'test', approved: true }) }).then((r) => r.json());
 
-const logPath = path.join(stateDir, 'artifacts', session.id, lane.id, 'terminal.log');
+const logPath = path.join(realStateDir, 'artifacts', orchestratorId, lane.id, 'terminal.log');
 await fsp.mkdir(path.dirname(logPath), { recursive: true });
 const initialText = 'INITIAL LINE\n';
 await fsp.writeFile(logPath, initialText);

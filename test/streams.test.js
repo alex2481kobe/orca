@@ -179,32 +179,30 @@ test('lane stream accepts scoped lane.get tool leases for live executor output',
     ORCA_API_TOKEN: token,
   });
   try {
-    const project = await server.request('/api/projects', {
+    // v2: no session container. Two orchestrators (same cwd project) stand in for
+    // the two sessions — the lane's container id is its orchestrator id, and the
+    // scoped-lease session gate now keys off that orchestrator id.
+    const orchestrator = await server.request('/api/orchestrators', {
       method: 'POST',
       headers: { 'x-orca-token': token },
-      body: { name: 'Lane Stream Project', approved: true },
+      body: { cwd: process.cwd(), actor: 'dashboard', title: 'Lane Stream Orchestrator' },
     });
-    assert.equal(project.status, 201);
-    const session = await server.request(`/api/projects/${project.body.id}/sessions`, {
+    assert.equal(orchestrator.status, 200, orchestrator.bodyText());
+    const otherOrchestrator = await server.request('/api/orchestrators', {
       method: 'POST',
       headers: { 'x-orca-token': token },
-      body: { name: 'Lane Stream Session', approved: true },
+      body: { cwd: process.cwd(), actor: 'dashboard', title: 'Other Lane Stream Orchestrator' },
     });
-    assert.equal(session.status, 201);
-    const otherSession = await server.request(`/api/projects/${project.body.id}/sessions`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { name: 'Other Lane Stream Session', approved: true },
-    });
-    assert.equal(otherSession.status, 201);
-    const lane = await server.request(`/api/sessions/${session.body.id}/lanes`, {
+    assert.equal(otherOrchestrator.status, 200, otherOrchestrator.bodyText());
+    const projectId = orchestrator.body.projectId;
+    const lane = await server.request(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: { title: 'Streaming executor', executorType: 'mock', approved: true },
     });
     assert.equal(lane.status, 201);
 
-    const logDir = path.join(process.cwd(), 'artifacts', session.body.id, lane.body.id);
+    const logDir = path.join(process.cwd(), 'artifacts', orchestrator.body.id, lane.body.id);
     await fs.mkdir(logDir, { recursive: true });
     await fs.writeFile(path.join(logDir, 'terminal.log'), 'hello from executor stream\n');
 
@@ -217,8 +215,8 @@ test('lane stream accepts scoped lane.get tool leases for live executor output',
       body: {
         actor: 'wrong-session-supervisor',
         role: 'supervisor',
-        projectId: project.body.id,
-        sessionId: otherSession.body.id,
+        projectId,
+        sessionId: otherOrchestrator.body.id,
         ttlMs: 10 * 60 * 1000,
       },
     });
@@ -239,8 +237,8 @@ test('lane stream accepts scoped lane.get tool leases for live executor output',
       body: {
         actor: 'stream-supervisor',
         role: 'supervisor',
-        projectId: project.body.id,
-        sessionId: session.body.id,
+        projectId,
+        sessionId: orchestrator.body.id,
         ttlMs: 10 * 60 * 1000,
       },
     });
@@ -285,19 +283,14 @@ test('lane terminal tail and live stream preserve large-output continuity', asyn
   });
   let stream = null;
   try {
-    const project = await server.request('/api/projects', {
+    // v2: the orchestrator record is the lane container (was the session).
+    const orchestrator = await server.request('/api/orchestrators', {
       method: 'POST',
       headers: { 'x-orca-token': token },
-      body: { name: 'Continuity Project', approved: true },
+      body: { cwd: process.cwd(), actor: 'dashboard', title: 'Continuity Orchestrator' },
     });
-    assert.equal(project.status, 201);
-    const session = await server.request(`/api/projects/${project.body.id}/sessions`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { name: 'Continuity Session', approved: true },
-    });
-    assert.equal(session.status, 201);
-    const lane = await server.request(`/api/sessions/${session.body.id}/lanes`, {
+    assert.equal(orchestrator.status, 200, orchestrator.bodyText());
+    const lane = await server.request(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: { title: 'Continuity executor', executorType: 'mock', approved: true },
@@ -309,14 +302,14 @@ test('lane terminal tail and live stream preserve large-output continuity', asyn
       body: {
         actor: 'continuity-supervisor',
         role: 'supervisor',
-        projectId: project.body.id,
-        sessionId: session.body.id,
+        projectId: orchestrator.body.projectId,
+        sessionId: orchestrator.body.id,
         ttlMs: 10 * 60 * 1000,
       },
     });
     assert.equal(supervisorLease.status, 201);
 
-    const logDir = path.join(process.cwd(), 'artifacts', session.body.id, lane.body.id);
+    const logDir = path.join(process.cwd(), 'artifacts', orchestrator.body.id, lane.body.id);
     const logPath = path.join(logDir, 'terminal.log');
     await fs.mkdir(logDir, { recursive: true });
     const initialLog = Array.from({ length: 340 }, (_, index) => `tail-${String(index).padStart(3, '0')}:${'x'.repeat(1000)}\n`).join('');

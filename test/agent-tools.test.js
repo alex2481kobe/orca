@@ -19,6 +19,7 @@ async function withIsolatedRegistry(callback) {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-agent-tools-'));
   process.chdir(tempDir);
   const registry = new OrcaRegistry({ autoCompleteMs: 60 * 60 * 1000 });
+  registry.stopScheduler();
   try {
     return await callback(registry, tempDir);
   } finally {
@@ -29,6 +30,18 @@ async function withIsolatedRegistry(callback) {
     process.chdir(previousCwd);
     await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
   }
+}
+
+// v2: the orchestrator RECORD is the lane container (no session records).
+// registerOrchestrator creates the project keyed by cwd and returns the orc_
+// container id; createLane / next-action take that id where a sessionId used to go.
+async function makeOrchestrator(registry, { cwd = process.cwd(), actor = 'test', title = 'Orch' } = {}) {
+  const { lease } = registry.createToolLease({ role: 'orchestrator', actor });
+  const orchestrator = await registry.registerOrchestrator(
+    { cwd, actor, title },
+    { leaseId: lease.id },
+  );
+  return { orchestrator, lease };
 }
 
 test('agent tool discovery is public-safe and includes stable required tool ids', () => {
@@ -45,7 +58,6 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
     'lane.submit',
     'lane.shutdown',
     'lane.controls.update',
-    'session.worktree_policy.update',
     'audit.queue_one',
     'audit.queue_all_ready',
     'audit.findings.record',
@@ -170,33 +182,27 @@ test('role instructions and next-action only reference live tool ids (v2 coheren
 
 test('nextAction envelope only advertises an implemented nextRequiredTool', async () => {
   await withIsolatedRegistry(async (registry) => {
-    const project = registry.createProject({ name: 'Agent Tools Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Agent Tools Session' }, { actor: 'test', approved: true });
+    // v2: registering the orchestrator IS the container step (no session/enroll).
+    // With a container but no lane, the orchestrator's next move is to create one.
+    const { orchestrator } = await makeOrchestrator(registry, { title: 'Agent Tools Orch' });
     const planning = buildNextActionEnvelope(registry, {
       role: 'orchestrator',
-      projectId: project.id,
-      sessionId: session.id,
+      projectId: orchestrator.projectId,
+      sessionId: orchestrator.id,
     });
-    assert.equal(planning.nextRequiredTool, 'orchestrator.enroll');
+    assert.equal(planning.nextRequiredTool, 'lane.create');
     assert.equal(planning.allowedTools.includes(planning.nextRequiredTool), true);
     assert.equal(findTool(planning.nextRequiredTool)?.implemented, true);
-    registry.enrollOrchestrator(session.id, { leaseId: 'dashboard', actor: 'test-orchestrator' });
-    const enrolledPlanning = buildNextActionEnvelope(registry, {
-      role: 'orchestrator',
-      projectId: project.id,
-      sessionId: session.id,
-    });
-    assert.equal(enrolledPlanning.nextRequiredTool, 'lane.create');
 
-    const lane = registry.createLane(session.id, {
+    const lane = registry.createLane(orchestrator.id, {
       title: 'Visual lane',
       executorType: 'mock',
       targetUrl: 'http://127.0.0.1:3000',
     }, { actor: 'test', approved: true });
     const active = buildNextActionEnvelope(registry, {
       role: 'orchestrator',
-      projectId: project.id,
-      sessionId: session.id,
+      projectId: orchestrator.projectId,
+      sessionId: orchestrator.id,
       laneId: lane.id,
     });
     assert.equal(active.nextRequiredTool, 'session.next_action');
@@ -205,8 +211,8 @@ test('nextAction envelope only advertises an implemented nextRequiredTool', asyn
     registry.markLaneCompleted(registry.getLane(lane.id));
     const audit = buildNextActionEnvelope(registry, {
       role: 'orchestrator',
-      projectId: project.id,
-      sessionId: session.id,
+      projectId: orchestrator.projectId,
+      sessionId: orchestrator.id,
       laneId: lane.id,
     });
     assert.equal(audit.nextRequiredTool, 'audit.queue_one');
@@ -217,13 +223,15 @@ test('nextAction envelope only advertises an implemented nextRequiredTool', asyn
 
 test('session nextAction picks the highest-priority actionable lane after orchestrator enrollment', async () => {
   await withIsolatedRegistry(async (registry) => {
-    const project = registry.createProject({ name: 'Multi Lane Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Multi Lane Session' }, { actor: 'test', approved: true });
-    const acceptedLane = registry.createLane(session.id, {
+    // "Enrollment" is now registerOrchestrator: the container exists from the
+    // moment the orchestrator is registered, and next-action resolves the
+    // highest-priority actionable lane inside it.
+    const { orchestrator } = await makeOrchestrator(registry, { title: 'Multi Lane Orch' });
+    const acceptedLane = registry.createLane(orchestrator.id, {
       title: 'Already accepted',
       executorType: 'mock',
     }, { actor: 'test', approved: true });
-    const reviewLane = registry.createLane(session.id, {
+    const reviewLane = registry.createLane(orchestrator.id, {
       title: 'Needs audit',
       executorType: 'mock',
     }, { actor: 'test', approved: true });
@@ -232,30 +240,26 @@ test('session nextAction picks the highest-priority actionable lane after orches
     registry.acceptLaneAudit(acceptedLane.id, { actor: 'test-auditor' });
     registry.markLaneCompleted(registry.getLane(reviewLane.id));
 
-    const beforeEnroll = buildNextActionEnvelope(registry, {
+    // The accepted lane is no longer actionable, so next-action selects the lane
+    // still awaiting audit and points at queuing it.
+    const env = buildNextActionEnvelope(registry, {
       role: 'orchestrator',
-      projectId: project.id,
-      sessionId: session.id,
+      projectId: orchestrator.projectId,
+      sessionId: orchestrator.id,
     });
-    assert.equal(beforeEnroll.laneId, null);
-    assert.equal(beforeEnroll.nextRequiredTool, 'orchestrator.enroll');
-
-    registry.enrollOrchestrator(session.id, { leaseId: 'dashboard', actor: 'test-orchestrator', source: 'dashboard' });
-    const afterEnroll = buildNextActionEnvelope(registry, {
-      role: 'orchestrator',
-      projectId: project.id,
-      sessionId: session.id,
-    });
-    assert.equal(afterEnroll.laneId, reviewLane.id);
-    assert.equal(afterEnroll.nextRequiredTool, 'audit.queue_one');
+    assert.equal(env.laneId, reviewLane.id);
+    assert.equal(env.nextRequiredTool, 'audit.queue_one');
   });
 });
 
 test('tool leases are scoped, hashed at rest, and enforce allowed tools', async () => {
-  await withIsolatedRegistry(async (registry) => {
-    const project = registry.createProject({ name: 'Lease Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Lease Session' }, { actor: 'test', approved: true });
-    const lane = registry.createLane(session.id, {
+  await withIsolatedRegistry(async (registry, tempDir) => {
+    // v2: the orchestrator container id stands in for the old sessionId; its
+    // projectId is the lease's project scope.
+    const { orchestrator } = await makeOrchestrator(registry, { title: 'Lease Orch' });
+    const project = registry.projects.find((p) => p.id === orchestrator.projectId);
+    const session = { id: orchestrator.id, projectId: orchestrator.projectId };
+    const lane = registry.createLane(orchestrator.id, {
       title: 'Lease Lane',
       executorType: 'mock',
     }, { actor: 'test', approved: true });
@@ -351,7 +355,11 @@ test('tool leases are scoped, hashed at rest, and enforce allowed tools', async 
       allowedTools: ['provider.secret.set'],
     }), (error) => error.status === 422 && /cannot grant/i.test(error.message));
 
-    const otherProject = registry.createProject({ name: 'Other Lease Project' }, { actor: 'test', approved: true });
+    // A second container/project via a distinct approved cwd (subdir of tempDir).
+    const otherCwd = path.join(tempDir, 'other-repo');
+    await fs.mkdir(otherCwd, { recursive: true });
+    const { orchestrator: otherOrchestrator } = await makeOrchestrator(registry, { cwd: otherCwd, actor: 'other-test', title: 'Other Orch' });
+    const otherProject = registry.projects.find((p) => p.id === otherOrchestrator.projectId);
     assert.throws(() => registry.validateToolLease(sessionOnlyLease.leaseToken, {
       role: 'orchestrator',
       toolId: 'project.describe',

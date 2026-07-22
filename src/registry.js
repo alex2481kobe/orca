@@ -9,8 +9,6 @@ import { settingsMethods } from './registry-settings.js';
 import { auditMethods } from './registry-audit.js';
 import { projectMethods } from './registry-projects.js';
 import { mcpToolMethods } from './registry-mcp-tools.js';
-import { sessionMethods } from './registry-sessions.js';
-import { orchestratorMethods } from './registry-orchestrator.js';
 import { cleanupMethods } from './registry-cleanup.js';
 import { laneOpsMethods } from './registry-lane-ops.js';
 import { laneTerminalMethods } from './registry-lane-terminal.js';
@@ -45,7 +43,6 @@ export class OrcaRegistry {
     autoAudit,
   } = {}) {
     this.projects = [];
-    this.sessions = [];
     this.orchestrators = [];
     this.lanes = [];
     this.auditEvents = [];
@@ -179,14 +176,11 @@ Object.assign(OrcaRegistry.prototype, settingsMethods);
 Object.assign(OrcaRegistry.prototype, auditMethods);
 Object.assign(OrcaRegistry.prototype, projectMethods);
 Object.assign(OrcaRegistry.prototype, mcpToolMethods);
-Object.assign(OrcaRegistry.prototype, sessionMethods);
-// v2 agent/overview mixins are assigned BEFORE orchestratorMethods so the old
-// session-based resignOrchestrator (still live until Lane 2 step 5 removes it)
-// wins the one method-name collision. The new register/update/touch/stale
-// methods do not collide and remain available for the v2 register route.
+// v2: the orchestrator RECORD is the only container. agentMethods owns the
+// orchestrator lifecycle + the getSession() container seam + ownership; there is
+// no session/orchestrator-marker module anymore.
 Object.assign(OrcaRegistry.prototype, agentMethods);
 Object.assign(OrcaRegistry.prototype, overviewMethods);
-Object.assign(OrcaRegistry.prototype, orchestratorMethods);
 Object.assign(OrcaRegistry.prototype, cleanupMethods);
 Object.assign(OrcaRegistry.prototype, laneOpsMethods);
 Object.assign(OrcaRegistry.prototype, laneTerminalMethods);

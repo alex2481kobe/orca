@@ -159,22 +159,48 @@ test('settings override sanitizer rejects unknown and prototype-polluting fields
   );
 });
 
+// v2 orchestrator-native container: registerOrchestrator creates the project
+// keyed by cwd and returns the orc_ container id. The "session" scope of the
+// effective-settings stack now maps to that orchestrator container via the
+// getSession() seam (lane.sessionId === orchestrator.id).
+async function makeOrchestrator(registry, { actor = 'test', title = 'Orch' } = {}) {
+  const { lease } = registry.createToolLease({ role: 'orchestrator', actor });
+  const orchestrator = await registry.registerOrchestrator(
+    { cwd: process.cwd(), actor, title },
+    { leaseId: lease.id },
+  );
+  return { orchestrator, lease };
+}
+
+// PORTED from the Model-A session-scoped version. In v3 the orchestrator RECORD
+// is the container: its spawn capacity is set through updateOrchestrator (the seam
+// then feeds it into the "session:fields" layer), and durable settingsOverrides
+// live at project + lane scope. Arbitrary session-scoped settingsOverrides have no
+// backing record on the ephemeral container seam, so the container-level override
+// (privateAccess + notifications) is asserted at PROJECT scope — the durable
+// container scope in v3 — while the update/audit path is exercised there too.
 test('registry persists scoped settings overrides and audits updates', async () => {
   await withTempRegistry(async (registry) => {
-    const project = registry.createProject({
-      name: 'Effective Settings Project',
+    const { orchestrator, lease } = await makeOrchestrator(registry);
+    const projectId = orchestrator.projectId;
+
+    // Container-level (project) overrides are durable on the project record.
+    registry.updateSettingsOverrides({
+      scope: 'project',
+      locator: projectId,
       settingsOverrides: {
         privateAccess: { preferredMode: 'local' },
-      },
-    }, { approved: true });
-    const session = registry.createSession(project.id, {
-      name: 'Effective Settings Session',
-      approvedCapacity: 6,
-      settingsOverrides: {
         notifications: { browser: true },
       },
-    }, { approved: true });
-    const lane = registry.createLane(session.id, {
+      actor: 'dashboard',
+      approved: true,
+    });
+
+    // Container capacity now lives on the orchestrator record; the seam feeds it
+    // into the effective-settings "session:fields" layer.
+    registry.updateOrchestrator(orchestrator.id, { approvedCapacity: 6 }, { leaseId: lease.id });
+
+    const lane = registry.createLane(orchestrator.id, {
       title: 'Effective Settings Lane',
       executorType: 'mock',
       targetUrl: 'http://127.0.0.1:4173',
@@ -184,8 +210,8 @@ test('registry persists scoped settings overrides and audits updates', async () 
     }, { approved: true });
 
     const laneEffective = registry.getEffectiveSettings({ laneId: lane.id });
-    assert.equal(laneEffective.scope.projectId, project.id);
-    assert.equal(laneEffective.scope.sessionId, session.id);
+    assert.equal(laneEffective.scope.projectId, projectId);
+    assert.equal(laneEffective.scope.sessionId, orchestrator.id);
     assert.equal(laneEffective.scope.laneId, lane.id);
     assert.equal(laneEffective.settings.spawn.approvedCapacity, 6);
     assert.equal(laneEffective.settings.notifications.browser, true);
@@ -194,8 +220,8 @@ test('registry persists scoped settings overrides and audits updates', async () 
 
     assert.throws(
       () => registry.updateSettingsOverrides({
-        scope: 'session',
-        locator: session.id,
+        scope: 'project',
+        locator: projectId,
         settingsOverrides: { spawn: { spawnPolicy: 'auto' } },
         actor: 'dashboard',
         approved: false,
@@ -204,8 +230,8 @@ test('registry persists scoped settings overrides and audits updates', async () 
     );
 
     const updated = registry.updateSettingsOverrides({
-      scope: 'session',
-      locator: session.id,
+      scope: 'project',
+      locator: projectId,
       settingsOverrides: {
         spawn: {
           spawnPolicy: 'auto',

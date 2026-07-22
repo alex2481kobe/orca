@@ -10,8 +10,8 @@
  *   4. oversized JSON body → 413
  *   5. malformed JSON body → 400
  *   6. malformed query string → 400
- *   7. project + session + mock lane creation; lane reaches done
- *   8. MCP CRUD + Codex lane attachment (blocked execution OK)
+ *   7. orchestrator register (project-by-cwd) + mock executor lane; lane reaches done
+ *   8. MCP CRUD + Codex executor lane attachment (blocked execution OK)
  *   9. audit queue + ack + worktree route shape
  *  10. private access states/targets (Funnel rejection), PWA static guards
  *  11. notifications settings + read-all
@@ -227,12 +227,20 @@ async function cleanupStartedServer() {
 }
 
 async function main() {
+// v2: lanes hang off an orchestrator RECORD registered by cwd, not a session.
+// We deliberately register against a NON-git working dir (the smoke tempDir), so
+// executor lanes run "direct" with no managed worktree — this preserves the
+// worktree/remove → 422 assertion below (a git repo would auto-provision an
+// isolated worktree and change that shape).
+let registerCwd = null;
 if (!explicitBase) {
   process.chdir(tempDir);
+  registerCwd = await fs.realpath(tempDir);
   process.env.PORT = '0';
   process.env.ORCA_HOST = '127.0.0.1';
   process.env.ORCA_CREDENTIAL_BACKEND = 'memory';
   process.env.ORCA_API_TOKEN = 'full-flow-smoke-token';
+  process.env.ORCA_REPO_ROOTS = registerCwd;
   token = process.env.ORCA_API_TOKEN;
   refreshTokenHeaders();
   const serverModule = await import('../src/server.js');
@@ -240,6 +248,8 @@ if (!explicitBase) {
   stopServer = serverModule.stopServer;
   const address = server.address();
   base = `http://127.0.0.1:${address.port}`;
+} else {
+  registerCwd = await fs.realpath(previousCwd);
 }
 
 const start = Date.now();
@@ -307,21 +317,23 @@ const malformedQuery = await req('GET', '/api/audit/events?status=%E0%A4');
 if (malformedQuery.status !== 400) fail('malformed query should be 400', JSON.stringify(malformedQuery));
 log('neg/malformed-query', `${malformedQuery.status} ok`);
 
-// --- happy-path: project + session + mock lane ---
+// --- happy-path: register orchestrator (project-by-cwd) + mock executor lane ---
 const slugSuffix = Date.now().toString(36).slice(-6);
-const project = await req('POST', '/api/projects', { name: `Smoke ${slugSuffix}`, approved: true });
-if (project.status !== 201) fail('createProject', JSON.stringify(project));
-log('project', project.body.id);
-
-const session = await req('POST', `/api/projects/${project.body.id}/sessions`, {
-  name: `Smoke Session ${slugSuffix}`,
-  approved: true,
+// v2: an orchestrator registers by cwd (implicitly creating the project keyed by
+// cwd) and lanes are spawned under the orchestrator record — replacing the old
+// project→session→lane container chain. Admin token → leaseId 'dashboard'.
+const orchestrator = await req('POST', '/api/orchestrators', {
+  actor: 'smoke',
+  cwd: registerCwd,
+  title: `Smoke Orchestrator ${slugSuffix}`,
 });
-if (session.status !== 201) fail('createSession', JSON.stringify(session));
-log('session', session.body.id);
+if (orchestrator.status !== 200 || !String(orchestrator.body?.id || '').startsWith('orc_')) fail('registerOrchestrator', JSON.stringify(orchestrator));
+const orchestratorId = orchestrator.body.id;
+log('orchestrator', `${orchestratorId} (project=${orchestrator.body.projectId})`);
 
-const lane = await req('POST', `/api/sessions/${session.body.id}/lanes`, {
+const lane = await req('POST', `/api/orchestrators/${orchestratorId}/executors`, {
   title: 'smoke lane',
+  role: 'executor',
   executorType: 'mock',
   owner: 'smoke',
   approved: true,
@@ -350,8 +362,9 @@ const tool = await req('POST', '/api/mcp/tools', {
 if (tool.status !== 201) fail('createMcpTool', JSON.stringify(tool));
 log('mcpTool', tool.body.id);
 
-const codexLane = await req('POST', `/api/sessions/${session.body.id}/lanes`, {
+const codexLane = await req('POST', `/api/orchestrators/${orchestratorId}/executors`, {
   title: 'smoke codex lane',
+  role: 'executor',
   executorType: 'codex',
   executorBinary: process.env.ORCA_CODEX_BINARY || 'codex',
   mcpToolIds: [tool.body.id],
@@ -449,8 +462,8 @@ log('notifications', `readAll=${markAll.body.updatedCount ?? 'ok'}`);
 // --- browser proof: paired-cookie desktop and phone screenshots ---
 const browserProof = await captureBrowserScreenshots({
   sessionCookie,
-  projectId: project.body.id,
-  sessionId: session.body.id,
+  projectId: orchestrator.body.projectId,
+  sessionId: orchestratorId,
   laneId: lane.body.id,
 });
 if (!browserProof.skipped && (!browserProof.screenshots || browserProof.screenshots.length < 2)) {

@@ -63,12 +63,11 @@ export function chooseNextTool({ registry, role, project, session, lane, auditQu
   if (!project) return normalizedRole === 'orchestrator' || normalizedRole === 'dashboard'
     ? 'orchestrator.register'
     : 'project.list';
-  if (!session) return 'project.describe';
-  if (normalizedRole === 'orchestrator') {
-    let activeOrchestrator = null;
-    try { activeOrchestrator = registry.getActiveOrchestrator(session.id); } catch { activeOrchestrator = null; }
-    if (!activeOrchestrator?.active || activeOrchestrator?.stale) return 'orchestrator.enroll';
-  }
+  // v2: the orchestrator RECORD is the container. With no container yet, an
+  // orchestrator registers to obtain one (there is no session/enroll step).
+  if (!session) return normalizedRole === 'orchestrator' || normalizedRole === 'dashboard'
+    ? 'orchestrator.register'
+    : 'project.describe';
   if (!lane) {
     // orchestrator-only flow: the orchestrator does the work itself — don't push
     // toward spawning executor lanes.
@@ -133,12 +132,6 @@ const SESSION_LANE_ACTION_PRIORITY = {
 
 function chooseSessionLane(registry, { role, project, session }) {
   if (!session) return null;
-  const normalizedRole = normalizeRole(role);
-  if (normalizedRole === 'orchestrator') {
-    let activeOrchestrator = null;
-    try { activeOrchestrator = registry.getActiveOrchestrator(session.id); } catch { activeOrchestrator = null; }
-    if (!activeOrchestrator?.active || activeOrchestrator?.stale) return null;
-  }
   const lanes = (registry?.lanes || []).filter((item) => item.sessionId === session.id);
   const actionableLanes = lanes.filter((lane) => lane.state !== 'accepted');
   if (!actionableLanes.length) return null;
@@ -199,9 +192,16 @@ export function buildNextActionEnvelope(registry, {
   const project = projectId
     ? (typeof registry?.getProject === 'function' ? registry.getProject(projectId) : null)
     : (projects[0] || null);
+  // v2: containers are orchestrator records. Resolve the given container, or fall
+  // back to the first orchestrator registered under the project.
   const session = sessionId
     ? (typeof registry?.getSession === 'function' ? registry.getSession(sessionId) : null)
-    : (project ? (registry?.sessions || []).find((item) => item.projectId === project.id) || null : null);
+    : (project && typeof registry?.getSession === 'function'
+      ? ((registry?.orchestrators || [])
+        .filter((orch) => orch.projectId === project.id)
+        .map((orch) => registry.getSession(orch.id))
+        .find(Boolean) || null)
+      : null);
   const lane = laneId
     ? (typeof registry?.getLane === 'function' ? registry.getLane(laneId) : null)
     : chooseSessionLane(registry, { role: normalizedRole, project, session });

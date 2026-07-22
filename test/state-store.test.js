@@ -194,8 +194,15 @@ test('registry recovers persisted projects from backup and audits recovery', asy
   });
 });
 
-test('registry restores persisted sessions and normalizes invalid session config', async () => {
-  await withTempDir('orca-session-restore-', async (dir) => {
+// PORTED from 'registry restores persisted sessions and normalizes invalid
+// session config'. v3 is the orchestrator-only model: the Model-A session
+// container was deleted, so there is no getSession('s1') / ensureSessionWorkspaces
+// session-config normalization to assert anymore. The load-bearing intent that
+// survives is: restoreFromDisk must migrate a legacy v2 store (with sessions) to
+// v3 WITHOUT throwing — dropping the sessions, keeping projects + orchestrator-
+// referencing lanes, and recording a migration audit event.
+test('registry migrates a legacy v2 store (sessions dropped) to the orchestrator-only v3 model', async () => {
+  await withTempDir('orca-v2-migrate-', async (dir) => {
     const previousCwd = process.cwd();
     process.chdir(dir);
     const stateFile = path.join(dir, '.orca', 'state.json');
@@ -208,22 +215,37 @@ test('registry restores persisted sessions and normalizes invalid session config
           id: 'p1', name: 'P1', slug: 'p1',
           createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), quickLinks: [],
         }],
-        // Session with invalid enum config — exercises ensureSessionWorkspaces
-        // normalization (regression guard for the lane-config extraction).
+        orchestrators: [{
+          id: 'orc_legacy', projectId: 'p1', actor: 'chat', leaseId: 'dashboard',
+          registeredAt: new Date().toISOString(), lastSeenAt: new Date().toISOString(),
+        }],
+        // Legacy session container with invalid enum config — must be dropped by
+        // the v2 -> v3 migration (no throw, no getSession revival).
         sessions: [{
           id: 's1', projectId: 'p1', name: 'S1',
           spawnPolicy: 'bogus', idleShutdownMode: 'bogus', critiqueMode: 'bogus',
           createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
         }],
-        lanes: [], auditEvents: [], cleanupSchedule: {}, mcpTools: [], toolLeases: [],
+        // A lane still bound to the orchestrator survives; a pure-session lane does not.
+        lanes: [
+          { id: 'lane-orc', orchestratorId: 'orc_legacy', projectId: 'p1', sessionId: 'orc_legacy', title: 'kept', state: 'done' },
+          { id: 'lane-session', projectId: 'p1', sessionId: 's1', title: 'dropped', state: 'done' },
+        ],
+        auditEvents: [], cleanupSchedule: {}, mcpTools: [], toolLeases: [],
       });
 
       const registry = new OrcaRegistry({ heartbeatIntervalMs: 5 });
       try {
-        const session = registry.getSession('s1');
-        assert.ok(session, 'session restored from disk');
-        // Invalid enums normalized to safe defaults (no ReferenceError thrown).
-        assert.equal(session.critiqueMode, 'suggested');
+        // Sessions are gone in v3: the legacy session id never resolves.
+        assert.equal(registry.getSession('s1'), undefined, 'legacy session must not be revived');
+        // The orchestrator container survives and getSession resolves the orc_ id.
+        assert.ok(registry.getSession('orc_legacy'), 'orchestrator container restored from disk');
+        assert.equal(registry.projects.length, 1);
+        // Only the orchestrator-referencing lane is carried over.
+        assert.ok(registry.getLane('lane-orc'), 'orchestrator-bound lane survives migration');
+        assert.equal(registry.getLane('lane-session'), undefined, 'pure-session lane dropped');
+        // Migration audit event recorded (no throw during restore).
+        assert.equal(registry.auditEvents.some((event) => event.type === 'registry_state_migrated'), true);
       } finally {
         registry.stopScheduler();
         if (typeof registry.drainPendingWrites === 'function') {

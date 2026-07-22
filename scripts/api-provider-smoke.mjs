@@ -95,14 +95,28 @@ async function waitForLane(registry, laneId) {
 
 const previousCwd = process.cwd();
 const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-api-provider-smoke-'));
+const realTempDir = await fs.realpath(tempDir);
 const previousEnv = { ...process.env };
 const secret = 'api-provider-smoke-secret';
+
+// v2: no session container. An orchestrator lease registers by cwd (implicitly
+// creating the project keyed by cwd) and lanes are created under the orchestrator
+// record (createLane's first arg is the orc_ id).
+async function makeOrchestrator(registry, { actor = 'smoke', title = 'API Provider Orchestrator' } = {}) {
+  const { lease } = registry.createToolLease({ role: 'orchestrator', actor });
+  const orchestrator = await registry.registerOrchestrator(
+    { cwd: realTempDir, actor, title },
+    { leaseId: lease.id },
+  );
+  return { orchestrator, lease };
+}
 const dummy = await startDummyApi(secret);
 const geminiSecret = 'gemini-provider-smoke-secret';
 const geminiDummy = await startDummyGeminiApi(geminiSecret);
 
 try {
   process.chdir(tempDir);
+  process.env.ORCA_REPO_ROOTS = realTempDir;
   process.env.ORCA_OPENAI_COMPATIBLE_BASE_URL = dummy.baseUrl;
   delete process.env.ORCA_OPENAI_COMPATIBLE_API_KEY;
   process.env.ORCA_OPENAI_COMPATIBLE_MODEL = 'smoke-model';
@@ -114,9 +128,8 @@ try {
   await credentialStore.set('provider:gemini', geminiSecret);
   const registry = new OrcaRegistry({ heartbeatIntervalMs: 25, autoCompleteMs: 250, credentialStore });
   try {
-    const project = registry.createProject({ name: 'API Provider Smoke' }, { actor: 'smoke', approved: true });
-    const session = registry.createSession(project.id, { name: 'API Provider Session' }, { actor: 'smoke', approved: true });
-    const lane = registry.createLane(session.id, {
+    const { orchestrator } = await makeOrchestrator(registry);
+    const lane = await registry.createLane(orchestrator.id, {
       title: 'OpenAI-compatible API lane',
       executorType: 'openai-compatible',
       taskPrompt: 'Run the local API provider smoke.',
@@ -138,7 +151,7 @@ try {
     assert.equal(JSON.stringify(registry.auditEvents).includes(secret), false);
     log('openai-compatible lane executed and redacted local secret');
 
-    const geminiLane = registry.createLane(session.id, {
+    const geminiLane = await registry.createLane(orchestrator.id, {
       title: 'Gemini API lane',
       executorType: 'gemini',
       taskPrompt: 'Run the local Gemini provider smoke.',

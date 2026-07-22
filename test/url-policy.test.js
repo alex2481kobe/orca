@@ -25,6 +25,18 @@ async function withRegistry(callback) {
   }
 }
 
+// v2 orchestrator-native container: registerOrchestrator creates the project
+// keyed by cwd (process.cwd() is always an approved repo root) and returns the
+// orc_ container id that createLane now takes as its first arg.
+async function makeOrchestrator(registry, { actor = 'test', title = 'Orch' } = {}) {
+  const { lease } = registry.createToolLease({ role: 'orchestrator', actor });
+  const orchestrator = await registry.registerOrchestrator(
+    { cwd: process.cwd(), actor, title },
+    { leaseId: lease.id },
+  );
+  return { orchestrator, lease };
+}
+
 test('network URL policy allows loopback and tailnet while rejecting SSRF targets', () => {
   assert.equal(classifyHost('127.0.0.1'), 'loopback');
   assert.equal(classifyHost('localhost'), 'loopback');
@@ -97,16 +109,10 @@ test('evidence URL policy requires saved URLs or explicit one-time approval', ()
 
 test('registry rejects unsafe lane target URLs before browser work', async () => {
   await withRegistry(async (registry) => {
-    const project = registry.createProject({
-      name: 'SSRF Project',
-      quickLinks: [{ label: 'Safe local app', url: 'http://127.0.0.1:4173/' }],
-    }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, {
-      name: 'SSRF Session',
-    }, { actor: 'test', approved: true });
+    const { orchestrator } = await makeOrchestrator(registry);
 
     assert.throws(
-      () => registry.createLane(session.id, {
+      () => registry.createLane(orchestrator.id, {
         title: 'Bad target',
         executorType: 'mock',
         targetUrl: 'http://169.254.169.254/latest/meta-data',
@@ -115,7 +121,7 @@ test('registry rejects unsafe lane target URLs before browser work', async () =>
     );
 
     // A safe loopback target is accepted by the same url-policy validation.
-    registry.createLane(session.id, {
+    registry.createLane(orchestrator.id, {
       title: 'Safe target',
       executorType: 'mock',
       targetUrl: 'http://127.0.0.1:4173/',

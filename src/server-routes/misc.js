@@ -25,7 +25,7 @@ export async function handleMiscRoutes(ctx, req, res, method, parts) {
     if (hasOperatorAuth(req)) {
       payload.counts = {
         projects: registry.projects.length,
-        sessions: registry.sessions.length,
+        orchestrators: (registry.orchestrators || []).length,
         lanes: registry.lanes.length,
         auditEvents: registry.auditEvents.length,
       };

@@ -54,10 +54,10 @@ function pathWithin(child, parent) {
   return child === parent || child.startsWith(`${parent}${path.sep}`);
 }
 
-async function req(method, route, body) {
+async function req(method, route, body, extraHeaders = {}) {
   const response = await fetch(`${base}${route}`, {
     method,
-    headers: { 'content-type': 'application/json', 'x-orca-token': token },
+    headers: { 'content-type': 'application/json', 'x-orca-token': token, ...extraHeaders },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const text = await response.text();
@@ -65,6 +65,7 @@ async function req(method, route, body) {
   try { data = text ? JSON.parse(text) : null; } catch { /* non-json */ }
   return { status: response.status, body: data, text };
 }
+const withLease = (leaseToken) => ({ 'x-orca-tool-lease': leaseToken });
 
 async function waitForState(laneId, predicate, label, { timeoutMs = 20000 } = {}) {
   const deadline = Date.now() + timeoutMs;
@@ -122,33 +123,25 @@ try {
   if (bootstrap.text.includes(token)) fail('bootstrap leaked the raw API token');
   log('bootstrap', `lease=${bootstrap.body.lease?.id} role=${bootstrap.body.lease?.role}`);
 
-  // 2. Project + session with orchestrator CLI (leader) + executor capacity cap.
-  const project = await req('POST', '/api/projects', { actor: 'dashboard', approved: true, name: 'Lifecycle Project' });
-  if (project.status !== 201) fail('project create', JSON.stringify(project));
-  const session = await req('POST', `/api/projects/${project.body.id}/sessions`, {
-    actor: 'dashboard',
-    approved: true,
-    name: 'Lifecycle Session',
-    leader: 'codex',
-    laneConcurrencyLimit: 2,
-    approvedCapacity: 2,
-    spawnPolicy: 'within_capacity',
-    worktreeMode: 'isolated',
-    repoRoot: repoDir,
-  });
-  if (session.status !== 201) fail('session create', JSON.stringify(session));
-  const sessionId = session.body.id;
-  if (session.body.leader !== 'codex') fail('session leader (orchestrator CLI) not recorded', JSON.stringify(session.body));
+  // 2. Register as the orchestrator for the git fixture repo (implicitly creates
+  //    the project keyed by cwd). v2: the orchestrator RECORD is the lane container;
+  //    its project's cwd is the repo root that per-lane worktrees isolate from.
+  const leaseToken = bootstrap.body.leaseToken;
   const repoReal = await realPath(repoDir);
-  if (await realPath(session.body.repoRoot) !== repoReal) fail('session repoRoot not recorded', JSON.stringify(session.body));
-  if (session.body.worktreeMode !== 'isolated') fail('session worktreeMode not isolated', JSON.stringify(session.body));
-  log('session', `${sessionId} leader=${session.body.leader} cap=${session.body.approvedCapacity} repoRoot=${repoDir}`);
+  const register = await req('POST', '/api/orchestrators', {
+    cwd: repoReal,
+    actor: 'desktop-app',
+    title: 'Lifecycle Orchestrator',
+  }, withLease(leaseToken));
+  if (register.status !== 200 || !String(register.body?.id || '').startsWith('orc_')) fail('orchestrator register', JSON.stringify(register.body));
+  const orchestratorId = register.body.id;
+  log('orchestrator', `${orchestratorId} registered (project=${register.body.projectId}) repoRoot=${repoDir}`);
 
-  // 3. Spawn two executor lanes (what lane.create does for the orchestrator).
+  // 3. Spawn two executor lanes under the orchestrator, each in its own git worktree.
   const laneIds = [];
   for (const i of [1, 2]) {
     const branch = `dogfood/executor-${i}`;
-    const lane = await req('POST', `/api/sessions/${sessionId}/lanes`, {
+    const lane = await req('POST', `/api/orchestrators/${orchestratorId}/executors`, {
       actor: 'orchestrator',
       approved: true,
       title: `Executor lane ${i}`,
@@ -157,8 +150,9 @@ try {
       executorType: 'mock',
       taskPrompt: `Prove executor lane ${i} lifecycle.`,
       branch,
-    });
+    }, withLease(leaseToken));
     if (lane.status !== 201) fail(`spawn executor lane ${i}`, JSON.stringify(lane));
+    if (lane.body.orchestratorId !== orchestratorId) fail(`lane ${i} not grouped under orchestrator`, JSON.stringify(lane.body));
     if (await realPath(lane.body.repoRoot) !== repoReal) fail(`lane ${i} repoRoot not recorded`, JSON.stringify(lane.body));
     if (lane.body.branch !== branch) fail(`lane ${i} branch not recorded`, JSON.stringify(lane.body));
     if (lane.body.branch.startsWith('codex/')) fail(`lane ${i} used deprecated codex/ branch`, lane.body.branch);
@@ -166,7 +160,7 @@ try {
     if (!lane.body.worktreePath) fail(`lane ${i} missing managed worktree`, JSON.stringify(lane.body));
     const worktreeReal = await realPath(lane.body.worktreePath);
     if (worktreeReal === repoReal) fail(`lane ${i} reused repo root instead of managed worktree`, JSON.stringify(lane.body));
-    const expectedBase = await realPath(path.join(tempDir, '.orca', 'workspaces', sessionId, 'worktrees'));
+    const expectedBase = await realPath(path.join(tempDir, '.orca', 'workspaces', orchestratorId, 'worktrees'));
     if (!pathWithin(worktreeReal, expectedBase)) fail(`lane ${i} worktree outside managed base`, worktreeReal);
     await fs.stat(worktreeReal);
     const worktreeList = git(['worktree', 'list', '--porcelain'], repoDir).stdout;
@@ -175,12 +169,12 @@ try {
   }
   log('spawn', `${laneIds.length} executor lanes created with isolated git worktrees`);
 
-  // Dashboard tracking: both lanes are listed under the session.
-  const listed = await req('GET', `/api/sessions/${sessionId}/lanes`);
-  if (!laneIds.every((id) => listed.body.some((lane) => lane.id === id))) {
-    fail('spawned lanes not tracked under session');
+  // Dashboard tracking: both lanes are listed under the orchestrator container.
+  const listed = await req('GET', `/api/orchestrators/${orchestratorId}/lanes`);
+  if (!Array.isArray(listed.body) || !laneIds.every((id) => listed.body.some((lane) => lane.id === id))) {
+    fail('spawned lanes not tracked under orchestrator', JSON.stringify(listed.body));
   }
-  log('tracked', `${listed.body.length} lanes under session`);
+  log('tracked', `${listed.body.length} lanes under orchestrator`);
 
   // 4. Read-only monitor: a lane reaches running/done and exposes agent events.
   const advanced = await waitForState(
@@ -202,19 +196,20 @@ try {
   await waitForState(laneIds[1], (state) => ['queued', 'starting', 'running', 'needs_critique', 'ready_for_audit', 'done'].includes(state), 'lane respawned');
   log('respawn', `lane 2 retried`);
 
-  // 6. Pause/deactivate new spawns: spawnPolicy='never' keeps a new lane queued.
-  const paused = await req('PATCH', `/api/sessions/${sessionId}`, { actor: 'dashboard', approved: true, spawnPolicy: 'never' });
-  if (paused.status !== 200) fail('pause session spawns', JSON.stringify(paused));
-  const queuedLane = await req('POST', `/api/sessions/${sessionId}/lanes`, {
+  // 6. Pause/deactivate new spawns: spawnPolicy='never' on the orchestrator record
+  //    keeps a new lane queued. Set via orchestrator.update (owning lease required).
+  const paused = await req('PATCH', `/api/orchestrators/${orchestratorId}`, { spawnPolicy: 'never' }, withLease(leaseToken));
+  if (paused.status !== 200 || paused.body?.spawnPolicy !== 'never') fail('pause orchestrator spawns', JSON.stringify(paused.body));
+  const queuedLane = await req('POST', `/api/orchestrators/${orchestratorId}/executors`, {
     actor: 'orchestrator', approved: true, title: 'Should stay queued', owner: 'orchestrator', role: 'executor', executorType: 'mock',
-  });
+  }, withLease(leaseToken));
   if (queuedLane.status !== 201) fail('create lane while paused', JSON.stringify(queuedLane));
   // Give the scheduler a couple of ticks; it must NOT start the lane.
   await new Promise((resolve) => setTimeout(resolve, 1200));
   const stillQueued = await req('GET', `/api/lanes/${queuedLane.body.id}`);
-  if (stillQueued.body?.state !== 'queued') fail('paused session still spawned a lane', JSON.stringify(stillQueued.body?.state));
+  if (stillQueued.body?.state !== 'queued') fail('paused orchestrator still spawned a lane', JSON.stringify(stillQueued.body?.state));
   log('pause', `new lane held in queued under spawnPolicy=never`);
-  await req('PATCH', `/api/sessions/${sessionId}`, { actor: 'dashboard', approved: true, spawnPolicy: 'within_capacity' });
+  await req('PATCH', `/api/orchestrators/${orchestratorId}`, { spawnPolicy: 'auto' }, withLease(leaseToken));
 
   log('done', 'external orchestrator -> session -> spawn/stop/retry/pause executor lifecycle proven');
   await cleanup();

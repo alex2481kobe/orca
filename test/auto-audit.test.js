@@ -23,16 +23,35 @@ async function withAutoAuditRegistry(callback) {
   }
 }
 
-function seed(registry, sessionBody = {}) {
-  const project = registry.createProject({ name: 'Auto Audit Project' }, { actor: 'test', approved: true });
-  const session = registry.createSession(project.id, { name: 'Auto Audit Session', ...sessionBody }, { actor: 'test', approved: true });
-  const lane = registry.createLane(session.id, { title: 'Work lane', executorType: 'mock' }, { actor: 'test', approved: true });
-  return { project, session, lane };
+// v2: the orchestrator RECORD is the container. Register it against the (approved)
+// temp cwd; its executor lanes run through the getSession() container bridge.
+async function makeOrchestrator(registry, { actor = 'test', title = 'Orch' } = {}) {
+  const { lease } = registry.createToolLease({ role: 'orchestrator', actor });
+  const orchestrator = await registry.registerOrchestrator(
+    { cwd: process.cwd(), actor, title },
+    { leaseId: lease.id },
+  );
+  return { orchestrator, lease };
+}
+
+// Seed an orchestrator container plus one executor lane under it. Per-lane flow
+// config (auditTier/requireAuditPass/…) now rides on the lane's settingsOverrides
+// (the deleted session container used to carry it); spawnPolicy lives on the
+// orchestrator record.
+async function seed(registry, { settingsOverrides, spawnPolicy } = {}) {
+  const { orchestrator } = await makeOrchestrator(registry);
+  if (spawnPolicy) orchestrator.spawnPolicy = spawnPolicy;
+  const lane = registry.createLane(
+    orchestrator.id,
+    { title: 'Work lane', executorType: 'mock', ...(settingsOverrides ? { settingsOverrides } : {}) },
+    { actor: 'test', approved: true },
+  );
+  return { orchestrator, lane };
 }
 
 test('auto-audit: a finished executor lane auto-queues an audit when required', async () => {
   await withAutoAuditRegistry(async (registry) => {
-    const { lane } = seed(registry);
+    const { lane } = await seed(registry);
     const laneObj = registry.getLane(lane.id);
     registry.markLaneCompleted(laneObj);
     // require-audit-pass is on by default, so completion queues the audit.
@@ -40,83 +59,16 @@ test('auto-audit: a finished executor lane auto-queues an audit when required', 
   });
 });
 
-test('auto-audit: separate-auditor tier spawns a dedicated auditor lane', async () => {
+test('auto-audit: an orchestrator-tier lane is left queued for the orchestrator (no auto-auditor, no escalation)', async () => {
   await withAutoAuditRegistry(async (registry) => {
-    const { session, lane } = seed(registry, {
-      settingsOverrides: { flow: { auditTier: 'separate-auditor', requireAuditPass: true } },
-    });
-    registry.markLaneCompleted(registry.getLane(lane.id));
-    assert.equal(registry.getLane(lane.id).auditState, 'queued');
-
-    await registry.dispatchPendingAudits();
-
-    const auditor = registry.lanes.find((l) => l.owner === 'auditor' && l.auditTargetLaneId === lane.id);
-    assert.ok(auditor, 'a dedicated auditor lane should be spawned for the executor lane');
-    assert.equal(auditor.sessionId, session.id);
-    // The executor lane is marked auditing so it is not dispatched again.
-    assert.equal(registry.getLane(lane.id).auditState, 'auditing');
-
-    // Idempotent: a second pass must not spawn a second auditor.
-    await registry.dispatchPendingAudits();
-    const auditorCount = registry.lanes.filter((l) => l.owner === 'auditor' && l.auditTargetLaneId === lane.id).length;
-    assert.equal(auditorCount, 1);
-  });
-});
-
-test('auto-audit: the spawned auditor lane gets the auditor tool role', async () => {
-  await withAutoAuditRegistry(async (registry) => {
-    const { lane } = seed(registry, {
-      settingsOverrides: { flow: { auditTier: 'separate-auditor', requireAuditPass: true } },
-    });
-    registry.markLaneCompleted(registry.getLane(lane.id));
-    await registry.dispatchPendingAudits();
-    const auditor = registry.lanes.find((l) => l.owner === 'auditor');
-    const env = registry.ensureLaneToolLease(auditor);
-    assert.equal(env.ORCA_ROLE, 'auditor');
-  });
-});
-
-test('auto-audit: an unattended auto session (no live orchestrator) auto-uses a separate auditor', async () => {
-  await withAutoAuditRegistry(async (registry) => {
-    // spawnPolicy 'auto', default audit tier 'orchestrator', nobody enrolled —
-    // an orchestrator nudge would go unread and stall, so we must spawn an auditor.
-    const { lane } = seed(registry, { spawnPolicy: 'auto' });
-    registry.markLaneCompleted(registry.getLane(lane.id));
-    await registry.dispatchPendingAudits();
-    const auditor = registry.lanes.find((l) => l.owner === 'auditor' && l.auditTargetLaneId === lane.id);
-    assert.ok(auditor, 'unattended auto must spawn a separate auditor rather than only nudging a thread');
-  });
-});
-
-test('auto-audit: an auditor that finishes without a verdict re-dispatches, then escalates', async () => {
-  await withAutoAuditRegistry(async (registry) => {
-    const { lane } = seed(registry, {
-      settingsOverrides: { flow: { auditTier: 'separate-auditor', requireAuditPass: true } },
-    });
-    registry.markLaneCompleted(registry.getLane(lane.id));
-    await registry.dispatchPendingAudits(); // spawn auditor #1 -> target 'auditing', count 1
-    // Repeatedly finish the auditor lane(s) without a verdict and re-tick.
-    for (let i = 0; i < 3; i += 1) {
-      registry.lanes
-        .filter((l) => l.owner === 'auditor' && l.auditTargetLaneId === lane.id)
-        .forEach((a) => { a.state = 'done'; });
-      await registry.dispatchPendingAudits();
-    }
-    assert.equal(registry.getLane(lane.id).auditState, 'escalated');
-    assert.ok(registry.auditEvents.some((e) => e.type === 'lane_audit_escalated' && e.laneId === lane.id));
-  });
-});
-
-test('auto-audit: orchestrator-tier audit is left queued for the orchestrator (no auto-auditor, no escalation)', async () => {
-  await withAutoAuditRegistry(async (registry) => {
-    const { lane } = seed(registry, {
+    const { lane } = await seed(registry, {
       settingsOverrides: { flow: { auditTier: 'orchestrator', requireAuditPass: true } },
     });
     registry.markLaneCompleted(registry.getLane(lane.id));
     await registry.dispatchPendingAudits();
     // v2 contract: the owning orchestrator audits its executor. Orca never
-    // auto-spawns a separate auditor for the orchestrator tier and leaves the
-    // lane 'queued' for the orchestrator to accept or bounce.
+    // auto-spawns a separate auditor and leaves the lane 'queued' for the
+    // orchestrator to accept or bounce.
     assert.equal(registry.getLane(lane.id).auditState, 'queued');
     assert.equal(registry.lanes.filter((l) => l.owner === 'auditor').length, 0);
     // Re-ticking must not escalate it out from under the orchestrator.
@@ -159,10 +111,8 @@ test('auto-audit: an orchestrator-container lane notifies its orchestrator and s
 
 test('auto-audit: auditor lanes do not recursively audit themselves', async () => {
   await withAutoAuditRegistry(async (registry) => {
-    const { session } = seed(registry, {
-      settingsOverrides: { flow: { auditTier: 'separate-auditor', requireAuditPass: true } },
-    });
-    const auditorLane = registry.createLane(session.id, {
+    const { orchestrator } = await seed(registry);
+    const auditorLane = registry.createLane(orchestrator.id, {
       title: 'Audit · Work lane', executorType: 'mock', owner: 'auditor', auditTargetLaneId: 'x',
     }, { actor: 'test', approved: true });
     registry.markLaneCompleted(registry.getLane(auditorLane.id));
@@ -181,8 +131,8 @@ test('auto-audit: disabled when autoAudit is off', async () => {
   const registry = new OrcaRegistry({ autoCompleteMs: 60 * 60 * 1000, autoAudit: false });
   registry.stopScheduler();
   try {
-    const { lane } = seed(registry, {
-      settingsOverrides: { flow: { auditTier: 'separate-auditor', requireAuditPass: true } },
+    const { lane } = await seed(registry, {
+      settingsOverrides: { flow: { auditTier: 'orchestrator', requireAuditPass: true } },
     });
     registry.markLaneCompleted(registry.getLane(lane.id));
     assert.notEqual(registry.getLane(lane.id).auditState, 'queued');

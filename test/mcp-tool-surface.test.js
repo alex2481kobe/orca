@@ -62,8 +62,11 @@ function runMcp(env, requests) {
 
 test('TOOL_DEFINITIONS exposes exactly the current tool set including the core v2 tools', () => {
   // Snapshot the total surface so adding/removing a tool is a deliberate, visible
-  // change rather than silent drift.
-  assert.equal(TOOL_DEFINITIONS.length, 39);
+  // change rather than silent drift. v2 (KEYSTONE): orchestrator.enroll removed
+  // (39 -> 38); the orchestrator record is the only container, no session enroll.
+  // Model-A cleanup: session.worktree_policy.update removed with its deleted
+  // /api/sessions route (38 -> 37); worktree isolation is per-lane by default.
+  assert.equal(TOOL_DEFINITIONS.length, 37);
 
   const byId = new Map(TOOL_DEFINITIONS.map((tool) => [tool.id, tool]));
   for (const id of Object.keys(CORE_V2_TOOLS)) {
@@ -98,7 +101,7 @@ test('MCP tools/list advertises the core v2 tools to an orchestrator with unders
   const orchestratorCallable = TOOL_DEFINITIONS.filter(
     (tool) => tool.implemented && tool.route && tool.roles.includes('orchestrator'),
   ).length;
-  assert.equal(orchestratorCallable, 37);
+  assert.equal(orchestratorCallable, 35);
   assert.equal(names.includes('permission_prompt'), true, 'permission gateway is always advertised');
   assert.equal(tools.length, orchestratorCallable + 1, 'orchestrator surface = callable tools + permission gateway');
 });

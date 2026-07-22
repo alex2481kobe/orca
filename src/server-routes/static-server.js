@@ -68,43 +68,6 @@ async function serveStaticOrIndex(pathname, res, req = null) {
       return sendText(res, 404, 'Artifact not found');
     }
 
-    // Session chat attachments: /artifacts/<sessionId>/attachments/<file>
-    if (parts[2] === 'attachments') {
-      const sessionId = parts[1];
-      const attachmentName = parts.slice(3).join('/');
-      if (!registry.getSession(sessionId) || !/^[A-Za-z0-9._-]{1,128}$/.test(sessionId) || !attachmentName) {
-        return sendText(res, 404, 'Artifact not found');
-      }
-      const dir = path.join(process.cwd(), 'artifacts', sessionId, 'attachments');
-      const filePath = path.join(dir, attachmentName);
-      // Reject obvious traversal/absolute names up front...
-      if (attachmentName.includes('..') || attachmentName.includes('\\') || path.isAbsolute(attachmentName) || !filePath.startsWith(dir + path.sep)) {
-        return sendText(res, 400, 'Invalid artifact path');
-      }
-      // ...then confirm the real (symlink-resolved) path stays inside the dir, so
-      // a symlink planted in the attachments dir can't escape the boundary.
-      let realPath;
-      try {
-        realPath = await fs.realpath(filePath);
-        const realDir = await fs.realpath(dir);
-        if (realPath !== realDir && !realPath.startsWith(realDir + path.sep)) {
-          return sendText(res, 400, 'Invalid artifact path');
-        }
-      } catch {
-        return sendText(res, 404, 'Artifact file not found');
-      }
-      try {
-        const buffer = await readArtifactBuffer(realPath);
-        res.statusCode = 200;
-        applySecurityHeaders(res);
-        res.setHeader('Content-Type', artifactContentType(filePath));
-        setCacheHeaders(res);
-        return res.end(buffer);
-      } catch {
-        return sendText(res, 404, 'Artifact file not found');
-      }
-    }
-
     const [, , laneId, ...rest] = parts;
     const filename = rest.join('/');
     const lane = registry.getLane(laneId);
@@ -207,6 +170,8 @@ function buildMobileManifest(req) {
     notificationsUrl: `${origin}/api/notifications`,
     notificationSettingsUrl: `${origin}/api/notifications/settings`,
     projectsUrl: `${origin}/api/projects`,
+    overviewUrl: `${origin}/api/overview`,
+    orchestratorsUrl: `${origin}/api/orchestrators`,
     privateAccessUrl: `${origin}/api/private-access`,
     agentToolsDiscoveryUrl: `${origin}/api/agent-tools/discovery`,
     agentToolsNextActionUrl: `${origin}/api/agent-tools/next-action`,
@@ -215,61 +180,16 @@ function buildMobileManifest(req) {
     pwaManifestUrl: `${origin}/manifest.webmanifest`,
     serviceWorkerUrl: `${origin}/service-worker.js`,
     mobileManifestUrl: `${origin}/api/mobile/manifest`,
-    projects: projects.map((project) => {
-      const sessions = registry.listSessions(project.id);
-      return {
-        projectId: project.id,
-        projectName: project.name,
-        slug: project.slug,
-        route: `${origin}${project.route}`,
-        sessionsUrl: `${origin}/api/projects/${project.id}/sessions`,
-        effectiveSettingsUrl: `${origin}/api/settings/effective?projectId=${encodeURIComponent(project.id)}`,
-        quickLinks: project.quickLinks || [],
-        sessions: sessions.map((session) => {
-          const lanes = registry.listLanes(session.id);
-          return {
-            sessionId: session.id,
-            sessionName: session.name,
-            route: `${origin}${session.route}`,
-            lanesUrl: `${origin}/api/sessions/${session.id}/lanes`,
-            orchestratorUrl: `${origin}/api/sessions/${session.id}/orchestrator`,
-            orchestratorMessagesUrl: `${origin}/api/sessions/${session.id}/orchestrator/messages`,
-            effectiveSettingsUrl: `${origin}/api/settings/effective?sessionId=${encodeURIComponent(session.id)}`,
-            auditEventsUrl: `${origin}/api/sessions/${session.id}/audit-events`,
-            auditDoneLanesUrl: `${origin}/api/sessions/${session.id}/audit-done-lanes`,
-            lanes: lanes.map((lane) => {
-              const laneRoute = lane.route || `/projects/${project.slug}/sessions/${session.id}/lanes/${lane.id}`;
-              return {
-                laneId: lane.id,
-                title: lane.title,
-                state: lane.state,
-                executorType: lane.executorType,
-                route: `${origin}${laneRoute}`,
-                detailUrl: `${origin}/api/lanes/${lane.id}`,
-                effectiveSettingsUrl: `${origin}/api/settings/effective?laneId=${encodeURIComponent(lane.id)}`,
-                stopUrl: `${origin}/api/lanes/${lane.id}/stop`,
-                retryUrl: `${origin}/api/lanes/${lane.id}/retry`,
-                heartbeatUrl: `${origin}/api/lanes/${lane.id}/heartbeat`,
-                artifactsUrl: `/api/lanes/${lane.id}/artifacts`,
-                evidenceUrl: `/api/lanes/${lane.id}/evidence`,
-                evidenceLatestUrl: `/api/lanes/${lane.id}/evidence/latest`,
-                evidencePresetsUrl: `${origin}/api/lanes/${lane.id}/evidence/presets`,
-                evidenceClearUrl: `${origin}/api/lanes/${lane.id}/evidence/clear`,
-                auditApi: `/api/lanes/${lane.id}/audit`,
-                critiqueBundleUrl: `${origin}/api/lanes/${lane.id}/critique/bundle`,
-                critiqueFindingsUrl: `${origin}/api/lanes/${lane.id}/critique/findings`,
-                critiqueWaiveUrl: `${origin}/api/lanes/${lane.id}/critique/waive`,
-                auditAcceptUrl: `${origin}/api/lanes/${lane.id}/audit/accept`,
-                auditFindingsUrl: `${origin}/api/lanes/${lane.id}/audit/findings`,
-                auditRequestFixUrl: `${origin}/api/lanes/${lane.id}/audit/request-fix`,
-                auditBlockUrl: `${origin}/api/lanes/${lane.id}/audit/block`,
-                auditEventsUrl: `${origin}/api/lanes/${lane.id}/audit-events`,
-              };
-            }),
-          };
-        }),
-      };
-    }),
+    // v2: the mobile client reads the orchestrator-container overview, not a
+    // per-session tree. Projects list stays for quick-link previews.
+    projects: projects.map((project) => ({
+      projectId: project.id,
+      projectName: project.name,
+      slug: project.slug || null,
+      route: project.route ? `${origin}${project.route}` : null,
+      effectiveSettingsUrl: `${origin}/api/settings/effective?projectId=${encodeURIComponent(project.id)}`,
+      quickLinks: project.quickLinks || [],
+    })),
   };
   return payload;
 }

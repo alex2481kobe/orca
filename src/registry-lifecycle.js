@@ -37,7 +37,9 @@ export const lifecycleMethods = {
 
   recoverInterruptedLanes() {
     for (const lane of this.lanes) {
-      const session = this.sessions.find((value) => value.id === lane.sessionId);
+      // v2: the lane's container is its orchestrator record; getSession returns a
+      // launchable container view (undefined if the orchestrator is gone).
+      const session = this.getSession(lane.sessionId);
       if (!lane.workdir) {
         lane.workdir = session
           ? this.resolveLaneWorkdir(session, null)
@@ -81,7 +83,6 @@ export const lifecycleMethods = {
 
       if (!lane.route) {
         const project = this.projects.find((value) => value.id === lane.projectId);
-        const session = this.sessions.find((value) => value.id === lane.sessionId);
         if (project && session) {
           lane.route = buildLaneRoute(project.slug, session.id, lane.id);
         }
@@ -90,36 +91,22 @@ export const lifecycleMethods = {
     this.persistState().catch(() => {});
   },
 
+  // v2 demo seed (ORCA_SEED only): there are no session records, so seed just
+  // creates a demo project. Orchestrators + lanes are created by agents on
+  // connect (register -> executor.spawn), which is the real flow.
   seed() {
-    const project = this.createProject({
+    this.createProject({
       name: 'Example Project',
       slug: 'example-project',
       quickLinks: [
         { label: 'Local dev server', url: 'http://localhost:4173', localUrl: 'http://localhost:4173', port: 4173, kind: 'vite', favorite: true },
-        { label: 'Artifacts', url: '/projects/example-project/sessions/overview?section=artifacts', kind: 'dashboard' },
+        { label: 'Artifacts', url: '/projects/example-project/overview?section=artifacts', kind: 'dashboard' },
       ],
       owner: 'seed',
     }, {
       actor: 'seed',
       approved: true,
     });
-
-    const session = this.createSession(project.id, {
-      name: 'Studio coordination',
-      leader: 'codex',
-      laneConcurrencyLimit: 2,
-      actor: 'seed',
-    }, {
-      actor: 'seed',
-      approved: true,
-    });
-
-    this.createLane(session.id, {
-      title: 'Initialize orca lane',
-      taskDescription: 'Validate routing model and action approvals.',
-      executorType: 'mock',
-      owner: 'seed',
-    }, { approved: true });
   },
 
   evaluateActionPolicy(action, payload = {}) {

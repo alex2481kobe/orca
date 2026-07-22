@@ -88,10 +88,22 @@ export const laneCreateMethods = {
     executionMode,
     turnPolicy,
   }, context = {}) {
-    const session = this.getSession(sessionLocator);
-    if (!session) {
-      throw { status: 404, message: 'Session not found.' };
+    // v2: the container is the ORCHESTRATOR record (there are no session records).
+    // Resolve it directly; the project's cwd is the repo root; per-lane worktree
+    // isolation stays the default for git repos (P2 revisits policy).
+    const orchestrator = (this.orchestrators || []).find((item) => item.id === sessionLocator);
+    if (!orchestrator) {
+      throw { status: 404, message: 'Orchestrator not found.' };
     }
+    const project = (this.projects || []).find((item) => item.id === orchestrator.projectId);
+    const session = {
+      id: orchestrator.id,
+      projectId: orchestrator.projectId,
+      orchestratorId: orchestrator.id,
+      repoRoot: project?.cwd || '',
+      worktreeMode: 'off',
+      critiqueMode: 'none',
+    };
 
     const policyCheck = this.evaluateActionPolicy('createLane', context);
     if (!policyCheck.allowed) {
@@ -181,7 +193,6 @@ export const laneCreateMethods = {
       }
     }
 
-    const project = this.projects.find((item) => item.id === session.projectId);
     const now = nowIso();
     const laneId = reservedLaneId || randomUUID();
     const scopedToolIds = new Set(this.listToolsForExecutor(normalizedExecutorType).map((tool) => tool.id));

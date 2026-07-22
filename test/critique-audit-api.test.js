@@ -92,21 +92,19 @@ async function startServer({ token }) {
   };
 }
 
-async function createProjectSessionLane(server, token, laneBody = {}) {
+// v2: no session container. Register an orchestrator (keyed by cwd, which the
+// in-process server shares — an approved repo root) and spawn a mock lane under
+// it. The audit-verdict routing behavior under test is on the lane, unchanged.
+async function createOrchestratorLane(server, token, laneBody = {}) {
   const suffix = ++entityCounter;
-  const project = await server.requestJson('/api/projects', {
+  const register = await server.requestJson('/api/orchestrators', {
     method: 'POST',
     headers: { 'x-orca-token': token },
-    body: { name: `Critique API Project ${suffix}`, approved: true },
+    body: { cwd: process.cwd(), actor: 'dashboard', title: `Critique API Orchestrator ${suffix}` },
   });
-  assert.equal(project.status, 201);
-  const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
-    method: 'POST',
-    headers: { 'x-orca-token': token },
-    body: { name: `Critique API Session ${suffix}`, approved: true },
-  });
-  assert.equal(session.status, 201);
-  const lane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+  assert.equal(register.status, 200, JSON.stringify(register.body));
+  const orchestratorId = register.body.id;
+  const lane = await server.requestJson(`/api/orchestrators/${orchestratorId}/lanes`, {
     method: 'POST',
     headers: { 'x-orca-token': token },
     body: {
@@ -117,15 +115,15 @@ async function createProjectSessionLane(server, token, laneBody = {}) {
       ...laneBody,
     },
   });
-  assert.equal(lane.status, 201);
-  return { project: project.body, session: session.body, lane: lane.body };
+  assert.equal(lane.status, 201, JSON.stringify(lane.body));
+  return { orchestrator: register.body, lane: lane.body };
 }
 
 test('audit findings route dispatches fix and block verdicts', async () => {
   const token = 'critique-route-token-2';
   const server = await startServer({ token });
   try {
-    const first = await createProjectSessionLane(server, token);
+    const first = await createOrchestratorLane(server, token);
     const fix = await server.requestJson(`/api/lanes/${first.lane.id}/audit/findings`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
@@ -147,7 +145,7 @@ test('audit findings route dispatches fix and block verdicts', async () => {
     assert.equal(retry.status, 200);
     assert.equal(retry.body?.state, 'queued');
 
-    const second = await createProjectSessionLane(server, token);
+    const second = await createOrchestratorLane(server, token);
     const missingReason = await server.requestJson(`/api/lanes/${second.lane.id}/audit/block`, {
       method: 'POST',
       headers: { 'x-orca-token': token },

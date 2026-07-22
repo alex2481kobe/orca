@@ -160,6 +160,7 @@ try {
   process.env.ORCA_HOST = '127.0.0.1';
   process.env.ORCA_API_TOKEN = token;
   process.env.ORCA_CREDENTIAL_BACKEND = 'memory';
+  process.env.ORCA_REPO_ROOTS = realTempDir;
   const roots = [tempDir, realTempDir].join(',');
   for (const [bin, prefix] of [[codexBinary, 'CODEX'], [claudeBinary, 'CLAUDE']]) {
     if (!bin) continue;
@@ -174,44 +175,38 @@ try {
   base = `http://127.0.0.1:${server.address().port}`;
   log('server', base);
 
-  const project = await req('POST', '/api/projects', { actor: 'dashboard', approved: true, name: 'MCP Flow Project' });
-  if (project.status !== 201) fail('project create', JSON.stringify(project));
-  const session = await req('POST', `/api/projects/${project.body.id}/sessions`, {
-    actor: 'dashboard', approved: true, name: 'MCP Flow Session',
-    leader: 'orchestrator', approvedCapacity: 4, spawnPolicy: 'within_capacity',
-  });
-  if (session.status !== 201) fail('session create', JSON.stringify(session));
-  const projectId = project.body.id;
-  const sessionId = session.body.id;
-  log('workspace', `project=${projectId} session=${sessionId}`);
-
   const baseEnv = { ORCA_AGENT_TOOLS_BASE_URL: base };
 
   // ---- ORCHESTRATOR ROLE -------------------------------------------------
-  const orchToken = await mintLease('orchestrator', { projectId, sessionId });
+  // v2: no session container. The orchestrator lease registers by cwd (implicitly
+  // creating the project) and spawns executor lanes under the orchestrator record.
+  const orchToken = await mintLease('orchestrator');
   const orch = new McpClient('orchestrator', {
     ...baseEnv, ORCA_ROLE: 'orchestrator', ORCA_TOOL_LEASE_TOKEN: orchToken,
-    ORCA_PROJECT_ID: projectId, ORCA_SESSION_ID: sessionId,
   });
   await orch.initialize();
   const orchTools = await orch.listToolNames();
-  for (const need of ['orchestrator__enroll', 'lane__create', 'lane__shutdown', 'audit__queue_one', 'project__list']) {
+  for (const need of ['orchestrator__register', 'lane__create', 'lane__shutdown', 'audit__queue_one', 'project__list']) {
     if (!orchTools.includes(need)) fail('orchestrator tools/list missing', need);
   }
+  if (orchTools.includes('orchestrator__enroll')) fail('orchestrator tools/list still exposes removed enroll tool');
   log('orchestrator tools', `${orchTools.length} tools incl. lane__create/shutdown/audit`);
 
-  // project.list via MCP returns our project
+  // Register as the orchestrator for the working dir (creates project-by-cwd).
+  const reg = await orch.call('orchestrator__register', { cwd: realTempDir, actor: 'orchestrator-mcp-flow', title: 'MCP Flow' });
+  if (reg.isError || !String(reg.data?.id || '').startsWith('orc_')) fail('orchestrator orchestrator__register', reg.text);
+  const orchestratorId = reg.data.id;
+  const projectId = reg.data.projectId;
+  log('workspace', `project=${projectId} orchestrator=${orchestratorId}`);
+
+  // project.list via MCP returns our (implicitly created) project.
   const projList = await orch.call('project__list', {});
   if (projList.isError) fail('orchestrator project__list', projList.text);
   log('orchestrator project__list', 'ok');
 
-  const enroll = await orch.call('orchestrator__enroll', { sessionId, body: {} });
-  if (enroll.isError || !enroll.data?.activeOrchestrator?.active) fail('orchestrator orchestrator__enroll', enroll.text);
-  log('orchestrator enroll', `${enroll.data.activeOrchestrator.actor || enroll.data.activeOrchestrator.leaseId}`);
-
   // Spawn an executor agent (mock) via the MCP tool, run to completion.
   const spawn1 = await orch.call('lane__create', {
-    sessionId,
+    orchestratorId,
     body: { actor: 'orchestrator', approved: true, title: 'MCP-spawned mock lane', owner: 'orchestrator', role: 'executor', executorType: 'mock', taskPrompt: 'spawned via MCP', runProfile: { autoCompleteMs: 800 } },
   });
   if (spawn1.isError || !spawn1.data?.id) fail('orchestrator lane__create (mock)', spawn1.text);
@@ -220,7 +215,7 @@ try {
 
   // Spawn a long-running agent and STOP it in progress (deactivate).
   const spawn2 = await orch.call('lane__create', {
-    sessionId,
+    orchestratorId,
     body: { actor: 'orchestrator', approved: true, title: 'MCP long-running lane', owner: 'orchestrator', role: 'executor', executorType: 'mock', taskPrompt: 'long', runProfile: { autoCompleteMs: 60000 } },
   });
   if (spawn2.isError || !spawn2.data?.id) fail('orchestrator lane__create (long)', spawn2.text);
@@ -234,7 +229,7 @@ try {
   for (const [bin, type] of [[codexBinary, 'codex'], [claudeBinary, 'claude']]) {
     if (!bin) { log(`orchestrator spawn ${type}`, 'skipped: CLI not available'); continue; }
     const laneRes = await orch.call('lane__create', {
-      sessionId,
+      orchestratorId,
       body: { actor: 'orchestrator', approved: true, title: `MCP ${type} lane`, owner: 'orchestrator', role: 'executor', executorType: type, commandArgs: ['--version'] },
     });
     if (laneRes.isError || !laneRes.data?.id) fail(`orchestrator lane__create (${type})`, laneRes.text);
@@ -244,8 +239,8 @@ try {
   }
 
   // ---- EXECUTOR ROLE -----------------------------------------------------
-  // Create a running lane the executor agent will operate on.
-  const execLane = await req('POST', `/api/sessions/${sessionId}/lanes`, {
+  // Create a running lane (under the orchestrator container) the executor operates on.
+  const execLane = await req('POST', `/api/orchestrators/${orchestratorId}/lanes`, {
     actor: 'dashboard', approved: true, title: 'Executor MCP lane', owner: 'executor', role: 'executor',
     executorType: 'mock', taskPrompt: 'executor work', runProfile: { autoCompleteMs: 60000 },
   });
@@ -260,10 +255,10 @@ try {
   }
   log('authoritative gate (orchestrator)', 'audit.accept refused while running (nextAction returned)');
 
-  const execToken = await mintLease('executor', { projectId, sessionId, laneId: execLane.body.id });
+  const execToken = await mintLease('executor', { projectId, sessionId: orchestratorId, laneId: execLane.body.id });
   const exec = new McpClient('executor', {
     ...baseEnv, ORCA_ROLE: 'executor', ORCA_TOOL_LEASE_TOKEN: execToken,
-    ORCA_PROJECT_ID: projectId, ORCA_SESSION_ID: sessionId, ORCA_LANE_ID: execLane.body.id,
+    ORCA_PROJECT_ID: projectId, ORCA_SESSION_ID: orchestratorId, ORCA_LANE_ID: execLane.body.id,
   });
   await exec.initialize();
   const execTools = await exec.listToolNames();

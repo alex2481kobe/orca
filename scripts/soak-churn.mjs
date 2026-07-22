@@ -103,13 +103,18 @@ let stopServerFn = null;
 let base = '';
 let stateFile = '';
 
+let realTempDir = '';
 async function bootServer() {
   process.chdir(tempDir);
+  realTempDir = await fs.realpath(tempDir);
   process.env.PORT = '0';
   process.env.ORCA_HOST = '127.0.0.1';
   process.env.ORCA_CREDENTIAL_BACKEND = 'memory';
   process.env.ORCA_RATE_LIMIT_DISABLED = 'true';
   process.env.ORCA_API_TOKEN = token;
+  // registerOrchestrator validates cwd against the approved repo roots; point
+  // them at the isolated temp dir so orchestrators register there.
+  process.env.ORCA_REPO_ROOTS = realTempDir;
   // Mock-only churn: no real audit dispatch, no worktrees, fast tick/complete.
   process.env.ORCA_AUTO_AUDIT = 'false';
   process.env.ORCA_HEARTBEAT_MS = '300';
@@ -159,35 +164,35 @@ async function req(method, route, body) {
 // Sessions + orchestrators.
 // --------------------------------------------------------------------------
 async function registerOrchestrators(count) {
-  const project = await req('POST', '/api/projects', {
-    actor: 'dashboard',
-    approved: true,
-    name: 'Soak Churn Project',
-  });
-  if (project.status !== 201) throw new Error(`project create failed: ${JSON.stringify(project)}`);
-
+  // v2: no session container. Each churn container is an ORCHESTRATOR record
+  // registered by cwd (all share one project keyed by realTempDir, distinguished
+  // by actor). Container capacity/spawnPolicy — which the old session carried —
+  // now live on the orchestrator record, set via PATCH after register.
   const sessions = [];
+  let projectId = null;
   for (let i = 0; i < count; i += 1) {
-    const session = await req('POST', `/api/projects/${project.body.id}/sessions`, {
-      actor: 'dashboard',
-      approved: true,
-      name: `Soak Session ${i}`,
-      leader: 'orchestrator',
+    const register = await req('POST', '/api/orchestrators', {
+      actor: `soak-orchestrator-${i}`,
+      cwd: realTempDir,
+      title: `Soak Session ${i}`,
+    });
+    if (register.status !== 200 || !String(register.body?.id || '').startsWith('orc_')) {
+      throw new Error(`orchestrator register failed: ${JSON.stringify(register)}`);
+    }
+    projectId = register.body.projectId;
+
+    const configured = await req('PATCH', `/api/orchestrators/${register.body.id}`, {
+      actor: `soak-orchestrator-${i}`,
       approvedCapacity: 20,
+      laneConcurrencyLimit: 20,
       spawnPolicy: 'within_capacity',
     });
-    if (session.status !== 201) throw new Error(`session create failed: ${JSON.stringify(session)}`);
+    if (configured.status !== 200) throw new Error(`orchestrator configure failed: ${JSON.stringify(configured)}`);
 
-    const enrolled = await req('POST', `/api/sessions/${session.body.id}/orchestrator/enroll`, {
-      actor: `soak-orchestrator-${i}`,
-      approved: true,
-    });
-    if (enrolled.status !== 200) throw new Error(`orchestrator enroll failed: ${JSON.stringify(enrolled)}`);
-
-    sessions.push({ id: session.body.id, name: session.body.name });
+    sessions.push({ id: register.body.id, name: register.body.title || `Soak Session ${i}` });
   }
-  log('orchestrators', `${sessions.length} session(s) enrolled with a live orchestrator`);
-  return { projectId: project.body.id, sessions };
+  log('orchestrators', `${sessions.length} orchestrator(s) registered as live lane containers`);
+  return { projectId, sessions };
 }
 
 // --------------------------------------------------------------------------
@@ -208,7 +213,7 @@ function randomAutoCompleteMs() {
 
 async function createOneLane(session, index) {
   const autoCompleteMs = randomAutoCompleteMs();
-  const created = await req('POST', `/api/sessions/${session.id}/lanes`, {
+  const created = await req('POST', `/api/orchestrators/${session.id}/lanes`, {
     title: `soak lane ${session.name}#${index}`,
     executorType: 'mock',
     owner: 'executor',
@@ -262,7 +267,7 @@ async function runLaneChurn(sessions) {
 async function finalLaneStateTally(sessions) {
   const counts = { done: 0, failed: 0, stopped: 0, other: 0, total: 0 };
   for (const session of sessions) {
-    const list = await req('GET', `/api/sessions/${session.id}/lanes`);
+    const list = await req('GET', `/api/orchestrators/${session.id}/lanes`);
     if (list.status !== 200 || !Array.isArray(list.body)) continue;
     for (const lane of list.body) {
       counts.total += 1;

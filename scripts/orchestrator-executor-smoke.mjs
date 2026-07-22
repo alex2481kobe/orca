@@ -39,12 +39,13 @@ function detectClaudeBinary() {
   return null;
 }
 
-async function req(method, route, body) {
+async function req(method, route, body, extraHeaders = {}) {
   const response = await fetch(`${base}${route}`, {
     method,
     headers: {
       'content-type': 'application/json',
       'x-orca-token': token,
+      ...extraHeaders,
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -53,6 +54,7 @@ async function req(method, route, body) {
   try { data = text ? JSON.parse(text) : null; } catch { /* non-json */ }
   return { status: response.status, body: data, text };
 }
+const withLease = (leaseToken) => ({ 'x-orca-tool-lease': leaseToken });
 
 async function waitForLaneTerminal(laneId, label, { timeoutMs = 25000 } = {}) {
   const deadline = Date.now() + timeoutMs;
@@ -89,12 +91,13 @@ async function cleanup() {
 try {
   const claudeBinary = detectClaudeBinary();
   process.chdir(tempDir);
+  const realTempDir = await fs.realpath(tempDir);
   process.env.PORT = '0';
   process.env.ORCA_HOST = '127.0.0.1';
   process.env.ORCA_API_TOKEN = token;
   process.env.ORCA_CREDENTIAL_BACKEND = 'memory';
+  process.env.ORCA_REPO_ROOTS = realTempDir;
   if (claudeBinary) {
-    const realTempDir = await fs.realpath(tempDir);
     process.env.ORCA_CLAUDE_BINARY = claudeBinary;
     process.env.ORCA_CLAUDE_ALLOWED_BINARIES = claudeBinary;
     process.env.ORCA_CLAUDE_WORKDIR_ROOTS = [tempDir, realTempDir].join(',');
@@ -115,56 +118,43 @@ try {
   }
   log('discovery', `${tools.size} tool(s)`);
 
-  const project = await req('POST', '/api/projects', {
-    actor: 'dashboard',
-    approved: true,
-    name: 'Orchestrator Smoke Project',
-  });
-  if (project.status !== 201) fail('project create', JSON.stringify(project));
+  // v2: no session container. An orchestrator lease registers by cwd (implicitly
+  // creating the project) and spawns executor lanes under the orchestrator record.
 
-  const session = await req('POST', `/api/projects/${project.body.id}/sessions`, {
-    actor: 'dashboard',
-    approved: true,
-    name: 'Orchestrator Smoke Session',
-    leader: 'orchestrator',
-    approvedCapacity: 2,
-    spawnPolicy: 'within_capacity',
-  });
-  if (session.status !== 201) fail('session create', JSON.stringify(session));
-  log('session', session.body.id);
-
-  const nextAction = await req(
-    'GET',
-    `/api/agent-tools/next-action?role=orchestrator&projectId=${encodeURIComponent(project.body.id)}&sessionId=${encodeURIComponent(session.body.id)}`,
-  );
+  // Before registering, next-action for a fresh orchestrator points at register.
+  const nextAction = await req('GET', '/api/agent-tools/next-action?role=orchestrator');
   if (nextAction.status !== 200) fail('next action', JSON.stringify(nextAction));
-  if (nextAction.body?.nextRequiredTool !== 'orchestrator.enroll') {
+  if (nextAction.body?.nextRequiredTool !== 'orchestrator.register') {
     fail('orchestrator next required tool', JSON.stringify(nextAction.body));
   }
 
+  // Mint an (unscoped) orchestrator lease — the orchestrator identity.
   const lease = await req('POST', '/api/agent-tools/leases', {
     actor: 'orchestrator-smoke',
     role: 'orchestrator',
-    projectId: project.body.id,
-    sessionId: session.body.id,
     ttlMs: 60_000,
   });
   if (lease.status !== 201) fail('tool lease', JSON.stringify(lease));
   if (!lease.body?.leaseToken || lease.body?.lease?.allowedTools?.includes('lane.create') !== true) {
     fail('tool lease grants', JSON.stringify(lease.body));
   }
+  const leaseToken = lease.body.leaseToken;
   log('lease', `${lease.body.lease.id} grants lane.create`);
 
-  const enrolled = await req('POST', `/api/sessions/${session.body.id}/orchestrator/enroll`, {
+  // Register as the orchestrator for the working dir (creates project-by-cwd).
+  const register = await req('POST', '/api/orchestrators', {
+    cwd: realTempDir,
     actor: 'orchestrator-smoke',
-    approved: true,
-  });
-  if (enrolled.status !== 200 || !enrolled.body?.activeOrchestrator?.active) {
-    fail('orchestrator enroll', JSON.stringify(enrolled.body));
+    title: 'Orchestrator Smoke',
+  }, withLease(leaseToken));
+  if (register.status !== 200 || !String(register.body?.id || '').startsWith('orc_')) {
+    fail('orchestrator register', JSON.stringify(register.body));
   }
-  log('orchestrator', 'registered with session');
+  const orchestratorId = register.body.id;
+  log('orchestrator', `${orchestratorId} registered (project=${register.body.projectId})`);
 
-  const mockLane = await req('POST', `/api/sessions/${session.body.id}/lanes`, {
+  // Spawn an executor lane under the orchestrator (executor.spawn).
+  const mockLane = await req('POST', `/api/orchestrators/${orchestratorId}/executors`, {
     actor: 'orchestrator',
     approved: true,
     title: 'Executor mock lane from orchestrator',
@@ -172,13 +162,14 @@ try {
     role: 'executor',
     executorType: 'mock',
     taskPrompt: 'Prove orchestrator-created executor lane reaches done.',
-  });
+  }, withLease(leaseToken));
   if (mockLane.status !== 201) fail('mock executor lane create', JSON.stringify(mockLane));
+  if (mockLane.body.orchestratorId !== orchestratorId) fail('lane not grouped under orchestrator', JSON.stringify(mockLane.body));
   const mockDone = await waitForLaneTerminal(mockLane.body.id, 'mock executor lane');
   log('mock executor', `${mockDone.id} ${mockDone.state}`);
 
   if (claudeBinary) {
-    const claudeLane = await req('POST', `/api/sessions/${session.body.id}/lanes`, {
+    const claudeLane = await req('POST', `/api/orchestrators/${orchestratorId}/executors`, {
       actor: 'orchestrator',
       approved: true,
       title: 'Claude executor version lane from orchestrator',
@@ -186,7 +177,7 @@ try {
       role: 'executor',
       executorType: 'claude',
       commandArgs: ['--version'],
-    });
+    }, withLease(leaseToken));
     if (claudeLane.status !== 201) fail('claude executor lane create', JSON.stringify(claudeLane));
     const claudeDone = await waitForLaneTerminal(claudeLane.body.id, 'claude executor lane');
     if (claudeDone.processMeta?.exitCode !== 0) fail('claude exit code', JSON.stringify(claudeDone.processMeta));

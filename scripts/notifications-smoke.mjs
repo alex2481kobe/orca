@@ -5,7 +5,9 @@ import path from 'node:path';
 import { OrcaRegistry } from '../src/registry.js';
 
 const previousCwd = process.cwd();
+const previousEnv = { ...process.env };
 const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-notifications-'));
+const realTempDir = await fs.realpath(tempDir);
 
 async function waitForLane(registry, laneId) {
   for (let i = 0; i < 80; i += 1) {
@@ -16,26 +18,28 @@ async function waitForLane(registry, laneId) {
   return registry.getLane(laneId);
 }
 
+// v2: no session container. An orchestrator lease registers by cwd (implicitly
+// creating the project keyed by cwd) and lanes are created under the orchestrator
+// record (createLane's first arg is the orc_ id; lane.sessionId === orchestratorId).
+async function makeOrchestrator(registry, { actor = 'smoke', title = 'Notification Orchestrator' } = {}) {
+  const { lease } = registry.createToolLease({ role: 'orchestrator', actor });
+  const orchestrator = await registry.registerOrchestrator(
+    { cwd: realTempDir, actor, title },
+    { leaseId: lease.id },
+  );
+  return { orchestrator, lease };
+}
+
 try {
   process.chdir(tempDir);
+  process.env.ORCA_REPO_ROOTS = realTempDir;
   const registry = new OrcaRegistry({
     heartbeatIntervalMs: 25,
     autoCompleteMs: 50,
   });
 
-  const project = registry.createProject({
-    name: 'Notification Smoke',
-  }, {
-    actor: 'smoke',
-    approved: true,
-  });
-  const session = registry.createSession(project.id, {
-    name: 'Notification Session',
-  }, {
-    actor: 'smoke',
-    approved: true,
-  });
-  const lane = await registry.createLane(session.id, {
+  const { orchestrator } = await makeOrchestrator(registry);
+  const lane = await registry.createLane(orchestrator.id, {
     title: 'Do not leak sk-smoke-notification-secret',
     taskDescription: 'Exercise terminal notification redaction.',
     executorType: 'mock',
@@ -84,4 +88,10 @@ try {
 } finally {
   process.chdir(previousCwd);
   await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
+  for (const key of Object.keys(process.env)) {
+    if (!(key in previousEnv)) delete process.env[key];
+  }
+  for (const [key, value] of Object.entries(previousEnv)) {
+    process.env[key] = value;
+  }
 }

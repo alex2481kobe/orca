@@ -21,6 +21,18 @@ async function withIsolatedRegistry() {
   return { registry, cleanup };
 }
 
+// v2 orchestrator-native helper: register an orchestrator RECORD keyed by cwd
+// (the project is created implicitly). The orchestrator id (orc_...) is the lane
+// container id used everywhere a scoping sessionId used to be.
+async function makeOrchestratorContainer(registry, { actor = 'test', title = 'Orch' } = {}) {
+  const { lease } = registry.createToolLease({ role: 'orchestrator', actor });
+  const orchestrator = await registry.registerOrchestrator(
+    { cwd: process.cwd(), actor, title },
+    { leaseId: lease.id },
+  );
+  return orchestrator;
+}
+
 test('builder emits Claude Desktop JSON and Codex TOML pointing at the MCP server', () => {
   const out = buildOrchestratorMcpConfigs({
     baseUrl: 'http://127.0.0.1:3000',
@@ -174,17 +186,18 @@ test('registry mints an orchestrator lease whose token validates for orchestrato
   }
 });
 
-test('registry scopes the lease to a project/session when provided', async () => {
+test('registry scopes the lease to a project/orchestrator container when provided', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
-    const project = registry.createProject({ name: 'Bootstrap Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Bootstrap Session' }, { actor: 'test', approved: true });
-    const result = registry.createOrchestratorMcpBootstrap({ projectId: project.id, sessionId: session.id });
-    assert.equal(result.lease.projectId, project.id);
-    assert.equal(result.lease.sessionId, session.id);
+    // v2: the orchestrator RECORD is the container a lease scopes to (sessionId is
+    // the orc_ id); getSession resolves it. No standalone session records.
+    const orchestrator = await makeOrchestratorContainer(registry, { title: 'Bootstrap Orch' });
+    const result = registry.createOrchestratorMcpBootstrap({ projectId: orchestrator.projectId, sessionId: orchestrator.id });
+    assert.equal(result.lease.projectId, orchestrator.projectId);
+    assert.equal(result.lease.sessionId, orchestrator.id);
     const env = result.bootstrap.clients.claudeDesktop.config.mcpServers.orca.env;
-    assert.equal(env.ORCA_PROJECT_ID, project.id);
-    assert.equal(env.ORCA_SESSION_ID, session.id);
+    assert.equal(env.ORCA_PROJECT_ID, orchestrator.projectId);
+    assert.equal(env.ORCA_SESSION_ID, orchestrator.id);
 
     // A bad project id is rejected.
     assert.throws(
@@ -199,8 +212,9 @@ test('registry scopes the lease to a project/session when provided', async () =>
 test('registry replaces duplicate external MCP bootstrap leases for the same chat scope', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
-    const project = registry.createProject({ name: 'Replacement Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Replacement Session' }, { actor: 'test', approved: true });
+    const orchestrator = await makeOrchestratorContainer(registry, { title: 'Replacement Orch' });
+    const project = { id: orchestrator.projectId };
+    const session = { id: orchestrator.id };
     const firstOrchestrator = registry.createOrchestratorMcpBootstrap({
       role: 'orchestrator',
       actor: 'same-orchestrator-chat',
@@ -217,7 +231,7 @@ test('registry replaces duplicate external MCP bootstrap leases for the same cha
     assert.throws(
       () => registry.validateToolLease(firstOrchestrator.leaseToken, {
         role: 'orchestrator',
-        toolId: 'orchestrator.enroll',
+        toolId: 'orchestrator.register',
         projectId: project.id,
         sessionId: session.id,
       }),
@@ -239,7 +253,7 @@ test('registry replaces duplicate external MCP bootstrap leases for the same cha
     assert.throws(
       () => registry.validateToolLease(first.leaseToken, {
         role: 'supervisor',
-        toolId: 'supervisor.overview',
+        toolId: 'session.next_action',
         projectId: project.id,
         sessionId: session.id,
       }),
@@ -269,7 +283,7 @@ test('registry replaces duplicate external MCP bootstrap leases for the same cha
     assert.throws(
       () => registry.validateToolLease(sessionOnly.leaseToken, {
         role: 'supervisor',
-        toolId: 'supervisor.overview',
+        toolId: 'session.next_action',
         projectId: project.id,
         sessionId: session.id,
       }),
@@ -290,13 +304,9 @@ test('registry replaces duplicate external MCP bootstrap leases for the same cha
 test('same external agent can register as supervisor or orchestrator with scoped authority', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
-    const project = registry.createProject({ name: 'Fable Beta Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, {
-      name: 'Fable Beta Session',
-      leader: 'mock',
-      spawnPolicy: 'auto',
-      approvedCapacity: 2,
-    }, { actor: 'test', approved: true });
+    const container = await makeOrchestratorContainer(registry, { title: 'Fable Beta Orch' });
+    const project = { id: container.projectId };
+    const session = { id: container.id };
 
     const orchestrator = registry.createOrchestratorMcpBootstrap({
       role: 'orchestrator',
@@ -324,21 +334,18 @@ test('same external agent can register as supervisor or orchestrator with scoped
 
     const orchestratorLease = registry.validateToolLease(orchestrator.leaseToken, {
       role: 'orchestrator',
-      toolId: 'orchestrator.enroll',
+      toolId: 'orchestrator.register',
       projectId: project.id,
       sessionId: session.id,
     });
     assert.equal(orchestratorLease.active, true);
-    registry.enrollOrchestrator(session.id, {
-      leaseId: orchestratorLease.id,
-      actor: orchestratorLease.actor,
-      source: 'mcp',
-    });
 
+    // The supervisor lease has scoped authority: it cannot reach orchestrator-only
+    // mutating tools (register/spawn a lane) even for the same actor + scope.
     assert.throws(
       () => registry.validateToolLease(supervisor.leaseToken, {
         role: 'supervisor',
-        toolId: 'orchestrator.enroll',
+        toolId: 'orchestrator.register',
         projectId: project.id,
         sessionId: session.id,
       }),

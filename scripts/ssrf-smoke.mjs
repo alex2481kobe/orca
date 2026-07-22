@@ -109,10 +109,12 @@ async function main() {
   const previousCwd = process.cwd();
   const previousEnv = { ...process.env };
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-ssrf-smoke-'));
+  const realTempDir = await fs.realpath(tempDir);
   process.chdir(tempDir);
   process.env.PORT = '0';
   process.env.ORCA_API_TOKEN = token;
   process.env.ORCA_RATE_LIMIT_DISABLED = 'true';
+  process.env.ORCA_REPO_ROOTS = realTempDir;
   let stopServer = null;
   try {
     const moduleUrl = `${pathToFileURL(serverPath).href}?ssrf-smoke=${Date.now()}`;
@@ -120,48 +122,45 @@ async function main() {
     const routeRequest = serverModule.routeRequest;
     stopServer = serverModule.stopServer;
 
-    const project = await request(routeRequest, '/api/projects', {
+    // v2: no session container. Register an orchestrator by cwd (implicitly
+    // creating the project keyed by cwd) and spawn executor lanes under it. The
+    // lane's targetUrl still runs through the same validateNetworkUrl SSRF policy.
+    const register = await request(routeRequest, '/api/orchestrators', {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: {
         actor: 'ssrf-smoke',
-        approved: true,
-        name: 'SSRF Smoke Project',
-        quickLinks: [{ label: 'Safe app', url: 'http://127.0.0.1:4173/' }],
+        cwd: realTempDir,
+        title: 'SSRF Smoke Orchestrator',
       },
     });
-    if (project.status !== 201) fail('project create', JSON.stringify(project.body));
-    const session = await request(routeRequest, `/api/projects/${project.body.id}/sessions`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'ssrf-smoke',
-        approved: true,
-        name: 'SSRF Smoke Session',
-      },
-    });
-    if (session.status !== 201) fail('session create', JSON.stringify(session.body));
+    if (register.status !== 200 || !String(register.body?.id || '').startsWith('orc_')) {
+      fail('orchestrator register', JSON.stringify(register.body));
+    }
+    const orchestratorId = register.body.id;
 
-    const badTargetLane = await request(routeRequest, `/api/sessions/${session.body.id}/lanes`, {
+    const badTargetLane = await request(routeRequest, `/api/orchestrators/${orchestratorId}/executors`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: {
         actor: 'ssrf-smoke',
         approved: true,
         title: 'Bad target',
+        role: 'executor',
         executorType: 'mock',
         targetUrl: 'http://169.254.169.254/latest/meta-data',
       },
     });
     if (badTargetLane.status !== 422) fail('metadata lane target must be rejected', JSON.stringify(badTargetLane.body));
 
-    const lane = await request(routeRequest, `/api/sessions/${session.body.id}/lanes`, {
+    const lane = await request(routeRequest, `/api/orchestrators/${orchestratorId}/executors`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: {
         actor: 'ssrf-smoke',
         approved: true,
         title: 'Safe target',
+        role: 'executor',
         executorType: 'mock',
         targetUrl: 'http://127.0.0.1:4173/',
       },

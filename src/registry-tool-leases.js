@@ -30,6 +30,17 @@ export const LANE_TOOL_STATE_GATES = {
 };
 
 export const toolLeaseMethods = {
+  // Is a tool lease currently live (not revoked, not expired)? Used by the
+  // orchestrator staleness check. Lives here (not in agentMethods) so a test mock
+  // that provides its own _leaseActiveById is not clobbered by the agent mixin.
+  _leaseActiveById(leaseId) {
+    if (!leaseId || leaseId === 'dashboard') return null;
+    const lease = (this.toolLeases || []).find((item) => item.id === leaseId);
+    if (!lease) return { found: false, active: false };
+    const active = !lease.revokedAt && Date.parse(lease.expiresAt) > Date.now();
+    return { found: true, active, lease };
+  },
+
   _resolveToolLeaseScope({ projectId = null, sessionId = null, laneId = null } = {}, { allowMissing = false } = {}) {
     const requestedProjectId = projectId ? String(projectId) : null;
     const requestedSessionId = sessionId ? String(sessionId) : null;

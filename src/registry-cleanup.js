@@ -160,13 +160,15 @@ export const cleanupMethods = {
       };
     }
 
+    // v2: containers are orchestrator records; getSession returns a retention-aware
+    // container view for each (artifacts live under artifacts/<orchestratorId>/).
     const targetSessions = sessionId
-      ? this.sessions.filter((session) => session.id === String(sessionId))
-      : this.sessions;
+      ? [this.getSession(String(sessionId))].filter(Boolean)
+      : (this.orchestrators || []).map((orch) => this.getSession(orch.id)).filter(Boolean);
     if (sessionId && !targetSessions.length) {
       throw {
         status: 404,
-        message: 'Session not found.',
+        message: 'Orchestrator not found.',
       };
     }
 
@@ -299,20 +301,8 @@ export const cleanupMethods = {
       }
       this.lanes = this.lanes.filter((l) => !dropLaneIds.has(l.id));
       for (const id of dropLaneIds) { this.laneRuntimeEnv?.delete(String(id)); if (typeof this.clearLaneExecutor === 'function') this.clearLaneExecutor(id); }
-      const existingLaneIds = new Set((this.lanes || []).map((lane) => String(lane.id)));
-      for (const session of this.sessions || []) {
-        const thread = session?.orchestratorThread;
-        if (!thread || typeof thread !== 'object') continue;
-        const beforeLaneIds = Array.isArray(thread.laneIds) ? thread.laneIds.map((id) => String(id)) : [];
-        const laneIds = beforeLaneIds.filter((id) => existingLaneIds.has(id));
-        const activeLaneId = thread.activeLaneId ? String(thread.activeLaneId) : null;
-        const activeStillPresent = activeLaneId && existingLaneIds.has(activeLaneId) && laneIds.includes(activeLaneId);
-        if (laneIds.length !== beforeLaneIds.length || (activeLaneId && !activeStillPresent)) {
-          thread.laneIds = laneIds;
-          thread.activeLaneId = activeStillPresent ? activeLaneId : laneIds.at(-1) || null;
-          thread.updatedAt = nowIso();
-        }
-      }
+      // v2: orchestrator records don't carry a session-thread laneIds list, so
+      // there is nothing to prune there (lanes reference their orchestrator directly).
       changed = true;
     }
     if (changed) this.persistState();

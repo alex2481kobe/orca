@@ -110,28 +110,9 @@ export async function handleProjectRoutes(ctx, req, res, method, parts) {
       return sendJson(res, 405, { error: 'Method not allowed.' });
     }
 
-    if (parts.length === 4 && parts[3] === 'sessions') {
-      if (method === 'GET') return sendJson(res, 200, registry.listSessions(project.id));
-      if (method === 'POST') {
-        const body = await parseJsonBody(req);
-        if (body === null) return sendBodyError(req, res);
-    if (rejectSpoofedActor(body, res)) return;
-        try {
-          const session = registry.createSession(project.id, body, {
-            actor: req._toolLease?.actor || body.actor || 'dashboard',
-            approved: body.approved,
-          });
-          return sendJson(res, 201, session);
-        } catch (error) {
-          return sendJson(res, error.status || 500, {
-            error: error.message || 'Could not create session.',
-            requiresApproval: error.requiresApproval || false,
-            risk: error.risk || null,
-          });
-        }
-      }
-      return sendJson(res, 405, { error: 'Method not allowed.' });
-    }
+    // v2: sessions are gone. Orchestrators register implicitly via POST
+    // /api/orchestrators (keyed by cwd); executor lanes live under the orchestrator
+    // container, not a project/session sub-route.
 
     if (parts.length >= 4 && parts[3] === 'quick-links') {
       if (parts.length === 4 && method === 'POST') {

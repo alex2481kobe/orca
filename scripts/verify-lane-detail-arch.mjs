@@ -10,14 +10,24 @@ import os from 'node:os';
 import path from 'node:path';
 
 const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-lane-arch-'));
-process.chdir(tmp);
+const realTmp = await fs.realpath(tmp);
+process.chdir(realTmp);
 process.env.ORCA_CREDENTIAL_BACKEND = 'memory';
+// registerOrchestrator validates cwd against the approved repo roots; point them
+// at the isolated temp dir so process.cwd() is an approved root.
+process.env.ORCA_REPO_ROOTS = realTmp;
 const { OrcaRegistry } = await import('../src/registry.js');
 const reg = new OrcaRegistry({ autoCompleteMs: 60 * 60 * 1000 });
 
-const project = reg.createProject({ name: 'Arch Project' }, { actor: 'test', approved: true });
-const session = reg.createSession(project.id, { name: 'Arch Session' }, { actor: 'test', approved: true });
-const created = reg.createLane(session.id, { title: 'Arch Lane', executorType: 'mock' }, { actor: 'test', approved: true });
+// v2: the orchestrator RECORD is the lane container (no session records). Mint an
+// orchestrator lease, register by cwd (implicitly creating the project), then
+// create the lane under the orchestrator id.
+const { lease } = reg.createToolLease({ role: 'orchestrator', actor: 'test' });
+const orchestrator = await reg.registerOrchestrator(
+  { cwd: realTmp, actor: 'test', title: 'Arch Session' },
+  { leaseId: lease.id },
+);
+const created = reg.createLane(orchestrator.id, { title: 'Arch Lane', executorType: 'mock' }, { actor: 'test', approved: true });
 const lane = reg.lanes.find((l) => l.id === created.id); // LIVE lane (createLane returns a clone)
 
 // Append 50 agentEvents + 30 logs onto the live lane.
@@ -26,7 +36,7 @@ for (let i = 0; i < 50; i += 1) {
 }
 for (let i = 0; i < 30; i += 1) reg.appendLaneLog(lane, `log-${i}`);
 
-const compact = reg.listLanesCompact(session.id);
+const compact = reg.listLanesCompact(orchestrator.id);
 const c = compact.find((l) => l.id === lane.id);
 const full = reg.getLane(lane.id);
 

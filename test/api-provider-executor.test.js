@@ -66,10 +66,16 @@ async function waitForLane(registry, laneId, predicate) {
   return registry.getLane(laneId);
 }
 
-function createApiLane(registry, executorType = 'openai-compatible') {
-  const project = registry.createProject({ name: `API ${executorType}` }, { actor: 'test', approved: true });
-  const session = registry.createSession(project.id, { name: `Session ${executorType}` }, { actor: 'test', approved: true });
-  return registry.createLane(session.id, {
+// v2: no session container. Register an orchestrator (keyed by cwd, which is the
+// test's approved tempDir root) and create the provider lane under it. The lane
+// executor behavior — the real subject of these tests — is unchanged.
+async function createApiLane(registry, executorType = 'openai-compatible') {
+  const { lease } = registry.createToolLease({ role: 'orchestrator', actor: 'test' });
+  const orchestrator = await registry.registerOrchestrator(
+    { cwd: process.cwd(), actor: 'test', title: `API ${executorType}` },
+    { leaseId: lease.id },
+  );
+  return registry.createLane(orchestrator.id, {
     title: `provider ${executorType}`,
     executorType,
     taskPrompt: 'Summarize the Orca provider smoke.',
@@ -101,7 +107,7 @@ test('OpenAI-compatible API provider lane executes through dummy server and reda
 
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
-    const lane = createApiLane(registry, 'openai-compatible');
+    const lane = await createApiLane(registry, 'openai-compatible');
     assert.equal(lane.executorType, 'openai-compatible');
 
     await registry.advanceLanes();
@@ -137,7 +143,7 @@ test('API provider lane fails closed when the env secret is missing', async () =
 
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
-    const lane = createApiLane(registry, 'openai-compatible');
+    const lane = await createApiLane(registry, 'openai-compatible');
     await registry.advanceLanes();
     const failed = await waitForLane(registry, lane.id, (item) => item?.state === 'failed');
     assert.equal(failed.state, 'failed');
@@ -163,7 +169,7 @@ test('API provider lane uses dashboard-stored credential backend before env fall
   await credentialStore.set('provider:openai-compatible', secret);
   const { registry, cleanup } = await withIsolatedRegistry({ credentialStore });
   try {
-    const lane = createApiLane(registry, 'openai-compatible');
+    const lane = await createApiLane(registry, 'openai-compatible');
     await registry.advanceLanes();
     const completed = await waitForLane(registry, lane.id, (item) => ['done', 'failed'].includes(item?.state));
     assert.equal(completed.state, 'done', completed.exitReason || 'lane should complete');
@@ -205,7 +211,7 @@ test('API provider lane uses edited provider profile base URL before static defa
   await providerStore.setSecret('openai-compatible', secret, { actor: 'test', approved: true });
   const { registry, cleanup } = await withIsolatedRegistry({ credentialStore, providerProfileStore: providerStore });
   try {
-    const lane = createApiLane(registry, 'openai-compatible');
+    const lane = await createApiLane(registry, 'openai-compatible');
     await registry.advanceLanes();
     const completed = await waitForLane(registry, lane.id, (item) => ['done', 'failed'].includes(item?.state));
     assert.equal(completed.state, 'done', completed.exitReason || 'lane should complete');
@@ -253,7 +259,7 @@ test('Gemini API provider lane executes through native dummy endpoint and redact
   await credentialStore.set('provider:gemini', secret);
   const { registry, cleanup } = await withIsolatedRegistry({ credentialStore });
   try {
-    const lane = createApiLane(registry, 'gemini');
+    const lane = await createApiLane(registry, 'gemini');
     assert.equal(lane.executorType, 'gemini');
     await registry.advanceLanes();
     const completed = await waitForLane(registry, lane.id, (item) => ['done', 'failed'].includes(item?.state));
@@ -305,7 +311,7 @@ test('API provider lane fails with a size-cap error when the response streams pa
 
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
-    const lane = createApiLane(registry, 'openai-compatible');
+    const lane = await createApiLane(registry, 'openai-compatible');
     await registry.advanceLanes();
     const failed = await waitForLane(registry, lane.id, (item) => ['done', 'failed'].includes(item?.state));
     // Assert the ERROR surfaced (not memory): the lane fails with the size-cap message.
@@ -348,7 +354,7 @@ test('Kimi, DeepSeek, and Composer use the shared OpenAI-compatible provider pat
   const { registry, cleanup } = await withIsolatedRegistry({ credentialStore });
   try {
     for (const [providerId, , secretRef, secret] of providers) {
-      const lane = createApiLane(registry, providerId);
+      const lane = await createApiLane(registry, providerId);
       assert.equal(lane.executorType, providerId);
       await registry.advanceLanes();
       const completed = await waitForLane(registry, lane.id, (item) => ['done', 'failed'].includes(item?.state));

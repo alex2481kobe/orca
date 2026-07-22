@@ -232,6 +232,29 @@ async function waitForLaneTerminalText(server, laneId, token, pattern) {
   });
 }
 
+// v2: no session container — the orchestrator RECORD (keyed by realpath(cwd)) is
+// the lane container. Register one and return the full response ({ id, projectId,
+// ... }). The in-process server shares this process's cwd (an approved repo root),
+// so process.cwd() registers cleanly. Admin-token by default; pass a leaseToken to
+// register as a scoped agent (its owning lease).
+async function registerOrchestrator(server, token, {
+  actor = 'dashboard',
+  title = 'Server Test Orchestrator',
+  leaseToken = null,
+  cwd = process.cwd(),
+} = {}) {
+  const headers = leaseToken
+    ? { 'x-orca-tool-lease': leaseToken }
+    : (token ? { 'x-orca-token': token } : {});
+  const res = await server.requestJson('/api/orchestrators', {
+    method: 'POST',
+    headers,
+    body: { cwd, actor, title },
+  });
+  assert.equal(res.status, 200, `orchestrator register: ${JSON.stringify(res.body)}`);
+  return res;
+}
+
 test('server API requires token for mutating actions while allowing read actions', async () => {
   const token = 'route-token-01';
   const server = await startServer({ token });
@@ -273,20 +296,9 @@ test('lane terminal input and resize reach a PTY-backed interactive lane', async
   });
 
   try {
-    const project = await server.requestJson('/api/projects', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { name: 'Lane Terminal Project', approved: true },
-    });
-    assert.equal(project.status, 201);
-    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { name: 'Lane Terminal Session', approved: true },
-    });
-    assert.equal(session.status, 201);
+    const orchestrator = await registerOrchestrator(server, token, { title: 'Lane Terminal Orchestrator' });
 
-    const created = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+    const created = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: {
@@ -673,13 +685,16 @@ test('paired devices get operator access but are denied host administration', as
       assert.equal(res.status, 403, `${method} ${route} must be admin-only for paired devices (got ${res.status})`);
     }
 
-    const operatorSession = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
+    // v2: the operator registers an orchestrator (keyed by cwd) instead of a
+    // session container, then spawns a worker lane under it. Registration is an
+    // operator-level workflow action, reachable with the paired cookie.
+    const operatorOrchestrator = await server.requestJson('/api/orchestrators', {
       method: 'POST',
       headers: { cookie },
-      body: { name: 'Operator Worker Session', approved: true },
+      body: { cwd: process.cwd(), actor: 'dashboard', title: 'Operator Worker Orchestrator' },
     });
-    assert.equal(operatorSession.status, 201);
-    const operatorLane = await server.requestJson(`/api/sessions/${operatorSession.body.id}/lanes`, {
+    assert.equal(operatorOrchestrator.status, 200, JSON.stringify(operatorOrchestrator.body));
+    const operatorLane = await server.requestJson(`/api/orchestrators/${operatorOrchestrator.body.id}/lanes`, {
       method: 'POST',
       headers: { cookie },
       body: { title: 'Operator Worker Lane', executorType: 'mock', approved: true },
@@ -699,8 +714,8 @@ test('paired devices get operator access but are denied host administration', as
       body: {
         actor: 'dashboard',
         role: 'executor',
-        projectId: project.body.id,
-        sessionId: operatorSession.body.id,
+        projectId: operatorOrchestrator.body.projectId,
+        sessionId: operatorOrchestrator.body.id,
         laneId: operatorLane.body.id,
       },
     });
@@ -761,29 +776,9 @@ test('notifications expose secret-free state with token-gated settings and read 
     assert.equal(settings.status, 200);
     assert.equal(settings.body?.settings?.browserEnabled, true);
 
-    const project = await server.requestJson('/api/projects', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        approved: true,
-        name: 'Notification Route Project',
-      },
-    });
-    assert.equal(project.status, 201);
+    const orchestrator = await registerOrchestrator(server, token, { title: 'Notification Route Orchestrator' });
 
-    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        approved: true,
-        name: 'Notification Route Session',
-      },
-    });
-    assert.equal(session.status, 201);
-
-    const lane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+    const lane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: {
@@ -843,7 +838,7 @@ test('notifications expose secret-free state with token-gated settings and read 
   }
 });
 
-test('project and session API endpoints require explicit approval', async () => {
+test('project API endpoints require explicit approval', async () => {
   const token = 'route-token-01c';
   const server = await startServer({ token });
 
@@ -865,24 +860,6 @@ test('project and session API endpoints require explicit approval', async () => 
       },
     });
     assert.equal(project.status, 201);
-
-    const deniedSession = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { name: 'Needs session approval' },
-    });
-    assert.equal(deniedSession.status, 409);
-    assert.equal(Boolean(deniedSession.body?.requiresApproval), true);
-
-    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        name: 'Approval session',
-        approved: true,
-      },
-    });
-    assert.equal(session.status, 201);
   } finally {
     await server.stop();
   }
@@ -925,17 +902,11 @@ test('project updates and lane creations require explicit approval', async () =>
     assert.equal(Array.isArray(updated.body?.quickLinks), true);
     assert.equal(updated.body.quickLinks.length, 1);
 
-    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        name: 'Approval Baseline Session',
-        approved: true,
-      },
-    });
-    assert.equal(session.status, 201);
+    // v2: lanes are created under the orchestrator container (keyed by cwd), not a
+    // session. The lane-creation approval gate is unchanged.
+    const orchestrator = await registerOrchestrator(server, token, { title: 'Approval Baseline Orchestrator' });
 
-    const deniedLane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+    const deniedLane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: {
@@ -947,7 +918,7 @@ test('project updates and lane creations require explicit approval', async () =>
     assert.equal(deniedLane.status, 409);
     assert.equal(Boolean(deniedLane.body?.requiresApproval), true);
 
-    const allowedLane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+    const allowedLane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: {
@@ -991,67 +962,11 @@ test('project updates and lane creations require explicit approval', async () =>
   }
 });
 
-test('session updates require explicit approval', async () => {
-  const token = 'route-token-session-patch';
-  const server = await startServer({ token });
+// DELETED: 'session updates require explicit approval' — exercised only the
+// removed PATCH /api/sessions/{id} archive route (Model-A session CRUD). The
+// orchestrator container has no approval-gated state PATCH to port it onto.
 
-  try {
-    const project = await server.requestJson('/api/projects', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        name: 'Session Patch Baseline Project',
-        approved: true,
-      },
-    });
-    assert.equal(project.status, 201);
-
-    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        name: 'Session Patch Baseline',
-        approved: true,
-      },
-    });
-    assert.equal(session.status, 201);
-
-    const deniedArchive = await server.requestJson(`/api/sessions/${session.body.id}`, {
-      method: 'PATCH',
-      headers: { 'x-orca-token': token },
-      body: {
-        state: 'archived',
-      },
-    });
-    assert.equal(deniedArchive.status, 409);
-    assert.equal(Boolean(deniedArchive.body?.requiresApproval), true);
-
-    const allowedArchive = await server.requestJson(`/api/sessions/${session.body.id}`, {
-      method: 'PATCH',
-      headers: { 'x-orca-token': token },
-      body: {
-        state: 'archived',
-        approved: true,
-      },
-    });
-    assert.equal(allowedArchive.status, 200);
-    assert.equal(allowedArchive.body?.state, 'archived');
-
-    const badState = await server.requestJson(`/api/sessions/${session.body.id}`, {
-      method: 'PATCH',
-      headers: { 'x-orca-token': token },
-      body: {
-        state: 'bad-state',
-        approved: true,
-      },
-    });
-    assert.equal(badState.status, 422);
-  } finally {
-    await server.stop();
-  }
-});
-
-test('permanent project and session delete require valid JSON, approval, and archived state', async () => {
+test('permanent project delete requires valid JSON, approval, and archived state', async () => {
   const token = 'route-token-permanent-delete';
   const server = await startServer({ token });
 
@@ -1066,52 +981,12 @@ test('permanent project and session delete require valid JSON, approval, and arc
     });
     assert.equal(project.status, 201);
 
-    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        name: 'Permanent Delete Session',
-        approved: true,
-      },
-    });
-    assert.equal(session.status, 201);
-
-    const malformed = await server.requestRaw(`/api/sessions/${session.body.id}`, {
+    const malformed = await server.requestRaw(`/api/projects/${project.body.id}`, {
       method: 'DELETE',
       headers: { 'x-orca-token': token },
       rawBody: '{not-json',
     });
     assert.equal(malformed.status, 400);
-
-    const missingApproval = await server.requestJson(`/api/sessions/${session.body.id}`, {
-      method: 'DELETE',
-      headers: { 'x-orca-token': token },
-      body: {},
-    });
-    assert.equal(missingApproval.status, 409);
-    assert.equal(Boolean(missingApproval.body?.requiresApproval), true);
-
-    const activeDelete = await server.requestJson(`/api/sessions/${session.body.id}`, {
-      method: 'DELETE',
-      headers: { 'x-orca-token': token },
-      body: { approved: true },
-    });
-    assert.equal(activeDelete.status, 422);
-
-    const archivedSession = await server.requestJson(`/api/sessions/${session.body.id}`, {
-      method: 'PATCH',
-      headers: { 'x-orca-token': token },
-      body: { state: 'archived', approved: true },
-    });
-    assert.equal(archivedSession.status, 200);
-
-    const deletedSession = await server.requestJson(`/api/sessions/${session.body.id}`, {
-      method: 'DELETE',
-      headers: { 'x-orca-token': token },
-      body: { approved: true },
-    });
-    assert.equal(deletedSession.status, 200);
-    assert.equal(deletedSession.body?.deleted, true);
 
     const projectMissingApproval = await server.requestJson(`/api/projects/${project.body.id}`, {
       method: 'DELETE',
@@ -1371,25 +1246,7 @@ test('API lane creation validates MCP tool IDs and executor constraints', async 
   const server = await startServer({ token });
 
   try {
-    const project = await server.requestJson('/api/projects', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        name: 'Lane MCP project',
-        approved: true,
-      },
-    });
-    assert.equal(project.status, 201);
-
-    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        name: 'Lane MCP session',
-        approved: true,
-      },
-    });
-    assert.equal(session.status, 201);
+    const orchestrator = await registerOrchestrator(server, token, { title: 'Lane MCP orchestrator' });
 
     const codexTool = await server.requestJson('/api/mcp/tools', {
       method: 'POST',
@@ -1415,7 +1272,7 @@ test('API lane creation validates MCP tool IDs and executor constraints', async 
     });
     assert.equal(claudeTool.status, 201);
 
-    const badScopeLane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+    const badScopeLane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: {
@@ -1430,7 +1287,7 @@ test('API lane creation validates MCP tool IDs and executor constraints', async 
     assert.equal(badScopeLane.status, 422);
     assert.equal(String(badScopeLane.body?.error || '').includes('Unauthorized MCP tools'), true);
 
-    const badMissingLane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+    const badMissingLane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: {
@@ -1445,7 +1302,7 @@ test('API lane creation validates MCP tool IDs and executor constraints', async 
     assert.equal(badMissingLane.status, 422);
     assert.equal(String(badMissingLane.body?.error || '').includes('Unknown MCP tools'), true);
 
-    const badCommand = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+    const badCommand = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: {
@@ -1460,7 +1317,7 @@ test('API lane creation validates MCP tool IDs and executor constraints', async 
     assert.equal(badCommand.status, 422);
     assert.equal(String(badCommand.body?.error || '').includes('configured codex binary'), true);
 
-    const validLane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+    const validLane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: {
@@ -1485,50 +1342,25 @@ test('dashboard-scoped orchestrator leases enroll and gate cross-scope actions',
   const server = await startServer({ token });
 
   try {
-    const project = await server.requestJson('/api/projects', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        name: 'Orchestrator Chat Project',
-        approved: true,
-      },
-    });
-    assert.equal(project.status, 201);
-
-    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        name: 'Orchestrator Chat Session',
-        leader: 'mock',
-        approvedCapacity: 4,
-        approved: true,
-      },
-    });
-    assert.equal(session.status, 201);
-
+    // v2: an orchestrator lease is unscoped; it claims ownership by REGISTERING an
+    // orchestrator (keyed by cwd) rather than enrolling against a session marker.
     const lease = await server.requestJson('/api/agent-tools/leases', {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: {
         role: 'orchestrator',
-        projectId: project.body.id,
-        sessionId: session.body.id,
         actor: 'dashboard',
       },
     });
     assert.equal(lease.status, 201);
     assert.equal(Boolean(lease.body?.leaseToken), true);
 
-    const enrolled = await server.requestJson(`/api/sessions/${session.body.id}/orchestrator/enroll`, {
-      method: 'POST',
-      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
-      body: { actor: 'orchestrator' },
+    const registered = await registerOrchestrator(server, token, {
+      title: 'Orchestrator Chat', leaseToken: lease.body.leaseToken,
     });
-    assert.equal(enrolled.status, 200);
-    assert.equal(enrolled.body?.activeOrchestrator?.active, true);
+    assert.ok(String(registered.body?.id || '').startsWith('orc_'));
 
-    const leaseLane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+    const leaseLane = await server.requestJson(`/api/orchestrators/${registered.body.id}/lanes`, {
       method: 'POST',
       headers: { 'x-orca-tool-lease': lease.body.leaseToken },
       body: {
@@ -1566,39 +1398,24 @@ test('scoped orchestrator leases bind plan and task actors to the lease identity
   const server = await startServer({ token });
 
   try {
-    const project = await server.requestJson('/api/projects', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { name: 'Lease Actor Project', approved: true },
-    });
-    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { name: 'Lease Actor Session', leader: 'mock', approved: true },
-    });
-    assert.equal(project.status, 201);
-    assert.equal(session.status, 201);
-
+    // v2: unscoped orchestrator lease that claims ownership by registering the
+    // orchestrator container. The audit-queue actor-binding behavior is unchanged.
     const lease = await server.requestJson('/api/agent-tools/leases', {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: {
         actor: 'lease-bound-orchestrator',
         role: 'orchestrator',
-        projectId: project.body.id,
-        sessionId: session.body.id,
       },
     });
     assert.equal(lease.status, 201);
     const leaseHeaders = { 'x-orca-tool-lease': lease.body.leaseToken };
-    const enrolled = await server.requestJson(`/api/sessions/${session.body.id}/orchestrator/enroll`, {
-      method: 'POST',
-      headers: leaseHeaders,
-      body: {},
+    const registered = await registerOrchestrator(server, token, {
+      title: 'Lease Actor', leaseToken: lease.body.leaseToken, actor: 'lease-bound-orchestrator',
     });
-    assert.equal(enrolled.status, 200);
+    const orchestratorId = registered.body.id;
 
-    const lane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+    const lane = await server.requestJson(`/api/orchestrators/${orchestratorId}/lanes`, {
       method: 'POST',
       headers: leaseHeaders,
       body: {
@@ -1615,7 +1432,7 @@ test('scoped orchestrator leases bind plan and task actors to the lease identity
     assert.equal(completedLane.status, 200);
     assert.equal(['done', 'ready_for_audit'].includes(completedLane.body?.state), true);
 
-    const queuedAudit = await server.requestJson(`/api/sessions/${session.body.id}/audit-done-lanes`, {
+    const queuedAudit = await server.requestJson(`/api/orchestrators/${orchestratorId}/audit-done-lanes`, {
       method: 'POST',
       headers: leaseHeaders,
       body: {
@@ -1632,7 +1449,7 @@ test('scoped orchestrator leases bind plan and task actors to the lease identity
     });
     assert.equal(audits.status, 200);
     const actorFor = (type) => audits.body.find((event) =>
-      event.type === type && event.sessionId === session.body.id)?.actor;
+      event.type === type && event.sessionId === orchestratorId)?.actor;
     // The lease identity — not the body-supplied actor — is bound as the audit
     // actor for a scoped-lease request, so the caller cannot spoof provenance.
     assert.equal(actorFor('session_audit_batch_queued'), 'lease-bound-orchestrator');
@@ -1647,28 +1464,14 @@ test('dashboard event routes use canonical consumer identity despite role actor 
   const server = await startServer({ token });
 
   try {
-    const project = await server.requestJson('/api/projects', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { name: 'Event Identity Project', approved: true },
-    });
-    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        name: 'Event Identity Session',
-        leader: 'mock',
-        approvedCapacity: 1,
-        approved: true,
-      },
-    });
-    assert.equal(project.status, 201);
-    assert.equal(session.status, 201);
+    // v2: the durable event queue is re-homed onto the orchestrator container.
+    const orchestrator = await registerOrchestrator(server, token, { title: 'Event Identity Orchestrator' });
+    const session = orchestrator;
 
     // A token-authenticated dashboard caller cannot spoof its consumer identity
     // via query params: the drain route derives the consumer role/actor from the
     // canonical (tool-lease-or-dashboard) identity and ignores ?role/?actor.
-    const spoofedDrain = await server.requestJson(`/api/sessions/${session.body.id}/events/drain?role=orchestrator&actor=evil-dashboard`, {
+    const spoofedDrain = await server.requestJson(`/api/orchestrators/${session.body.id}/events/drain?role=orchestrator&actor=evil-dashboard`, {
       method: 'GET',
       headers: { 'x-orca-token': token },
     });
@@ -1679,7 +1482,7 @@ test('dashboard event routes use canonical consumer identity despite role actor 
     // The ack route likewise binds to the canonical consumer identity and never
     // trusts a spoofed body role/actor — it resolves acks for the dashboard
     // consumer, so a spoofed orchestrator/evil-dashboard identity is disregarded.
-    const ack = await server.requestJson(`/api/sessions/${session.body.id}/events/ack`, {
+    const ack = await server.requestJson(`/api/orchestrators/${session.body.id}/events/ack`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: {
@@ -1963,7 +1766,7 @@ test('server MCP tooling rejects unsupported scope values and blocked commands',
   }
 });
 
-test('mobile manifest exposes deep links for projects, sessions, and lane artifact/evidence actions', async () => {
+test('mobile manifest exposes project entries and workflow action URLs', async () => {
   const token = 'route-token-07';
   const server = await startServer({ token });
 
@@ -1978,51 +1781,19 @@ test('mobile manifest exposes deep links for projects, sessions, and lane artifa
     });
     assert.equal(project.status, 201);
 
-    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        name: 'Manifest Session',
-        approved: true,
-      },
-    });
-    assert.equal(session.status, 201);
-
-    const lane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        title: 'Manifest Lane',
-        executorType: 'mock',
-        owner: 'dashboard',
-        approved: true,
-      },
-    });
-    assert.equal(lane.status, 201);
-
     const manifest = await server.requestJson('/api/mobile/manifest', { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(manifest.status, 200);
     assert.equal(Boolean(manifest.body?.apiTokenRequired), true);
     assert.equal(Array.isArray(manifest.body?.projects), true);
-    assert.equal(manifest.body.projects.length, 1);
 
-    const projectEntry = manifest.body.projects[0];
-    assert.equal(projectEntry.projectId, project.body.id);
+    // v2: the manifest is a projects-by-cwd list (quick-link previews). The lane
+    // container is the orchestrator now, so the mobile client reads the
+    // orchestrator overview rather than a per-session/lane deep-link tree.
+    const projectEntry = manifest.body.projects.find((entry) => entry.projectId === project.body.id);
+    assert.ok(projectEntry, 'created project appears in the manifest');
     assert.equal(projectEntry.route.includes(`/projects/${project.body.slug}`), true);
-    assert.equal(projectEntry.sessions.length, 1);
-
-    const sessionEntry = projectEntry.sessions[0];
-    assert.equal(sessionEntry.sessionId, session.body.id);
-    assert.equal(sessionEntry.route.includes(`/projects/${project.body.slug}/sessions/${session.body.id}`), true);
-    assert.equal(sessionEntry.lanes.length, 1);
-
-    const laneEntry = sessionEntry.lanes[0];
-    assert.equal(laneEntry.laneId, lane.body.id);
-    assert.equal(laneEntry.route.includes(`/projects/${project.body.slug}/sessions/${session.body.id}/lanes/${lane.body.id}`), true);
-    assert.equal(laneEntry.artifactsUrl, `/api/lanes/${lane.body.id}/artifacts`);
-    assert.equal(laneEntry.evidenceUrl, `/api/lanes/${lane.body.id}/evidence`);
-    assert.equal(laneEntry.evidenceLatestUrl, `/api/lanes/${lane.body.id}/evidence/latest`);
-    assert.equal(laneEntry.auditApi, `/api/lanes/${lane.body.id}/audit`);
+    assert.equal(Array.isArray(projectEntry.quickLinks), true);
+    assert.equal(typeof manifest.body?.orchestratorsUrl, 'string');
 
     assert.equal(typeof manifest.body?.artifactCleanupUrl, 'string');
     assert.equal(typeof manifest.body?.artifactCleanupScheduleUrl, 'string');
@@ -2049,26 +1820,6 @@ test('agent tool routes expose discovery, nextAction, and token-gated leases', a
   const server = await startServer({ token });
 
   try {
-    const project = await server.requestJson('/api/projects', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        name: 'Agent Route Project',
-        approved: true,
-      },
-    });
-    assert.equal(project.status, 201);
-
-    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        name: 'Agent Route Session',
-        approved: true,
-      },
-    });
-    assert.equal(session.status, 201);
-
     const discovery = await server.requestJson('/api/agent-tools/discovery', { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(discovery.status, 200);
     assert.equal(discovery.body?.contractVersion, 'orca.agent-tools.v1');
@@ -2077,10 +1828,11 @@ test('agent tool routes expose discovery, nextAction, and token-gated leases', a
     assert.equal(discovery.body.tools.some((tool) => tool.id === 'executor.capabilities'), true);
     assert.equal(discovery.body.executorCapabilities?.codex?.invocation?.canRunAsOrchestrator, true);
 
-    const next = await server.requestJson(`/api/agent-tools/next-action?role=orchestrator&projectId=${project.body.id}&sessionId=${session.body.id}`, { method: 'GET', headers: { 'x-orca-token': token } });
+    // v2: a fresh orchestrator's next required tool is register (there is no
+    // session/enroll step); the lease is unscoped.
+    const next = await server.requestJson('/api/agent-tools/next-action?role=orchestrator', { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(next.status, 200);
-    assert.equal(next.body?.nextRequiredTool, 'orchestrator.enroll');
-    assert.equal(next.body?.allowedTools.includes('lane.create'), true);
+    assert.equal(next.body?.nextRequiredTool, 'orchestrator.register');
     assert.equal(next.body?.executorCapabilities?.claude?.invocation?.canRunAsExecutor, true);
 
     const deniedLease = await server.requestJson('/api/agent-tools/leases', {
@@ -2088,8 +1840,6 @@ test('agent tool routes expose discovery, nextAction, and token-gated leases', a
       body: {
         actor: 'dashboard',
         role: 'orchestrator',
-        projectId: project.body.id,
-        sessionId: session.body.id,
       },
     });
     assert.equal(deniedLease.status, 401);
@@ -2100,8 +1850,6 @@ test('agent tool routes expose discovery, nextAction, and token-gated leases', a
       body: {
         actor: 'dashboard',
         role: 'god',
-        projectId: project.body.id,
-        sessionId: session.body.id,
       },
     });
     assert.equal(invalidRoleLease.status, 422);
@@ -2113,8 +1861,6 @@ test('agent tool routes expose discovery, nextAction, and token-gated leases', a
       body: {
         actor: 'dashboard',
         role: 'orchestrator',
-        projectId: project.body.id,
-        sessionId: session.body.id,
         ttlMs: 60000,
       },
     });
@@ -2122,31 +1868,16 @@ test('agent tool routes expose discovery, nextAction, and token-gated leases', a
     assert.equal(Boolean(lease.body?.leaseToken), true);
     assert.equal(lease.body?.lease?.allowedTools.includes('lane.create'), true);
     assert.equal(JSON.stringify(lease.body?.lease || {}).includes(lease.body.leaseToken), false);
-    assert.equal(lease.body?.nextAction?.nextRequiredTool, 'orchestrator.enroll');
+    assert.equal(lease.body?.nextAction?.nextRequiredTool, 'orchestrator.register');
 
-    const refusedBeforeEnroll = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
-      method: 'POST',
-      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
-      body: {
-        actor: 'orchestrator',
-        approved: true,
-        title: 'Unregistered lease lane',
-        executorType: 'mock',
-        owner: 'orchestrator',
-      },
+    // The lease claims ownership by registering an orchestrator; only then may it
+    // spawn lanes in that container.
+    const registered = await registerOrchestrator(server, token, {
+      title: 'Agent Route', leaseToken: lease.body.leaseToken,
     });
-    assert.equal(refusedBeforeEnroll.status, 409);
-    assert.match(refusedBeforeEnroll.body?.error || '', /No active orchestrator/);
+    const orchestratorId = registered.body.id;
 
-    const enrolled = await server.requestJson(`/api/sessions/${session.body.id}/orchestrator/enroll`, {
-      method: 'POST',
-      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
-      body: { actor: 'orchestrator' },
-    });
-    assert.equal(enrolled.status, 200);
-    assert.equal(enrolled.body?.activeOrchestrator?.active, true);
-
-    const createdByLease = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+    const createdByLease = await server.requestJson(`/api/orchestrators/${orchestratorId}/lanes`, {
       method: 'POST',
       headers: { 'x-orca-tool-lease': lease.body.leaseToken },
       body: {
@@ -2472,35 +2203,22 @@ test('orchestrator and supervisor tool leases can read private-access setup stat
   }
 });
 
-test('project-scoped tool leases cannot cross into sessions from another project', async () => {
+test('project-scoped tool leases cannot cross into another project orchestrator container', async () => {
   const token = 'route-token-project-scope-session-routes';
   const server = await startServer({ token });
 
   try {
-    const projectA = await server.requestJson('/api/projects', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { name: 'Lease Project A', approved: true },
-    });
-    assert.equal(projectA.status, 201);
-    const projectB = await server.requestJson('/api/projects', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { name: 'Lease Project B', approved: true },
-    });
-    assert.equal(projectB.status, 201);
-    const sessionA = await server.requestJson(`/api/projects/${projectA.body.id}/sessions`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { name: 'Session A', approved: true },
-    });
-    assert.equal(sessionA.status, 201);
-    const sessionB = await server.requestJson(`/api/projects/${projectB.body.id}/sessions`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { name: 'Session B', approved: true },
-    });
-    assert.equal(sessionB.status, 201);
+    // v2: projects are keyed by cwd, so two distinct project containers come from
+    // two working dirs, each with its own orchestrator (the lane container). A
+    // project-scoped orchestrator lease must not reach the other project's
+    // orchestrator lanes or next-action.
+    const dirB = path.join(process.cwd(), 'project-b');
+    await fs.mkdir(dirB, { recursive: true });
+    const orchestratorA = await registerOrchestrator(server, token, { title: 'Scope A' });
+    const orchestratorB = await registerOrchestrator(server, token, { title: 'Scope B', cwd: dirB });
+    const projectAId = orchestratorA.body.projectId;
+    const projectBId = orchestratorB.body.projectId;
+    assert.notEqual(projectAId, projectBId);
 
     const lease = await server.requestJson('/api/agent-tools/leases', {
       method: 'POST',
@@ -2508,7 +2226,7 @@ test('project-scoped tool leases cannot cross into sessions from another project
       body: {
         actor: 'project-scope-orchestrator',
         role: 'orchestrator',
-        projectId: projectA.body.id,
+        projectId: projectAId,
         ttlMs: 60_000,
       },
     });
@@ -2518,34 +2236,33 @@ test('project-scoped tool leases cannot cross into sessions from another project
       headers: { 'x-orca-tool-lease': lease.body.leaseToken },
     });
     assert.equal(scopedProjects.status, 200);
-    assert.deepEqual(scopedProjects.body.map((project) => project.id), [projectA.body.id]);
+    assert.deepEqual(scopedProjects.body.map((project) => project.id), [projectAId]);
 
-    const ownNextAction = await server.requestJson(`/api/agent-tools/next-action?role=orchestrator&projectId=${projectA.body.id}&sessionId=${sessionA.body.id}`, {
+    const ownNextAction = await server.requestJson(`/api/agent-tools/next-action?role=orchestrator&projectId=${projectAId}&sessionId=${orchestratorA.body.id}`, {
       headers: { 'x-orca-tool-lease': lease.body.leaseToken },
     });
     assert.equal(ownNextAction.status, 200);
     assert.equal(ownNextAction.body.role, 'orchestrator');
-    assert.equal(ownNextAction.body.projectId, projectA.body.id);
-    assert.equal(ownNextAction.body.sessionId, sessionA.body.id);
+    assert.equal(ownNextAction.body.projectId, projectAId);
 
-    const foreignNextAction = await server.requestJson(`/api/agent-tools/next-action?role=orchestrator&projectId=${projectB.body.id}&sessionId=${sessionB.body.id}`, {
+    const foreignNextAction = await server.requestJson(`/api/agent-tools/next-action?role=orchestrator&projectId=${projectBId}&sessionId=${orchestratorB.body.id}`, {
       headers: { 'x-orca-tool-lease': lease.body.leaseToken },
     });
     assert.equal(foreignNextAction.status, 403);
     assert.match(foreignNextAction.body?.error || '', /Tool lease project mismatch/);
 
-    const ownLanes = await server.requestJson(`/api/sessions/${sessionA.body.id}/lanes`, {
+    const ownLanes = await server.requestJson(`/api/orchestrators/${orchestratorA.body.id}/lanes`, {
       headers: { 'x-orca-tool-lease': lease.body.leaseToken },
     });
     assert.equal(ownLanes.status, 200);
 
-    const foreignLanes = await server.requestJson(`/api/sessions/${sessionB.body.id}/lanes`, {
+    const foreignLanes = await server.requestJson(`/api/orchestrators/${orchestratorB.body.id}/lanes`, {
       headers: { 'x-orca-tool-lease': lease.body.leaseToken },
     });
     assert.equal(foreignLanes.status, 403);
     assert.match(foreignLanes.body?.error || '', /Tool lease project mismatch/);
 
-    const foreignLaneCreate = await server.requestJson(`/api/sessions/${sessionB.body.id}/lanes`, {
+    const foreignLaneCreate = await server.requestJson(`/api/orchestrators/${orchestratorB.body.id}/lanes`, {
       method: 'POST',
       headers: { 'x-orca-tool-lease': lease.body.leaseToken },
       body: { title: 'Should stay outside scope', executorType: 'mock', approved: true },
@@ -2607,37 +2324,22 @@ test('scoped supervisor tool leases can read only their project/session/lane con
   const server = await startServer({ token });
 
   try {
-    const projectA = await server.requestJson('/api/projects', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { name: 'Scoped Read Project A', approved: true },
-    });
-    assert.equal(projectA.status, 201);
-    const projectB = await server.requestJson('/api/projects', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { name: 'Scoped Read Project B', approved: true },
-    });
-    assert.equal(projectB.status, 201);
-    const sessionA = await server.requestJson(`/api/projects/${projectA.body.id}/sessions`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { name: 'Scoped Read Session A', approved: true },
-    });
-    assert.equal(sessionA.status, 201);
-    const sessionB = await server.requestJson(`/api/projects/${projectB.body.id}/sessions`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { name: 'Scoped Read Session B', approved: true },
-    });
-    assert.equal(sessionB.status, 201);
-    const laneA = await server.requestJson(`/api/sessions/${sessionA.body.id}/lanes`, {
+    // v2: two cwd-keyed projects, each with its own orchestrator container + lane.
+    const dirB = path.join(process.cwd(), 'scoped-read-b');
+    await fs.mkdir(dirB, { recursive: true });
+    const orchestratorA = await registerOrchestrator(server, token, { title: 'Scoped Read A' });
+    const orchestratorB = await registerOrchestrator(server, token, { title: 'Scoped Read B', cwd: dirB });
+    const projectAId = orchestratorA.body.projectId;
+    const projectBId = orchestratorB.body.projectId;
+    assert.notEqual(projectAId, projectBId);
+
+    const laneA = await server.requestJson(`/api/orchestrators/${orchestratorA.body.id}/lanes`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: { title: 'Scoped Read Lane A', executorType: 'mock', approved: true },
     });
     assert.equal(laneA.status, 201);
-    const laneB = await server.requestJson(`/api/sessions/${sessionB.body.id}/lanes`, {
+    const laneB = await server.requestJson(`/api/orchestrators/${orchestratorB.body.id}/lanes`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: { title: 'Scoped Read Lane B', executorType: 'mock', approved: true },
@@ -2650,37 +2352,31 @@ test('scoped supervisor tool leases can read only their project/session/lane con
       body: {
         actor: 'scoped-supervisor-reader',
         role: 'supervisor',
-        projectId: projectA.body.id,
-        sessionId: sessionA.body.id,
+        projectId: projectAId,
+        sessionId: orchestratorA.body.id,
         ttlMs: 60_000,
       },
     });
     assert.equal(lease.status, 201);
     const leaseHeaders = { 'x-orca-tool-lease': lease.body.leaseToken };
 
-    const project = await server.requestJson(`/api/projects/${projectA.body.id}`, { headers: leaseHeaders });
+    const project = await server.requestJson(`/api/projects/${projectAId}`, { headers: leaseHeaders });
     assert.equal(project.status, 200);
-    assert.equal(project.body.id, projectA.body.id);
+    assert.equal(project.body.id, projectAId);
 
-    // GET /api/projects/{id}/sessions and GET /api/sessions/{id} are no longer
-    // agent MCP tools in v2 (session.list / session.describe were removed), so a
-    // scoped tool lease can't call them — the routes stay and are read via the
-    // operator token (dashboard path) instead. Lease scoping is asserted below on
-    // the still-gated project.describe / lane.get reads.
-    const sessions = await server.requestJson(`/api/projects/${projectA.body.id}/sessions`, { headers: { 'x-orca-token': token } });
-    assert.equal(sessions.status, 200);
-    assert.deepEqual(sessions.body.map((session) => session.id), [sessionA.body.id]);
-
-    const session = await server.requestJson(`/api/sessions/${sessionA.body.id}`, { headers: { 'x-orca-token': token } });
-    assert.equal(session.status, 200);
-    assert.equal(session.body.id, sessionA.body.id);
+    // GET /api/orchestrators/{id}/lanes is the scoped container read; a lease bound
+    // to orchestrator A can list it. (v2 removed session.list / session.describe
+    // and their /api/sessions/* routes entirely.)
+    const ownLanes = await server.requestJson(`/api/orchestrators/${orchestratorA.body.id}/lanes`, { headers: leaseHeaders });
+    assert.equal(ownLanes.status, 200);
+    assert.equal(Array.isArray(ownLanes.body), true);
 
     const lane = await server.requestJson(`/api/lanes/${laneA.body.id}`, { headers: leaseHeaders });
     assert.equal(lane.status, 200);
     assert.equal(lane.body.id, laneA.body.id);
 
-    // Cross-scope reads are refused for a lease bound to project/session A.
-    const deniedProject = await server.requestJson(`/api/projects/${projectB.body.id}`, { headers: leaseHeaders });
+    // Cross-scope reads are refused for a lease bound to project/orchestrator A.
+    const deniedProject = await server.requestJson(`/api/projects/${projectBId}`, { headers: leaseHeaders });
     assert.equal(deniedProject.status, 403);
     const deniedLane = await server.requestJson(`/api/lanes/${laneB.body.id}`, { headers: leaseHeaders });
     assert.equal(deniedLane.status, 403);
@@ -2689,32 +2385,17 @@ test('scoped supervisor tool leases can read only their project/session/lane con
   }
 });
 
-test('lane-level and session-level audit-event listing supports filtering by scope and status', async () => {
+test('lane-level audit-event listing supports filtering by scope and status', async () => {
   const token = 'route-token-09';
   const server = await startServer({ token });
 
   try {
-    const project = await server.requestJson('/api/projects', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        name: 'Audit Scope Project',
-        approved: true,
-      },
-    });
-    assert.equal(project.status, 201);
+    // v2: lanes live under the orchestrator container. The session-level
+    // /api/sessions/{id}/audit-events listing was removed with the session model;
+    // lane-level listing (the meaningful scope filter) is exercised here.
+    const orchestrator = await registerOrchestrator(server, token, { title: 'Audit Scope Orchestrator' });
 
-    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        name: 'Audit Scope Session',
-        approved: true,
-      },
-    });
-    assert.equal(session.status, 201);
-
-    const lane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+    const lane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: {
@@ -2743,11 +2424,6 @@ test('lane-level and session-level audit-event listing supports filtering by sco
     assert.equal(Array.isArray(lanePending.body), true);
     assert.equal(lanePending.body.some((event) => event.id === queuedAuditEventId), true);
 
-    const sessionPending = await server.requestJson(`/api/sessions/${session.body.id}/audit-events?status=pending`, { method: 'GET', headers: { 'x-orca-token': token } });
-    assert.equal(sessionPending.status, 200);
-    assert.equal(Array.isArray(sessionPending.body), true);
-    assert.equal(sessionPending.body.some((event) => event.id === queuedAuditEventId), true);
-
     const laneAck = await server.requestJson(`/api/audit/events/${queuedAuditEventId}/ack`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
@@ -2774,27 +2450,9 @@ test('high-risk lane stop action requires explicit approval', async () => {
   const server = await startServer({ token });
 
   try {
-    const project = await server.requestJson('/api/projects', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        name: 'Lane Stop Project',
-        approved: true,
-      },
-    });
-    assert.equal(project.status, 201);
+    const orchestrator = await registerOrchestrator(server, token, { title: 'Lane Stop Orchestrator' });
 
-    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        name: 'Lane Stop Session',
-        approved: true,
-      },
-    });
-    assert.equal(session.status, 201);
-
-    const lane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+    const lane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: {
@@ -2884,18 +2542,12 @@ test('artifact serving rejects traversal, absolute, encoded, and symlink paths',
   const server = await startServer({ token });
 
   try {
-    const project = await server.requestJson('/api/projects', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { name: 'Artifact Path Project', approved: true },
-    });
-    assert.equal(project.status, 201);
-    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { name: 'Artifact Path Session', approved: true },
-    });
-    const lane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+    // v2: the artifact namespace is keyed by the lane's container id, which is the
+    // orchestrator id (was the session id). Register an orchestrator and reuse its
+    // id as the artifact scope segment.
+    const orchestrator = await registerOrchestrator(server, token, { title: 'Artifact Path Orchestrator' });
+    const session = orchestrator; // artifact path scope segment = orchestrator id
+    const lane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: { title: 'Artifact Lane', executorType: 'mock', owner: 'dashboard', approved: true },
@@ -2944,13 +2596,10 @@ test('auth status bridges token auth to a cookie session that authorizes artifac
   const token = 'route-token-bridge';
   const server = await startServer({ token });
   try {
-    const project = await server.requestJson('/api/projects', {
-      method: 'POST', headers: { 'x-orca-token': token }, body: { name: 'Bridge Project', approved: true },
-    });
-    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
-      method: 'POST', headers: { 'x-orca-token': token }, body: { name: 'Bridge Session', approved: true },
-    });
-    const lane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+    // v2: artifact scope segment = orchestrator id (the lane container).
+    const orchestrator = await registerOrchestrator(server, token, { title: 'Bridge Orchestrator' });
+    const session = orchestrator;
+    const lane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
       method: 'POST', headers: { 'x-orca-token': token }, body: { title: 'Bridge Lane', executorType: 'mock', owner: 'dashboard', approved: true },
     });
     const laneDir = path.join(process.cwd(), 'artifacts', session.body.id, lane.body.id);
@@ -2984,19 +2633,8 @@ test('lane heartbeat endpoint can be gated by ORCA_WORKER_TOKEN', async () => {
   const server = await startServer({ token, env: { ORCA_WORKER_TOKEN: workerToken } });
 
   try {
-    const project = await server.requestJson('/api/projects', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { name: 'Heartbeat Project', approved: true },
-    });
-    assert.equal(project.status, 201);
-    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { name: 'Heartbeat Session', approved: true },
-    });
-    assert.equal(session.status, 201);
-    const lane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+    const orchestrator = await registerOrchestrator(server, token, { title: 'Heartbeat Orchestrator' });
+    const lane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: { title: 'Heartbeat Lane', executorType: 'mock', owner: 'dashboard', approved: true },
@@ -3024,8 +2662,8 @@ test('lane heartbeat endpoint can be gated by ORCA_WORKER_TOKEN', async () => {
       body: {
         actor: 'dashboard',
         role: 'executor',
-        projectId: project.body.id,
-        sessionId: session.body.id,
+        projectId: orchestrator.body.projectId,
+        sessionId: orchestrator.body.id,
         laneId: lane.body.id,
         ttlMs: 60000,
       },
@@ -3033,7 +2671,7 @@ test('lane heartbeat endpoint can be gated by ORCA_WORKER_TOKEN', async () => {
     assert.equal(lease.status, 201);
     assert.equal(lease.body?.lease?.allowedTools.includes('lane.heartbeat'), true);
 
-    const otherLane = await server.requestJson(`/api/sessions/${session.body.id}/lanes`, {
+    const otherLane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: { title: 'Worker Token Sibling Lane', executorType: 'mock', approved: true },
@@ -3315,15 +2953,13 @@ test('removed v2 routes fail closed as 404 (not 500) for an authenticated reques
     });
     assert.equal(project.status, 201, JSON.stringify(project.body));
 
-    const session = await server.requestJson(`/api/projects/${project.body.id}/sessions`, {
-      method: 'POST',
-      headers: auth,
-      body: { name: 'Removed Routes Session', approved: true },
-    });
-    assert.equal(session.status, 201, JSON.stringify(session.body));
-    const sid = session.body.id;
+    // v2: the lane container is the orchestrator (keyed by cwd). Its id stands in
+    // for the removed session id below — the /api/sessions/* handlers are gone, so
+    // any id there must 404 regardless.
+    const orchestrator = await registerOrchestrator(server, token, { title: 'Removed Routes Orchestrator' });
+    const sid = orchestrator.body.id;
 
-    const lane = await server.requestJson(`/api/sessions/${sid}/lanes`, {
+    const lane = await server.requestJson(`/api/orchestrators/${sid}/lanes`, {
       method: 'POST',
       headers: auth,
       body: { title: 'Removed Routes Lane', executorType: 'mock', approved: true },
@@ -3332,6 +2968,11 @@ test('removed v2 routes fail closed as 404 (not 500) for an authenticated reques
     const lid = lane.body.id;
 
     const removed = [
+      // The Model-A session container + all its sub-routes were deleted.
+      ['POST', `/api/projects/${project.body.id}/sessions`, { name: 'x', approved: true }],
+      ['POST', `/api/sessions/${sid}/lanes`, { title: 'x', executorType: 'mock', approved: true }],
+      ['POST', `/api/sessions/${sid}/orchestrator/enroll`, { actor: 'dashboard' }],
+      ['GET', `/api/sessions/${sid}`, undefined],
       ['GET', `/api/sessions/${sid}/agent-memory`, undefined],
       ['POST', `/api/sessions/${sid}/tasks`, { actor: 'dashboard', approved: true, title: 'x' }],
       ['GET', `/api/sessions/${sid}/backlog`, undefined],

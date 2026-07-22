@@ -31,12 +31,20 @@ function sessionFieldSettings(session) {
   if (session.approvedCapacity !== undefined) spawn.approvedCapacity = session.approvedCapacity;
   if (session.soloMode !== undefined) spawn.soloMode = session.soloMode !== false;
   if (session.idleShutdownMode !== undefined) spawn.idleShutdownMode = session.idleShutdownMode;
-  if (session.worktreeMode !== undefined) spawn.worktreeMode = session.worktreeMode;
+  // The v3 orchestrator-container seam uses 'off'/'none' sentinels to mean "no
+  // forced value at this layer" (there is no session record to carry one). Only
+  // carry real enum values into the layered settings so the sentinels fall through
+  // to the defaults instead of tripping the schema sanitizer.
+  if (session.worktreeMode !== undefined && ['isolated', 'shared'].includes(session.worktreeMode)) {
+    spawn.worktreeMode = session.worktreeMode;
+  }
   if (Object.keys(spawn).length) settings.spawn = spawn;
 
-  if (session.critiqueMode !== undefined) settings.critique = { mode: session.critiqueMode };
+  if (session.critiqueMode !== undefined && session.critiqueMode !== 'none') {
+    settings.critique = { mode: session.critiqueMode };
+  }
 
-  if (session.artifactRetentionDays !== undefined) {
+  if (session.artifactRetentionDays !== undefined && session.artifactRetentionDays !== null) {
     const retentionDays = session.artifactRetentionDays;
     settings.evidence = { retentionDays };
     settings.cleanup = { retentionDays };

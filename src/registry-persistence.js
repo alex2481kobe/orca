@@ -15,9 +15,8 @@ import { readJsonFileWithRecoverySync, writeJsonFileAtomic } from './state-store
 export const persistenceMethods = {
   restoreFromDisk() {
     const fallback = {
-      version: 1,
+      version: 3,
       projects: [],
-      sessions: [],
       lanes: [],
       tasks: [],
       loops: [],
@@ -33,25 +32,51 @@ export const persistenceMethods = {
     const recovered = readJsonFileWithRecoverySync(this.stateFile, { fallback });
     this.stateLoadStatus = recovered.status;
     let migratedFromV1 = false;
+    let migratedFromV2 = false;
+    let migrationBackupPath = null;
     try {
       let parsed = recovered.data || fallback;
-      // v1 -> v2 fresh-start migration. The v1 model (explicit projects/sessions +
-      // an exclusive per-session orchestrator marker) has no honest mapping to the
-      // v2 model (implicit projects-by-cwd + first-class orchestrator records);
-      // agents repopulate the whole model on reconnect. Back up the old file (never
-      // silently delete), then start from an empty v2 store.
-      if (parsed && parsed.version !== 2) {
-        const hadData = safeArray(parsed.projects).length
-          || safeArray(parsed.sessions).length
-          || safeArray(parsed.lanes).length;
-        if (hadData) {
-          try { fsSync.copyFileSync(this.stateFile, `${this.stateFile}.v1.bak`); } catch { /* best-effort backup */ }
-          migratedFromV1 = true;
+      // Persisted-state migration. v3 is the orchestrator-only model (no session
+      // container). Back up before any migration (never silently delete), then
+      // persist the migrated store immediately so it STICKS (writes are otherwise
+      // debounced+unref'd; a crash right after would re-migrate on every restart).
+      if (parsed && parsed.version !== 3) {
+        if (parsed.version === 2) {
+          // v2 -> v3: the session container is removed and the orchestrator record
+          // is the only container. Carry over projects/orchestrators + lanes that
+          // already reference an orchestrator; drop pure-session lanes + all sessions.
+          migrationBackupPath = `${this.stateFile}.v2.bak`;
+          try { fsSync.copyFileSync(this.stateFile, migrationBackupPath); } catch { /* best-effort backup */ }
+          migratedFromV2 = true;
+          parsed = {
+            ...fallback,
+            version: 3,
+            projects: safeArray(parsed.projects),
+            orchestrators: safeArray(parsed.orchestrators),
+            lanes: safeArray(parsed.lanes).filter((lane) => lane && lane.orchestratorId),
+            auditEvents: safeArray(parsed.auditEvents),
+            mcpTools: safeArray(parsed.mcpTools),
+            toolLeases: safeArray(parsed.toolLeases),
+            notifications: safeArray(parsed.notifications),
+            agentQueue: safeArray(parsed.agentQueue),
+            notificationSettings: parsed.notificationSettings || { ...DEFAULT_NOTIFICATION_SETTINGS },
+            policies: parsed.policies || {},
+            cleanupSchedule: parsed.cleanupSchedule || {},
+          };
+        } else {
+          // v1 (or unknown legacy) -> fresh start. The v1 model (explicit
+          // projects/sessions + per-session orchestrator markers) has no honest
+          // mapping; agents repopulate the whole model on reconnect.
+          const hadData = safeArray(parsed.projects).length
+            || safeArray(parsed.sessions).length
+            || safeArray(parsed.lanes).length;
+          if (hadData) {
+            migrationBackupPath = `${this.stateFile}.v1.bak`;
+            try { fsSync.copyFileSync(this.stateFile, migrationBackupPath); } catch { /* best-effort backup */ }
+            migratedFromV1 = true;
+          }
+          parsed = { ...fallback, version: 3 };
         }
-        parsed = { ...fallback, version: 2 };
-        // Persist the fresh v2 store immediately so the migration STICKS: writes
-        // are otherwise debounced+unref'd, so a crash right after migration would
-        // re-read the old v1 file and re-migrate on every restart.
         try {
           fsSync.writeFileSync(this.stateFile, JSON.stringify({ ...parsed, savedAt: nowIso() }));
         } catch { /* best-effort; the debounced write will catch up */ }
@@ -60,7 +85,6 @@ export const persistenceMethods = {
         ...project,
         quickLinks: normalizeQuickLinks(project.quickLinks || []),
       }));
-      this.sessions = safeArray(parsed.sessions);
       this.orchestrators = safeArray(parsed.orchestrators);
       this.lanes = safeArray(parsed.lanes);
       this.auditEvents = safeArray(parsed.auditEvents, []).slice(0, 200);
@@ -112,15 +136,18 @@ export const persistenceMethods = {
           ...parsed.cleanupSchedule,
         };
       }
-      if (migratedFromV1) {
+      if (migratedFromV1 || migratedFromV2) {
+        const from = migratedFromV2 ? 2 : 1;
         this.auditEvents.unshift({
           id: randomUUID(),
           type: 'registry_state_migrated',
           actor: 'system',
           status: 'passed',
-          summary: 'Migrated state v1 -> v2 (fresh start); previous state backed up to state.json.v1.bak',
+          summary: migratedFromV2
+            ? `Migrated state v2 -> v3 (session container removed); previous state backed up to ${migrationBackupPath}`
+            : `Migrated state v1 -> v3 (fresh start); previous state backed up to ${migrationBackupPath}`,
           createdAt: nowIso(),
-          evidence: { from: 1, to: 2, backupPath: `${this.stateFile}.v1.bak` },
+          evidence: { from, to: 3, backupPath: migrationBackupPath },
         });
       }
       this.ensureSessionWorkspaces();
@@ -173,27 +200,39 @@ export const persistenceMethods = {
     this._streamRevision = (this._streamRevision || 0) + 1;
     if (this._persistTimer) return;
     this._persistTimer = setTimeout(() => {
-      this._persistTimer = null;
-      const write = (async () => {
-        try {
-          await fs.mkdir(this.storageDir, { recursive: true });
-          await writeJsonFileAtomic(this.stateFile, this.snapshotState());
-        } catch (error) {
-          console.error('Persist failed:', error);
-        }
-      })();
-      this._trackAsync(write);
+      this._flushPersistTimer();
     }, 250);
     this._persistTimer.unref?.();
   },
 
+  // Fire the debounced persist NOW and return the tracked write promise, so
+  // drainPendingWrites()/shutdown can await it. Without this, a persist whose
+  // 250ms timer fires during teardown leaves an untracked in-flight fs.mkdir
+  // that resolves after the process's callback scope closes — the AfterMkdirp
+  // assertion crash seen under full-suite load. Safe to call with no timer set.
+  _flushPersistTimer({ forceBackup = false } = {}) {
+    if (this._persistTimer) {
+      clearTimeout(this._persistTimer);
+      this._persistTimer = null;
+    }
+    const write = (async () => {
+      try {
+        await fs.mkdir(this.storageDir, { recursive: true });
+        await writeJsonFileAtomic(this.stateFile, this.snapshotState(), { forceBackup });
+      } catch (error) {
+        console.error('Persist failed:', error);
+      }
+    })();
+    this._trackAsync(write);
+    return write;
+  },
+
   snapshotState() {
     return {
-      version: 2,
+      version: 3,
       savedAt: nowIso(),
       policies: this.policies,
       projects: this.projects,
-      sessions: this.sessions,
       orchestrators: this.orchestrators,
       lanes: this.lanes,
       auditEvents: this.auditEvents,

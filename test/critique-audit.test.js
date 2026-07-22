@@ -24,47 +24,61 @@ async function withRegistry(callback) {
   }
 }
 
-function createProjectSessionLane(registry, laneBody = {}, sessionBody = {}) {
-  const project = registry.createProject({ name: 'Critique Audit Project' }, { actor: 'test', approved: true });
-  const session = registry.createSession(project.id, {
-    name: 'Critique Audit Session',
-    ...sessionBody,
-  }, { actor: 'test', approved: true });
-  const lane = registry.createLane(session.id, {
+// v2: the orchestrator RECORD is the lane container (no session records). Register
+// it against the (approved) temp cwd; createLane takes the orc_ id as first arg.
+async function makeOrchestrator(registry, { actor = 'test', title = 'Orch' } = {}) {
+  const { lease } = registry.createToolLease({ role: 'orchestrator', actor });
+  const orchestrator = await registry.registerOrchestrator(
+    { cwd: process.cwd(), actor, title },
+    { leaseId: lease.id },
+  );
+  return { orchestrator, lease };
+}
+
+// The configurable agent-flow (template/fixRouting/maxAuditLoops/requireAuditPass)
+// now rides on the lane's settingsOverrides (the deleted session container used to
+// carry it).
+async function createOrchestratorLane(registry, laneBody = {}) {
+  const { orchestrator } = await makeOrchestrator(registry);
+  const lane = registry.createLane(orchestrator.id, {
     title: 'Critique Audit Lane',
     executorType: 'mock',
     ...laneBody,
   }, { actor: 'test', approved: true });
-  return { project, session, lane };
+  return { orchestrator, lane };
 }
 
 test('agent-flow: audit mandatory + fix loop budget + routing per config', async () => {
   await withRegistry(async (registry) => {
-    // Default flow: audit is required (require-audit-pass is on by default).
-    const plain = createProjectSessionLane(registry);
-    assert.equal(registry.auditRequiredForLane(registry.getLane(plain.lane.id)), true);
+    const { orchestrator } = await makeOrchestrator(registry);
 
-    // Configure an audit flow with a small loop budget and new-agent fix routing.
-    const project = registry.createProject({ name: 'Flow Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, {
-      name: 'Flow Session',
-      settingsOverrides: { flow: { template: 'orchestrator-executor-audit', fixRouting: 'new-agent', maxAuditLoops: 1, requireAuditPass: true } },
+    // Default flow: audit is required (require-audit-pass is on by default).
+    const plain = registry.createLane(orchestrator.id, {
+      title: 'Plain Lane', executorType: 'mock',
     }, { actor: 'test', approved: true });
-    const lane = registry.createLane(session.id, { title: 'Flow Lane', executorType: 'mock' }, { actor: 'test', approved: true });
+    assert.equal(registry.auditRequiredForLane(registry.getLane(plain.id)), true);
+
+    // Configure an audit flow with a loop budget and new-agent fix routing on the
+    // lane itself (lane-scoped effective settings).
+    const lane = registry.createLane(orchestrator.id, {
+      title: 'Flow Lane',
+      executorType: 'mock',
+      settingsOverrides: { flow: { template: 'orchestrator-executor-audit', fixRouting: 'new-agent', maxAuditLoops: 2, requireAuditPass: true } },
+    }, { actor: 'test', approved: true });
     const laneObj = registry.getLane(lane.id);
     assert.equal(registry.auditRequiredForLane(laneObj), true);
 
-    // Drive the lane to ready_for_audit, then request a fix (loop 1, budget left 0 -> escalate next).
+    // Drive the lane to ready_for_audit, then request a fix (loop 1 of budget 2).
     registry.markLaneCompleted(laneObj);
     registry.queueLaneAudit(lane.id, { actor: 'auditor', approved: true });
     const fix1 = registry.requestLaneFix(lane.id, { actor: 'auditor', findings: ['lint'], nextTask: 'fix lint' });
     assert.equal(fix1.lane.auditLoopCount, 1);
+    assert.equal(fix1.lane.auditState, 'fix_requested');
     assert.equal(fix1.audit.fixRouting, 'new-agent');
-    assert.equal(fix1.audit.loopsRemaining, 0);
+    assert.equal(fix1.audit.loopsRemaining, 1);
 
     // nextAction reflects the flow: fix routed to a new agent => lane.create.
-    registry.enrollOrchestrator(session.id, { leaseId: 'dashboard', actor: 'test-orchestrator' });
-    const env = buildNextActionEnvelope(registry, { role: 'orchestrator', projectId: project.id, sessionId: session.id, laneId: lane.id });
+    const env = buildNextActionEnvelope(registry, { role: 'orchestrator', projectId: orchestrator.projectId, sessionId: orchestrator.id, laneId: lane.id });
     assert.equal(env.nextRequiredTool, 'lane.create');
     assert.equal(env.flow.template, 'orchestrator-executor-audit');
     assert.equal(env.flow.requireAuditPass, true);
@@ -79,14 +93,14 @@ test('agent-flow: audit mandatory + fix loop budget + routing per config', async
     registry.acceptLaneAudit(lane.id, { actor: 'auditor' });
     const accepted = registry.getLane(lane.id);
     assert.equal(accepted.auditLoopCount, 0);
-    const envAfter = buildNextActionEnvelope(registry, { role: 'orchestrator', projectId: project.id, sessionId: session.id, laneId: lane.id });
+    const envAfter = buildNextActionEnvelope(registry, { role: 'orchestrator', projectId: orchestrator.projectId, sessionId: orchestrator.id, laneId: lane.id });
     assert.equal(envAfter.flow.returnToOrchestratorAllowed, true);
   });
 });
 
 test('audit fix and block transitions are explicit and retryable where safe', async () => {
   await withRegistry(async (registry) => {
-    const { lane } = createProjectSessionLane(registry);
+    const { lane } = await createOrchestratorLane(registry);
     registry.markLaneCompleted(registry.getLane(lane.id));
     registry.queueLaneAudit(lane.id, { actor: 'auditor', approved: true });
 
@@ -119,7 +133,7 @@ test('audit fix and block transitions are explicit and retryable where safe', as
 
 test('a blocked lane can be reset and retried (no dead end)', async () => {
   await withRegistry(async (registry) => {
-    const { lane } = createProjectSessionLane(registry);
+    const { lane } = await createOrchestratorLane(registry);
     registry.markLaneCompleted(registry.getLane(lane.id));
     registry.blockLaneAudit(lane.id, { actor: 'auditor', reason: 'Out of scope; needs human direction.' });
     assert.equal(registry.getLane(lane.id).state, 'blocked');

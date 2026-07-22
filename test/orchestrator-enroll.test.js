@@ -21,105 +21,120 @@ async function withRegistry(callback) {
   }
 }
 
-function makeSession(registry) {
-  const project = registry.createProject({ name: 'Orch Project' }, { actor: 'test', approved: true });
-  const session = registry.createSession(project.id, { name: 'Orch Session', leader: 'mock' }, { actor: 'test', approved: true });
-  return { project, session };
+// v2 orchestrator-native helper: mint an orchestrator lease and register the
+// orchestrator RECORD keyed by cwd (createProject is implicit). The orchestrator
+// id (orc_...) IS the lane container id used everywhere a sessionId used to be.
+async function makeOrchestrator(registry, { actor = 'test', title = 'Orch' } = {}) {
+  const { lease } = registry.createToolLease({ role: 'orchestrator', actor });
+  const orchestrator = await registry.registerOrchestrator(
+    { cwd: process.cwd(), actor, title },
+    { leaseId: lease.id },
+  );
+  return { orchestrator, lease };
 }
 
-function makeLease(registry, session, actor) {
-  const { lease } = registry.createToolLease({
-    role: 'orchestrator',
-    projectId: session.projectId,
-    sessionId: session.id,
-    allowedTools: ['orchestrator.enroll', 'orchestrator.resign', 'orchestrator.status'],
-    actor,
-  });
+// A bare orchestrator lease (no registration) for exercising ownership refusals.
+function makeLease(registry, actor) {
+  const { lease } = registry.createToolLease({ role: 'orchestrator', actor });
   return lease;
 }
 
-test('orchestrator: enroll claims ownership; status reflects the active owner', async () => {
+test('orchestrator: register claims ownership; status reflects the active owner', async () => {
   await withRegistry(async (registry) => {
-    const { session } = makeSession(registry);
-    const lease = makeLease(registry, session, 'claude-cli');
-    assert.equal(registry.getActiveOrchestrator(session.id).active, false);
-    const res = registry.enrollOrchestrator(session.id, { leaseId: lease.id, actor: lease.actor, source: 'mcp' });
-    assert.equal(res.enrolled, true);
-    const active = registry.getActiveOrchestrator(session.id);
-    assert.equal(active.active, true);
-    assert.equal(active.actor, 'claude-cli');
-    assert.equal(active.leaseId, lease.id);
-    const status = registry.orchestratorStatus(session.id);
+    const { orchestrator, lease } = await makeOrchestrator(registry, { actor: 'claude-cli', title: 'Orch Session' });
+    const status = registry.orchestratorStatus(orchestrator.id);
     assert.equal(status.activeOrchestrator.active, true);
+    assert.equal(status.activeOrchestrator.actor, 'claude-cli');
+    assert.equal(status.activeOrchestrator.leaseId, lease.id);
+    assert.equal(status.activeOrchestrator.stale, false);
     assert.ok(typeof status.tree === 'string' && status.tree.includes('Orch Session'));
   });
 });
 
-test('orchestrator: a second chat is refused without takeover, then takes over', async () => {
+test('orchestrator: a non-owner is refused; a live holder cannot be taken over, but a resigned one can', async () => {
   await withRegistry(async (registry) => {
-    const { session } = makeSession(registry);
-    const leaseA = makeLease(registry, session, 'chat-a');
-    const leaseB = makeLease(registry, session, 'chat-b');
-    registry.enrollOrchestrator(session.id, { leaseId: leaseA.id, actor: 'chat-a' });
+    const { orchestrator, lease: ownerLease } = await makeOrchestrator(registry, { actor: 'chat-a' });
+    const leaseB = makeLease(registry, 'chat-b');
+
+    // A different orchestrator lease may not mutate the container it doesn't own.
     assert.throws(
-      () => registry.enrollOrchestrator(session.id, { leaseId: leaseB.id, actor: 'chat-b' }),
-      (e) => e.status === 409 && e.current && e.current.actor === 'chat-a',
+      () => registry.assertOrchestratorOwnership({ toolId: 'lane.create', sessionId: orchestrator.id, lease: leaseB }),
+      (e) => e.status === 409 && /not the active orchestrator/.test(e.message),
     );
-    const res = registry.enrollOrchestrator(session.id, { leaseId: leaseB.id, actor: 'chat-b', takeover: true });
-    assert.equal(res.activeOrchestrator.actor, 'chat-b');
+
+    // A live (non-stale) holder cannot be stolen via takeover.
+    await assert.rejects(
+      registry.registerOrchestrator(
+        { cwd: process.cwd(), actor: 'chat-b', takeoverOrchestratorId: orchestrator.id },
+        { leaseId: leaseB.id },
+      ),
+      (e) => e.status === 409 && /not eligible for takeover/.test(e.message),
+    );
+
+    // Once the holder resigns, the other lease may take over the SAME record.
+    registry.resignOrchestrator(orchestrator.id, {}, { leaseId: ownerLease.id });
+    const takenOver = await registry.registerOrchestrator(
+      { cwd: process.cwd(), actor: 'chat-b', takeoverOrchestratorId: orchestrator.id },
+      { leaseId: leaseB.id },
+    );
+    assert.equal(takenOver.id, orchestrator.id, 'takeover attaches to the existing record');
+    assert.equal(takenOver.leaseId, leaseB.id, 'takeover rebinds the owning lease');
+
+    // The new owner may now mutate.
+    registry.assertOrchestratorOwnership({ toolId: 'lane.create', sessionId: orchestrator.id, lease: leaseB });
   });
 });
 
 test('orchestrator: resign requires being the holder and is idempotent', async () => {
   await withRegistry(async (registry) => {
-    const { session } = makeSession(registry);
-    const leaseA = makeLease(registry, session, 'chat-a');
-    const leaseB = makeLease(registry, session, 'chat-b');
-    registry.enrollOrchestrator(session.id, { leaseId: leaseA.id, actor: 'chat-a' });
+    const { orchestrator, lease: ownerLease } = await makeOrchestrator(registry, { actor: 'chat-a' });
+    const leaseB = makeLease(registry, 'chat-b');
+
+    // A lease that does not own the orchestrator cannot resign it.
     assert.throws(
-      () => registry.resignOrchestrator(session.id, { leaseId: leaseB.id }),
+      () => registry.resignOrchestrator(orchestrator.id, {}, { leaseId: leaseB.id }),
       (e) => e.status === 403,
     );
-    assert.equal(registry.resignOrchestrator(session.id, { leaseId: leaseA.id }).released, true);
-    assert.equal(registry.getActiveOrchestrator(session.id).active, false);
-    // Idempotent: resigning when none is held returns released:false.
-    assert.equal(registry.resignOrchestrator(session.id, { leaseId: leaseA.id }).released, false);
+
+    const resigned = registry.resignOrchestrator(orchestrator.id, {}, { leaseId: ownerLease.id });
+    assert.ok(resigned.resignedAt, 'holder resign records resignedAt');
+    assert.equal(registry.orchestratorStatus(orchestrator.id).activeOrchestrator.active, false);
+
+    // Idempotent: resigning again with the owning lease does not throw.
+    const resignedAgain = registry.resignOrchestrator(orchestrator.id, {}, { leaseId: ownerLease.id });
+    assert.ok(resignedAgain.resignedAt);
+    assert.equal(registry.orchestratorStatus(orchestrator.id).activeOrchestrator.active, false);
   });
 });
 
 test('orchestrator: exclusive ownership refuses a non-owner mutating call', async () => {
   await withRegistry(async (registry) => {
-    const { session } = makeSession(registry);
-    const owner = makeLease(registry, session, 'owner-chat');
-    const other = makeLease(registry, session, 'other-chat');
-    // Give both leases the mutating tool so the refusal is about OWNERSHIP, not scope.
-    registry.toolLeases.find((l) => l.id === owner.id).allowedTools.push('lane.create', 'task.list');
-    registry.toolLeases.find((l) => l.id === other.id).allowedTools.push('lane.create', 'task.list');
+    const { orchestrator, lease: owner } = await makeOrchestrator(registry, { actor: 'owner-chat' });
+    const other = makeLease(registry, 'other-chat');
 
-    // No owner yet -> the external orchestrator must register before mutating.
+    // Owner may mutate; a non-owner is refused; reads + ownership-exempt tools
+    // (register/resign/spawn) are always allowed regardless of ownership.
+    registry.assertOrchestratorOwnership({ toolId: 'lane.create', sessionId: orchestrator.id, lease: owner });
     assert.throws(
-      () => registry.assertOrchestratorOwnership({ toolId: 'lane.create', sessionId: session.id, lease: other }),
-      (e) => e.status === 409 && /No active orchestrator/.test(e.message),
-    );
-
-    registry.enrollOrchestrator(session.id, { leaseId: owner.id, actor: 'owner-chat' });
-    // Owner may mutate; non-owner is refused; reads + exempt tools always allowed.
-    registry.assertOrchestratorOwnership({ toolId: 'lane.create', sessionId: session.id, lease: owner });
-    assert.throws(
-      () => registry.assertOrchestratorOwnership({ toolId: 'lane.create', sessionId: session.id, lease: other }),
+      () => registry.assertOrchestratorOwnership({ toolId: 'lane.create', sessionId: orchestrator.id, lease: other }),
       (e) => e.status === 409 && /not the active orchestrator/.test(e.message),
     );
-    registry.assertOrchestratorOwnership({ toolId: 'task.list', sessionId: session.id, lease: other }); // read ok
-    registry.assertOrchestratorOwnership({ toolId: 'orchestrator.enroll', sessionId: session.id, lease: other }); // exempt
+    registry.assertOrchestratorOwnership({ toolId: 'lane.list', sessionId: orchestrator.id, lease: other }); // read ok
+    registry.assertOrchestratorOwnership({ toolId: 'orchestrator.register', sessionId: orchestrator.id, lease: other }); // exempt
 
-    // After the owner resigns, the other lease still has to enroll before mutating.
-    registry.resignOrchestrator(session.id, { leaseId: owner.id });
+    // After the owner resigns, the container has no active owner: the other lease
+    // must register/take over before it can mutate.
+    registry.resignOrchestrator(orchestrator.id, {}, { leaseId: owner.id });
     assert.throws(
-      () => registry.assertOrchestratorOwnership({ toolId: 'lane.create', sessionId: session.id, lease: other }),
+      () => registry.assertOrchestratorOwnership({ toolId: 'lane.create', sessionId: orchestrator.id, lease: other }),
       (e) => e.status === 409 && /No active orchestrator/.test(e.message),
     );
-    registry.enrollOrchestrator(session.id, { leaseId: other.id, actor: 'other-chat' });
-    registry.assertOrchestratorOwnership({ toolId: 'lane.create', sessionId: session.id, lease: other });
+    const takenOver = await registry.registerOrchestrator(
+      { cwd: process.cwd(), actor: 'other-chat', takeoverOrchestratorId: orchestrator.id },
+      { leaseId: other.id },
+    );
+    assert.equal(takenOver.id, orchestrator.id);
+    registry.assertOrchestratorOwnership({ toolId: 'lane.create', sessionId: orchestrator.id, lease: other });
   });
 });
 
@@ -244,42 +259,53 @@ test('orchestrator (Model-B register path): owning lease may audit + accept its 
   }
 });
 
-test('orchestrator: a stale active orchestrator does not block a fresh enroll', async () => {
+test('orchestrator: an idle-stale holder is eligible for takeover without being the holder', async () => {
   await withRegistry(async (registry) => {
-    const { session } = makeSession(registry);
-    const leaseA = makeLease(registry, session, 'chat-a');
-    const leaseB = makeLease(registry, session, 'chat-b');
-    registry.enrollOrchestrator(session.id, { leaseId: leaseA.id, actor: 'chat-a' });
-    // Force staleness on the LIVE session record (createSession returns a clone).
-    registry.getSession(session.id).orchestratorThread.activeOrchestrator.lastSeenAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-    assert.equal(registry.getActiveOrchestrator(session.id).stale, true);
-    // Fresh enroll succeeds WITHOUT takeover because the holder is stale.
-    const res = registry.enrollOrchestrator(session.id, { leaseId: leaseB.id, actor: 'chat-b' });
-    assert.equal(res.activeOrchestrator.actor, 'chat-b');
+    const { orchestrator } = await makeOrchestrator(registry, { actor: 'chat-a' });
+    const leaseB = makeLease(registry, 'chat-b');
+
+    // Force idle staleness on the live orchestrator record (no live lane keeps it
+    // pinned). orchestratorStatus surfaces stale=true.
+    registry.orchestrators.find((o) => o.id === orchestrator.id).lastSeenAt =
+      new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    assert.equal(registry.orchestratorStatus(orchestrator.id).activeOrchestrator.stale, true);
+
+    // A fresh lease may take over the stale holder's record (no takeover needed
+    // beyond naming the stale orchestrator id).
+    const takenOver = await registry.registerOrchestrator(
+      { cwd: process.cwd(), actor: 'chat-b', takeoverOrchestratorId: orchestrator.id },
+      { leaseId: leaseB.id },
+    );
+    assert.equal(takenOver.id, orchestrator.id);
+    assert.equal(takenOver.leaseId, leaseB.id);
+    assert.equal(registry.orchestratorStatus(orchestrator.id).activeOrchestrator.active, true);
   });
 });
 
-test('orchestrator: revoked or expired chat leases become stale and do not block fresh attach', async () => {
+test('orchestrator: revoked or expired owning leases go stale and free the record for takeover', async () => {
   await withRegistry(async (registry) => {
-    const { session } = makeSession(registry);
-    const revoked = makeLease(registry, session, 'revoked-chat');
-    const replacement = makeLease(registry, session, 'replacement-chat');
-    registry.enrollOrchestrator(session.id, { leaseId: revoked.id, actor: 'revoked-chat' });
-    registry.revokeToolLease(revoked.id, { actor: 'test' });
-    assert.equal(registry.getActiveOrchestrator(session.id).stale, true);
-    const afterRevoked = registry.enrollOrchestrator(session.id, { leaseId: replacement.id, actor: 'replacement-chat' });
-    assert.equal(afterRevoked.activeOrchestrator.actor, 'replacement-chat');
+    const { orchestrator, lease: revoked } = await makeOrchestrator(registry, { actor: 'revoked-chat' });
+    const replacement = makeLease(registry, 'replacement-chat');
 
-    const expiring = makeLease(registry, session, 'expired-chat');
-    const afterExpiryReplacement = makeLease(registry, session, 'after-expiry-chat');
-    registry.enrollOrchestrator(session.id, { leaseId: expiring.id, actor: 'expired-chat', takeover: true });
-    const storedExpiring = registry.toolLeases.find((lease) => lease.id === expiring.id);
-    storedExpiring.expiresAt = new Date(Date.now() - 1000).toISOString();
-    assert.equal(registry.getActiveOrchestrator(session.id).stale, true);
-    const afterExpired = registry.enrollOrchestrator(session.id, {
-      leaseId: afterExpiryReplacement.id,
-      actor: 'after-expiry-chat',
-    });
-    assert.equal(afterExpired.activeOrchestrator.actor, 'after-expiry-chat');
+    // A revoked owning lease makes the orchestrator stale.
+    registry.revokeToolLease(revoked.id, { actor: 'test' });
+    assert.equal(registry.orchestratorStatus(orchestrator.id).activeOrchestrator.stale, true);
+    const afterRevoked = await registry.registerOrchestrator(
+      { cwd: process.cwd(), actor: 'replacement-chat', takeoverOrchestratorId: orchestrator.id },
+      { leaseId: replacement.id },
+    );
+    assert.equal(afterRevoked.leaseId, replacement.id);
+    assert.equal(registry.orchestratorStatus(orchestrator.id).activeOrchestrator.stale, false);
+
+    // An expired owning lease likewise frees the record for the next attach.
+    const afterExpiryReplacement = makeLease(registry, 'after-expiry-chat');
+    registry.toolLeases.find((lease) => lease.id === replacement.id).expiresAt =
+      new Date(Date.now() - 1000).toISOString();
+    assert.equal(registry.orchestratorStatus(orchestrator.id).activeOrchestrator.stale, true);
+    const afterExpired = await registry.registerOrchestrator(
+      { cwd: process.cwd(), actor: 'after-expiry-chat', takeoverOrchestratorId: orchestrator.id },
+      { leaseId: afterExpiryReplacement.id },
+    );
+    assert.equal(afterExpired.leaseId, afterExpiryReplacement.id);
   });
 });

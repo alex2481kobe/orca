@@ -64,15 +64,18 @@ try {
     return { status: r.status, body: await r.json().catch(() => null) };
   };
 
-  const project = await api('/api/projects', { actor: 'd', approved: true, name: 'Real Exec' });
-  if (project.status !== 201) fail('project create', JSON.stringify(project));
-  const session = await api(`/api/projects/${project.body.id}/sessions`, { actor: 'd', approved: true, name: 'S', leader: 'codex', repoRoot: realRepo });
-  if (session.status !== 201) fail('session create', JSON.stringify(session));
-  log('workspace', `repoRoot=${realRepo} executors=${executors.join(',')}`);
+  // v2: no session container. Register as the orchestrator for the git repo
+  // (implicitly creating the project keyed by cwd); executor lanes spawn under
+  // the orchestrator record. Admin token => leaseId 'dashboard' (ownership check
+  // skipped). Register returns 200 (not 201).
+  const register = await api('/api/orchestrators', { actor: 'd', cwd: realRepo, title: 'Real Exec' });
+  if (register.status !== 200 || !String(register.body?.id || '').startsWith('orc_')) fail('orchestrator register', JSON.stringify(register));
+  const orchestratorId = register.body.id;
+  log('workspace', `orchestrator=${orchestratorId} repoRoot=${realRepo} executors=${executors.join(',')}`);
 
   for (const executorType of executors) {
-    const lane = await api(`/api/sessions/${session.body.id}/lanes`, {
-      actor: 'd', approved: true, title: `real ${executorType}`, owner: 'executor', executorType,
+    const lane = await api(`/api/orchestrators/${orchestratorId}/executors`, {
+      actor: 'd', approved: true, title: `real ${executorType}`, owner: 'executor', role: 'executor', executorType,
       permissionsProfile: 'plan', // read-only sandbox: safe + fast
       taskPrompt: 'Reply with the single word READY and then stop. Do not modify any files.',
     });

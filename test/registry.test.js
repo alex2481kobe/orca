@@ -30,6 +30,21 @@ async function withIsolatedRegistry() {
   return { registry, cleanup, tempDir };
 }
 
+// v2 orchestrator-native container: registerOrchestrator creates the project
+// keyed by cwd (process.cwd() is always an approved repo root) and returns the
+// orc_ container record that createLane now takes as its first arg. There are no
+// session records; the orchestrator RECORD is the container (getSession(orc.id)
+// returns its launchable container-seam view). Pass cwd to point the container at
+// a specific (e.g. git) repo root.
+async function makeOrchestrator(registry, { actor = 'test', title = 'Orch', cwd = process.cwd() } = {}) {
+  const { lease } = registry.createToolLease({ role: 'orchestrator', actor });
+  const orchestrator = await registry.registerOrchestrator(
+    { cwd, actor, title },
+    { leaseId: lease.id },
+  );
+  return { orchestrator, lease };
+}
+
 function restoreEnv(previous) {
   const snapshot = { ...previous };
   return () => {
@@ -66,8 +81,7 @@ test('cleanup schedule and cleanup artifacts use retention + approval', async ()
     assert.equal(updated.intervalHours, 12);
     assert.equal(updated.olderThanDays, 7);
 
-    const project = registry.createProject({ name: 'Cleanup Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Cleanup Session' }, { actor: 'test', approved: true });
+    const { orchestrator: session } = await makeOrchestrator(registry);
     const lane = registry.createLane(session.id, {
       title: 'old lane',
       executorType: 'mock',
@@ -116,8 +130,7 @@ test('updateLaneControls lets user or agent set targetUrl + verificationCommand 
   const { registry, cleanup } = await withIsolatedRegistry();
 
   try {
-    const project = registry.createProject({ name: 'Controls Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Controls Session' }, { actor: 'test', approved: true });
+    const { orchestrator: session } = await makeOrchestrator(registry);
     // User leaves targetUrl + verificationCommand blank at create time.
     const lane = registry.createLane(session.id, { title: 'work', executorType: 'mock' }, { approved: true, actor: 'test' });
     assert.equal(registry.getLane(lane.id).targetUrl, '');
@@ -141,7 +154,7 @@ test('updateLaneControls lets user or agent set targetUrl + verificationCommand 
   }
 });
 
-test('project and session mutations require policy approval', async () => {
+test('project and lane mutations require policy approval', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
 
   try {
@@ -153,13 +166,20 @@ test('project and session mutations require policy approval', async () => {
     const project = registry.createProject({ name: 'Project with approval' }, { actor: 'test', approved: true });
     assert.equal(project.name, 'Project with approval');
 
+    // v2 has no createSession; the equivalent container-scoped mutation gate is
+    // createLane under an orchestrator container — it must also require approval.
+    const { orchestrator } = await makeOrchestrator(registry);
     assert.throws(
-      () => registry.createSession(project.id, { name: 'Unapproved Session' }),
+      () => registry.createLane(orchestrator.id, { title: 'Unapproved Lane', executorType: 'mock' }),
       (error) => error.status === 409,
     );
 
-    const session = registry.createSession(project.id, { name: 'Approved Session' }, { actor: 'test', approved: true });
-    assert.equal(session.name, 'Approved Session');
+    const lane = registry.createLane(
+      orchestrator.id,
+      { title: 'Approved Lane', executorType: 'mock' },
+      { actor: 'test', approved: true },
+    );
+    assert.equal(lane.title, 'Approved Lane');
 
     assert.throws(
       () => registry.updateProject(project.id, { name: 'No approval update' }),
@@ -177,8 +197,7 @@ test('scheduled cleanup tick runs artifacts cleanup when run-at is due', async (
   const { registry, cleanup } = await withIsolatedRegistry();
 
   try {
-    const project = registry.createProject({ name: 'Scheduled Cleanup Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Scheduled Cleanup Session' }, { actor: 'test', approved: true });
+    const { orchestrator: session } = await makeOrchestrator(registry);
     const lane = registry.createLane(session.id, {
       title: 'stale lane',
       executorType: 'mock',
@@ -223,8 +242,7 @@ test('scheduled cleanup tick waits until next run time', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
 
   try {
-    const project = registry.createProject({ name: 'Scheduled Cleanup Holdoff Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Scheduled Cleanup Holdoff Session' }, { actor: 'test', approved: true });
+    const { orchestrator: session } = await makeOrchestrator(registry);
     const lane = registry.createLane(session.id, {
       title: 'stale lane',
       executorType: 'mock',
@@ -299,8 +317,7 @@ test('cleanup artifacts require explicit confirmation for destructive cleanup', 
   const { registry, cleanup } = await withIsolatedRegistry();
 
   try {
-    const project = registry.createProject({ name: 'Cleanup Confirmation Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Cleanup Confirmation Session' }, { actor: 'test', approved: true });
+    const { orchestrator: session } = await makeOrchestrator(registry);
 
     const lane = registry.createLane(session.id, {
       title: 'old lane',
@@ -354,15 +371,18 @@ test('cleanup artifacts require explicit confirmation for destructive cleanup', 
   }
 });
 
-test('cleanup default retention comes from session policy when olderThanDays is omitted', async () => {
+// PORTED from 'cleanup default retention comes from session policy when
+// olderThanDays is omitted'. v3 has no session container and no session-level
+// artifactRetentionDays (the orchestrator container seam returns null), so the
+// port asserts the DEFAULT retention fallback (14 days) the cleanup uses when no
+// per-container retention and no explicit olderThanDays are supplied: a lane older
+// than 14 days is swept, a recent lane is kept, and an explicit wider window keeps
+// everything.
+test('cleanup default retention falls back to the 14-day default when olderThanDays is omitted', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
 
   try {
-    const project = registry.createProject({ name: 'Retention Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, {
-      name: 'Retention Session',
-      artifactRetentionDays: 5,
-    }, { actor: 'test', approved: true });
+    const { orchestrator: session } = await makeOrchestrator(registry);
 
     const lane = registry.createLane(session.id, {
       title: 'old lane',
@@ -371,7 +391,8 @@ test('cleanup default retention comes from session policy when olderThanDays is 
 
     const target = registry.getLane(lane.id);
     target.state = 'done';
-    target.completedAt = new Date(Date.now() - (6 * 24 * 60 * 60 * 1000)).toISOString();
+    // Older than the 14-day default retention window.
+    target.completedAt = new Date(Date.now() - (20 * 24 * 60 * 60 * 1000)).toISOString();
     target.updatedAt = target.completedAt;
 
     const artifactDir = path.join(process.cwd(), 'artifacts', session.id, target.id);
@@ -421,8 +442,7 @@ test('MCP tools are scoped by executor type', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
 
   try {
-    const project = registry.createProject({ name: 'MCP Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'MCP Session' }, { actor: 'test', approved: true });
+    const { orchestrator: session } = await makeOrchestrator(registry);
 
     await registry.createMcpTool({
       name: 'all-tool',
@@ -542,8 +562,7 @@ test('Deleting an MCP tool detaches it from existing lane snapshots', async () =
   const { registry, cleanup } = await withIsolatedRegistry();
 
   try {
-    const project = registry.createProject({ name: 'MCP Snapshot Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'MCP Snapshot Session' }, { actor: 'test', approved: true });
+    const { orchestrator: session } = await makeOrchestrator(registry);
 
     await registry.createMcpTool({
       name: 'transient-tool',
@@ -727,8 +746,7 @@ test('Creating lanes rejects unknown or unauthorized MCP tool IDs', async () => 
   const { registry, cleanup } = await withIsolatedRegistry();
 
   try {
-    const project = registry.createProject({ name: 'Lane MCP Policy Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Lane MCP Policy Session' }, { actor: 'test', approved: true });
+    const { orchestrator: session } = await makeOrchestrator(registry);
 
     await registry.createMcpTool({
       name: 'scoped-codex-tool',
@@ -836,11 +854,7 @@ test('first-class CLI lanes accept executor overrides and command payloads', asy
   const { registry, cleanup } = await withIsolatedRegistry();
 
   try {
-    const project = registry.createProject({ name: 'Executor Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, {
-      name: 'Executor Session',
-      leader: 'codex',
-    }, { actor: 'test', approved: true });
+    const { orchestrator: session } = await makeOrchestrator(registry);
 
     const codexLane = registry.createLane(session.id, {
       title: 'Codex Lane',
@@ -896,11 +910,7 @@ test('first-class CLI lanes enforce binary/command executor targeting', async ()
   const { registry, cleanup, tempDir } = await withIsolatedRegistry();
 
   try {
-    const project = registry.createProject({ name: 'Executor Policy Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, {
-      name: 'Executor Policy Session',
-      leader: 'codex',
-    }, { actor: 'test', approved: true });
+    const { orchestrator: session } = await makeOrchestrator(registry);
 
     assert.throws(() => registry.createLane(session.id, {
       title: 'Invalid codex command',
@@ -997,11 +1007,7 @@ test('first-class CLI lanes accept explicitly configured absolute binaries', asy
     process.env.ORCA_CODEX_BINARY = configuredBinary;
     process.env.ORCA_CODEX_ALLOWED_BINARIES = configuredBinary;
 
-    const project = registry.createProject({ name: 'Configured Binary Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, {
-      name: 'Configured Binary Session',
-      leader: 'codex',
-    }, { actor: 'test', approved: true });
+    const { orchestrator: session } = await makeOrchestrator(registry);
     const lane = registry.createLane(session.id, {
       title: 'Configured absolute codex',
       executorType: 'codex',
@@ -1032,11 +1038,7 @@ test('Creating lanes rejects unsupported executor types', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
 
   try {
-    const project = registry.createProject({ name: 'Executor Type Policy Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, {
-      name: 'Executor Type Policy Session',
-      leader: 'codex',
-    }, { actor: 'test', approved: true });
+    const { orchestrator: session } = await makeOrchestrator(registry);
 
     assert.throws(() => registry.createLane(session.id, {
       title: 'Unsupported executor',
@@ -1048,39 +1050,41 @@ test('Creating lanes rejects unsupported executor types', async () => {
   }
 });
 
-test('Lane workdirs default to the session workspace and reject traversal outside session boundary', async () => {
+test('Lane workdirs default to the container repo root and reject traversal/symlink escapes', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
 
   try {
-    const project = registry.createProject({ name: 'Workspace Boundaries Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, {
-      name: 'Workspace Boundaries Session',
-      leader: 'codex',
-    }, { actor: 'test', approved: true });
-    const sessionRecord = registry.getSession(session.id);
+    // v2: the container is the orchestrator record; its repo root is the registered
+    // cwd (process.cwd() here — a non-git dir, so lanes run directly in it). The
+    // synthetic per-session workspace of Model-A is gone; the execution boundary is
+    // now the container's repo root (an approved root).
+    const { orchestrator: session } = await makeOrchestrator(registry);
+    const container = registry.getSession(session.id);
+    const repoRoot = container.repoRoot;
+    assert.equal((await fs.stat(repoRoot)).isDirectory(), true);
 
-    const workspaceStats = await fs.stat(sessionRecord.worktreeRoot);
-    assert.equal(workspaceStats.isDirectory(), true);
-
+    // Default workdir is the container repo root itself.
     const defaultLane = registry.createLane(session.id, {
       title: 'Default workspace lane',
       executorType: 'codex',
       mcpToolIds: [],
     }, { approved: true, actor: 'test' });
-    assert.equal(defaultLane.workdir, sessionRecord.worktreeRoot);
-    const defaultStat = await fs.stat(defaultLane.workdir);
-    assert.equal(defaultStat.isDirectory(), true);
+    assert.equal(defaultLane.workdir, repoRoot);
+    assert.equal((await fs.stat(defaultLane.workdir)).isDirectory(), true);
 
-    const relativeLane = registry.createLane(session.id, {
-      title: 'Relative workspace lane',
+    // An absolute workdir inside an approved root is accepted.
+    const subDir = path.join(repoRoot, 'feature-run');
+    await fs.mkdir(subDir, { recursive: true });
+    const absoluteLane = registry.createLane(session.id, {
+      title: 'Absolute workspace lane',
       executorType: 'codex',
-      workdir: 'feature-run',
+      workdir: subDir,
       mcpToolIds: [],
     }, { approved: true, actor: 'test' });
-    assert.equal(relativeLane.workdir, path.join(sessionRecord.worktreeRoot, 'feature-run'));
-    const relativeStat = await fs.stat(relativeLane.workdir);
-    assert.equal(relativeStat.isDirectory(), true);
+    assert.equal(absoluteLane.workdir, subDir);
+    assert.equal((await fs.stat(absoluteLane.workdir)).isDirectory(), true);
 
+    // A relative-traversal workdir is refused.
     assert.throws(
       () => registry.createLane(session.id, {
         title: 'Escaping workspace lane',
@@ -1091,15 +1095,17 @@ test('Lane workdirs default to the session workspace and reject traversal outsid
       (error) => error.status === 422,
     );
 
+    // A symlink that lives under the approved root but resolves OUTSIDE it is
+    // refused (real-path escape guard), and nothing is created at the target.
     const outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-outside-workdir-'));
-    const symlinkWorkdir = path.join(sessionRecord.worktreeRoot, 'link-outside');
+    const symlinkWorkdir = path.join(repoRoot, 'link-outside');
     await fs.symlink(outsideDir, symlinkWorkdir, 'dir');
     try {
       assert.throws(
         () => registry.createLane(session.id, {
           title: 'Symlink escaping workspace lane',
           executorType: 'codex',
-          workdir: 'link-outside',
+          workdir: symlinkWorkdir,
           mcpToolIds: [],
         }, { approved: true, actor: 'test' }),
         (error) => error.status === 422 && /resolves outside/.test(error.message),
@@ -1108,7 +1114,7 @@ test('Lane workdirs default to the session workspace and reject traversal outsid
         () => registry.createLane(session.id, {
           title: 'Nested symlink escaping workspace lane',
           executorType: 'codex',
-          workdir: 'link-outside/pwn',
+          workdir: path.join(symlinkWorkdir, 'pwn'),
           mcpToolIds: [],
         }, { approved: true, actor: 'test' }),
         (error) => error.status === 422 && /resolves outside/.test(error.message),
@@ -1218,8 +1224,7 @@ test('executor capabilities are available for every supported executor and snaps
     assert.equal(Array.isArray(matrix.claude.controls.intelligence.values), true);
     assert.equal(matrix['gemini-cli']?.invocation.canRunAsOrchestrator, true);
 
-    const project = registry.createProject({ name: 'Capability Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Capability Session' }, { actor: 'test', approved: true });
+    const { orchestrator: session } = await makeOrchestrator(registry);
     const lane = registry.createLane(session.id, {
       title: 'Capability lane',
       executorType: 'claude',
@@ -1242,8 +1247,7 @@ test('lane controls update model, mode, intelligence, and audit event', async ()
   const { registry, cleanup } = await withIsolatedRegistry();
 
   try {
-    const project = registry.createProject({ name: 'Lane Controls Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Lane Controls Session' }, { actor: 'test', approved: true });
+    const { orchestrator: session } = await makeOrchestrator(registry);
     const lane = registry.createLane(session.id, {
       title: 'Controlled lane',
       executorType: 'mock',
@@ -1277,8 +1281,7 @@ test('lane lifecycle log appends remain capped', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
 
   try {
-    const project = registry.createProject({ name: 'Lane Log Cap Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Lane Log Cap Session' }, { actor: 'test', approved: true });
+    const { orchestrator: session } = await makeOrchestrator(registry);
     const lane = registry.createLane(session.id, {
       title: 'Log capped lane',
       executorType: 'mock',
@@ -1325,8 +1328,7 @@ test('lane-scoped tool leases are revoked when Orca-authored lanes stop being li
   };
 
   try {
-    const project = registry.createProject({ name: 'Lane Lease Cleanup' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Lane Lease Cleanup Session' }, { actor: 'test', approved: true });
+    const { orchestrator: session } = await makeOrchestrator(registry);
 
     const completed = registry.createLane(session.id, {
       title: 'completed lane',
@@ -1845,8 +1847,7 @@ test('MCP config is generated per-lane with safe path and executor-specific shap
   process.env.ORCA_CLAUDE_ALLOWED_BINARIES = 'claude';
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
-    const project = registry.createProject({ name: 'MCP Config Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'MCP Config Session' }, { actor: 'test', approved: true });
+    const { orchestrator: session } = await makeOrchestrator(registry);
 
     await registry.createMcpTool({
       name: 'demo-tool',
@@ -1941,8 +1942,7 @@ test('CLI executor writes raw terminal stdout and stderr artifacts', async () =>
     adapter.defaultBinary = process.execPath;
     adapter.workdirRoots = [process.cwd()];
 
-    const project = registry.createProject({ name: 'Terminal Artifacts' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Terminal Session' }, { actor: 'test', approved: true });
+    const { orchestrator: session } = await makeOrchestrator(registry);
     const lane = registry.createLane(session.id, {
       title: 'terminal artifact lane',
       executorType: 'mock',
@@ -1983,8 +1983,7 @@ test('CLI executor writes raw terminal stdout and stderr artifacts', async () =>
 test('manual executor stop records a structured agent.stopped event', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
-    const project = registry.createProject({ name: 'Stop Notify Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Stop Notify Session' }, { actor: 'test', approved: true });
+    const { orchestrator: session } = await makeOrchestrator(registry);
     const executorLane = registry.createLane(session.id, {
       title: 'Executor to stop',
       executorType: 'mock',
@@ -2115,8 +2114,7 @@ test('buildExecutorCommandArgs derives safe argv from lane task prompt', async (
 test('Recovery flips orphaned running lanes to failed with explicit reason', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
-    const project = registry.createProject({ name: 'Lifecycle Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Lifecycle Session' }, { actor: 'test', approved: true });
+    const { orchestrator: session } = await makeOrchestrator(registry);
     const stuckLane = registry.createLane(session.id, {
       title: 'stuck lane',
       executorType: 'mock',
@@ -2186,8 +2184,7 @@ test('MCP tool schema accepts env/workdir/description/owner/notes with bounds', 
 test('Shared-worktree lane creation emits a pending audit and stores a warning', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
-    const project = registry.createProject({ name: 'Shared Worktree Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Shared Worktree Session' }, { actor: 'test', approved: true });
+    const { orchestrator: session } = await makeOrchestrator(registry);
     const lane = registry.createLane(session.id, {
       title: 'shared lane',
       executorType: 'mock',
@@ -2207,8 +2204,7 @@ test('Shared-worktree lane creation emits a pending audit and stores a warning',
 test('Lane terminal artifacts include process/MCP/changed-files metadata', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
-    const project = registry.createProject({ name: 'Terminal Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Terminal Session' }, { actor: 'test', approved: true });
+    const { orchestrator: session } = await makeOrchestrator(registry);
     const lane = registry.createLane(session.id, {
       title: 'terminal lane',
       executorType: 'mock',
@@ -2273,11 +2269,9 @@ test('Worktree manager creates per-lane worktree under approved base and cleanup
     g('add', 'README.md');
     g('commit', '-qm', 'init');
 
-    const project = registry.createProject({ name: 'WT Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, {
-      name: 'WT Session',
-      repoRoot: repoDir,
-    }, { actor: 'test', approved: true });
+    // v2: the container's repo root IS the orchestrator's registered cwd, so point
+    // it at the git repo directly.
+    const { orchestrator: session } = await makeOrchestrator(registry, { cwd: repoDir });
 
     assert.equal(registry.getSession(session.id).repoRoot, repoDir);
 
@@ -2348,8 +2342,7 @@ test('pruneInMemoryRecords reclaims the on-disk worktree of a dropped terminal l
     await fs.writeFile(path.join(repoDir, 'README.md'), 'hi');
     g('add', 'README.md'); g('commit', '-qm', 'init');
 
-    const project = registry.createProject({ name: 'Prune' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Prune', repoRoot: repoDir }, { actor: 'test', approved: true });
+    const { orchestrator: session } = await makeOrchestrator(registry, { cwd: repoDir });
     const older = registry.createLane(session.id, { title: 'older', executorType: 'mock', branch: 'a' }, { actor: 'test', approved: true });
     const newer = registry.createLane(session.id, { title: 'newer', executorType: 'mock', branch: 'b' }, { actor: 'test', approved: true });
     assert.ok(older.worktreePath && newer.worktreePath);
@@ -2389,15 +2382,14 @@ test('Session shared worktree mode runs lanes in the session repoRoot without pe
     g('add', 'README.md');
     g('commit', '-qm', 'init');
 
-    const project = registry.createProject({ name: 'Shared Mode Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, {
-      name: 'Shared Mode Session',
-      repoRoot: repoDir,
-      worktreeMode: 'shared',
-    }, { actor: 'test', approved: true });
+    // v2: worktree mode is chosen per-lane (the container seam is always 'off'),
+    // so shared mode is requested via sharedWorktree:true on the lane. The container
+    // repo root is the orchestrator's cwd (the git repo).
+    const { orchestrator: session } = await makeOrchestrator(registry, { cwd: repoDir });
     const lane = registry.createLane(session.id, {
       title: 'shared mode lane',
       executorType: 'mock',
+      sharedWorktree: true,
     }, { actor: 'test', approved: true });
 
     assert.equal(lane.sharedWorktree, true);
@@ -2416,91 +2408,18 @@ test('Session shared worktree mode runs lanes in the session repoRoot without pe
   }
 });
 
-test('getSessionGitInfo reports branches/worktrees for git repos and isGit:false otherwise', async () => {
+// DELETED: 'getSessionGitInfo reports branches/worktrees for git repos and
+// isGit:false otherwise' — getSessionGitInfo was a Model-A session-container
+// method and has no orchestrator-native replacement on the registry. The remaining
+// meaningful behavior it exercised (origin/* base-ref → managed lane worktree) is
+// still covered by 'Worktree manager creates per-lane worktree...' below, which
+// now runs against a git-rooted orchestrator container.
+
+test('Orchestrator container refuses an out-of-bounds cwd but accepts non-git dirs', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
-    const { spawnSync } = await import('node:child_process');
-    // Git repo within the approved root (process.cwd() == temp dir).
-    const repoDir = path.join(process.cwd(), 'git-info-repo');
-    await fs.mkdir(repoDir, { recursive: true });
-    const g = (...args) => spawnSync('git', args, { cwd: repoDir, encoding: 'utf8' });
-    g('init', '-q');
-    g('config', 'user.email', 't@l');
-    g('config', 'user.name', 't');
-    await fs.writeFile(path.join(repoDir, 'README.md'), 'hi');
-    g('add', 'README.md');
-    g('commit', '-qm', 'init');
-    g('branch', '-M', 'main');
-    g('branch', 'feature/x');
-    const remoteDir = path.join(process.cwd(), 'git-info-origin.git');
-    spawnSync('git', ['init', '--bare', '-q', remoteDir], { encoding: 'utf8' });
-    g('remote', 'add', 'origin', remoteDir);
-    g('push', '-u', 'origin', 'main');
-    g('fetch', 'origin', 'main');
-
-    const project = registry.createProject({ name: 'Git Info' }, { actor: 'test', approved: true });
-    const gitSession = registry.createSession(project.id, { name: 'git', repoRoot: repoDir }, { actor: 'test', approved: true });
-    const info = registry.getSessionGitInfo(gitSession.id);
-    assert.equal(info.isGit, true);
-    assert.ok(info.branches.includes('feature/x'), 'should list created branch');
-    assert.ok(info.remoteBranches.includes('origin/main'), 'should list remote-tracking branch');
-    assert.ok(info.branches.includes('origin/main'), 'branch picker should include remote-tracking branch');
-    assert.ok(info.currentBranch, 'should report the current branch');
-    assert.ok(Array.isArray(info.worktrees) && info.worktrees.length >= 1, 'should list at least the main worktree');
-
-    const remoteLane = registry.createLane(gitSession.id, {
-      title: 'remote base lane',
-      executorType: 'mock',
-      branch: 'origin/main',
-    }, { actor: 'test', approved: true });
-    assert.match(remoteLane.branch, /^orca\/lane\//);
-    const laneHead = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: remoteLane.worktreePath, encoding: 'utf8' }).stdout.trim();
-    const remoteHead = g('rev-parse', 'origin/main').stdout.trim();
-    assert.equal(laneHead, remoteHead, 'origin/main should be used as the worktree base ref');
-
-    // Non-git folder → isGit:false (agent still runs there).
-    const plainDir = path.join(process.cwd(), 'git-info-plain');
-    await fs.mkdir(plainDir, { recursive: true });
-    const plainSession = registry.createSession(project.id, { name: 'plain', repoRoot: plainDir }, { actor: 'test', approved: true });
-    assert.equal(registry.getSessionGitInfo(plainSession.id).isGit, false);
-  } finally {
-    await cleanup();
-  }
-});
-
-test('Session creation refuses nonexistent or out-of-bounds repoRoot but accepts non-git dirs', async () => {
-  const { registry, cleanup } = await withIsolatedRegistry();
-  try {
-    const project = registry.createProject({ name: 'WT Reject' }, { actor: 'test', approved: true });
-    // A path that does not exist is rejected.
-    assert.throws(() => registry.createSession(project.id, {
-      name: 'no repo',
-      repoRoot: path.join(process.cwd(), 'not-a-repo'),
-    }, { actor: 'test', approved: true }), (error) => error.status === 422);
-
-    // A plain (non-git) directory within approved roots is ACCEPTED — agents can
-    // spawn in any folder, git is not required (Codex behavior).
-    const plainDir = path.join(process.cwd(), 'plain-non-git-dir');
-    await fs.mkdir(plainDir, { recursive: true });
-    try {
-      const plainSession = registry.createSession(project.id, {
-        name: 'plain dir session',
-        repoRoot: plainDir,
-      }, { actor: 'test', approved: true });
-      assert.equal(registry.getSession(plainSession.id).repoRoot, plainDir);
-      // A lane in a non-git folder runs directly in the directory (no worktree).
-      const plainLane = registry.createLane(plainSession.id, {
-        title: 'plain lane',
-        executorType: 'mock',
-      }, { actor: 'test', approved: true });
-      assert.equal(plainLane.workdir, plainDir, 'non-git lane should run in the folder');
-      assert.equal(plainLane.worktreePath, plainDir, 'non-git lane has no separate worktree');
-      assert.ok(!plainLane.worktreePath.includes('worktrees'), 'non-git lane should not get an isolated worktree');
-    } finally {
-      await fs.rm(plainDir, { recursive: true, force: true });
-    }
-
-    // Build a git repo OUTSIDE the approved boundary.
+    // v2: the container's repo root is the orchestrator's registered cwd. A cwd
+    // outside the approved repo roots is rejected by registerOrchestrator.
     const outsideRepo = await fs.mkdtemp(path.join(os.tmpdir(), 'outside-repo-'));
     const { spawnSync } = await import('node:child_process');
     spawnSync('git', ['init', '-q'], { cwd: outsideRepo });
@@ -2510,23 +2429,35 @@ test('Session creation refuses nonexistent or out-of-bounds repoRoot but accepts
     spawnSync('git', ['add', 'R'], { cwd: outsideRepo });
     spawnSync('git', ['commit', '-qm', 'init'], { cwd: outsideRepo });
     try {
+      await assert.rejects(
+        () => makeOrchestrator(registry, { cwd: outsideRepo }),
+        (error) => error.status === 422,
+      );
+      // A symlink under the approved root that resolves outside is also refused.
       const linkToOutside = path.join(process.cwd(), 'link-to-outside-repo');
       await fs.symlink(outsideRepo, linkToOutside, 'dir');
-      assert.throws(() => registry.createProject({
-        name: 'symlink outside project',
-        repoRoot: linkToOutside,
-      }, { actor: 'test', approved: true }), (error) => error.status === 422);
-      assert.throws(() => registry.createSession(project.id, {
-        name: 'symlink outside session',
-        repoRoot: linkToOutside,
-      }, { actor: 'test', approved: true }), (error) => error.status === 422);
-      assert.throws(() => registry.createSession(project.id, {
-        name: 'outside repo',
-        repoRoot: outsideRepo,
-      }, { actor: 'test', approved: true }), (error) => error.status === 422);
+      await assert.rejects(
+        () => makeOrchestrator(registry, { cwd: linkToOutside }),
+        (error) => error.status === 422,
+      );
     } finally {
       await fs.rm(outsideRepo, { recursive: true, force: true });
     }
+
+    // A plain (non-git) directory within the approved root is ACCEPTED — agents
+    // can spawn in any folder, git is not required (Codex behavior). A lane there
+    // runs directly in the directory (no isolated worktree).
+    const plainDir = path.join(process.cwd(), 'plain-non-git-dir');
+    await fs.mkdir(plainDir, { recursive: true });
+    const { orchestrator } = await makeOrchestrator(registry, { cwd: plainDir });
+    assert.equal(registry.getSession(orchestrator.id).repoRoot, await fs.realpath(plainDir));
+    const plainLane = registry.createLane(orchestrator.id, {
+      title: 'plain lane',
+      executorType: 'mock',
+    }, { actor: 'test', approved: true });
+    assert.equal(plainLane.workdir, await fs.realpath(plainDir), 'non-git lane should run in the folder');
+    assert.equal(plainLane.worktreePath, await fs.realpath(plainDir), 'non-git lane has no separate worktree');
+    assert.ok(!plainLane.worktreePath.includes('worktrees'), 'non-git lane should not get an isolated worktree');
   } finally {
     await cleanup();
   }
@@ -2557,8 +2488,7 @@ test('Custom CLI lanes require explicit custom CLI enablement and configured bin
     delete process.env.ORCA_CLI_ALLOWED_BINARIES;
     const disabled = await withIsolatedRegistry();
     try {
-      const project = disabled.registry.createProject({ name: 'CLI Disabled Project' }, { actor: 'test', approved: true });
-      const session = disabled.registry.createSession(project.id, { name: 'CLI Disabled Session' }, { actor: 'test', approved: true });
+      const { orchestrator: session } = await makeOrchestrator(disabled.registry);
       assert.throws(() => disabled.registry.createLane(session.id, {
         title: 'disabled cli',
         executorType: 'cli',
@@ -2573,8 +2503,7 @@ test('Custom CLI lanes require explicit custom CLI enablement and configured bin
     process.env.ORCA_CLI_ALLOWED_BINARIES = 'node';
     const enabled = await withIsolatedRegistry();
     try {
-      const project = enabled.registry.createProject({ name: 'CLI Enabled Project' }, { actor: 'test', approved: true });
-      const session = enabled.registry.createSession(project.id, { name: 'CLI Enabled Session' }, { actor: 'test', approved: true });
+      const { orchestrator: session } = await makeOrchestrator(enabled.registry);
       const lane = enabled.registry.createLane(session.id, {
         title: 'enabled cli',
         executorType: 'cli',
@@ -2652,8 +2581,7 @@ test('Real Claude CLI launches through the executor adapter and reports PID + ex
     adapter.defaultBinary = claudeBinary;
     adapter.workdirRoots = [process.cwd()];
 
-    const project = registry.createProject({ name: 'Claude Exec' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Claude Session' }, { actor: 'test', approved: true });
+    const { orchestrator: session } = await makeOrchestrator(registry);
     const lane = registry.createLane(session.id, {
       title: 'real claude exec',
       executorType: 'mock',  // sidestep targeting check; we run adapter manually
@@ -2692,8 +2620,7 @@ test('Real Claude CLI launches through the executor adapter and reports PID + ex
 test('submitLane records summary + changed files and marks the lane ready for audit', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
-    const project = registry.createProject({ name: 'Submit Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Submit Session' }, { actor: 'test', approved: true });
+    const { orchestrator: session } = await makeOrchestrator(registry);
     const lane = registry.createLane(session.id, { title: 'work', executorType: 'mock' }, { approved: true, actor: 'test' });
     const target = registry.getLane(lane.id);
     target.state = 'running';
@@ -2721,8 +2648,7 @@ test('submitLane records summary + changed files and marks the lane ready for au
 test('assertAgentToolAllowed enforces the workflow state machine', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
-    const project = registry.createProject({ name: 'Gate Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Gate Session' }, { actor: 'test', approved: true });
+    const { orchestrator: session } = await makeOrchestrator(registry);
     const lane = registry.createLane(session.id, { title: 'gate', executorType: 'mock' }, { approved: true, actor: 'test' });
     const target = registry.getLane(lane.id);
 
@@ -2758,8 +2684,7 @@ test('assertAgentToolAllowed enforces the workflow state machine', async () => {
 test('lane approval flow records, decides, and surfaces pending approvals', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
-    const project = registry.createProject({ name: 'Approval Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Approval Session' }, { actor: 'test', approved: true });
+    const { orchestrator: session } = await makeOrchestrator(registry);
     const lane = registry.createLane(session.id, { title: 'work', executorType: 'mock' }, { approved: true, actor: 'test' });
     registry.getLane(lane.id).state = 'running';
 
@@ -2799,40 +2724,13 @@ test('lane approval flow records, decides, and surfaces pending approvals', asyn
   }
 });
 
-test('updateSessionPlan stores goal and plan with audit', async () => {
-  const { registry, cleanup } = await withIsolatedRegistry();
-  try {
-    const project = registry.createProject({ name: 'Plan Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Plan Session' }, { actor: 'test', approved: true });
-    const updated = registry.updateSessionPlan(session.id, { goal: 'Ship v1', plan: '1. build\n2. test', actor: 'orchestrator' });
-    assert.equal(updated.goal, 'Ship v1');
-    assert.match(updated.plan, /build/);
-    assert.ok(updated.planUpdatedAt);
-    assert.throws(() => registry.updateSessionPlan(session.id, {}), (e) => e.status === 422);
-  } finally {
-    await cleanup();
-  }
-});
-
-test('saveSessionAttachment stores a file under session artifacts and rejects bad input', async () => {
-  const { registry, cleanup } = await withIsolatedRegistry();
-  try {
-    const project = registry.createProject({ name: 'Attach Project' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Attach Session' }, { actor: 'test', approved: true });
-    const png = Buffer.from('hello-screenshot').toString('base64');
-    const ref = await registry.saveSessionAttachment(session.id, { name: '../../evil shot.png', contentType: 'image/png', dataBase64: png });
-    assert.match(ref.filename, /evil_shot\.png$/); // traversal + spaces sanitized
-    assert.ok(ref.url.startsWith(`/artifacts/${session.id}/attachments/`));
-    assert.equal(ref.bytes, Buffer.from('hello-screenshot').length);
-    const fs = await import('node:fs/promises');
-    await fs.access(ref.path); // file actually written
-    assert.ok(ref.path.includes('/attachments/'));
-
-    await assert.rejects(() => registry.saveSessionAttachment(session.id, { name: 'x', dataBase64: '' }), (e) => e.status === 422);
-  } finally {
-    await cleanup();
-  }
-});
+// DELETED: 'updateSessionPlan stores goal and plan with audit' — updateSessionPlan
+// was a Model-A session-container method (session plan/goal) and no longer exists
+// in the orchestrator-native model. No orchestrator-level equivalent to port to.
+//
+// DELETED: 'saveSessionAttachment stores a file under session artifacts...' —
+// saveSessionAttachment (session plan/attachments surface) was removed with the
+// session container; there is no orchestrator-native attachment method to port to.
 
 test('notification redaction scrubs secret formats and the orca token name', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
@@ -2924,28 +2822,16 @@ test('reinstall override rejects alternate registries, alias packages, and bare 
   }
 });
 
-test('deleteSession permanently removes an archived session and refuses active ones', async () => {
-  const { registry, cleanup } = await withIsolatedRegistry();
-  try {
-    const project = registry.createProject({ name: 'Del' }, { actor: 'test', approved: true });
-    const session = registry.createSession(project.id, { name: 'Chat' }, { actor: 'test', approved: true });
-    await assert.rejects(() => registry.deleteSession(session.id, { actor: 'test' }), (e) => e.status === 409 && e.requiresApproval);
-    await assert.rejects(() => registry.deleteSession(session.id, { actor: 'test', approved: true }), (e) => e.status === 422);
-    await registry.updateSession(session.id, { state: 'archived' }, { actor: 'test', approved: true });
-    await assert.rejects(() => registry.deleteSession(session.id, { actor: 'test' }), (e) => e.status === 409 && e.requiresApproval);
-    const result = await registry.deleteSession(session.id, { actor: 'test', approved: true });
-    assert.equal(result.deleted, true);
-    assert.equal(registry.getSession(session.id), undefined, 'session record is gone');
-  } finally {
-    await cleanup();
-  }
-});
+// DELETED: 'deleteSession permanently removes an archived session and refuses
+// active ones' — deleteSession + updateSession were Model-A session-container
+// lifecycle methods and are gone in the orchestrator-native model (there are no
+// session records to archive/delete). The project-level equivalent is covered by
+// the 'deleteProject requires approval and archived state...' test below.
 
 test('deleteProject requires approval and archived state before permanent removal', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
     const project = registry.createProject({ name: 'Delete Project' }, { actor: 'test', approved: true });
-    registry.createSession(project.id, { name: 'Nested' }, { actor: 'test', approved: true });
     await assert.rejects(() => registry.deleteProject(project.id, { actor: 'test' }), (e) => e.status === 409 && e.requiresApproval);
     await assert.rejects(() => registry.deleteProject(project.id, { actor: 'test', approved: true }), (e) => e.status === 422);
     registry.updateProject(project.id, { state: 'archived' }, { actor: 'test', approved: true });
