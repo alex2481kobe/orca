@@ -148,6 +148,10 @@ try {
       owner: 'orchestrator',
       role: 'executor',
       executorType: 'mock',
+      // This smoke proves the isolated-worktree lifecycle, so request it explicitly
+      // (under the default 'auto' policy the first sole-writer lane resolves to
+      // 'direct', which is correct but not what this smoke exercises).
+      worktreeMode: 'isolated',
       taskPrompt: `Prove executor lane ${i} lifecycle.`,
       branch,
     }, withLease(leaseToken));

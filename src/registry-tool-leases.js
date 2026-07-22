@@ -18,7 +18,7 @@ const SESSION_SCOPED_LEASE_ROLES = new Set(['auditor']);
 // Enforced only on the agent (tool-lease) path so out-of-order/skipped/stale
 // calls are refused with a nextAction envelope. Only the core lifecycle is gated;
 // flexible ops (stop/retry/controls/evidence) stay ungated.
-export const LANE_TOOL_STATE_GATES = {
+const LANE_TOOL_STATE_GATES = {
   'lane.submit': ['starting', 'running', 'needs_critique'],
   'audit.queue_one': ['ready_for_audit', 'done'],
   'audit.findings.record': ['ready_for_audit', 'auditing', 'done'],

@@ -18,7 +18,7 @@ export function sanitizeQuickLinkText(raw, fallback = '', max = 120) {
     .slice(0, max);
 }
 
-export function normalizeQuickLinkHealthPath(raw, fallback = '/') {
+function normalizeQuickLinkHealthPath(raw, fallback = '/') {
   const text = sanitizeQuickLinkText(raw, fallback, 240) || fallback;
   if (!text || text === '/') return '/';
   if (text.startsWith('//') || text.startsWith('\\') || URL_SCHEME_RE.test(text)) {

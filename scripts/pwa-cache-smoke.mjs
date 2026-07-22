@@ -7,6 +7,7 @@
  * token-bearing document URLs must never be written to Cache Storage.
  */
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import vm from 'node:vm';
@@ -205,6 +206,50 @@ async function assertAssetVersionCoupling() {
   log('asset-version', `CACHE_NAME + ?v= coupled at "${swToken}"`);
 }
 
+// Reverse guard: every asset the service worker precaches must actually be
+// served with 200 by the running server. The disk->list checks above catch a
+// NEW public/ui module that was forgotten in STATIC_ASSETS; this catches the
+// OPPOSITE failure — a STATIC_ASSETS entry for a file that was deleted or
+// renamed. Precaching a 404 poisons the install step and breaks offline, and a
+// pure disk->list check can never see it.
+async function assertPrecacheServedByServer(precache) {
+  const previousCwd = process.cwd();
+  const previousEnv = { ...process.env };
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-pwa-cache-smoke-'));
+  process.chdir(tempDir);
+  process.env.PORT = '0';
+  process.env.ORCA_HOST = '127.0.0.1';
+  process.env.ORCA_API_TOKEN = 'pwa-cache-smoke-token';
+  process.env.ORCA_RATE_LIMIT_DISABLED = 'true';
+  const serverModule = await import(new URL('../src/server.js', import.meta.url));
+  const server = await serverModule.startServer(0, '127.0.0.1');
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    for (const asset of precache) {
+      let status = 0;
+      try {
+        const res = await fetch(base + asset);
+        status = res.status;
+      } catch (error) {
+        fail('precached asset not fetchable from server', `${asset} (${error?.message || error})`);
+      }
+      if (status !== 200) fail('precached asset does not serve 200', `${asset} -> ${status}`);
+    }
+    log('served', `${precache.length} precached asset(s) return 200 from the running server`);
+  } finally {
+    if (serverModule.stopServer) await serverModule.stopServer();
+    await new Promise((resolve) => server.close(resolve));
+    process.chdir(previousCwd);
+    await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
+    for (const key of Object.keys(process.env)) {
+      if (!(key in previousEnv)) delete process.env[key];
+    }
+    for (const [key, value] of Object.entries(previousEnv)) {
+      process.env[key] = value;
+    }
+  }
+}
+
 async function main() {
   await assertManifest();
   await assertAssetVersionCoupling();
@@ -255,6 +300,8 @@ async function main() {
   }
   if (!harness.deletedCaches.includes('orca-static-old')) fail('activate should delete old static caches');
   log('fetch', `cacheWrites=${JSON.stringify(harness.cachePuts.map((item) => item.key))}`);
+
+  await assertPrecacheServedByServer(precache);
   log('done', 'static-only service-worker cache verified');
 }
 

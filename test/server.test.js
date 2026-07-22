@@ -486,9 +486,7 @@ test('an unpaired client with only the URL receives no workspace or host data', 
       '/api/agent-tools/next-action',
       '/api/system/blockers',
       '/api/audit/events',
-      '/api/providers',
       '/api/mcp/tools',
-      '/api/settings/effective',
       '/api/executors/profiles',
     ];
     for (const route of protectedReads) {

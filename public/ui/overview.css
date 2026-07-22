@@ -68,8 +68,6 @@
 /* ---- settings + remote screens (use .card/.control-card from styles.css) ---- */
 .screen { display: flex; flex-direction: column; gap: var(--space-5); }
 .ov-empty-sub code, .card code { background: var(--panel-soft); padding: 1px 5px; border-radius: var(--radius-xs); font-size: 0.85em; }
-.seg-opt { padding: var(--space-3) var(--space-5); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); font: inherit; font-size: 0.8rem; cursor: pointer; white-space: nowrap; }
-.seg-opt.is-active { background: var(--panel-soft); color: var(--text); font-weight: 600; }
 /* .btn / .btn-ghost visuals come from the unified solid button in styles.css;
    don't re-skin them here (this override used to make them look outlined). */
 
@@ -85,13 +83,12 @@
 /* ---- Remote: clickable summary cards + dropdown ---- */
 .device-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-2); margin-bottom: var(--space-3); }
 .device-card { position: relative; display: grid; gap: 2px; text-align: left; padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--panel-soft); color: var(--text); font: inherit; cursor: pointer; }
-.device-card.static { cursor: default; }
 .device-card b { font-size: 0.95rem; font-weight: 650; }
 .device-card > span:not(.device-card-caret) { font-size: 0.72rem; color: var(--muted); }
 .device-card-caret { position: absolute; top: var(--space-3); right: var(--space-2); color: var(--muted); transition: transform 0.15s ease; }
 .device-card.is-open { border-color: var(--text); background: color-mix(in srgb, var(--text) 6%, var(--panel-soft)); }
 .device-card.is-open .device-card-caret { transform: rotate(180deg); color: var(--text); }
-@media (hover: hover) { .device-card:not(.static):hover { border-color: var(--muted); } }
+@media (hover: hover) { .device-card:hover { border-color: var(--muted); } }
 .device-cards-wrap { position: relative; margin-bottom: var(--space-3); }
 .device-cards-wrap .device-cards { margin-bottom: 0; }
 /* overlay dropdown — floats over the content below instead of pushing it down */

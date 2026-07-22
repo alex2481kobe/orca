@@ -77,6 +77,12 @@ jobs:
           npm run smoke:pwa-cache
           npm run smoke:state-migrations
           npm run smoke:mcp-flow
+          npm run smoke:auth-sessions
+          npm run smoke:process-lifecycle
+          npm run smoke:lane-stream
+          npm run smoke:streams
+          npm run smoke:orchestrator-lifecycle
+          npm run smoke:orchestrator-executor
 
       - name: Audit production dependencies
         run: npm audit --omit=dev

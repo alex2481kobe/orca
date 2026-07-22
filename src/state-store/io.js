@@ -18,7 +18,7 @@ export function backupPathFor(filePath) {
 
 // Include a random suffix so two corruptions in the same second from the same
 // pid don't collide and overwrite each other's quarantine copy.
-export function corruptPathFor(filePath) {
+function corruptPathFor(filePath) {
   return `${filePath}.corrupt.${nowStamp()}.${process.pid}.${randomUUID().slice(0, 8)}`;
 }
 

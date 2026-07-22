@@ -63,10 +63,7 @@ function buildStreamSignalCached(registry) {
 }
 
 export {
-  STREAM_CONTRACT_VERSION,
-  buildStreamSignal,
   buildStreamSignalCached,
-  sseFrame,
   streamHeartbeatMs,
   writeSse,
 };

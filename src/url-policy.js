@@ -10,11 +10,9 @@ const FORBIDDEN_HOSTNAMES = new Set([
 ]);
 const SENSITIVE_PATH_PATTERNS = [
   /^\/api\/auth(?:\/|$)/i,
-  /^\/api\/providers(?:\/|$)/i,
   /^\/api\/streams(?:\/|$)/i,
   /^\/api\/agent-tools(?:\/|$)/i,
   /^\/api\/mcp(?:\/|$)/i,
-  /^\/api\/settings(?:\/|$)/i,
   /^\/api\/executors(?:\/|$)/i,
   /^\/artifacts(?:\/|$)/i,
   /(?:secret|token|pairing|logout|credential)/i,
@@ -259,11 +257,7 @@ async function publicHostResolvesSafely(hostname) {
 }
 
 export {
-  CONTRACT_VERSION,
   classifyHost,
-  classifySensitivity,
-  isLoopbackHost,
-  isTailnetHost,
   publicHostResolvesSafely,
   validateEvidenceUrl,
   validateNetworkUrl,

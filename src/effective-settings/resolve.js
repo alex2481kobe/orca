@@ -7,6 +7,7 @@ import {
   clonePayload,
   sanitizeSettingsOverrides,
 } from './schema.js';
+import { isWorktreeMode } from '../registry-lane-config.js';
 
 function mergeSettings(base, override) {
   const next = clonePayload(base);
@@ -31,11 +32,11 @@ function sessionFieldSettings(session) {
   if (session.approvedCapacity !== undefined) spawn.approvedCapacity = session.approvedCapacity;
   if (session.soloMode !== undefined) spawn.soloMode = session.soloMode !== false;
   if (session.idleShutdownMode !== undefined) spawn.idleShutdownMode = session.idleShutdownMode;
-  // The v3 orchestrator-container seam uses 'off'/'none' sentinels to mean "no
-  // forced value at this layer" (there is no session record to carry one). Only
-  // carry real enum values into the layered settings so the sentinels fall through
-  // to the defaults instead of tripping the schema sanitizer.
-  if (session.worktreeMode !== undefined && ['auto', 'direct', 'isolated', 'shared'].includes(session.worktreeMode)) {
+  // The orchestrator-container seam has no session record to carry a forced
+  // worktree mode: it omits the field (undefined) to mean "no override at this
+  // layer". Only carry a real enum value into the layered settings so anything
+  // else falls through to the defaults instead of tripping the schema sanitizer.
+  if (session.worktreeMode !== undefined && isWorktreeMode(session.worktreeMode)) {
     spawn.worktreeMode = session.worktreeMode;
   }
   if (Object.keys(spawn).length) settings.spawn = spawn;

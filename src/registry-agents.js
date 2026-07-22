@@ -241,9 +241,10 @@ export const agentMethods = {
       name: orch.title || orch.actor || orch.id,
       repoRoot: project?.cwd || '',
       critiqueMode: 'none',
-      // 'off' keeps createLane's default per-lane isolation for git repos
-      // (isolated worktrees) while never forcing shared mode.
-      worktreeMode: 'off',
+      // No forced worktree mode: omit it (undefined) so createLane's default
+      // per-lane isolation for git repos stays in effect and the effective-settings
+      // resolver treats it as "no override" rather than a fake mode.
+      worktreeMode: undefined,
       spawnPolicy: normalizeSpawnPolicy(orch.spawnPolicy, 'auto'),
       approvedCapacity: normalizeApprovedCapacity(orch.approvedCapacity, DEFAULT_ORCHESTRATOR_CAPACITY),
       laneConcurrencyLimit: normalizeApprovedCapacity(orch.laneConcurrencyLimit, DEFAULT_ORCHESTRATOR_CAPACITY),

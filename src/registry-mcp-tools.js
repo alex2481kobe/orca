@@ -195,7 +195,7 @@ function sanitizeMcpCommand(raw) {
   return command;
 }
 
-export function normalizeMcpToolDefinition(payload = {}, { actor = 'dashboard', existing = null } = {}) {
+function normalizeMcpToolDefinition(payload = {}, { actor = 'dashboard', existing = null } = {}) {
   const name = sanitizeMcpName(payload.name || payload.id || existing?.name || existing?.id);
   const command = sanitizeMcpCommand(payload.command ?? existing?.command);
   const now = nowIso();

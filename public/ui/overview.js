@@ -680,10 +680,6 @@ function remoteNote(text) {
 }
 
 content.addEventListener('click', async (e) => {
-  if (e.target.closest('[data-back]')) { location.hash = ''; return; }
-  const opt = e.target.closest('.seg-opt');
-  if (opt) { applyTheme(opt.dataset.theme); return; }
-
   // ---- Settings / Remote data-action handlers ----
   const act = e.target.closest('[data-action]');
   if (act) {

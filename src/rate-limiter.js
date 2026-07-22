@@ -182,7 +182,6 @@ function classifyRequestForRateLimit(req, method, parts) {
 }
 
 export {
-  DEFAULT_LIMITS,
   MemoryRateLimiter,
   classifyRequestForRateLimit,
   classifyRoute,

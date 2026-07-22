@@ -17,10 +17,6 @@ export const SETUP_STATES = new Set([
 
 export const DEFAULT_SETTINGS = {
   preferredMode: 'auto',
-  openTarget: 'external',
-  pwaMode: 'enabled',
-  notificationMode: 'in_app',
-  tailscaleCommandBehavior: 'dry_run_only',
   setupStatus: 'not_configured',
 };
 
@@ -123,24 +119,6 @@ export function normalizeSettings(raw = {}) {
   rejectPrototypeKeys(raw, 'settings');
   const settings = { ...DEFAULT_SETTINGS };
   if (raw.preferredMode !== undefined) settings.preferredMode = normalizeMode(raw.preferredMode, { allowAuto: true });
-  if (raw.openTarget !== undefined) {
-    const value = normalizeText(raw.openTarget).toLowerCase();
-    settings.openTarget = ['external', 'in_app'].includes(value) ? value : DEFAULT_SETTINGS.openTarget;
-  }
-  if (raw.pwaMode !== undefined) {
-    const value = normalizeText(raw.pwaMode).toLowerCase();
-    settings.pwaMode = ['enabled', 'disabled'].includes(value) ? value : DEFAULT_SETTINGS.pwaMode;
-  }
-  if (raw.notificationMode !== undefined) {
-    const value = normalizeText(raw.notificationMode).toLowerCase();
-    settings.notificationMode = ['off', 'in_app', 'browser'].includes(value) ? value : DEFAULT_SETTINGS.notificationMode;
-  }
-  if (raw.tailscaleCommandBehavior !== undefined) {
-    const value = normalizeText(raw.tailscaleCommandBehavior).toLowerCase();
-    settings.tailscaleCommandBehavior = ['dry_run_only', 'approval_required'].includes(value)
-      ? value
-      : DEFAULT_SETTINGS.tailscaleCommandBehavior;
-  }
   if (raw.setupStatus !== undefined) {
     settings.setupStatus = normalizeSetupStatus(raw.setupStatus, DEFAULT_SETTINGS.setupStatus);
   }

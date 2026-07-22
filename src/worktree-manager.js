@@ -114,62 +114,6 @@ export function describeRepoRoot(repoRoot) {
   };
 }
 
-// Read branch + worktree state for a repo so the composer can show (Codex-style)
-// the branch picker and existing worktrees. Returns { isGit:false } for non-git
-// folders (agents still run there — git info is just unavailable). Never throws.
-export function readRepoGitInfo(repoRoot) {
-  const descriptor = describeRepoRoot(repoRoot);
-  if (!descriptor.ok) return { isGit: false, reason: descriptor.reason };
-  const root = descriptor.repoRoot;
-  const branchOut = runGit(
-    ['for-each-ref', '--format=%(refname:short)', '--sort=-committerdate', '--count=200', 'refs/heads'],
-    { cwd: root },
-  );
-  const localBranches = branchOut.status === 0
-    ? branchOut.stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean).slice(0, 200)
-    : [];
-  const remoteOut = runGit(
-    ['for-each-ref', '--format=%(refname:short)', '--sort=-committerdate', '--count=200', 'refs/remotes'],
-    { cwd: root },
-  );
-  const remoteBranches = remoteOut.status === 0
-    ? remoteOut.stdout.split(/\r?\n/)
-      .map((s) => s.trim())
-      .filter((s) => s && !s.endsWith('/HEAD'))
-      .slice(0, 200)
-    : [];
-  const branches = [...localBranches, ...remoteBranches]
-    .filter((branch, index, all) => all.indexOf(branch) === index)
-    .slice(0, 250);
-  const worktrees = [];
-  const wtOut = runGit(['worktree', 'list', '--porcelain'], { cwd: root });
-  if (wtOut.status === 0) {
-    let current = null;
-    wtOut.stdout.split(/\r?\n/).forEach((line) => {
-      if (line.startsWith('worktree ')) {
-        current = { path: line.slice('worktree '.length).trim(), branch: null, head: null };
-        worktrees.push(current);
-      } else if (current && line.startsWith('branch ')) {
-        current.branch = line.slice('branch '.length).trim().replace(/^refs\/heads\//, '');
-      } else if (current && line.startsWith('HEAD ')) {
-        current.head = line.slice('HEAD '.length).trim().slice(0, 12);
-      } else if (current && line.startsWith('detached')) {
-        current.branch = '(detached)';
-      }
-    });
-  }
-  return {
-    isGit: true,
-    repoRoot: root,
-    currentBranch: descriptor.headBranch,
-    remoteUrl: descriptor.remoteUrl,
-    branches,
-    localBranches,
-    remoteBranches,
-    worktrees: worktrees.slice(0, 50),
-  };
-}
-
 /**
  * Create a git worktree for a lane.
  *

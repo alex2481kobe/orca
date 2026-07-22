@@ -326,5 +326,4 @@ function createAgentEventNormalizer(executorType) {
 
 export {
   createAgentEventNormalizer,
-  normalizeParsedEvent,
 };

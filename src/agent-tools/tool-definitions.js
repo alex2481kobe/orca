@@ -404,7 +404,7 @@ export const TOOL_DEFINITIONS = [
   },
 ];
 
-export function publicTool(tool) {
+function publicTool(tool) {
   return {
     id: tool.id,
     group: tool.group,

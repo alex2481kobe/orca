@@ -5,7 +5,6 @@
 export {
   STATE_STORE_CONTRACT_VERSION,
   backupPathFor,
-  cloneJson,
   writeJsonFileAtomic,
   writeJsonFileAtomicSync,
 } from './state-store/io.js';
