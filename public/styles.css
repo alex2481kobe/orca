@@ -2348,6 +2348,10 @@ pre {
        indicator at the bottom (Settings sits at the very bottom of the drawer). */
     padding-top: calc(env(safe-area-inset-top) + 0.75rem);
     padding-bottom: calc(0.8rem + var(--safe-area-bottom));
+    /* Clear the left safe area (notch in landscape / rounded corners) and give the
+       drawer content real breathing room so labels/icons aren't cut off at the edge. */
+    padding-left: calc(1rem + env(safe-area-inset-left));
+    padding-right: 0.9rem;
   }
   /* Breathing room between the brand row at the top and the Projects list, so the
      list doesn't crowd the notch/status bar (the pair section that used to sit
