@@ -3,15 +3,11 @@ import { timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { OrcaRegistry } from './registry.js';
-import { PrivateAccessStore } from './private-access.js';
-import {
-  AuthSessionStore,
-  SESSION_COOKIE_NAME,
-} from './auth-sessions.js';
-import {
-  buildAgentToolDiscovery,
-  buildNextActionEnvelope,
-} from './agent-tools.js';
+import { PrivateAccessStore } from './private-access/store.js';
+import { AuthSessionStore } from './auth-sessions/store.js';
+import { SESSION_COOKIE_NAME } from './auth-sessions/crypto.js';
+import { buildAgentToolDiscovery } from './agent-tools/discovery.js';
+import { buildNextActionEnvelope } from './agent-tools/next-action.js';
 import { handleLaneRoutes, FALL_THROUGH as LANE_FALL_THROUGH } from './server-routes/lanes.js';
 import { handleProjectRoutes } from './server-routes/projects.js';
 import { handleMcpRoutes } from './server-routes/mcp.js';
@@ -19,6 +15,7 @@ import { handleExecutorRoutes } from './server-routes/executors.js';
 import { handleOrchestratorRoutes } from './server-routes/orchestrators.js';
 import { handlePrivateAccessApi } from './server-routes/private-access.js';
 import { handleAgentToolRoutes } from './server-routes/agent-tools.js';
+import { handleArtifactRoutes } from './server-routes/artifacts.js';
 import { handleMiscRoutes } from './server-routes/misc.js';
 import { createStaticServer } from './server-routes/static-server.js';
 import { createAuthApi } from './server-routes/auth-api.js';
@@ -335,6 +332,19 @@ function toolLeaseRequirementForRoute(method, parts) {
   }
   if (parts[1] === 'audit' && parts[2] === 'events' && parts.length === 3 && method === 'GET') {
     return { toolId: 'audit.log.read' };
+  }
+  // Artifact garbage-collection (global, session-less capability). Mapped so an
+  // orchestrator MCP lease can call it; operators reach it via the auth fallback.
+  if (parts[1] === 'artifacts' && parts[2] === 'cleanup') {
+    if (parts[3] === 'schedule' && parts.length === 4 && (method === 'GET' || method === 'PATCH')) {
+      return { toolId: 'artifact.schedule' };
+    }
+    if (parts.length === 3 && method === 'POST') {
+      return { toolId: 'artifact.cleanup' };
+    }
+    if (parts[3] === 'run-now' && parts.length === 4 && method === 'POST') {
+      return { toolId: 'artifact.cleanup' };
+    }
   }
   if (parts[1] === 'audit' && parts[2] === 'events' && parts[3] && parts[4] === 'ack' && parts.length === 5 && method === 'POST') {
     return { toolId: 'audit.log.ack' };
@@ -845,6 +855,11 @@ async function handleApi(req, res, pathname, method, parts) {
   }
 
   if (await handleMiscRoutes(ROUTE_CTX, req, res, method, parts) !== LANE_FALL_THROUGH) return;
+
+  if (parts[1] === 'artifacts') {
+    const result = await handleArtifactRoutes(ROUTE_CTX, req, res, method, parts);
+    if (result !== LANE_FALL_THROUGH) return;
+  }
 
 
 

@@ -10,7 +10,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { AuthSessionStore, SESSION_COOKIE_NAME } from '../src/auth-sessions.js';
+import { AuthSessionStore } from '../src/auth-sessions/store.js';
+import { SESSION_COOKIE_NAME } from '../src/auth-sessions/crypto.js';
 
 const log = (label, info = '') => console.log(`[auth-sessions] ${label}${info ? ' — ' + info : ''}`);
 

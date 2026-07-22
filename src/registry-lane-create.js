@@ -11,10 +11,10 @@ import {
   normalizeExecutorType,
   buildLaneRoute,
 } from './registry-utils.js';
-import { buildNextActionEnvelope } from './agent-tools.js';
+import { buildNextActionEnvelope } from './agent-tools/next-action.js';
 import { FIRST_CLASS_CLI_EXECUTOR_TYPES, getExecutorProfile } from './executor-factory.js';
 import { createLaneWorktree, describeRepoRoot } from './worktree-manager.js';
-import { sanitizeSettingsOverrides } from './effective-settings.js';
+import { sanitizeSettingsOverrides } from './effective-settings/schema.js';
 import { validateNetworkUrl } from './url-policy.js';
 import {
   normalizeCritiqueMode,

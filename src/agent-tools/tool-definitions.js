@@ -462,6 +462,26 @@ export const TOOL_DEFINITIONS = [
     mutating: false,
     summary: 'Read the ordered, dry-run setup plan for making Orca reachable from other devices (Tailscale install/sign-in checks, the private Serve command, and pairing). Use this to set Orca up for a user step by step.',
   },
+  {
+    id: 'artifact.cleanup',
+    group: 'artifact',
+    roles: ['orchestrator', 'dashboard'],
+    method: 'POST',
+    route: '/api/artifacts/cleanup/run-now',
+    implemented: true,
+    mutating: true,
+    summary: 'Run artifact garbage-collection now: remove archived terminal-lane artifacts past their retention window from disk. DESTRUCTIVE — body must carry {approved:true, confirmed:true}; pass {dryRun:true} to preview candidates without deleting. Optional {sessionId, olderThanDays}. Returns scanned/candidates/removed/removedBytes.',
+  },
+  {
+    id: 'artifact.schedule',
+    group: 'artifact',
+    roles: ['orchestrator', 'dashboard'],
+    method: 'PATCH',
+    route: '/api/artifacts/cleanup/schedule',
+    implemented: true,
+    mutating: true,
+    summary: 'Update the periodic artifact-cleanup retention schedule (enabled, intervalHours, olderThanDays, dryRun, sessionId). Policy-gated: body must carry {approved:true}. Enabling deletion or lengthening retention changes data-retention risk.',
+  },
 ];
 
 function publicTool(tool) {

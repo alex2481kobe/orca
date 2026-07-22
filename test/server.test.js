@@ -1470,6 +1470,60 @@ test('mobile manifest exposes project entries and workflow action URLs', async (
   }
 });
 
+test('artifact cleanup routes: unauth denied, schedule patch persists, run reports what it reclaimed', async () => {
+  const token = 'route-token-artifact-gc';
+  const server = await startServer({ token });
+
+  try {
+    // Unauthenticated (no token) must never 2xx on any of the destructive routes.
+    const unauthRun = await server.requestJson('/api/artifacts/cleanup/run-now', { method: 'POST', body: {} });
+    assert.equal(unauthRun.status >= 200 && unauthRun.status < 300, false, 'unauth run-now must not 2xx');
+    const unauthCleanup = await server.requestJson('/api/artifacts/cleanup', { method: 'POST', body: {} });
+    assert.equal(unauthCleanup.status >= 200 && unauthCleanup.status < 300, false, 'unauth cleanup must not 2xx');
+    const unauthSchedGet = await server.requestJson('/api/artifacts/cleanup/schedule', { method: 'GET' });
+    assert.equal(unauthSchedGet.status >= 200 && unauthSchedGet.status < 300, false, 'unauth schedule read must not 2xx');
+    const unauthSchedPatch = await server.requestJson('/api/artifacts/cleanup/schedule', { method: 'PATCH', body: { enabled: true } });
+    assert.equal(unauthSchedPatch.status >= 200 && unauthSchedPatch.status < 300, false, 'unauth schedule patch must not 2xx');
+
+    const authed = { 'x-orca-token': token };
+
+    // A run with no approval is refused by the deny-by-default policy gate.
+    const refused = await server.requestJson('/api/artifacts/cleanup/run-now', {
+      method: 'POST', headers: authed, body: {},
+    });
+    assert.equal(refused.status, 409, 'authorized run without approval is policy-refused');
+
+    // Schedule PATCH persists (read it back).
+    const patched = await server.requestJson('/api/artifacts/cleanup/schedule', {
+      method: 'PATCH', headers: authed, body: { approved: true, enabled: true, intervalHours: 6, olderThanDays: 3 },
+    });
+    assert.equal(patched.status, 200);
+    assert.equal(patched.body?.schedule?.enabled, true);
+    assert.equal(patched.body?.schedule?.intervalHours, 6);
+    assert.equal(patched.body?.schedule?.olderThanDays, 3);
+
+    const readBack = await server.requestJson('/api/artifacts/cleanup/schedule', { method: 'GET', headers: authed });
+    assert.equal(readBack.status, 200);
+    assert.equal(readBack.body?.schedule?.enabled, true);
+    assert.equal(readBack.body?.schedule?.intervalHours, 6);
+    assert.equal(readBack.body?.schedule?.olderThanDays, 3);
+
+    // An approved + confirmed run returns 200 and reports the cleanup summary
+    // (nothing to reclaim in a fresh workspace, so removed = 0 but the shape is
+    // present and truthful).
+    const ran = await server.requestJson('/api/artifacts/cleanup/run-now', {
+      method: 'POST', headers: authed, body: { approved: true, confirmed: true },
+    });
+    assert.equal(ran.status, 200);
+    assert.equal(typeof ran.body?.cleanup, 'object');
+    assert.equal(ran.body.cleanup.removed, 0);
+    assert.equal(Array.isArray(ran.body.cleanup.removedLanes), true);
+    assert.equal(typeof ran.body.cleanup.removedBytes, 'number');
+  } finally {
+    await server.stop();
+  }
+});
+
 test('agent tool routes expose discovery, nextAction, and token-gated leases', async () => {
   const token = 'route-token-agent-tools';
   const server = await startServer({ token });

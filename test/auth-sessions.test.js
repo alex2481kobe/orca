@@ -3,10 +3,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import {
-  AuthSessionStore,
-  SESSION_COOKIE_NAME,
-} from '../src/auth-sessions.js';
+import { AuthSessionStore } from '../src/auth-sessions/store.js';
+import { SESSION_COOKIE_NAME } from '../src/auth-sessions/crypto.js';
 
 test('pairing codes create HttpOnly-session-compatible browser sessions without storing raw secrets', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-auth-'));

@@ -3,16 +3,18 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { AuthSessionStore } from '../src/auth-sessions.js';
-import { PrivateAccessStore } from '../src/private-access.js';
+import { AuthSessionStore } from '../src/auth-sessions/store.js';
+import { PrivateAccessStore } from '../src/private-access/store.js';
 import { OrcaRegistry } from '../src/registry.js';
 import {
   backupPathFor,
-  readJsonFileWithRecovery,
-  readJsonFileWithRecoverySync,
   writeJsonFileAtomic,
   writeJsonFileAtomicSync,
-} from '../src/state-store.js';
+} from '../src/state-store/io.js';
+import {
+  readJsonFileWithRecovery,
+  readJsonFileWithRecoverySync,
+} from '../src/state-store/recovery.js';
 
 async function withTempDir(prefix, fn) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));

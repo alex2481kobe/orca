@@ -9,7 +9,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { OrcaRegistry } from '../src/registry.js';
-import { buildNextActionEnvelope } from '../src/agent-tools.js';
+import { buildNextActionEnvelope } from '../src/agent-tools/next-action.js';
 import { chooseNextTool } from '../src/agent-tools/next-action.js';
 
 async function withRegistry(callback) {

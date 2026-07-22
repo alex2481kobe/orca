@@ -8,7 +8,7 @@ import { LANE_STATES, isLiveLaneState } from './worker-contract.js';
 import { nowIso, clonePayload, safeArray } from './registry-utils.js';
 import { removeLaneWorktree, mergeLaneBranch } from './worktree-manager.js';
 import { validateNetworkUrl } from './url-policy.js';
-import { buildNextActionEnvelope } from './agent-tools.js';
+import { buildNextActionEnvelope } from './agent-tools/next-action.js';
 
 const {
   QUEUED: QUEUED_STATE,

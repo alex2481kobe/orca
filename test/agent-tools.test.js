@@ -3,14 +3,11 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import {
-  availableToolIdsForRole,
-  buildAgentToolDiscovery,
-  buildNextActionEnvelope,
-  findTool,
-  ROLE_INSTRUCTIONS,
-  TOOL_DEFINITIONS,
-} from '../src/agent-tools.js';
+import { availableToolIdsForRole } from '../src/agent-tools/roles.js';
+import { buildAgentToolDiscovery } from '../src/agent-tools/discovery.js';
+import { buildNextActionEnvelope } from '../src/agent-tools/next-action.js';
+import { findTool, TOOL_DEFINITIONS } from '../src/agent-tools/tool-definitions.js';
+import { ROLE_INSTRUCTIONS } from '../src/agent-tools/role-instructions.js';
 import { chooseNextTool } from '../src/agent-tools/next-action.js';
 import { OrcaRegistry } from '../src/registry.js';
 

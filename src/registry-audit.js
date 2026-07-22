@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { LANE_STATES, isLiveLaneState, isRunningLaneState } from './worker-contract.js';
 import { nowIso, clonePayload, safeArray } from './registry-utils.js';
-import { buildNextActionEnvelope } from './agent-tools.js';
+import { buildNextActionEnvelope } from './agent-tools/next-action.js';
 
 // Files that count as captured visual/browser evidence for a targetUrl lane.
 const EVIDENCE_ARTIFACT_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.pdf', '.mp4', '.webm']);

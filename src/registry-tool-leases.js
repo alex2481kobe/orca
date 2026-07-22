@@ -7,7 +7,8 @@
 
 import { createHash, randomUUID } from 'node:crypto';
 import { safeArray } from './registry-utils.js';
-import { availableToolIdsForRole, buildNextActionEnvelope } from './agent-tools.js';
+import { availableToolIdsForRole } from './agent-tools/roles.js';
+import { buildNextActionEnvelope } from './agent-tools/next-action.js';
 import { ROLES } from './agent-tools/contract.js';
 import { buildOrchestratorMcpConfigs } from './mcp-orchestrator-bootstrap.js';
 

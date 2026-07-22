@@ -4,10 +4,8 @@
 import fsSync from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import {
-  readJsonFileWithRecoverySync,
-  writeJsonFileAtomicSync,
-} from '../state-store.js';
+import { readJsonFileWithRecoverySync } from '../state-store/recovery.js';
+import { writeJsonFileAtomicSync } from '../state-store/io.js';
 import {
   SESSION_COOKIE_NAME,
   DEFAULT_PAIRING_TTL_MS,

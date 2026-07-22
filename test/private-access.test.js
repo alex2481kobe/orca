@@ -3,14 +3,14 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { PrivateAccessStore } from '../src/private-access/store.js';
 import {
-  PrivateAccessStore,
   detectTailnetState,
   clearTailnetStateCache,
   buildSetupPlan,
   fakeTailnetState,
-  validateAccessUrl,
-} from '../src/private-access.js';
+} from '../src/private-access/tailnet.js';
+import { validateAccessUrl } from '../src/private-access/validation.js';
 
 test('private access URL validation rejects unsafe protocols, credentials, and Funnel URLs', () => {
   assert.equal(validateAccessUrl('http://127.0.0.1:3000', { mode: 'local' }), 'http://127.0.0.1:3000/');

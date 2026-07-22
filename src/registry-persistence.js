@@ -9,7 +9,8 @@ import { nowIso, safeArray } from './registry-utils.js';
 import { normalizeQuickLinks } from './registry-quick-links.js';
 import { defaultPolicy } from './registry-policy.js';
 import { normalizeAgentQueueForRestore } from './registry-agent-queue.js';
-import { readJsonFileWithRecoverySync, writeJsonFileAtomic } from './state-store.js';
+import { readJsonFileWithRecoverySync } from './state-store/recovery.js';
+import { writeJsonFileAtomic } from './state-store/io.js';
 
 export const persistenceMethods = {
   restoreFromDisk() {

@@ -82,6 +82,11 @@ const PROBES = [
   ['POST', '/api/emergency-stop'],
   ['GET', '/api/audit/events'],
   ['POST', '/api/audit/events/ev-x/ack'],
+  // artifact garbage-collection — destructive, orchestrator-lease/admin only
+  ['POST', '/api/artifacts/cleanup'],
+  ['POST', '/api/artifacts/cleanup/run-now'],
+  ['GET', '/api/artifacts/cleanup/schedule'],
+  ['PATCH', '/api/artifacts/cleanup/schedule'],
   ['GET', '/api/private-access'],
   ['POST', '/api/private-access/serve'],
   ['GET', '/api/streams/events'],

@@ -82,7 +82,9 @@ test('TOOL_DEFINITIONS exposes exactly the current tool set including the core v
   // Round-2 agent-parity gap-closers added (40 -> 46): audit.log.read,
   // audit.log.ack, lane.artifacts.list, lane.artifacts.get, lane.terminal.write,
   // fleet.emergency_stop.
-  assert.equal(TOOL_DEFINITIONS.length, 46);
+  // Artifact-GC wiring added (46 -> 48): artifact.cleanup, artifact.schedule —
+  // the registry cleanup capability is now agent-callable, not scheduler-only.
+  assert.equal(TOOL_DEFINITIONS.length, 48);
 
   const byId = new Map(TOOL_DEFINITIONS.map((tool) => [tool.id, tool]));
   for (const id of Object.keys(CORE_V2_TOOLS)) {
@@ -117,7 +119,7 @@ test('MCP tools/list advertises the core v2 tools to an orchestrator with unders
   const orchestratorCallable = TOOL_DEFINITIONS.filter(
     (tool) => tool.implemented && tool.route && tool.roles.includes('orchestrator'),
   ).length;
-  assert.equal(orchestratorCallable, 44);
+  assert.equal(orchestratorCallable, 46);
   assert.equal(names.includes('permission_prompt'), true, 'permission gateway is always advertised');
   assert.equal(tools.length, orchestratorCallable + 1, 'orchestrator surface = callable tools + permission gateway');
 });

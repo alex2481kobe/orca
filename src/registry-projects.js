@@ -4,7 +4,7 @@
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { nowIso, clonePayload, normalizeSlug, realpathSyncSafe, isRealPathWithinBoundarySync } from './registry-utils.js';
-import { sanitizeSettingsOverrides } from './effective-settings.js';
+import { sanitizeSettingsOverrides } from './effective-settings/schema.js';
 import { directoryExists } from './worktree-manager.js';
 import {
   MAX_PROJECT_QUICK_LINKS,

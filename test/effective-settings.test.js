@@ -4,10 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { OrcaRegistry } from '../src/registry.js';
-import {
-  buildEffectiveSettings,
-  sanitizeSettingsOverrides,
-} from '../src/effective-settings.js';
+import { buildEffectiveSettings } from '../src/effective-settings/resolve.js';
+import { sanitizeSettingsOverrides } from '../src/effective-settings/schema.js';
 
 async function withTempRegistry(callback) {
   const previousCwd = process.cwd();

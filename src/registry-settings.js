@@ -3,7 +3,7 @@
 // in the core class — it is called by nearly every mutating method.)
 
 import { clonePayload } from './registry-utils.js';
-import { buildEffectiveSettings } from './effective-settings.js';
+import { buildEffectiveSettings } from './effective-settings/resolve.js';
 
 export const settingsMethods = {
   getPolicyMap() {

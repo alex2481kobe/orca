@@ -4,10 +4,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import {
-  readJsonFileWithRecovery,
-  writeJsonFileAtomic,
-} from '../state-store.js';
+import { readJsonFileWithRecovery } from '../state-store/recovery.js';
+import { writeJsonFileAtomic } from '../state-store/io.js';
 import {
   clone,
   nowIso,

@@ -6,7 +6,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { isPathWithinBoundary, nowIso, clonePayload } from './registry-utils.js';
 import { safeRmRecursive } from './safe-fs.js';
-import { buildNextActionEnvelope, findTool } from './agent-tools.js';
+import { buildNextActionEnvelope } from './agent-tools/next-action.js';
+import { findTool } from './agent-tools/tool-definitions.js';
 import { renderLaneTree } from './render-lane-tree.js';
 import { normalizeApprovedCapacity, normalizeSpawnPolicy } from './registry-lane-config.js';
 

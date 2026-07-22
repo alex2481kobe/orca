@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { buildNextActionEnvelope } from '../src/agent-tools.js';
+import { buildNextActionEnvelope } from '../src/agent-tools/next-action.js';
 import { OrcaRegistry } from '../src/registry.js';
 
 async function withRegistry(callback) {

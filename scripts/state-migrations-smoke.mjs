@@ -2,14 +2,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { AuthSessionStore } from '../src/auth-sessions.js';
-import { PrivateAccessStore } from '../src/private-access.js';
+import { AuthSessionStore } from '../src/auth-sessions/store.js';
+import { PrivateAccessStore } from '../src/private-access/store.js';
 import { OrcaRegistry } from '../src/registry.js';
-import {
-  backupPathFor,
-  readJsonFileWithRecovery,
-  writeJsonFileAtomic,
-} from '../src/state-store.js';
+import { backupPathFor, writeJsonFileAtomic } from '../src/state-store/io.js';
+import { readJsonFileWithRecovery } from '../src/state-store/recovery.js';
 
 const nowIso = () => new Date().toISOString();
 

@@ -19,7 +19,10 @@
 
 import readline from 'node:readline';
 import { createRequire } from 'node:module';
-import { TOOL_DEFINITIONS, normalizeRole, CONTRACT_VERSION, roleInstructions, ROLES } from './agent-tools.js';
+import { TOOL_DEFINITIONS } from './agent-tools/tool-definitions.js';
+import { normalizeRole } from './agent-tools/roles.js';
+import { CONTRACT_VERSION, ROLES } from './agent-tools/contract.js';
+import { roleInstructions } from './agent-tools/role-instructions.js';
 
 const require = createRequire(import.meta.url);
 const PACKAGE_VERSION = require('../package.json').version || '0.0.0';
