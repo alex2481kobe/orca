@@ -9,6 +9,19 @@
 // dependency-free so it runs even if the app module fails to load.
 (function bootServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
+
+  // When a NEW worker takes control after an update, reload once so the page runs
+  // the freshly-activated assets instead of a half-old view. Only when a controller
+  // already existed (a real update, not the first registration), and only once.
+  if (navigator.serviceWorker.controller) {
+    var reloadedForUpdate = false;
+    navigator.serviceWorker.addEventListener('controllerchange', function onUpdate() {
+      if (reloadedForUpdate) return;
+      reloadedForUpdate = true;
+      window.location.reload();
+    });
+  }
+
   window.addEventListener('load', function registerCurrentWorker() {
     navigator.serviceWorker.register('/service-worker.js')
       .then(function (registration) {

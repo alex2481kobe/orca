@@ -77,6 +77,35 @@ check('remote.switcherLabelHost', rc.switcherLabel === 'other-mac.tailnet.ts.net
 check('remote.noAdminPairPanel', rc.noPairPanel);
 await p.screenshot({ path: path.join(outDir, 'remote-client.png') });
 
+// Sidebar nav on a remote client (mobile drawer) must actually navigate — clicking
+// Settings / Remote devices must render those screens, not just collapse the drawer
+// back to home (the symptom of the OLD cached UI, which rendered empty on remote).
+await p.evaluate(() => document.body.classList.add('nav-open'));
+await p.click('[data-nav="settings"]');
+await p.waitForTimeout(400);
+const navSettings = await p.evaluate(() => ({
+  hash: location.hash,
+  topbar: document.getElementById('topbar-title')?.textContent || '',
+  hasAppearance: Boolean(document.querySelector('[data-action="setTheme"]')),
+  drawerClosed: !document.body.classList.contains('nav-open'),
+}));
+check('nav.settings.route', navSettings.hash === '#settings');
+check('nav.settings.rendersAppearance', navSettings.hasAppearance);
+check('nav.settings.topbar', navSettings.topbar === 'Settings');
+check('nav.settings.drawerClosed', navSettings.drawerClosed);
+
+await p.evaluate(() => document.body.classList.add('nav-open'));
+await p.click('[data-nav="remote"]');
+await p.waitForTimeout(400);
+const navRemote = await p.evaluate(() => ({
+  hash: location.hash,
+  topbar: document.getElementById('topbar-title')?.textContent || '',
+  hasRemoteBody: Boolean(document.getElementById('remote-body')),
+}));
+check('nav.remote.route', navRemote.hash === '#remote');
+check('nav.remote.rendersRemoteBody', navRemote.hasRemoteBody);
+check('nav.remote.topbar', navRemote.topbar === 'Remote devices');
+
 // Unlink must POST /api/auth/logout with NO sessionId (own-cookie logout).
 let logoutBody = null;
 await p.route('**/api/auth/logout', async (route) => {
