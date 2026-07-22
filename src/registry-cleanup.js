@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { LANE_STATES } from './worker-contract.js';
 import { removeLaneWorktree } from './worktree-manager.js';
+import { safeRmRecursive } from './safe-fs.js';
 import { parsePositiveInteger, parsePositiveFloat, clonePayload, nowIso } from './registry-utils.js';
 import { defaultPolicy } from './registry-policy.js';
 
@@ -204,7 +205,8 @@ export const cleanupMethods = {
         const laneDir = path.join(process.cwd(), 'artifacts', session.id, lane.id);
         try {
           const laneBytes = await getDirectorySize(laneDir);
-          await fs.rm(laneDir, { recursive: true, force: true });
+          const guard = await safeRmRecursive(laneDir, path.join(process.cwd(), 'artifacts'));
+          if (!guard.removed) throw new Error(guard.reason);
           summary.removed += 1;
           summary.removedBytes += laneBytes;
           summary.removedLanes.push({

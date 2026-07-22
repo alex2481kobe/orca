@@ -948,6 +948,9 @@ function startServer(port = PORT, host = HOST) {
       console.log(`Orca listening at http://${host}:${effectivePort}`);
       console.log(`Dashboard route root: /`);
       console.log(`Health: /api/health`);
+      if (!process.env.ORCA_REPO_ROOTS) {
+        console.warn('[orca] ORCA_REPO_ROOTS is not set — agents may register/work in any folder under your HOME. Set ORCA_REPO_ROOTS to restrict this (recommended for adopters).');
+      }
       resolve(server);
     });
   });

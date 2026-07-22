@@ -279,13 +279,16 @@ export function removeLaneWorktree({ repoRoot, worktreePath, removeBranch = fals
   // Only remove a path git actually tracks as a worktree, and never the repo
   // root itself — prevents a bad/forged worktreePath from force-removing
   // arbitrary directories.
-  const resolvedTarget = path.resolve(worktreePath);
-  if (resolvedTarget === path.resolve(descriptor.repoRoot)) {
+  // realpath (not just path.resolve) so an aliased spelling — macOS /var vs
+  // /private/var — can't slip past the repo-root guard.
+  const realpathSafe = (p) => { try { return fs.realpathSync(path.resolve(p)); } catch { return path.resolve(p); } };
+  const resolvedTarget = realpathSafe(worktreePath);
+  if (resolvedTarget === realpathSafe(descriptor.repoRoot)) {
     return { removed: false, reason: 'Refusing to remove the repository root as a worktree.' };
   }
   const list = runGit(['worktree', 'list', '--porcelain'], { cwd: descriptor.repoRoot });
   if (list.status === 0) {
-    const registered = parseWorktreeList(list.stdout).map((entry) => path.resolve(entry.path));
+    const registered = parseWorktreeList(list.stdout).map((entry) => realpathSafe(entry.path));
     if (!registered.includes(resolvedTarget)) {
       return { removed: false, reason: 'Path is not a registered git worktree of this repo.' };
     }

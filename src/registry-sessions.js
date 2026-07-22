@@ -23,6 +23,7 @@ import {
   isWorktreeMode,
 } from './registry-lane-config.js';
 import { sanitizeSettingsOverrides } from './effective-settings.js';
+import { safeRmRecursive } from './safe-fs.js';
 import { directoryExists, readRepoGitInfo } from './worktree-manager.js';
 
 export const sessionMethods = {
@@ -472,7 +473,9 @@ export const sessionMethods = {
     }
     this.lanes = (this.lanes || []).filter((lane) => lane.sessionId !== session.id);
     if (session.worktreeRoot) {
-      try { await fs.rm(session.worktreeRoot, { recursive: true, force: true }); } catch { /* best effort */ }
+      // Guarded: only removes a path strictly inside workspacesRoot and never a
+      // git repo root — so a bad worktreeRoot can never delete a working tree.
+      try { await safeRmRecursive(session.worktreeRoot, this.workspacesRoot); } catch { /* best effort */ }
     }
     this.sessions = this.sessions.filter((entry) => entry.id !== session.id);
     this.recordAudit({
