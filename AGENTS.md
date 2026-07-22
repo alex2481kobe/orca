@@ -36,7 +36,7 @@ Orca will eventually touch sensitive surfaces: local files, git repos, shells, b
 - Never store provider secrets in browser storage, app state, logs, artifacts, screenshots, exports, route inventory, service-worker cache, or MCP config. Persist only credential references or env-var names.
 - Never auto-install or auto-update CLIs, package managers, browser binaries, Tailscale, credential helpers, or native runtimes by default. Managed install/update behavior requires explicit opt-in, dry-run command preview, approval, and audit logging.
 - Keep Tailscale access private to the tailnet. Tailscale Funnel is forbidden for v1.
-- Route changes must update `src/route-inventory.js`, route-security docs if needed, and the matching tests/smokes in the same logical change.
+- Route changes must keep the unauthenticated-access guard (`scripts/unauth-sweep-smoke.mjs`) and the matching tests/smokes green in the same logical change: every new `/api/*` route stays deny-by-default (401/403) for unauthenticated callers except the two intentionally-public endpoints (`GET /api/health`, `GET /api/auth/status`).
 - Project live links are server-authoritative. Agents and the dashboard must manage them through the quick-link API/tool contract, not stale chat text.
 
 ## Command Shape

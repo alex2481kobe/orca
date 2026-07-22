@@ -30,6 +30,7 @@
     "smoke:ssrf": "node scripts/ssrf-smoke.mjs",
     "smoke:no-hardcoded-colors": "node scripts/verify-no-hardcoded-colors.mjs",
     "smoke:security-headers": "node scripts/security-headers-smoke.mjs",
+    "smoke:unauth-sweep": "node scripts/unauth-sweep-smoke.mjs",
     "smoke:streams": "node scripts/streams-smoke.mjs",
     "smoke:private-access": "node scripts/private-access-smoke.mjs",
     "smoke:mcp-flow": "node scripts/mcp-flow-smoke.mjs",
@@ -55,7 +56,8 @@
     "smoke:lane-stream": "node scripts/verify-lane-stream.mjs",
     "assets:version": "node scripts/sync-asset-version.mjs",
     "assets:shots": "node scripts/capture-readme-shots.mjs",
-    "audit": "npm audit --omit=dev"
+    "audit": "npm audit --omit=dev",
+    "soak": "node scripts/soak-churn.mjs"
   },
   "devDependencies": {
     "@types/node": "25.9.2",

@@ -1,23 +1,23 @@
 #!/usr/bin/env node
 /*
  * Provider profile smoke. Safe by default: no installs, no updates, no public
- * network probes, and no real OS credential writes unless the running server is
+ * network probes, and no real OS credential writes unless the store is
  * explicitly using the test memory credential backend.
+ *
+ * v2 note: the provider-config HTTP surface (`/api/providers*`) was removed
+ * in "Lane 3: remove the provider-config MCP surface" (agents configure
+ * providers via their own CLI, not through Orca). ProviderProfileStore now
+ * lives purely in-process, consumed directly by API-style executor lanes
+ * (see scripts/api-provider-smoke.mjs for that end-to-end flow). This smoke
+ * therefore drives ProviderProfileStore + CredentialStore directly instead of
+ * over HTTP, to keep exercising the profile catalog / export / import /
+ * secret-write behavior that would otherwise only be covered by unit tests.
  */
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
-
-const args = process.argv.slice(2);
-let explicitBase = Boolean(process.env.ORCA_BASE_URL);
-let base = process.env.ORCA_BASE_URL || 'http://127.0.0.1:3000';
-for (let i = 0; i < args.length; i += 1) {
-  if (args[i] === '--base' && args[i + 1]) {
-    base = args[i + 1];
-    explicitBase = true;
-  }
-}
+import { CredentialStore, ProviderProfileStore } from '../src/provider-profiles.js';
 
 const log = (label, info = '') => console.log(`[provider-smoke] ${label}${info ? ' — ' + info : ''}`);
 const fail = (label, info = '') => {
@@ -27,67 +27,34 @@ const fail = (label, info = '') => {
 };
 
 const previousCwd = process.cwd();
-const previousEnv = { ...process.env };
-const tempDir = explicitBase ? null : await fs.mkdtemp(path.join(os.tmpdir(), 'orca-provider-smoke-'));
-let server = null;
-let stopServer = null;
-
-if (!explicitBase) {
-  process.chdir(tempDir);
-  process.env.PORT = '0';
-  process.env.ORCA_HOST = '127.0.0.1';
-  process.env.ORCA_CREDENTIAL_BACKEND = 'memory';
-  delete process.env.ORCA_API_TOKEN;
-  const serverModule = await import('../src/server.js');
-  server = await serverModule.startServer(0, '127.0.0.1');
-  stopServer = serverModule.stopServer;
-  const address = server.address();
-  base = `http://127.0.0.1:${address.port}`;
-  log('server', `started isolated local server at ${base}`);
-}
-
-const token = process.env.ORCA_API_TOKEN || '';
-const headers = {
-  'content-type': 'application/json',
-  ...(token ? { 'x-orca-token': token } : {}),
-};
-
-async function req(method, pathname, body) {
-  const response = await fetch(`${base}${pathname}`, {
-    method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const text = await response.text();
-  let data = null;
-  try { data = JSON.parse(text); } catch { data = text; }
-  return { status: response.status, data };
-}
+const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-provider-smoke-'));
 
 try {
-  const list = await req('GET', '/api/providers');
-  if (list.status !== 200) fail('GET /api/providers', JSON.stringify(list.data));
-  const ids = new Set((list.data.profiles || []).map((profile) => profile.id));
+  process.chdir(tempDir);
+  const stateFile = path.join(tempDir, '.orca', 'providers.json');
+  const credentialStore = new CredentialStore({ backend: 'memory' });
+  const store = new ProviderProfileStore({ stateFile, credentialStore });
+
+  const list = await store.listProfiles();
+  const ids = new Set(list.profiles.map((profile) => profile.id));
   for (const id of ['codex', 'claude', 'custom-cli', 'openai-compatible', 'gemini', 'kimi', 'deepseek', 'openrouter', 'composer']) {
     if (!ids.has(id)) fail('missing provider profile', id);
   }
-  if (JSON.stringify(list.data).includes('sk-test')) fail('provider list leaked a test-looking secret value');
-  if (!Array.isArray(list.data.credentialBackends)) fail('credential backend statuses missing');
-  if (!list.data.credentialBackends.some((backend) => backend.id === 'macos-keychain')) fail('macOS Keychain status missing');
-  log('profiles', `${ids.size} loaded; credential backend=${list.data.credentialBackend}`);
+  if (JSON.stringify(list).includes('sk-test')) fail('provider list leaked a test-looking secret value');
+  if (!Array.isArray(list.credentialBackends)) fail('credential backend statuses missing');
+  if (!list.credentialBackends.some((backend) => backend.id === 'macos-keychain')) fail('macOS Keychain status missing');
+  log('profiles', `${ids.size} loaded; credential backend=${list.credentialBackend}`);
 
-  const health = await req('GET', '/api/providers/openai-compatible/health');
-  if (health.status !== 200) fail('API provider health', JSON.stringify(health.data));
-  if (!['configured', 'missing_secret', 'disabled'].includes(health.data.status)) fail('unexpected API provider health status', health.data.status);
-  log('api health', health.data.status);
+  const health = await store.health('openai-compatible');
+  if (!['configured', 'missing_secret', 'disabled'].includes(health.status)) fail('unexpected API provider health status', health.status);
+  log('api health', health.status);
 
-  const exported = await req('GET', '/api/providers/export');
-  if (exported.status !== 200) fail('export', JSON.stringify(exported.data));
-  if (exported.data.excludesSecrets !== true) fail('export must declare secret exclusion');
-  if (JSON.stringify(exported.data).includes('secretValue')) fail('export contains secretValue field');
-  log('export', `${(exported.data.profiles || []).length} profiles`);
+  const exported = await store.exportProfiles();
+  if (exported.excludesSecrets !== true) fail('export must declare secret exclusion');
+  if (JSON.stringify(exported).includes('secretValue')) fail('export contains secretValue field');
+  log('export', `${(exported.profiles || []).length} profiles`);
 
-  const dryRun = await req('POST', '/api/providers/import/dry-run', {
+  const dryRun = await store.importDryRun({
     schemaVersion: 1,
     profiles: [
       {
@@ -102,22 +69,15 @@ try {
       },
     ],
   });
-  if (dryRun.status !== 200) fail('import dry-run', JSON.stringify(dryRun.data));
-  if (dryRun.data.dryRun !== true || dryRun.data.acceptedCount !== 1) fail('bad import dry-run result', JSON.stringify(dryRun.data));
+  if (dryRun.dryRun !== true || dryRun.acceptedCount !== 1) fail('bad import dry-run result', JSON.stringify(dryRun));
   log('import dry-run', 'ok');
 
-  if (list.data.credentialBackend === 'memory') {
-    const set = await req('POST', '/api/providers/openai-compatible/secret', {
-      actor: 'dashboard',
-      approved: true,
-      secret: 'smoke-provider-secret',
-    });
-    if (set.status !== 200) fail('set memory secret', JSON.stringify(set.data));
-    if (JSON.stringify(set.data).includes('smoke-provider-secret')) fail('secret set response leaked secret value');
-    const afterSet = await req('GET', '/api/providers/openai-compatible/health');
-    if (afterSet.data.status !== 'configured') fail('memory secret should configure provider', JSON.stringify(afterSet.data));
-    const deleted = await req('DELETE', '/api/providers/openai-compatible/secret', { actor: 'dashboard', approved: true });
-    if (deleted.status !== 200) fail('delete memory secret', JSON.stringify(deleted.data));
+  if (list.credentialBackend === 'memory') {
+    const set = await store.setSecret('openai-compatible', 'smoke-provider-secret', { actor: 'dashboard', approved: true });
+    if (JSON.stringify(set).includes('smoke-provider-secret')) fail('secret set response leaked secret value');
+    const afterSet = await store.health('openai-compatible');
+    if (afterSet.status !== 'configured') fail('memory secret should configure provider', JSON.stringify(afterSet));
+    await store.deleteSecret('openai-compatible', { actor: 'dashboard', approved: true });
     log('memory secret flow', 'ok');
   } else {
     log('secret write', 'skipped because backend is not memory');
@@ -125,16 +85,6 @@ try {
 
   log('done', 'ok');
 } finally {
-  if (stopServer) await stopServer();
-  if (server) await new Promise((resolve) => server.close(resolve));
-  if (tempDir) {
-    process.chdir(previousCwd);
-    await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
-  }
-  for (const key of Object.keys(process.env)) {
-    if (!(key in previousEnv)) delete process.env[key];
-  }
-  for (const [key, value] of Object.entries(previousEnv)) {
-    process.env[key] = value;
-  }
+  process.chdir(previousCwd);
+  await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
 }

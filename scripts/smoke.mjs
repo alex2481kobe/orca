@@ -458,7 +458,15 @@ if (!browserProof.skipped && (!browserProof.screenshots || browserProof.screensh
 }
 
 // --- pairing gate proof: unpaired remote sees the gate, then pairs into the app ---
-await capturePairingGateProof();
+const gateProof = await capturePairingGateProof();
+
+// The browser/gate proofs degrade to a silent "skipped" (green) when Playwright
+// is unavailable. For a real final-pass / CI run, set ORCA_REQUIRE_BROWSER_PROOF=1
+// so a skip becomes a hard failure — a green run then actually proves the gate ran.
+if (process.env.ORCA_REQUIRE_BROWSER_PROOF) {
+  if (browserProof.skipped) fail('browser proof was skipped but ORCA_REQUIRE_BROWSER_PROOF is set', browserProof.reason || '');
+  if (gateProof && gateProof.skipped) fail('pairing gate proof was skipped but ORCA_REQUIRE_BROWSER_PROOF is set', gateProof.reason || '');
+}
 
 const elapsed = Date.now() - start;
 log('done', `${elapsed}ms`);

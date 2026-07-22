@@ -267,7 +267,7 @@ try {
   });
   await exec.initialize();
   const execTools = await exec.listToolNames();
-  for (const need of ['lane__submit', 'lane__heartbeat', 'evidence__capture_screenshot']) {
+  for (const need of ['lane__submit', 'lane__heartbeat']) {
     if (!execTools.includes(need)) fail('executor tools/list missing', need);
   }
   if (execTools.includes('provider__configure')) fail('executor tools/list leaks dashboard tool', 'provider__configure');

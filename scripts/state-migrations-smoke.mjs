@@ -100,7 +100,13 @@ async function verifyRegistryStore(dir) {
   const stateFile = path.join(dir, '.orca', 'state.json');
   try {
     await writeJsonFileAtomic(stateFile, {
-      version: 1,
+      // v2 schema (see OrcaRegistry#snapshotState in src/registry-persistence.js).
+      // A `version: 1` seed here would trip the v1 -> v2 fresh-start migration
+      // (src/registry-persistence.js `restoreFromDisk`), which intentionally
+      // discards projects/sessions/lanes on load — that's not a recovery bug,
+      // it's the documented one-way migration, and would make this smoke seed
+      // its own failure regardless of backup recovery working correctly.
+      version: 2,
       savedAt: nowIso(),
       policies: {},
       projects: [{
@@ -112,11 +118,15 @@ async function verifyRegistryStore(dir) {
         quickLinks: [],
       }],
       sessions: [],
+      orchestrators: [],
       lanes: [],
       auditEvents: [],
       cleanupSchedule: {},
       mcpTools: [],
       toolLeases: [],
+      notifications: [],
+      agentQueue: [],
+      notificationSettings: {},
     });
     await corruptPrimary(stateFile);
     const registry = new OrcaRegistry({ heartbeatIntervalMs: 5 });

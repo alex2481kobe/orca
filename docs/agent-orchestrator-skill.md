@@ -94,3 +94,22 @@ The dashboard and clients stay in sync through an event stream:
 - Treat paired phones as read-only viewer devices, not host-admin devices.
 - Keep install, shell, credential, and network-mutation actions explicit,
   approval-gated, and auditable.
+
+## Integration notes (for adopting projects)
+
+- **The orchestrator is the unit, not the "session."** You register an
+  orchestrator per working directory and spawn executor lanes under it. Some API
+  responses and on-disk artifact paths still carry a `sessionId` field — that is
+  an internal legacy alias of the orchestrator id; do not build integrations that
+  depend on a separate "session" concept.
+- **Sandboxed Codex has two landmines.** A `codex exec` running under
+  `--sandbox workspace-write`/`read-only` (a) cancels outbound MCP calls and
+  (b) cannot bind localhost ports. If you run Codex as an orchestrator or
+  executor, run it with full access (or an approved network policy), or its MCP
+  calls to Orca will silently fail and it will blame Orca. Capture executor exit
+  status via the file+exit contract, not by expecting the sandboxed process to
+  reach the daemon.
+- **Done executors linger, then drop from the dashboard.** A finished executor
+  stays visible for a few minutes, then ages out of `/api/overview`. That is
+  expected pruning, not lost work — the lane's artifacts (`outcome.txt`,
+  `transcript.json`) persist on disk regardless.
