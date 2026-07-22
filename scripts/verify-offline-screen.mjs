@@ -85,6 +85,31 @@ const check = (name, cond) => { results[name] = cond; if (!cond) { failed = true
   await ctx.close();
 }
 
+// ---- Light theme: the workstation offline takeover renders in the CURRENT
+// design under light mode too (no legacy shell, tokens resolve in light). ----
+{
+  const ctx = await b.newContext({ viewport: { width: 1280, height: 860 }, colorScheme: 'light' });
+  await ctx.addInitScript(() => { try { localStorage.setItem('orca.theme', 'light'); } catch { /* */ } });
+  const p = await ctx.newPage();
+  await p.route('**/api/overview', (route) => route.abort());
+  await p.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });
+  await p.waitForTimeout(2600);
+  const light = await p.evaluate(() => ({
+    theme: document.documentElement.getAttribute('data-theme'),
+    offlineShown: Boolean(document.querySelector('.connect-offline')),
+    title: document.querySelector('.connect-offline .connect-title')?.textContent || '',
+    hasStartCmd: Boolean(document.querySelector('.connect-offline .connect-cmd')),
+    noLegacy: !document.querySelector('.home-hero-title, .ios-promo, .appstore-badge, #alerts'),
+  }));
+  check('light.themeIsLight', light.theme === 'light');
+  check('light.offlineShown', light.offlineShown);
+  check('light.titleStartOrca', light.title.trim() === 'Start Orca');
+  check('light.startCommand', light.hasStartCmd);
+  check('light.noLegacyShell', light.noLegacy);
+  await p.screenshot({ path: path.join(outDir, 'offline-workstation-light.png') });
+  await ctx.close();
+}
+
 console.log('[verify] offline-screen:', JSON.stringify(results, null, 2));
 await b.close(); if (sm.stopServer) await sm.stopServer(); await new Promise((r) => s.close(r));
 if (failed) { console.error('[verify] offline-screen FAILED'); process.exit(1); }

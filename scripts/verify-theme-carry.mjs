@@ -37,21 +37,32 @@ const results = {};
   results.noCarryLight = await p.evaluate(() => document.documentElement.getAttribute('data-theme'));
   await ctx.close();
 }
-// appendThemeParam builds the right URL from the stored pref.
+// A dark device WITH the carry param stays dark (control that the carry doesn't
+// only work for light→dark). The former block 3 exercised ui/theme.js's
+// appendThemeParam/setThemePref, but that module was removed in the v2 refactor
+// (the ?orca_theme= carry is handled inline in index.html now), so it's dropped.
 {
   const ctx = await b.newContext({ colorScheme: 'dark' });
   const p = await ctx.newPage();
-  await p.goto(base + '/', { waitUntil: 'domcontentloaded' });
-  results.appendParam = await p.evaluate(async () => {
-    const theme = await import('./ui/theme.js');
-    theme.setThemePref('dark');
-    return {
-      dark: theme.appendThemeParam('http://mac.tailnet.ts.net'),
-      systemDropsParam: (theme.setThemePref('system'), theme.appendThemeParam('http://mac.tailnet.ts.net')),
-    };
-  });
+  await p.goto(base + '/?orca_theme=dark', { waitUntil: 'domcontentloaded' });
+  results.darkDeviceCarriedDark = await p.evaluate(() => ({
+    dataTheme: document.documentElement.getAttribute('data-theme'),
+    urlHasParam: window.location.search.includes('orca_theme'),
+    stored: localStorage.getItem('orca.theme'),
+  }));
   await ctx.close();
 }
 
+let failed = false;
+const check = (name, cond) => { if (!cond) { failed = true; console.error(`  FAIL ${name}`); } };
+check('carriedDark.dataTheme', results.carriedDark.dataTheme === 'dark');
+check('carriedDark.paramStripped', results.carriedDark.urlHasParam === false);
+check('carriedDark.persisted', results.carriedDark.stored === 'dark');
+check('noCarryLight.light', results.noCarryLight === 'light');
+check('darkDeviceCarriedDark.dataTheme', results.darkDeviceCarriedDark.dataTheme === 'dark');
+check('darkDeviceCarriedDark.paramStripped', results.darkDeviceCarriedDark.urlHasParam === false);
+
 console.log('[verify] theme-carry:', JSON.stringify(results, null, 2));
 await b.close(); if (sm.stopServer) await sm.stopServer(); await new Promise((r) => s.close(r));
+if (failed) { console.error('[verify] theme-carry FAILED'); process.exit(1); }
+console.log('[verify] theme-carry OK');

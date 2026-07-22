@@ -120,8 +120,77 @@ check('unlink.noSessionId', logoutBody !== null && logoutBody.sessionId === unde
 const afterUnlink = await p.evaluate(() => Boolean(document.querySelector('.connect-gate')));
 check('unlink.showsGate', afterUnlink);
 
-console.log('[verify] remote-client:', JSON.stringify(results, null, 2));
 await ctx.close();
+
+// ---- LIGHT theme pass + workstation-switcher actions (forget / connect) ----
+// A fresh remote client in LIGHT mode, paired to its own device, seeded with TWO
+// known workstations so the switcher shows two rows. Proves: the remote-client
+// panel renders in light, forgetWorkstationRow drops a row, and Connect with a
+// valid URL performs the window.location assignment (asserted via the remembered
+// list — the URL rememberWorkstation persists just before navigating).
+{
+  const code2 = await fetch(`${base}/api/auth/pairing-codes`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-orca-token': 'verify-token' },
+    body: JSON.stringify({ actor: 'test', label: 'phone2' }),
+  }).then((r) => r.json()).then((d) => d?.pairing?.code);
+  check('light.gotPairingCode', Boolean(code2));
+
+  const ctx2 = await b.newContext({ userAgent: IPHONE_UA, viewport: { width: 390, height: 844 }, colorScheme: 'light' });
+  await ctx2.addInitScript(() => {
+    localStorage.setItem('orca.theme', 'light');
+    localStorage.setItem('orca.workstations', JSON.stringify([
+      'http://mac-one.tailnet.ts.net:3000',
+      'http://mac-two.tailnet.ts.net:3000',
+    ]));
+  });
+  const p2 = await ctx2.newPage();
+  await p2.goto(`http://remote.test:${port}/`, { waitUntil: 'domcontentloaded' });
+  await p2.evaluate(async (c) => {
+    await fetch('/api/auth/pair', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: c, label: 'Light iPhone', deviceId: 'phone-light' }),
+    });
+  }, code2);
+  await p2.goto(`http://remote.test:${port}/`, { waitUntil: 'domcontentloaded' });
+  await p2.waitForTimeout(600);
+  await p2.evaluate(() => { window.location.hash = '#remote'; });
+  await p2.waitForTimeout(700);
+
+  const lightRender = await p2.evaluate(() => ({
+    theme: document.documentElement.getAttribute('data-theme'),
+    thisDevice: Boolean([...document.querySelectorAll('#remote-body h3')].find((h) => h.textContent.includes('This device'))),
+    rows: document.querySelectorAll('.ws-switcher .ws-row').length,
+    urlInput: Boolean(document.querySelector('#workstation-url-input')),
+  }));
+  check('light.themeIsLight', lightRender.theme === 'light');
+  check('light.thisDeviceCard', lightRender.thisDevice);
+  check('light.switcherHasTwoRows', lightRender.rows === 2);
+  check('light.urlInput', lightRender.urlInput);
+  await p2.screenshot({ path: path.join(outDir, 'remote-client-light.png') });
+
+  // forgetWorkstationRow: click a row's Forget → row count drops.
+  await p2.click('.ws-switcher .ws-row .ws-forget');
+  await p2.waitForTimeout(400);
+  const afterForget = await p2.evaluate(() => document.querySelectorAll('.ws-switcher .ws-row').length);
+  check('forget.rowCountDrops', afterForget === 1);
+
+  // connectWorkstation: type a valid URL and Connect. The handler's connect branch
+  // is synchronous — rememberWorkstation(url) then window.location.href = url — so
+  // clicking and reading localStorage in the SAME synchronous evaluate captures the
+  // remembered URL before the scheduled navigation unloads the page (a real
+  // cross-origin navigation would leave us on a chrome-error page). This proves the
+  // click reaches the window.location assignment for a valid URL.
+  await p2.fill('#workstation-url-input', 'http://connect-target.test:3000');
+  const remembered = await p2.evaluate(() => {
+    document.querySelector('.ws-connect [data-action="connectWorkstation"]').click();
+    try { return JSON.parse(localStorage.getItem('orca.workstations') || '[]'); } catch { return []; }
+  });
+  check('connect.urlRemembered', remembered.includes('http://connect-target.test:3000'));
+
+  await ctx2.close();
+}
+
+console.log('[verify] remote-client:', JSON.stringify(results, null, 2));
 await b.close(); if (sm.stopServer) await sm.stopServer(); await new Promise((r) => s.close(r));
 if (failed) { console.error('[verify] remote-client FAILED'); process.exit(1); }
 console.log('[verify] remote-client OK');
