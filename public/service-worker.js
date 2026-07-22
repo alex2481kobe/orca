@@ -12,6 +12,7 @@ const STATIC_ASSETS = [
   '/ui/home-disclosure.js',
   '/ui/qr.js',
   '/theme-init.js',
+  '/sw-boot.js',
   '/manifest.webmanifest',
   '/favicon-32.png',
   '/orca-mark.png',

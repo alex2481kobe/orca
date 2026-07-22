@@ -149,13 +149,20 @@
 
 /* ---- Remote-device pairing GATE (unpaired phone over Tailscale) ---- */
 /* Full-screen takeover: hide the shell chrome so only the centered connect-shell
-   gate shows — there's nothing to navigate to until this device is paired. */
+   shows — for the unpaired gate, and for the server-down / reconnecting screen
+   (there's nothing to navigate to until the daemon answers). */
 body.access-gated .app-topbar,
 body.access-gated .ops-sidebar,
 body.access-gated #sidebar-reopen,
-body.access-gated #sidebar-backdrop { display: none !important; }
-body.access-gated .ops-shell { grid-template-columns: 1fr; }
-body.access-gated .ops-main { padding: 0; }
+body.access-gated #sidebar-backdrop,
+body.app-offline .app-topbar,
+body.app-offline .ops-sidebar,
+body.app-offline #sidebar-reopen,
+body.app-offline #sidebar-backdrop { display: none !important; }
+body.access-gated .ops-shell,
+body.app-offline .ops-shell { grid-template-columns: 1fr; }
+body.access-gated .ops-main,
+body.app-offline .ops-main { padding: 0; }
 .connect-error { color: #ff6b6b; margin-top: var(--space-2); }
 
 /* ---- Mobile: keep the Pair-a-device page to a single screen (no long scroll) ----

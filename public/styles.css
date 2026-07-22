@@ -3835,6 +3835,20 @@ textarea:focus-visible {
 /* Inside the mobile pair gate the promo banner is pinned near the top (cleared
    from the floating reopen button), matching the centered start screen. */
 .connect-shell.connect-gate { padding-top: calc(env(safe-area-inset-top) + 3.25rem); }
+.connect-shell.connect-offline { padding-top: calc(env(safe-area-inset-top) + 3.25rem); text-align: center; }
+.connect-shell.connect-offline .app-loading { margin: var(--space-4) 0 var(--space-2); }
+.connect-cmd {
+  display: block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+  background: var(--panel-2, var(--panel));
+  border: 1px solid var(--line);
+  border-radius: var(--radius-2, 8px);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+  color: var(--text);
+  user-select: all;
+}
 .appstore-badge { display: inline-flex; flex: 0 0 auto; border-radius: 8px; }
 .appstore-badge:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 

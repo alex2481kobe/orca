@@ -30,10 +30,19 @@ let lastData = { projects: [] };
 // instead of leaving the device stuck on "Connecting…". Cleared once pairing sets
 // the session cookie and /api/overview returns 200.
 let accessBlocked = false;
+// The daemon is unreachable (fetch throws — server down, not an HTTP error). We
+// take over the screen with the reconnecting "Start Orca" panel IN THE CURRENT
+// design rather than letting a stale/legacy shell show through on a hard reload.
+// Any successful HTTP response clears it and the poll loop reconnects on its own.
+let offline = false;
+let sawFirstResponse = false;
 function route() { return (location.hash.replace(/^#\/?/, '') || 'home'); }
 
 // ---- sidebar collapse (desktop: body.sidebar-collapsed; mobile: body.nav-open drawer) ----
 const isMobile = () => window.matchMedia('(max-width: 880px)').matches;
+// Offline heuristic only: with no server data, a loopback host is the workstation
+// itself; anything else (a tailnet hostname on a phone) is a remote client.
+const isLoopbackHost = () => /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|::1)$/.test(window.location.hostname);
 const closeMobileNav = () => { if (isMobile()) body.classList.remove('nav-open'); };
 try { if (localStorage.getItem('orca.sidebar') === 'collapsed') body.classList.add('sidebar-collapsed'); } catch { /* */ }
 document.addEventListener('click', (e) => {
@@ -541,9 +550,38 @@ function renderPairGate(errorText = '') {
     </section>`;
 }
 
+// Server-down / reconnecting takeover, rendered in the current design (never a
+// legacy shell). The poll loop keeps running, so this clears itself the moment
+// the daemon answers; the button just forces an immediate retry.
+function renderOffline() {
+  const onWorkstation = isLoopbackHost();
+  return `
+    <section class="connect-shell connect-offline">
+      <div class="connect-brand">
+        <img class="connect-logo" src="/orca-mark.png" alt="" width="40" height="40" />
+        <span class="connect-wordmark">Orca</span>
+      </div>
+      <div class="app-loading" role="status" aria-label="Reconnecting to Orca">
+        <span class="app-loading-spinner" aria-hidden="true"></span>
+      </div>
+      <h1 class="connect-title">${onWorkstation ? 'Start Orca' : 'Waiting for your workstation'}</h1>
+      <p class="connect-sub">${onWorkstation
+        ? 'The Orca daemon isn’t responding. Start it on this machine and the dashboard reconnects automatically.'
+        : 'Your workstation’s Orca isn’t responding right now. This reconnects automatically once it’s back.'}</p>
+      <div class="connect-card">
+        ${onWorkstation ? '<code class="connect-cmd">PORT=3000 node src/server.js</code>' : ''}
+        <button class="connect-go" data-action="retryConnect" type="button">Retry now</button>
+      </div>
+    </section>`;
+}
+
 // ---- render dispatch ----
 function renderScreen() {
   content.removeAttribute('aria-busy');
+  // Daemon unreachable: full-screen reconnect takeover (chrome hidden via body
+  // class), takes precedence over everything else.
+  body.classList.toggle('app-offline', offline && !accessBlocked);
+  if (offline && !accessBlocked) { topbarTitle.textContent = ''; content.innerHTML = renderOffline(); return; }
   // Unpaired remote: full-screen gate takeover (chrome hidden via body class), no
   // sidebar/topbar — there's nothing to navigate to until this device pairs.
   body.classList.toggle('access-gated', accessBlocked);
@@ -558,6 +596,10 @@ function renderScreen() {
 async function poll() {
   try {
     const res = await fetch('/api/overview', { headers: { accept: 'application/json' } });
+    // Any HTTP response (even a 401) proves the daemon is up — leave the offline
+    // reconnect screen if we were on it.
+    sawFirstResponse = true;
+    if (offline) { offline = false; renderScreen(); }
     if (res.status === 401) {
       // Unpaired remote device. Render the gate ONCE on the transition into the
       // blocked state so the 2s poll never clobbers a half-typed code (the
@@ -571,7 +613,13 @@ async function poll() {
     if (accessBlocked) { accessBlocked = false; renderScreen(); } // just got paired → leave the gate
     renderSidebar(lastData);
     if (route() === 'home') renderHome(lastData); // only the tree auto-refreshes
-  } catch { /* */ }
+  } catch {
+    // Daemon unreachable (network error, not an HTTP status). Take over with the
+    // reconnect "Start Orca" screen ONCE on transition, so a hard reload with the
+    // server down never falls through to a cached/legacy shell.
+    if (!offline) { offline = true; renderScreen(); }
+    return;
+  }
   // On the Remote screen, watch paired sessions so a code being accepted flips
   // the card to green instantly and the device count updates (see auth audit).
   if (!accessBlocked && route() === 'remote') {
@@ -636,6 +684,7 @@ content.addEventListener('click', async (e) => {
   if (act) {
     const action = act.dataset.action;
     if (action === 'setTheme') { applyTheme(act.dataset.themeMode); return; }
+    if (action === 'retryConnect') { e.preventDefault(); poll(); return; }
     if (action === 'pairBrowserSession') {
       // Remote-device gate: submit the one-time code. No auth needed — the whole
       // point is to let an UNpaired device pair itself (server sets the cookie).
