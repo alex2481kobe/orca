@@ -97,8 +97,8 @@ function classifyRoute(method, parts) {
   }
   if (p1 === 'lanes') {
     if (p3 === 'evidence' && verb === 'POST') return 'evidenceCapture';
-    if (['stop', 'retry', 'heartbeat'].includes(p3)) return 'processControl';
-    if (p3 === 'worktree' && p4 === 'remove') return 'cleanup';
+    if (['stop', 'retry', 'heartbeat', 'integrate'].includes(p3)) return 'processControl';
+    if (p3 === 'worktree' && (p4 === 'remove' || p4 === 'discard')) return 'cleanup';
   }
   if (p1 === 'sessions') {
     if (p3 === 'lanes' && verb === 'POST') return 'processSpawn';

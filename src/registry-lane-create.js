@@ -20,6 +20,10 @@ import { normalizeCritiqueMode, resolveWorktreeMode } from './registry-lane-conf
 
 const { QUEUED: QUEUED_STATE } = LANE_STATES;
 const MAX_WORKDIR_BYTES = 2048;
+// Generous cap for the executor task prompt. The command builder supports far
+// larger payloads than the old 8000-char limit; truncation past this is recorded
+// as a visible lane warning rather than silently dropping scope.
+const MAX_TASK_PROMPT_CHARS = 100000;
 
 function executorProfileBinaries(executorType) {
   const profile = getExecutorProfile(executorType) || {};
@@ -253,7 +257,13 @@ export const laneCreateMethods = {
         scope: tool.scope,
       }));
 
-    const sanitizedTaskPrompt = typeof taskPrompt === 'string' ? taskPrompt.trim().slice(0, 8000) : '';
+    // taskPrompt is the executor's whole assignment; the command builder handles
+    // very large prompts, so cap generously (was 8000 — small enough to silently
+    // drop real scope). If truncation still happens, we do NOT swallow it: a
+    // visible warning is recorded on the lane (see below) and logged.
+    const rawTaskPrompt = typeof taskPrompt === 'string' ? taskPrompt.trim() : '';
+    const taskPromptTruncated = rawTaskPrompt.length > MAX_TASK_PROMPT_CHARS;
+    const sanitizedTaskPrompt = taskPromptTruncated ? rawTaskPrompt.slice(0, MAX_TASK_PROMPT_CHARS) : rawTaskPrompt;
     const sanitizedModel = typeof model === 'string' ? model.trim().slice(0, 120) : '';
     const sanitizedPermissionsProfile = typeof permissionsProfile === 'string'
       ? permissionsProfile.trim().slice(0, 120) : '';
@@ -382,6 +392,18 @@ export const laneCreateMethods = {
       evidence: { lane },
       status: 'passed',
     });
+    if (taskPromptTruncated) {
+      // Do NOT drop scope silently: surface a visible warning (like shared-worktree)
+      // and a log line so the operator/orchestrator can see the prompt was clipped.
+      lane.warnings = [...(lane.warnings || []), {
+        kind: 'task_prompt_truncated',
+        message: `taskPrompt was truncated from ${rawTaskPrompt.length} to ${MAX_TASK_PROMPT_CHARS} chars; some scope may be missing.`,
+      }];
+      lane.logs.push({
+        at: now,
+        message: `taskPrompt truncated from ${rawTaskPrompt.length} to ${MAX_TASK_PROMPT_CHARS} chars.`,
+      });
+    }
     if (lane.sharedWorktree) {
       // Shared-working-tree is a named exception: stronger conflict risk, so
       // an explicit audit event is queued for review and the lane stores a

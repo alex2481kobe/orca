@@ -267,8 +267,13 @@ export function createLaneWorktree({
 /**
  * Remove a lane worktree. Best-effort: returns { removed, reason }.
  * Leaves the branch in place by default so post-lane review (diff, PR) is possible.
+ *
+ * SAFETY: refuses to discard a worktree that has uncommitted changes unless the
+ * caller passes `force:true`. `git worktree remove --force` silently destroys
+ * uncommitted work, so the dirty-check gates data loss before we hand git the
+ * mechanical --force (which is still needed to clear locks / handle submodules).
  */
-export function removeLaneWorktree({ repoRoot, worktreePath, removeBranch = false, branch = null }) {
+export function removeLaneWorktree({ repoRoot, worktreePath, removeBranch = false, branch = null, force = false }) {
   if (!repoRoot || !worktreePath) {
     return { removed: false, reason: 'repoRoot and worktreePath are required.' };
   }
@@ -291,6 +296,17 @@ export function removeLaneWorktree({ repoRoot, worktreePath, removeBranch = fals
     const registered = parseWorktreeList(list.stdout).map((entry) => realpathSafe(entry.path));
     if (!registered.includes(resolvedTarget)) {
       return { removed: false, reason: 'Path is not a registered git worktree of this repo.' };
+    }
+  }
+  // Data-loss guard: unless forced, refuse to discard uncommitted work.
+  if (!force) {
+    const dirty = changedFilesIn(resolvedTarget);
+    if (dirty.length) {
+      return {
+        removed: false,
+        reason: `Worktree has ${dirty.length} uncommitted change(s). Integrate or commit them, or pass force:true to discard them.`,
+        uncommittedChanges: dirty.length,
+      };
     }
   }
   const removeResult = runGit(['worktree', 'remove', '--force', resolvedTarget], { cwd: descriptor.repoRoot });
@@ -333,4 +349,64 @@ export function changedFilesIn(worktreePath) {
   } catch {
     return [];
   }
+}
+
+/**
+ * Merge an isolated lane's branch back into the container's base branch in the
+ * repo-root checkout. Never throws; returns a structured result the caller can
+ * report verbatim:
+ *   { merged:true, baseBranch, branch, fastForward, pushed? }
+ *   { merged:false, nothingToMerge:true, baseBranch, branch }
+ *   { merged:false, conflicts:true, reason, baseBranch, branch }
+ *   { merged:false, reason }                       (setup/validation failure)
+ *
+ * Does NOT push unless `push:true`. The merge runs in the repo root, so the base
+ * branch is whatever that checkout currently has out (the container's base).
+ */
+export function mergeLaneBranch({ repoRoot, branch, push = false }) {
+  const safeBranch = validRefText(branch);
+  if (!safeBranch) return { merged: false, reason: 'A valid lane branch is required to integrate.' };
+  const descriptor = describeRepoRoot(repoRoot);
+  if (!descriptor.ok) return { merged: false, reason: descriptor.reason };
+  const root = descriptor.repoRoot;
+  if (!refExists(root, safeBranch)) {
+    return { merged: false, reason: `Lane branch ${safeBranch} was not found in the repository.` };
+  }
+  const headOut = runGit(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: root });
+  const baseBranch = headOut.status === 0 ? headOut.stdout.trim() : '';
+  if (!baseBranch || baseBranch === 'HEAD') {
+    return { merged: false, reason: 'Repository root is not on a named base branch (detached HEAD); cannot integrate.' };
+  }
+  if (baseBranch === safeBranch) {
+    return { merged: false, reason: `Repository root is already on ${safeBranch}; nothing to integrate.` };
+  }
+  // Anything to merge? Count commits on the lane branch not reachable from base.
+  const ahead = runGit(['rev-list', '--count', `${baseBranch}..${safeBranch}`], { cwd: root });
+  if (ahead.status === 0 && ahead.stdout.trim() === '0') {
+    return { merged: false, nothingToMerge: true, baseBranch, branch: safeBranch };
+  }
+  const merge = runGit(['merge', '--no-edit', safeBranch], { cwd: root });
+  if (merge.status !== 0) {
+    // Conflict (or other merge failure): abort so the base checkout is left clean.
+    runGit(['merge', '--abort'], { cwd: root });
+    return {
+      merged: false,
+      conflicts: true,
+      baseBranch,
+      branch: safeBranch,
+      reason: `Merge of ${safeBranch} into ${baseBranch} failed (conflicts). ${merge.stdout?.trim() || merge.stderr?.trim() || ''}`.trim(),
+    };
+  }
+  // Fast-forward when the new HEAD has a single parent (no merge commit created).
+  const parents = runGit(['rev-list', '--parents', '-n', '1', 'HEAD'], { cwd: root });
+  const wasFastForward = parents.status === 0 && parents.stdout.trim().split(/\s+/).length <= 2;
+  const result = { merged: true, baseBranch, branch: safeBranch, fastForward: wasFastForward };
+  if (push) {
+    const pushResult = runGit(['push'], { cwd: root });
+    result.pushed = pushResult.status === 0;
+    if (pushResult.status !== 0) {
+      result.pushReason = pushResult.stderr?.trim() || pushResult.stdout?.trim() || 'git push failed';
+    }
+  }
+  return result;
 }

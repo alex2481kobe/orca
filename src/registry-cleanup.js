@@ -261,6 +261,22 @@ export const cleanupMethods = {
     const maxLanes = parsePositiveInteger(process.env.ORCA_MAX_TERMINAL_LANES_PER_SESSION, null) || 200;
     const laneCount = Array.isArray(this.lanes) ? this.lanes.length : 0;
     if (laneCount <= maxLanes) return false; // no session can exceed its cap
+    // USER POLICY: an isolated lane's on-disk worktree must NOT be reaped by
+    // retention pruning while it still holds un-integrated work. Reaping only
+    // happens after lane.integrate succeeds (sets integratedAt) or an explicit
+    // lane.worktree.discard (clears worktreePath). Such lanes are excluded from
+    // the drop set entirely — pruning the record while leaving the worktree on
+    // disk would strand the checkout under .orca/workspaces with no lane pointing
+    // at it, so we keep BOTH the record and the worktree until it's integrated.
+    const holdsUnintegratedWorktree = (lane) => {
+      if (!lane) return false;
+      if (lane.integratedAt) return false; // merged back — safe to reap
+      if (lane.sharedWorktree || lane.worktreeMode === 'shared') return false;
+      const wt = lane.worktreePath ? String(lane.worktreePath) : '';
+      if (!wt) return false; // already discarded/removed
+      if (lane.repoRoot && path.resolve(wt) === path.resolve(lane.repoRoot)) return false; // ran in-place
+      return true; // isolated lane with a live, un-integrated worktree
+    };
     let changed = false;
     const ts = (record, ...keys) => {
       for (const k of keys) { const v = Date.parse(record?.[k] || 0); if (Number.isFinite(v) && v) return v; }
@@ -280,7 +296,7 @@ export const cleanupMethods = {
       return drop;
     };
     const dropLaneIds = dropOldest(
-      (this.lanes || []).filter((l) => TERMINAL_LANES.has(l.state)),
+      (this.lanes || []).filter((l) => TERMINAL_LANES.has(l.state) && !holdsUnintegratedWorktree(l)),
       maxLanes,
       ['completedAt', 'updatedAt'],
     );

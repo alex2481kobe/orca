@@ -6,7 +6,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { LANE_STATES, isLiveLaneState } from './worker-contract.js';
 import { nowIso, clonePayload, safeArray } from './registry-utils.js';
-import { removeLaneWorktree } from './worktree-manager.js';
+import { removeLaneWorktree, mergeLaneBranch } from './worktree-manager.js';
 import { validateNetworkUrl } from './url-policy.js';
 
 const {
@@ -607,7 +607,11 @@ export const laneOpsMethods = {
   },
 
 
-  async removeLaneWorktree(laneLocator, { actor = 'dashboard', approved, removeBranch = false } = {}) {
+  // Remove/discard a lane's managed worktree. Safe by DEFAULT: refuses when the
+  // worktree still holds uncommitted work unless the caller passes force:true.
+  // This is the backend for both the dashboard worktree-remove and the
+  // lane.worktree.discard MCP tool.
+  async removeLaneWorktree(laneLocator, { actor = 'dashboard', approved, removeBranch = false, force = false } = {}) {
     const lane = this.getLane(laneLocator);
     if (!lane) throw { status: 404, message: 'Lane not found.' };
     if (!lane.repoRoot || !lane.worktreePath) {
@@ -633,9 +637,13 @@ export const laneOpsMethods = {
       worktreePath: lane.worktreePath,
       removeBranch,
       branch: lane.branch || null,
+      force: Boolean(force),
     });
     if (!result.removed) {
-      throw { status: 500, message: result.reason || 'Could not remove worktree.' };
+      // Uncommitted-work refusal is a client-actionable 409 (integrate or force),
+      // not a server error — surface the reason so the agent knows what to do.
+      const status = result.uncommittedChanges ? 409 : 500;
+      throw { status, message: result.reason || 'Could not remove worktree.', uncommittedChanges: result.uncommittedChanges || 0 };
     }
     lane.worktreePath = '';
     this.recordAudit({
@@ -644,11 +652,65 @@ export const laneOpsMethods = {
       projectId: lane.projectId,
       sessionId: lane.sessionId,
       laneId: lane.id,
-      summary: `Worktree removed for lane ${lane.title}`,
-      evidence: { lane, branchRemoved: result.branchRemoved },
+      summary: `Worktree ${force ? 'force-' : ''}removed for lane ${lane.title}`,
+      evidence: { lane, branchRemoved: result.branchRemoved, force: Boolean(force) },
       status: 'passed',
     });
     this.persistState();
-    return { removed: true, branchRemoved: result.branchRemoved };
+    return { removed: true, branchRemoved: result.branchRemoved, forced: Boolean(force) };
+  },
+
+  // Merge an ISOLATED, audit-accepted lane's branch back into the container's base
+  // branch in the repo root. This is the lifecycle op that lets an orchestrator
+  // return accepted work WITHOUT shelling out to git. Never auto-pushes unless
+  // push:true. Reports merged / conflicts / nothing-to-merge. Reject direct/shared
+  // lanes (they already ran in the repo checkout — there is nothing to merge back).
+  async integrateLane(laneLocator, { actor = 'dashboard', push = false } = {}) {
+    const lane = this.getLane(laneLocator);
+    if (!lane) throw { status: 404, message: 'Lane not found.' };
+    if (lane.worktreeMode !== 'isolated') {
+      throw {
+        status: 422,
+        message: `Only isolated lanes can be integrated. This lane's worktree mode is "${lane.worktreeMode || 'direct'}" — its work already lives in the repo checkout, so there is nothing to merge back.`,
+      };
+    }
+    // Terminal + audit-accepted only: never merge unreviewed or in-flight work.
+    if (lane.state !== ACCEPTED_STATE || lane.auditState !== 'accepted') {
+      throw {
+        status: 409,
+        message: 'Lane must be audit-accepted before it can be integrated. Accept the audit (audit.accept) first.',
+      };
+    }
+    if (!lane.repoRoot || !lane.branch) {
+      throw { status: 422, message: 'Lane has no repoRoot/branch to integrate.' };
+    }
+    const result = mergeLaneBranch({ repoRoot: lane.repoRoot, branch: lane.branch, push: Boolean(push) });
+    if (result.merged) {
+      lane.integratedAt = nowIso();
+      lane.updatedAt = nowIso();
+      this.recordAudit({
+        type: 'lane_integrated',
+        actor,
+        projectId: lane.projectId,
+        sessionId: lane.sessionId,
+        laneId: lane.id,
+        summary: `Integrated lane ${lane.title} (${result.branch} -> ${result.baseBranch})`,
+        evidence: { ...result, laneId: lane.id },
+        status: 'passed',
+      });
+      this.persistState();
+      return { integrated: true, ...result };
+    }
+    if (result.nothingToMerge) {
+      // Idempotent success-ish: mark integrated so retention can reap the worktree.
+      lane.integratedAt = nowIso();
+      lane.updatedAt = nowIso();
+      this.persistState();
+      return { integrated: false, nothingToMerge: true, baseBranch: result.baseBranch, branch: result.branch };
+    }
+    if (result.conflicts) {
+      throw { status: 409, message: result.reason || 'Integration hit merge conflicts.', conflicts: true, baseBranch: result.baseBranch, branch: result.branch };
+    }
+    throw { status: 422, message: result.reason || 'Could not integrate lane.' };
   },
 };

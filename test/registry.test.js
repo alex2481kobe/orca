@@ -2332,7 +2332,7 @@ test('Worktree manager creates per-lane worktree under approved base and cleanup
   }
 });
 
-test('pruneInMemoryRecords reclaims the on-disk worktree of a dropped terminal lane', async () => {
+test('pruneInMemoryRecords preserves un-integrated isolated worktrees, reaps only after integrate/discard', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   const prevCap = process.env.ORCA_MAX_TERMINAL_LANES_PER_SESSION;
   try {
@@ -2345,27 +2345,172 @@ test('pruneInMemoryRecords reclaims the on-disk worktree of a dropped terminal l
     g('add', 'README.md'); g('commit', '-qm', 'init');
 
     const { orchestrator: session } = await makeOrchestrator(registry, { cwd: repoDir });
-    const older = registry.createLane(session.id, { title: 'older', executorType: 'mock', branch: 'a', worktreeMode: 'isolated' }, { actor: 'test', approved: true });
-    const newer = registry.createLane(session.id, { title: 'newer', executorType: 'mock', branch: 'b', worktreeMode: 'isolated' }, { actor: 'test', approved: true });
-    assert.ok(older.worktreePath && newer.worktreePath);
+    const a = registry.createLane(session.id, { title: 'a', executorType: 'mock', branch: 'a', worktreeMode: 'isolated' }, { actor: 'test', approved: true });
+    const b = registry.createLane(session.id, { title: 'b', executorType: 'mock', branch: 'b', worktreeMode: 'isolated' }, { actor: 'test', approved: true });
+    const c = registry.createLane(session.id, { title: 'c', executorType: 'mock', branch: 'c', worktreeMode: 'isolated' }, { actor: 'test', approved: true });
+    assert.ok(a.worktreePath && b.worktreePath && c.worktreePath);
 
-    for (const [lane, when] of [[older, '2020-01-01T00:00:00.000Z'], [newer, '2020-06-01T00:00:00.000Z']]) {
+    for (const [lane, when] of [[a, '2020-01-01T00:00:00.000Z'], [b, '2020-03-01T00:00:00.000Z'], [c, '2020-06-01T00:00:00.000Z']]) {
       const t = registry.getLane(lane.id); t.state = 'done'; t.completedAt = when;
     }
 
-    // Cap at 1 terminal lane/session so the OLDER lane is pruned.
+    // Cap at 1 terminal lane/session. USER POLICY: an isolated lane's worktree
+    // holds un-integrated work, so pruning must NOT reap it — all three lanes AND
+    // their checkouts survive even though the cap is exceeded.
     process.env.ORCA_MAX_TERMINAL_LANES_PER_SESSION = '1';
     registry.pruneInMemoryRecords();
+    for (const lane of [a, b, c]) {
+      assert.ok(registry.getLane(lane.id), `un-integrated isolated lane ${lane.title} must be preserved`);
+      assert.equal((await fs.stat(lane.worktreePath)).isDirectory(), true, `${lane.title} worktree preserved on disk`);
+    }
 
-    // The older lane's record is gone AND its worktree was reclaimed from disk;
-    // the newer lane (and its checkout) survive.
-    assert.equal(registry.getLane(older.id), undefined, 'older lane record should be pruned');
-    await assert.rejects(fs.access(older.worktreePath), (e) => e.code === 'ENOENT', 'pruned lane worktree should be removed');
-    assert.ok(registry.getLane(newer.id), 'newer lane should survive');
-    assert.equal((await fs.stat(newer.worktreePath)).isDirectory(), true, 'surviving lane keeps its worktree');
+    // Integrate a and b (integratedAt set) — they leave the protected set and are
+    // now subject to the cap. With two reapable lanes and cap 1, the OLDEST (a) is
+    // dropped and its worktree reclaimed; b (newer, integrated) is kept; c stays
+    // protected as un-integrated.
+    const aPath = a.worktreePath;
+    registry.getLane(a.id).integratedAt = '2020-02-01T00:00:00.000Z';
+    registry.getLane(b.id).integratedAt = '2020-04-01T00:00:00.000Z';
+    registry.pruneInMemoryRecords();
+    assert.equal(registry.getLane(a.id), undefined, 'oldest integrated lane is prunable');
+    await assert.rejects(fs.access(aPath), (e) => e.code === 'ENOENT', 'reaped lane worktree removed from disk');
+    assert.ok(registry.getLane(b.id), 'newer integrated lane kept under the cap');
+    assert.equal((await fs.stat(b.worktreePath)).isDirectory(), true, 'kept lane worktree survives');
+    assert.ok(registry.getLane(c.id), 'un-integrated lane still protected');
+    assert.equal((await fs.stat(c.worktreePath)).isDirectory(), true, 'protected worktree survives');
   } finally {
     if (prevCap === undefined) delete process.env.ORCA_MAX_TERMINAL_LANES_PER_SESSION;
     else process.env.ORCA_MAX_TERMINAL_LANES_PER_SESSION = prevCap;
+    await cleanup();
+  }
+});
+
+// Small git-repo fixture helper for the worktree lifecycle tests below.
+async function makeGitRepo(dirName) {
+  const { spawnSync } = await import('node:child_process');
+  const repoDir = path.join(process.cwd(), dirName);
+  await fs.mkdir(repoDir, { recursive: true });
+  const g = (...args) => spawnSync('git', args, { cwd: repoDir, encoding: 'utf8' });
+  g('init', '-q'); g('config', 'user.email', 't@local'); g('config', 'user.name', 'T');
+  await fs.writeFile(path.join(repoDir, 'README.md'), 'hi');
+  g('add', 'README.md'); g('commit', '-qm', 'init');
+  return { repoDir, g };
+}
+
+test('removeLaneWorktree refuses to discard uncommitted work unless force:true', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const { repoDir } = await makeGitRepo('discard-repo');
+    const { orchestrator: session } = await makeOrchestrator(registry, { cwd: repoDir });
+    const lane = registry.createLane(session.id, { title: 'dirty', executorType: 'mock', branch: 'feat', worktreeMode: 'isolated' }, { actor: 'test', approved: true });
+    assert.ok(lane.worktreePath);
+    registry.getLane(lane.id).state = 'done';
+    // Leave uncommitted work in the worktree.
+    await fs.writeFile(path.join(lane.worktreePath, 'scratch.txt'), 'unsaved work');
+
+    // Safe by default: refuses with a client-actionable 409 + reason.
+    await assert.rejects(
+      registry.removeLaneWorktree(lane.id, { approved: true }),
+      (e) => e.status === 409 && e.uncommittedChanges >= 1 && /uncommitted/i.test(e.message),
+      'discard must refuse dirty worktree without force',
+    );
+    assert.equal((await fs.stat(lane.worktreePath)).isDirectory(), true, 'worktree still on disk after refusal');
+
+    // force:true discards it.
+    const forced = await registry.removeLaneWorktree(lane.id, { approved: true, force: true });
+    assert.equal(forced.removed, true);
+    assert.equal(forced.forced, true);
+    await assert.rejects(fs.access(lane.worktreePath), (e) => e.code === 'ENOENT', 'force discard removes worktree');
+  } finally {
+    await cleanup();
+  }
+});
+
+test('integrateLane merges an accepted isolated lane branch into the base branch', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const { repoDir, g } = await makeGitRepo('integrate-repo');
+    const baseBranch = g('rev-parse', '--abbrev-ref', 'HEAD').stdout.trim();
+    const { orchestrator: session } = await makeOrchestrator(registry, { cwd: repoDir });
+    const lane = registry.createLane(session.id, { title: 'feature', executorType: 'mock', branch: 'feat', worktreeMode: 'isolated' }, { actor: 'test', approved: true });
+    assert.ok(lane.worktreePath && lane.branch === 'feat');
+
+    // Commit work inside the lane worktree.
+    const { spawnSync } = await import('node:child_process');
+    const gw = (...args) => spawnSync('git', args, { cwd: lane.worktreePath, encoding: 'utf8' });
+    await fs.writeFile(path.join(lane.worktreePath, 'feature.txt'), 'new feature');
+    gw('add', 'feature.txt'); gw('commit', '-qm', 'add feature');
+
+    // Not accepted yet -> integrate refuses.
+    await assert.rejects(registry.integrateLane(lane.id), (e) => e.status === 409, 'must be audit-accepted first');
+
+    registry.getLane(lane.id).state = 'done';
+    registry.acceptLaneAudit(lane.id, { actor: 'auditor' });
+
+    const result = await registry.integrateLane(lane.id);
+    assert.equal(result.integrated, true, 'merge should succeed');
+    assert.equal(result.baseBranch, baseBranch);
+    assert.equal(result.branch, 'feat');
+    // The feature file is now merged into the base checkout.
+    assert.equal((await fs.stat(path.join(repoDir, 'feature.txt'))).isFile(), true, 'feature merged into base branch');
+    assert.ok(registry.getLane(lane.id).integratedAt, 'lane marked integrated');
+  } finally {
+    await cleanup();
+  }
+});
+
+test('integrateLane rejects non-isolated (direct/shared) lanes', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const { repoDir } = await makeGitRepo('integrate-direct-repo');
+    const { orchestrator: session } = await makeOrchestrator(registry, { cwd: repoDir });
+    // direct: runs in the repo checkout, no worktree to merge back.
+    const lane = registry.createLane(session.id, { title: 'inplace', executorType: 'mock', worktreeMode: 'direct' }, { actor: 'test', approved: true });
+    registry.getLane(lane.id).state = 'done';
+    registry.acceptLaneAudit(lane.id, { actor: 'auditor' });
+    await assert.rejects(
+      registry.integrateLane(lane.id),
+      (e) => e.status === 422 && /isolated/i.test(e.message),
+      'direct lane cannot be integrated',
+    );
+  } finally {
+    await cleanup();
+  }
+});
+
+test('touchOrchestrator refreshes lastSeenAt for the lease owner and rejects others (heartbeat)', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const { orchestrator, lease } = await makeOrchestrator(registry);
+    // Age the lease.
+    registry.orchestrators.find((o) => o.id === orchestrator.id).lastSeenAt = '2020-01-01T00:00:00.000Z';
+    const refreshed = registry.touchOrchestrator(orchestrator.id, { leaseId: lease.id });
+    assert.ok(Date.parse(refreshed.lastSeenAt) > Date.parse('2020-01-01T00:00:00.000Z'), 'lastSeenAt refreshed');
+    // A different lease cannot heartbeat someone else's orchestrator.
+    assert.throws(() => registry.touchOrchestrator(orchestrator.id, { leaseId: 'someone-else' }), (e) => e.status === 403);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('createLane raises the taskPrompt cap and records a visible warning on truncation', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const { orchestrator: session } = await makeOrchestrator(registry);
+    // 9000 chars: previously truncated at 8000, now preserved in full.
+    const mid = 'x'.repeat(9000);
+    const midLane = registry.createLane(session.id, { title: 'mid', executorType: 'mock', taskPrompt: mid }, { actor: 'test', approved: true });
+    assert.equal(midLane.taskPrompt.length, 9000, 'prompt under the new cap is preserved in full');
+    assert.ok(!(midLane.warnings || []).some((w) => w.kind === 'task_prompt_truncated'), 'no truncation warning under cap');
+
+    // Over the new cap: still truncated, but NOT silently — a visible warning is recorded.
+    const huge = 'y'.repeat(100001);
+    const hugeLane = registry.createLane(session.id, { title: 'huge', executorType: 'mock', taskPrompt: huge }, { actor: 'test', approved: true });
+    assert.equal(hugeLane.taskPrompt.length, 100000, 'prompt clipped to the new cap');
+    const warning = (hugeLane.warnings || []).find((w) => w.kind === 'task_prompt_truncated');
+    assert.ok(warning, 'truncation records a visible warning');
+    assert.match(warning.message, /truncated/i);
+  } finally {
     await cleanup();
   }
 });

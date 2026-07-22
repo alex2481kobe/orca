@@ -25,6 +25,11 @@ const CORE_V2_TOOLS = {
   'lane.terminal.tail': 'lane__terminal__tail',
   'audit.accept': 'audit__accept',
   'audit.request_fix': 'audit__request_fix',
+  // Lifecycle gap-closers: integrate accepted work, safely discard a worktree,
+  // and keep the orchestrator lease alive during read-only monitoring.
+  'lane.integrate': 'lane__integrate',
+  'lane.worktree.discard': 'lane__worktree__discard',
+  'orchestrator.heartbeat': 'orchestrator__heartbeat',
 };
 
 // Drive the MCP server: write JSON-RPC lines, resolve once the awaited id lands.
@@ -66,7 +71,9 @@ test('TOOL_DEFINITIONS exposes exactly the current tool set including the core v
   // (39 -> 38); the orchestrator record is the only container, no session enroll.
   // Model-A cleanup: session.worktree_policy.update removed with its deleted
   // /api/sessions route (38 -> 37); worktree isolation is per-lane by default.
-  assert.equal(TOOL_DEFINITIONS.length, 37);
+  // Lifecycle gap-closers added (37 -> 40): lane.integrate, lane.worktree.discard,
+  // orchestrator.heartbeat.
+  assert.equal(TOOL_DEFINITIONS.length, 40);
 
   const byId = new Map(TOOL_DEFINITIONS.map((tool) => [tool.id, tool]));
   for (const id of Object.keys(CORE_V2_TOOLS)) {
@@ -101,7 +108,7 @@ test('MCP tools/list advertises the core v2 tools to an orchestrator with unders
   const orchestratorCallable = TOOL_DEFINITIONS.filter(
     (tool) => tool.implemented && tool.route && tool.roles.includes('orchestrator'),
   ).length;
-  assert.equal(orchestratorCallable, 35);
+  assert.equal(orchestratorCallable, 38);
   assert.equal(names.includes('permission_prompt'), true, 'permission gateway is always advertised');
   assert.equal(tools.length, orchestratorCallable + 1, 'orchestrator surface = callable tools + permission gateway');
 });

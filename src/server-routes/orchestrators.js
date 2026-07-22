@@ -223,6 +223,22 @@ export async function handleOrchestratorRoutes(ctx, req, res, method, parts) {
     return sendJson(res, 405, { error: 'Method not allowed.' });
   }
 
+  // POST /api/orchestrators/{id}/heartbeat — refresh the lease-owner's lastSeenAt
+  // so read-only monitoring doesn't let ownership go stale (~15 min).
+  if (parts.length === 4 && parts[3] === 'heartbeat' && method === 'POST') {
+    if (!orchestratorExists(parts[2])) return sendJson(res, 404, { error: 'Orchestrator not found.' });
+    const body = await parseJsonBody(req).catch(() => ({}));
+    if (rejectSpoofedActor(body || {}, res)) return;
+    const leaseId = leaseIdFor(ctx, req, registry, 'orchestrator.heartbeat');
+    if (leaseId && leaseId.error) return sendJson(res, leaseId.status, { error: leaseId.error });
+    try {
+      const result = registry.touchOrchestrator(parts[2], { leaseId: leaseId?.id || 'dashboard' });
+      return sendJson(res, 200, result);
+    } catch (error) {
+      return sendJson(res, error.status || 500, { error: error.message || 'Could not refresh orchestrator heartbeat.' });
+    }
+  }
+
   // GET /api/orchestrators/{id}/status — ownership + lane tree + next tool.
   if (parts.length === 4 && parts[3] === 'status' && method === 'GET') {
     try {

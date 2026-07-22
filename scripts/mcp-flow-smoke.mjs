@@ -186,7 +186,8 @@ try {
   });
   await orch.initialize();
   const orchTools = await orch.listToolNames();
-  for (const need of ['orchestrator__register', 'lane__create', 'lane__shutdown', 'audit__queue_one', 'project__list']) {
+  for (const need of ['orchestrator__register', 'lane__create', 'lane__shutdown', 'audit__queue_one', 'project__list',
+    'lane__integrate', 'lane__worktree__discard', 'orchestrator__heartbeat']) {
     if (!orchTools.includes(need)) fail('orchestrator tools/list missing', need);
   }
   if (orchTools.includes('orchestrator__enroll')) fail('orchestrator tools/list still exposes removed enroll tool');
@@ -198,6 +199,12 @@ try {
   const orchestratorId = reg.data.id;
   const projectId = reg.data.projectId;
   log('workspace', `project=${projectId} orchestrator=${orchestratorId}`);
+
+  // Heartbeat refreshes the lease owner's lastSeenAt (keeps ownership from going
+  // stale during read-only monitoring).
+  const beat = await orch.call('orchestrator__heartbeat', { orchestratorId, body: { actor: 'orchestrator-mcp-flow' } });
+  if (beat.isError || !beat.data?.lastSeenAt) fail('orchestrator orchestrator__heartbeat', beat.text);
+  log('orchestrator heartbeat', 'lastSeenAt refreshed');
 
   // project.list via MCP returns our (implicitly created) project.
   const projList = await orch.call('project__list', {});

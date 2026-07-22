@@ -1,6 +1,7 @@
 // Next-action state machine + envelope builder. Extracted from agent-tools.js.
 
 import { CONTRACT_VERSION } from './contract.js';
+import { isLiveLaneState } from '../worker-contract.js';
 import { findTool } from './tool-definitions.js';
 import { normalizeRole, availableToolIdsForRole } from './roles.js';
 import { buildMcpToolsByExecutor } from './registry-views.js';
@@ -150,14 +151,27 @@ function chooseSessionLane(registry, { role, project, session }) {
   return best?.lane || null;
 }
 
-function buildCapacity() {
-  // v2 removed per-session backlog capacity accounting (executor.spawn is the
-  // fan-out path). Return a stable, non-authoritative default shape.
+function buildCapacity(registry, session) {
+  // Report the orchestrator container's REAL capacity + live load so an agent can
+  // trust these numbers for scheduling. The getSession() container view carries
+  // approvedCapacity / laneConcurrencyLimit / spawnPolicy from the orchestrator
+  // record; activeAgents is the live count of lanes occupying a slot (queued /
+  // starting / running) under this container.
+  if (!session) {
+    return { spawnPolicy: 'within_capacity', approvedCapacity: 0, laneConcurrencyLimit: 0, activeAgents: 0, idleSlots: 0, capacityRequests: [] };
+  }
+  const approvedCapacity = Number.isFinite(session.approvedCapacity) ? session.approvedCapacity : 0;
+  const laneConcurrencyLimit = Number.isFinite(session.laneConcurrencyLimit) ? session.laneConcurrencyLimit : approvedCapacity;
+  const effectiveLimit = laneConcurrencyLimit || approvedCapacity;
+  const activeAgents = (registry?.lanes || [])
+    .filter((lane) => lane.sessionId === session.id && isLiveLaneState(lane.state))
+    .length;
   return {
-    spawnPolicy: 'within_capacity',
-    approvedCapacity: 2,
-    activeAgents: 0,
-    idleSlots: 2,
+    spawnPolicy: session.spawnPolicy || 'auto',
+    approvedCapacity,
+    laneConcurrencyLimit: effectiveLimit,
+    activeAgents,
+    idleSlots: Math.max(0, effectiveLimit - activeAgents),
     capacityRequests: [],
   };
 }
@@ -276,7 +290,7 @@ export function buildNextActionEnvelope(registry, {
     auditSatisfied: auditRequired ? auditSatisfied : true,
     flow,
     turnPolicy: lane?.turnPolicy || null,
-    capacity: buildCapacity(),
+    capacity: buildCapacity(registry, session),
     executorCapabilities: (!lean && typeof registry?.getExecutorCapabilitiesMatrix === 'function')
       ? registry.getExecutorCapabilitiesMatrix()
       : {},

@@ -375,13 +375,60 @@ export async function handleLaneRoutes(ctx, req, res, method, parts) {
           actor: body.actor || 'dashboard',
           approved: body.approved,
           removeBranch: Boolean(body.removeBranch),
+          force: Boolean(body.force),
         });
         return sendJson(res, 200, result);
       } catch (error) {
         return sendJson(res, error.status || 500, {
           error: error.message || 'Could not remove worktree.',
           requiresApproval: error.requiresApproval || false,
+          uncommittedChanges: error.uncommittedChanges || 0,
           risk: error.risk || null,
+        });
+      }
+    }
+
+    // Safe worktree discard (lane.worktree.discard): refuses uncommitted work
+    // unless body.force:true. Same backend as worktree/remove.
+    if (parts.length === 5 && parts[3] === 'worktree' && parts[4] === 'discard' && method === 'POST') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+      if (rejectSpoofedActor(body, res)) return;
+      try {
+        const result = await registry.removeLaneWorktree(lane.id, {
+          actor: body.actor || 'dashboard',
+          approved: body.approved,
+          removeBranch: Boolean(body.removeBranch),
+          force: Boolean(body.force),
+        });
+        return sendJson(res, 200, result);
+      } catch (error) {
+        return sendJson(res, error.status || 500, {
+          error: error.message || 'Could not discard worktree.',
+          requiresApproval: error.requiresApproval || false,
+          uncommittedChanges: error.uncommittedChanges || 0,
+          risk: error.risk || null,
+        });
+      }
+    }
+
+    // Integrate an isolated, audit-accepted lane's branch into the base branch.
+    if (parts.length === 4 && parts[3] === 'integrate' && method === 'POST') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+      if (rejectSpoofedActor(body, res)) return;
+      try {
+        const result = await registry.integrateLane(lane.id, {
+          actor: body.actor || 'dashboard',
+          push: Boolean(body.push),
+        });
+        return sendJson(res, 200, result);
+      } catch (error) {
+        return sendJson(res, error.status || 500, {
+          error: error.message || 'Could not integrate lane.',
+          conflicts: error.conflicts || false,
+          baseBranch: error.baseBranch || null,
+          branch: error.branch || null,
         });
       }
     }

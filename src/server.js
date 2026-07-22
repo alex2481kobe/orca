@@ -364,6 +364,9 @@ function toolLeaseRequirementForRoute(method, parts) {
     if (parts[4] === 'replay' && method === 'GET') return { toolId: 'event.replay', sessionId: parts[2] };
     if (parts[4] === 'ack' && method === 'POST') return { toolId: 'event.ack', sessionId: parts[2] };
   }
+  if (parts[1] === 'orchestrators' && parts[2] && parts[3] === 'heartbeat' && parts.length === 4 && method === 'POST') {
+    return { toolId: 'orchestrator.heartbeat', sessionId: parts[2] };
+  }
   if (parts[1] === 'orchestrators' && parts[2] && parts[3] === 'status' && parts.length === 4 && method === 'GET') {
     return { toolId: 'orchestrator.status', sessionId: parts[2] };
   }
@@ -394,6 +397,12 @@ function toolLeaseRequirementForRoute(method, parts) {
   }
   if (parts[1] === 'lanes' && parts[2] && parts[3] === 'retry' && method === 'POST') {
     return { toolId: 'lane.retry', laneId: parts[2] };
+  }
+  if (parts[1] === 'lanes' && parts[2] && parts[3] === 'integrate' && parts.length === 4 && method === 'POST') {
+    return { toolId: 'lane.integrate', laneId: parts[2] };
+  }
+  if (parts[1] === 'lanes' && parts[2] && parts[3] === 'worktree' && parts[4] === 'discard' && method === 'POST') {
+    return { toolId: 'lane.worktree.discard', laneId: parts[2] };
   }
   if (parts[1] === 'lanes' && parts[2] && parts[3] === 'controls' && method === 'PATCH') {
     return { toolId: 'lane.controls.update', laneId: parts[2] };
