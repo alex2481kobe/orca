@@ -16,7 +16,7 @@ import { commandTargetsExecutorFirstToken } from './registry-reinstall.js';
 import { createLaneWorktree, describeRepoRoot } from './worktree-manager.js';
 import { sanitizeSettingsOverrides } from './effective-settings.js';
 import { validateNetworkUrl } from './url-policy.js';
-import { normalizeCritiqueMode, resolveWorktreeMode } from './registry-lane-config.js';
+import { normalizeCritiqueMode, resolveWorktreeMode, normalizeIdleShutdownMode } from './registry-lane-config.js';
 
 const { QUEUED: QUEUED_STATE } = LANE_STATES;
 const MAX_WORKDIR_BYTES = 2048;
@@ -86,6 +86,7 @@ export const laneCreateMethods = {
     branch,
     sharedWorktree,
     worktreeMode,
+    idleShutdownMode,
     auditTargetLaneId,
     metadataTaskId,
     metadataLoopId,
@@ -325,6 +326,11 @@ export const laneCreateMethods = {
       sharedWorktree: resolvedWorktreeMode === 'shared',
       worktreeMode: resolvedWorktreeMode,
       worktreePath: derivedWorktree || resolvedWorkdir,
+      // Idle-shutdown policy for this lane + the last time it showed activity
+      // (output/heartbeat/state change). The scheduler reaps a running lane idle
+      // past its window per this mode. Default 'immediate'; 'policy' never reaps.
+      idleShutdownMode: normalizeIdleShutdownMode(idleShutdownMode),
+      lastActivityAt: now,
       state: QUEUED_STATE,
       owner,
       heartbeatAt: null,

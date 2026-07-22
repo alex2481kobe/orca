@@ -101,6 +101,8 @@ export const auditLogMethods = {
       lane.agentEvents = [];
     }
     const now = nowIso();
+    // Any agent output/tool activity keeps the lane's idle-shutdown clock fresh.
+    lane.lastActivityAt = now;
     const usage = boundedObject(agentEvent.usage || agentEvent.stats || agentEvent.tokens);
     lane.agentEvents.push({
       id: randomUUID(),

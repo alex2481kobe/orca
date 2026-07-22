@@ -4,7 +4,7 @@
 import { LANE_STATES, isRunningLaneState } from './worker-contract.js';
 import { nowIso } from './registry-utils.js';
 import { createExecutorAdapter } from './executor-factory.js';
-import { normalizeApprovedCapacity, normalizeSpawnPolicy } from './registry-lane-config.js';
+import { normalizeApprovedCapacity, normalizeSpawnPolicy, normalizeIdleShutdownMode } from './registry-lane-config.js';
 
 // The scheduler heartbeat must NOT, by itself, keep the Node process alive — a
 // listening HTTP server (the real entrypoint) is what should. Without unref(),
@@ -242,11 +242,37 @@ export const schedulerMethods = {
       await this.dispatchPendingAudits().catch(() => {});
     }
 
+    // Reap running lanes that have gone idle past their idle-shutdown window.
+    await this.reapIdleLanes();
+
     // Bound in-memory growth (terminal lanes/tasks) periodically — ~every 30 ticks
     // (≈1 min at the default heartbeat). Cheap no-op until records grow large.
     this._tickCount = (this._tickCount || 0) + 1;
     if (this._tickCount % 30 === 0 && typeof this.pruneInMemoryRecords === 'function') {
       try { this.pruneInMemoryRecords(); } catch { /* best effort */ }
+    }
+  },
+
+  // Stop RUNNING lanes that have produced no activity (output/heartbeat/state
+  // change) for longer than their idle window. The window scales with the lane's
+  // idleShutdownMode: 'immediate' = laneIdleTimeoutMs, 'short_keepalive' = 3x,
+  // 'policy' = never auto-reap (left to the orchestrator/human). Disabled entirely
+  // when laneIdleTimeoutMs <= 0. Distinct from the adapter heartbeat-timeout, which
+  // reaps a dead/hung PROCESS quickly; this reaps a lane that is alive but idle.
+  async reapIdleLanes(now = Date.now()) {
+    const baseMs = this.laneIdleTimeoutMs;
+    if (!Number.isFinite(baseMs) || baseMs <= 0) return;
+    for (const lane of (this.lanes || [])) {
+      if (!isRunningLaneState(lane.state)) continue;
+      const mode = normalizeIdleShutdownMode(lane.idleShutdownMode);
+      if (mode === 'policy') continue;
+      const windowMs = mode === 'short_keepalive' ? baseMs * 3 : baseMs;
+      const lastActivity = Date.parse(lane.lastActivityAt || lane.startedAt || lane.updatedAt || lane.createdAt) || 0;
+      if (!lastActivity || (now - lastActivity) <= windowMs) continue;
+      this.appendLaneLog?.(lane, `Idle shutdown: no activity for ${Math.round((now - lastActivity) / 1000)}s (mode ${mode})`, { persist: false });
+      try {
+        await this.stopLane(lane.id, { actor: 'idle-shutdown', approved: true });
+      } catch { /* best effort — a racing state change is fine */ }
     }
   },
 };

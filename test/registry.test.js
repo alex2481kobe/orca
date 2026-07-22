@@ -2725,6 +2725,48 @@ test('createLane raises the taskPrompt cap and records a visible warning on trun
   }
 });
 
+test('reapIdleLanes stops an idle running lane per idleShutdownMode', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const { orchestrator } = await makeOrchestrator(registry);
+    const past = new Date(Date.now() - 20 * 60 * 1000).toISOString(); // 20 min idle (> 15m window)
+
+    // Default mode 'immediate': idle past the window → reaped.
+    const idle = registry.createLane(orchestrator.id, { title: 'idle', executorType: 'mock' }, { actor: 'test', approved: true });
+    const idleLane = registry.getLane(idle.id);
+    idleLane.state = 'running'; idleLane.lastActivityAt = past;
+    assert.equal(idleLane.idleShutdownMode, 'immediate');
+
+    // 'policy': never auto-reaped, even when idle.
+    const policy = registry.createLane(orchestrator.id, { title: 'policy', executorType: 'mock', idleShutdownMode: 'policy' }, { actor: 'test', approved: true });
+    const policyLane = registry.getLane(policy.id);
+    policyLane.state = 'running'; policyLane.lastActivityAt = past;
+
+    // Recently active: not reaped.
+    const fresh = registry.createLane(orchestrator.id, { title: 'fresh', executorType: 'mock' }, { actor: 'test', approved: true });
+    const freshLane = registry.getLane(fresh.id);
+    freshLane.state = 'running'; freshLane.lastActivityAt = new Date().toISOString();
+
+    await registry.reapIdleLanes(Date.now());
+
+    assert.equal(registry.getLane(idle.id).state, 'stopped', 'idle immediate lane should be reaped');
+    assert.equal(registry.getLane(policy.id).state, 'running', 'policy lane must never be idle-reaped');
+    assert.equal(registry.getLane(fresh.id).state, 'running', 'recently-active lane must not be reaped');
+
+    // Disabled entirely when the window is 0.
+    const prevWindow = registry.laneIdleTimeoutMs;
+    registry.laneIdleTimeoutMs = 0;
+    const idle2 = registry.createLane(orchestrator.id, { title: 'idle2', executorType: 'mock' }, { actor: 'test', approved: true });
+    const idle2Lane = registry.getLane(idle2.id);
+    idle2Lane.state = 'running'; idle2Lane.lastActivityAt = past;
+    await registry.reapIdleLanes(Date.now());
+    assert.equal(registry.getLane(idle2.id).state, 'running', 'idle-shutdown disabled when window <= 0');
+    registry.laneIdleTimeoutMs = prevWindow;
+  } finally {
+    await cleanup();
+  }
+});
+
 test('Session shared worktree mode runs lanes in the session repoRoot without per-lane worktrees', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {

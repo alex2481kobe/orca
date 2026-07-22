@@ -573,7 +573,9 @@ export const laneOpsMethods = {
     if (!updated) {
       return clonePayload(lane);
     }
-    lane.heartbeatAt = nowIso();
+    const beatAt = nowIso();
+    lane.heartbeatAt = beatAt;
+    lane.lastActivityAt = beatAt; // a heartbeat is liveness → resets idle-shutdown
     return clonePayload(lane);
   },
 

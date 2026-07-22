@@ -38,6 +38,11 @@ export class OrcaRegistry {
     heartbeatIntervalMs = 2000,
     autoCompleteMs = 12000,
     heartbeatTimeoutMs = 15000,
+    // Idle-shutdown window: a RUNNING lane that produces no activity for this long
+    // is reaped per its idleShutdownMode (immediate = this window, short_keepalive =
+    // 3x, policy = never). Distinct from heartbeatTimeoutMs, which reaps a dead/hung
+    // PROCESS fast; this reaps a lane that is alive but idle. 0 disables. 15min default.
+    laneIdleTimeoutMs = Number(process.env.ORCA_LANE_IDLE_TIMEOUT_MS ?? '') || 900000,
     credentialStore = null,
     providerProfileStore = null,
     autoAudit,
@@ -59,6 +64,7 @@ export class OrcaRegistry {
     this.heartbeatIntervalMs = heartbeatIntervalMs;
     this.autoCompleteMs = autoCompleteMs;
     this.heartbeatTimeoutMs = heartbeatTimeoutMs;
+    this.laneIdleTimeoutMs = laneIdleTimeoutMs;
     // Auto-audit: when a lane finishes under require-audit-pass (or the
     // audit flow template), the scheduler auto-runs the audit — nudging the
     // orchestrator, or spawning a dedicated auditor lane (per the Auditor
