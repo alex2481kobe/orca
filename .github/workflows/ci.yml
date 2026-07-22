@@ -86,3 +86,37 @@ jobs:
 
       - name: Audit production dependencies
         run: npm audit --omit=dev
+
+  # iOS Safari uses WebKit, but the job above only runs Chromium. The recurring
+  # mobile regressions (drawer pointer-events, prefers-color-scheme dark-mode) are
+  # exactly the engine-sensitive class WebKit catches and Chromium misses. Its own
+  # job so it runs in parallel and never slows the Chromium path.
+  verify-webkit:
+    name: verify-webkit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Install Playwright WebKit
+        run: npx playwright install --with-deps webkit
+
+      - name: Screen proofs under WebKit (iOS Safari engine)
+        # The engine-sensitive mobile screens (real touch drawer + live
+        # prefers-color-scheme) run under WebKit. mobile-nav reaches the remote
+        # UI via the public *.localtest.me wildcard (WebKit has no host-resolver
+        # launch flag); theme-system needs no remote host.
+        run: npm run smoke:screens-webkit

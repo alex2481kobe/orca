@@ -2,8 +2,10 @@
 // (the reported mobile bug: flip the phone to dark, the app stays light). Uses
 // Playwright emulateMedia to change prefers-color-scheme after load and asserts
 // document data-theme updates — and that an explicit Light/Dark pref does NOT follow
-// the OS. Loopback bootstrap-admin; isolated .orca state.
-import { chromium } from 'playwright';
+// the OS. Loopback bootstrap-admin; isolated .orca state. Engine is picked by
+// VERIFY_ENGINE (default chromium; webkit runs the same proof under iOS Safari's
+// engine — no remote host needed, this test only uses 127.0.0.1).
+import { launchBrowser } from './lib/verify-browser.mjs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -17,7 +19,7 @@ const s = await sm.startServer(0, '127.0.0.1');
 const port = s.address().port;
 const outDir = path.join(projectCwd, 'artifacts/verify');
 await fs.mkdir(outDir, { recursive: true });
-const b = await chromium.launch();
+const b = await launchBrowser();
 const results = {};
 let failed = false;
 const check = (n, c) => { results[n] = c; if (!c) { failed = true; console.error(`  FAIL ${n}`); } };

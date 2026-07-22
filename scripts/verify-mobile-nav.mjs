@@ -3,17 +3,23 @@
 // devices" and "Settings" — each must route + render, not collapse back to home.
 // Also asserts the drawer's left content clears the edge (the left-cutoff fix).
 // Uses a real touch context (hasTouch/isMobile + page.tap), unlike a forced-open
-// click test. Fake tailnet host maps to 127.0.0.1 (allowlisted past anti-rebinding).
-import { chromium } from 'playwright';
+// click test. The engine + the "remote host" strategy are picked by VERIFY_ENGINE
+// (default chromium: fake tailnet host mapped to 127.0.0.1 via a launch flag;
+// webkit: the real *.localtest.me wildcard, since WebKit has no host-resolver
+// flag). Either way the host is allowlisted past anti-rebinding and is non-loopback
+// so the client renders the remote-client UI.
+import { launchBrowser, remoteHostStrategy } from './lib/verify-browser.mjs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+const strategy = remoteHostStrategy();
+const REMOTE_HOST = strategy.host;
 const projectCwd = process.cwd();
 process.chdir(await fs.mkdtemp(path.join(os.tmpdir(), 'orca-verify-state-')));
 process.env.PORT = '0'; process.env.ORCA_HOST = '127.0.0.1';
 process.env.ORCA_CREDENTIAL_BACKEND = 'memory'; process.env.ORCA_RATE_LIMIT_DISABLED = 'true';
-process.env.ORCA_API_TOKEN = 'verify-token'; process.env.ORCA_ALLOWED_HOSTS = 'remote.test';
+process.env.ORCA_API_TOKEN = 'verify-token'; process.env.ORCA_ALLOWED_HOSTS = REMOTE_HOST;
 const sm = await import('../src/server.js');
 const s = await sm.startServer(0, '127.0.0.1');
 const port = s.address().port;
@@ -21,7 +27,7 @@ const base = `http://127.0.0.1:${port}`;
 const outDir = path.join(projectCwd, 'artifacts/verify');
 await fs.mkdir(outDir, { recursive: true });
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
-const b = await chromium.launch({ args: ['--host-resolver-rules=MAP remote.test 127.0.0.1'] });
+const b = await launchBrowser({ args: strategy.launchArgs });
 const results = {};
 let failed = false;
 const check = (n, c) => { results[n] = c; if (!c) { failed = true; console.error(`  FAIL ${n}`); } };
@@ -34,9 +40,9 @@ check('setup.code', Boolean(code));
 
 const ctx = await b.newContext({ userAgent: IPHONE, viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 const p = await ctx.newPage();
-await p.goto(`http://remote.test:${port}/`, { waitUntil: 'domcontentloaded' });
+await p.goto(`http://${REMOTE_HOST}:${port}/`, { waitUntil: 'domcontentloaded' });
 await p.evaluate(async (c) => { await fetch('/api/auth/pair', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: c, label: 'iPhone' }) }); }, code);
-await p.goto(`http://remote.test:${port}/`, { waitUntil: 'domcontentloaded' });
+await p.goto(`http://${REMOTE_HOST}:${port}/`, { waitUntil: 'domcontentloaded' });
 await p.waitForTimeout(900);
 
 // The drawer opener on mobile (topbar is hidden → the floating reopen control).
@@ -97,9 +103,9 @@ await ctx.close();
   const ctx2 = await b.newContext({ userAgent: IPHONE, viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
   await ctx2.addInitScript(() => { try { localStorage.setItem('orca.sidebar', 'collapsed'); } catch { /* */ } });
   const p2 = await ctx2.newPage();
-  await p2.goto(`http://remote.test:${port}/`, { waitUntil: 'domcontentloaded' });
+  await p2.goto(`http://${REMOTE_HOST}:${port}/`, { waitUntil: 'domcontentloaded' });
   await p2.evaluate(async (c) => { await fetch('/api/auth/pair', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: c, label: 'iPhone2' }) }); }, code2);
-  await p2.goto(`http://remote.test:${port}/`, { waitUntil: 'domcontentloaded' });
+  await p2.goto(`http://${REMOTE_HOST}:${port}/`, { waitUntil: 'domcontentloaded' });
   await p2.waitForTimeout(900);
   const opener2 = await p2.evaluate(() => {
     const vis = (el) => el && getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().width > 0;
