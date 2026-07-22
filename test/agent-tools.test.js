@@ -130,7 +130,7 @@ test('role instructions and next-action only reference live tool ids (v2 coheren
   // 2. Drive chooseNextTool across every role x lane-state x flow branch it has and
   // assert each returned nextRequiredTool is live (or null). A mock registry
   // exercises both the enrolled and un-enrolled orchestrator gates.
-  const roles = ['supervisor', 'orchestrator', 'executor', 'auditor', 'critique', 'dashboard'];
+  const roles = ['orchestrator', 'executor', 'auditor', 'dashboard'];
   const laneStates = [
     null, 'queued', 'starting', 'running', 'needs_critique', 'done', 'ready_for_audit',
     'auditing', 'fix_requested', 'accepted', 'failed', 'stopped', 'blocked', 'unknown-state',
@@ -327,12 +327,6 @@ test('tool leases are scoped, hashed at rest, and enforce allowed tools', async 
       role: 'executor',
       sessionId: session.id,
       allowedTools: ['lane.get'],
-    }), (error) => error.status === 422 && /scoped to a lane/.test(error.message));
-
-    assert.throws(() => registry.createToolLease({
-      role: 'critique',
-      sessionId: session.id,
-      allowedTools: ['critique.bundle.create'],
     }), (error) => error.status === 422 && /scoped to a lane/.test(error.message));
 
     assert.throws(() => registry.createToolLease({

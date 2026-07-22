@@ -622,7 +622,6 @@ body.sidebar-collapsed .settings-row {
 .home-panels[data-active-panel="agents"] > [data-panel-card]:not([data-panel-card="agents"]),
 .home-panels[data-active-panel="mcp"] > [data-panel-card]:not([data-panel-card="mcp"]),
 .home-panels[data-active-panel="providers"] > [data-panel-card]:not([data-panel-card="providers"]),
-.home-panels[data-active-panel="supervisor"] > [data-panel-card]:not([data-panel-card="supervisor"]),
 .home-panels[data-active-panel="access"] > [data-panel-card]:not([data-panel-card="access"]),
 .home-panels[data-active-panel="operations"] > [data-panel-card]:not([data-panel-card="operations"]) {
   display: none;

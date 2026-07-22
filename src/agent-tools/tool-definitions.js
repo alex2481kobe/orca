@@ -5,7 +5,7 @@ export const TOOL_DEFINITIONS = [
   {
     id: 'session.next_action',
     group: 'session',
-    roles: ['supervisor', 'orchestrator', 'executor', 'auditor', 'critique', 'dashboard'],
+    roles: ['orchestrator', 'executor', 'auditor', 'dashboard'],
     method: 'GET',
     route: '/api/agent-tools/next-action',
     implemented: true,
@@ -15,7 +15,7 @@ export const TOOL_DEFINITIONS = [
   {
     id: 'executor.capabilities',
     group: 'executor',
-    roles: ['supervisor', 'orchestrator', 'executor', 'auditor', 'critique', 'dashboard'],
+    roles: ['orchestrator', 'executor', 'auditor', 'dashboard'],
     method: 'GET',
     route: '/api/agent-tools/discovery',
     implemented: true,
@@ -35,7 +35,7 @@ export const TOOL_DEFINITIONS = [
   {
     id: 'lane.list',
     group: 'lane',
-    roles: ['supervisor', 'orchestrator', 'executor', 'auditor', 'dashboard'],
+    roles: ['orchestrator', 'executor', 'auditor', 'dashboard'],
     method: 'GET',
     route: '/api/orchestrators/{orchestratorId}/lanes',
     implemented: true,
@@ -45,7 +45,7 @@ export const TOOL_DEFINITIONS = [
   {
     id: 'lane.get',
     group: 'lane',
-    roles: ['supervisor', 'orchestrator', 'executor', 'auditor', 'dashboard'],
+    roles: ['orchestrator', 'executor', 'auditor', 'dashboard'],
     method: 'GET',
     route: '/api/lanes/{laneId}',
     implemented: true,
@@ -55,7 +55,7 @@ export const TOOL_DEFINITIONS = [
   {
     id: 'lane.terminal.tail',
     group: 'lane',
-    roles: ['supervisor', 'orchestrator', 'executor', 'auditor', 'dashboard'],
+    roles: ['orchestrator', 'executor', 'auditor', 'dashboard'],
     method: 'GET',
     route: '/api/lanes/{laneId}/terminal-tail',
     implemented: true,
@@ -115,7 +115,7 @@ export const TOOL_DEFINITIONS = [
   {
     id: 'approval.request',
     group: 'approval',
-    roles: ['executor', 'critique', 'orchestrator'],
+    roles: ['executor', 'orchestrator'],
     method: 'POST',
     route: '/api/lanes/{laneId}/approvals',
     implemented: true,
@@ -125,7 +125,7 @@ export const TOOL_DEFINITIONS = [
   {
     id: 'approval.list',
     group: 'approval',
-    roles: ['supervisor', 'executor', 'orchestrator', 'auditor', 'dashboard'],
+    roles: ['executor', 'orchestrator', 'auditor', 'dashboard'],
     method: 'GET',
     route: '/api/lanes/{laneId}/approvals',
     implemented: true,
@@ -295,7 +295,7 @@ export const TOOL_DEFINITIONS = [
   {
     id: 'project.list',
     group: 'projects',
-    roles: ['supervisor', 'orchestrator', 'dashboard'],
+    roles: ['orchestrator', 'dashboard'],
     method: 'GET',
     route: '/api/projects',
     implemented: true,
@@ -305,7 +305,7 @@ export const TOOL_DEFINITIONS = [
   {
     id: 'project.describe',
     group: 'projects',
-    roles: ['supervisor', 'orchestrator', 'dashboard'],
+    roles: ['orchestrator', 'dashboard'],
     method: 'GET',
     route: '/api/projects/{projectId}',
     implemented: true,
@@ -395,7 +395,7 @@ export const TOOL_DEFINITIONS = [
   {
     id: 'orchestrator.status',
     group: 'orchestrator',
-    roles: ['supervisor', 'orchestrator', 'executor', 'auditor', 'dashboard'],
+    roles: ['orchestrator', 'executor', 'auditor', 'dashboard'],
     method: 'GET',
     route: '/api/orchestrators/{orchestratorId}/status',
     implemented: true,
@@ -405,7 +405,7 @@ export const TOOL_DEFINITIONS = [
   {
     id: 'event.drain',
     group: 'event',
-    roles: ['supervisor', 'orchestrator', 'dashboard'],
+    roles: ['orchestrator', 'dashboard'],
     method: 'GET',
     route: '/api/orchestrators/{orchestratorId}/events/drain',
     implemented: true,
@@ -415,7 +415,7 @@ export const TOOL_DEFINITIONS = [
   {
     id: 'event.replay',
     group: 'event',
-    roles: ['supervisor', 'orchestrator', 'dashboard'],
+    roles: ['orchestrator', 'dashboard'],
     method: 'GET',
     route: '/api/orchestrators/{orchestratorId}/events/replay',
     implemented: true,
@@ -425,7 +425,7 @@ export const TOOL_DEFINITIONS = [
   {
     id: 'event.ack',
     group: 'event',
-    roles: ['supervisor', 'orchestrator', 'dashboard'],
+    roles: ['orchestrator', 'dashboard'],
     method: 'POST',
     route: '/api/orchestrators/{orchestratorId}/events/ack',
     implemented: true,
@@ -435,7 +435,7 @@ export const TOOL_DEFINITIONS = [
   {
     id: 'tailscale.status',
     group: 'tailscale',
-    roles: ['supervisor', 'orchestrator', 'dashboard'],
+    roles: ['orchestrator', 'dashboard'],
     method: 'GET',
     route: '/api/private-access/tailnet',
     implemented: true,
@@ -455,7 +455,7 @@ export const TOOL_DEFINITIONS = [
   {
     id: 'orca.setup_guide',
     group: 'setup',
-    roles: ['supervisor', 'orchestrator', 'dashboard'],
+    roles: ['orchestrator', 'dashboard'],
     method: 'GET',
     route: '/api/private-access/setup-plan',
     implemented: true,

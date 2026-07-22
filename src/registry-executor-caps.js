@@ -96,8 +96,8 @@ export const executorCapabilityMethods = {
             summary: `${executorType.toUpperCase()} CLI not executable`,
             detail: `Configured binary ${info.binary} could not be invoked (exitCode=${info.binaryExitCode || 'n/a'}).`,
             remediation: executorType === 'codex'
-              ? 'Reinstall the Codex CLI: `brew reinstall --cask codex` OR `npm install -g @openai/codex`. Then restart Orca.'
-              : 'Reinstall Claude Code: `brew install anthropic-ai/tap/claude` or follow the official installer. Then restart Orca.',
+              ? "The codex binary is not executable on this machine; lanes with executorType 'codex' cannot spawn. Point Orca at a working binary or choose another executor."
+              : "The claude binary is not executable on this machine; lanes with executorType 'claude' cannot spawn. Point Orca at a working binary or choose another executor.",
             approvalRequired: true,
           });
         } else if (!info.version) {
@@ -148,7 +148,7 @@ export const executorCapabilityMethods = {
         binary: null,
         binaryExists: true,
         version: 'built-in',
-        roles: ['orchestrator', 'executor', 'auditor', 'critique'],
+        roles: ['orchestrator', 'executor', 'auditor'],
         controls: {
           model: { supported: false, values: [] },
           permissions: { supported: true, values: ['plan', 'read-only', 'auto-edit'] },
@@ -241,7 +241,7 @@ export const executorCapabilityMethods = {
         binary: publicBinaryName(binary),
         binaryExists: Boolean(versionInfo.exists),
         version: firstLine(versionInfo.version),
-        roles: ['orchestrator', 'executor', 'auditor', 'critique'],
+        roles: ['orchestrator', 'executor', 'auditor'],
         controls: {
           model: {
             supported: supportsModel || modelValues.length > 0,

@@ -213,8 +213,8 @@ test('lane stream accepts scoped lane.get tool leases for live executor output',
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: {
-        actor: 'wrong-session-supervisor',
-        role: 'supervisor',
+        actor: 'wrong-session-auditor',
+        role: 'auditor',
         projectId,
         sessionId: otherOrchestrator.body.id,
         ttlMs: 10 * 60 * 1000,
@@ -231,21 +231,21 @@ test('lane stream accepts scoped lane.get tool leases for live executor output',
     assert.equal(scopedTailDenied.status, 403);
     assert.match(scopedTailDenied.body.error, /Tool lease session mismatch/);
 
-    const supervisorLease = await server.request('/api/agent-tools/leases', {
+    const auditorLease = await server.request('/api/agent-tools/leases', {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: {
-        actor: 'stream-supervisor',
-        role: 'supervisor',
+        actor: 'stream-auditor',
+        role: 'auditor',
         projectId,
         sessionId: orchestrator.body.id,
         ttlMs: 10 * 60 * 1000,
       },
     });
-    assert.equal(supervisorLease.status, 201);
+    assert.equal(auditorLease.status, 201);
 
     const tail = await server.request(`/api/lanes/${lane.body.id}/terminal-tail?maxBytes=64`, {
-      headers: { 'x-orca-tool-lease': supervisorLease.body.leaseToken },
+      headers: { 'x-orca-tool-lease': auditorLease.body.leaseToken },
     });
     assert.equal(tail.status, 200);
     assert.equal(tail.body.text, 'hello from executor stream\n');
@@ -254,7 +254,7 @@ test('lane stream accepts scoped lane.get tool leases for live executor output',
     assert.equal(tail.body.eof, true);
 
     const incrementalTail = await server.request(`/api/lanes/${lane.body.id}/terminal-tail?offset=6&maxBytes=4`, {
-      headers: { 'x-orca-tool-lease': supervisorLease.body.leaseToken },
+      headers: { 'x-orca-tool-lease': auditorLease.body.leaseToken },
     });
     assert.equal(incrementalTail.status, 200);
     assert.equal(incrementalTail.body.text, 'from');
@@ -262,7 +262,7 @@ test('lane stream accepts scoped lane.get tool leases for live executor output',
     assert.equal(incrementalTail.body.nextOffset, 10);
 
     const stream = await server.request(`/api/lanes/${lane.body.id}/stream`, {
-      headers: { 'x-orca-tool-lease': supervisorLease.body.leaseToken },
+      headers: { 'x-orca-tool-lease': auditorLease.body.leaseToken },
     });
     assert.equal(stream.status, 200);
     assert.equal(stream.headers['content-type'].includes('text/event-stream'), true);
@@ -296,18 +296,18 @@ test('lane terminal tail and live stream preserve large-output continuity', asyn
       body: { title: 'Continuity executor', executorType: 'mock', approved: true },
     });
     assert.equal(lane.status, 201);
-    const supervisorLease = await server.request('/api/agent-tools/leases', {
+    const auditorLease = await server.request('/api/agent-tools/leases', {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: {
-        actor: 'continuity-supervisor',
-        role: 'supervisor',
+        actor: 'continuity-auditor',
+        role: 'auditor',
         projectId: orchestrator.body.projectId,
         sessionId: orchestrator.body.id,
         ttlMs: 10 * 60 * 1000,
       },
     });
-    assert.equal(supervisorLease.status, 201);
+    assert.equal(auditorLease.status, 201);
 
     const logDir = path.join(process.cwd(), 'artifacts', orchestrator.body.id, lane.body.id);
     const logPath = path.join(logDir, 'terminal.log');
@@ -319,7 +319,7 @@ test('lane terminal tail and live stream preserve large-output continuity', asyn
     let reconstructed = '';
     for (let guard = 0; guard < 40; guard += 1) {
       const tail = await server.request(`/api/lanes/${lane.body.id}/terminal-tail?offset=${offset}&maxBytes=32768`, {
-        headers: { 'x-orca-tool-lease': supervisorLease.body.leaseToken },
+        headers: { 'x-orca-tool-lease': auditorLease.body.leaseToken },
       });
       assert.equal(tail.status, 200);
       assert.equal(tail.body.offset, offset);
@@ -332,7 +332,7 @@ test('lane terminal tail and live stream preserve large-output continuity', asyn
     assert.equal(offset, Buffer.byteLength(initialLog, 'utf8'));
 
     stream = await server.request(`/api/lanes/${lane.body.id}/stream`, {
-      headers: { 'x-orca-tool-lease': supervisorLease.body.leaseToken },
+      headers: { 'x-orca-tool-lease': auditorLease.body.leaseToken },
     });
     assert.equal(stream.status, 200);
     const snapshotEvents = await waitForEvents(stream, (events) => events.some((event) => event.event === 'snapshot'));

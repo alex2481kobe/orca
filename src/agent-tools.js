@@ -1,7 +1,7 @@
 // Agent tool contract. Split into contract/tool-definitions/roles/registry-views/
 // discovery/next-action; this barrel preserves the public surface.
 
-export { CONTRACT_VERSION } from './agent-tools/contract.js';
+export { CONTRACT_VERSION, ROLES } from './agent-tools/contract.js';
 export { TOOL_DEFINITIONS, findTool } from './agent-tools/tool-definitions.js';
 export { normalizeRole, availableToolIdsForRole } from './agent-tools/roles.js';
 export { buildAgentToolDiscovery } from './agent-tools/discovery.js';

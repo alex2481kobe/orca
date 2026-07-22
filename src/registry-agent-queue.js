@@ -1,11 +1,11 @@
 // Durable agent wakeup queue. This is separate from in-app notifications:
 // notifications are user-facing read state, while agent events are work items
-// that supervisors/orchestrators can drain and acknowledge over MCP/API.
+// that orchestrators can drain and acknowledge over MCP/API.
 
 import { randomUUID } from 'node:crypto';
 import { nowIso, clonePayload, safeArray } from './registry-utils.js';
 
-const VALID_TARGET_ROLES = new Set(['supervisor', 'orchestrator', 'any']);
+const VALID_TARGET_ROLES = new Set(['orchestrator', 'any']);
 const VALID_SEVERITIES = new Set(['info', 'success', 'warning', 'error']);
 const MAX_AGENT_QUEUE = 1000;
 const MAX_ACKS_PER_EVENT = 64;
@@ -56,7 +56,6 @@ function sanitizeMetadata(value, depth = 0) {
 function roleCanSeeEvent(role, event) {
   const caller = cleanText(role, 'dashboard', 40).toLowerCase();
   if (caller === 'dashboard') return true;
-  if (caller === 'supervisor') return true;
   if (caller === 'orchestrator') {
     return event.targetRole === 'orchestrator' || event.targetRole === 'any';
   }

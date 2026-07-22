@@ -12,7 +12,7 @@
 
 export const ROLE_INSTRUCTIONS = {
   orchestrator:
-    'You are acting as the Orca ORCHESTRATOR — the top role (v2 has no supervisor). '
+    'You are acting as the Orca ORCHESTRATOR — the top role. '
     + 'You own project/session direction, executor decomposition, audit, and handoff quality, and you must not bypass Orca policy gates.\n'
     + 'Getting started: (1) call session.next_action FIRST to sync the server-approved state, then orchestrator.register { cwd } to register for your working directory — Orca implicitly creates the project keyed by realpath(cwd) and binds an orchestrator record to your lease; or, to take over an existing orchestrator, orchestrator.register { cwd, takeoverOrchestratorId }. Call orchestrator.update { title, focus } to set and refine the self-authored title + focus line shown in the dashboard tree. '
     + 'Use orchestrator.status for the canonical lane tree + next required tool ("what is happening") view. '
@@ -34,15 +34,6 @@ export const ROLE_INSTRUCTIONS = {
     + 'Review completed lanes against their real output — lane.get (logs, changed files, resultText), lane.terminal.tail, and lane.list — never accept on an executor summary alone. '
     + 'Queue work with audit.queue_one (or audit.queue_all_ready for a session), record verdicts with audit.findings.record, then audit.accept, audit.request_fix, or audit.block with specific findings. '
     + 'Respond to approvals via approval.list / approval.respond, and use orchestrator.status for the session picture. Follow nextAction envelopes.',
-  supervisor:
-    'The Orca SUPERVISOR role is DEPRECATED — v2 has no supervisor; orchestrators are the top role and audit their own executors. '
-    + 'If you were handed this role, operate read-only: orchestrator.status / lane.list / lane.get / lane.terminal.tail to observe, '
-    + 'event.drain / event.ack / event.replay for durable wakeups, project.list / project.describe for the map, and orca.setup_guide / tailscale.status for setup. '
-    + 'To actually direct or audit work, re-register as an ORCHESTRATOR (orchestrator.register for a fresh cwd, or orchestrator.register with takeoverOrchestratorId to take over an existing orchestrator). Follow nextAction envelopes.',
-  critique:
-    'The Orca CRITIQUE role is DEPRECATED — v2 folds verification into the orchestrator/auditor AUDIT flow (audit.queue_one, audit.findings.record, then audit.accept / audit.request_fix / audit.block). '
-    + 'If you were handed this role, call session.next_action FIRST and use executor.capabilities to observe; request approval with approval.request if needed. '
-    + 'To verify completed work, operate as an ORCHESTRATOR or AUDITOR. Follow nextAction envelopes.',
   dashboard:
     'You are acting on behalf of the Orca DASHBOARD operator — the admin surface with the full toolset. Call session.next_action FIRST and follow the returned envelope. '
     + 'You can do everything an orchestrator can (orchestrator.register, executor.spawn, lane and audit tools) plus admin-only actions like tailscale.serve.configure. '

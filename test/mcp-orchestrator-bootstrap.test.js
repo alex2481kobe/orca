@@ -237,44 +237,22 @@ test('registry replaces duplicate external MCP bootstrap leases for the same cha
       }),
       (error) => error.status === 401 && /revoked/i.test(error.message),
     );
-    const first = registry.createOrchestratorMcpBootstrap({
-      role: 'supervisor',
-      actor: 'same-supervisor-chat',
-      projectId: project.id,
-      sessionId: session.id,
-    });
-    const second = registry.createOrchestratorMcpBootstrap({
-      role: 'supervisor',
-      actor: 'same-supervisor-chat',
-      projectId: project.id,
-      sessionId: session.id,
-    });
-    assert.notEqual(first.lease.id, second.lease.id);
-    assert.throws(
-      () => registry.validateToolLease(first.leaseToken, {
-        role: 'supervisor',
-        toolId: 'session.next_action',
-        projectId: project.id,
-        sessionId: session.id,
-      }),
-      (error) => error.status === 401 && /revoked/i.test(error.message),
-    );
-    const active = registry.listToolLeases({ activeOnly: true })
-      .filter((lease) => lease.role === 'supervisor' && lease.actor === 'same-supervisor-chat');
-    assert.deepEqual(active.map((lease) => lease.id), [second.lease.id]);
     const activeOrchestrators = registry.listToolLeases({ activeOnly: true })
       .filter((lease) => lease.role === 'orchestrator' && lease.actor === 'same-orchestrator-chat');
     assert.deepEqual(activeOrchestrators.map((lease) => lease.id), [secondOrchestrator.lease.id]);
 
+    // The effective-scope replacement path (a session-only reconnect superseded by
+    // a full project+session reconnect for the same actor) is role-agnostic; prove
+    // it with the orchestrator role now that supervisor is gone.
     const sessionOnly = registry.createOrchestratorMcpBootstrap({
-      role: 'supervisor',
+      role: 'orchestrator',
       actor: 'same-effective-scope-chat',
       sessionId: session.id,
     });
     assert.equal(sessionOnly.lease.projectId, project.id);
     assert.equal(sessionOnly.lease.sessionId, session.id);
     const fullScopeReconnect = registry.createOrchestratorMcpBootstrap({
-      role: 'supervisor',
+      role: 'orchestrator',
       actor: 'same-effective-scope-chat',
       projectId: project.id,
       sessionId: session.id,
@@ -282,7 +260,7 @@ test('registry replaces duplicate external MCP bootstrap leases for the same cha
     assert.notEqual(sessionOnly.lease.id, fullScopeReconnect.lease.id);
     assert.throws(
       () => registry.validateToolLease(sessionOnly.leaseToken, {
-        role: 'supervisor',
+        role: 'orchestrator',
         toolId: 'session.next_action',
         projectId: project.id,
         sessionId: session.id,
@@ -290,7 +268,7 @@ test('registry replaces duplicate external MCP bootstrap leases for the same cha
       (error) => error.status === 401 && /revoked/i.test(error.message),
     );
     const effectiveScopeActive = registry.listToolLeases({ activeOnly: true })
-      .filter((lease) => lease.role === 'supervisor' && lease.actor === 'same-effective-scope-chat');
+      .filter((lease) => lease.role === 'orchestrator' && lease.actor === 'same-effective-scope-chat');
     assert.deepEqual(effectiveScopeActive.map((lease) => lease.id), [fullScopeReconnect.lease.id]);
     assert.equal(registry.auditEvents.some((event) =>
       event.type === 'agent_tool_lease_revoked'
@@ -301,37 +279,21 @@ test('registry replaces duplicate external MCP bootstrap leases for the same cha
 });
 
 
-test('same external agent can register as supervisor or orchestrator with scoped authority', async () => {
+test('MCP bootstrap mints an orchestrator but refuses the removed supervisor role (422)', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
     const container = await makeOrchestratorContainer(registry, { title: 'Fable Beta Orch' });
     const project = { id: container.projectId };
     const session = { id: container.id };
 
+    // The orchestrator bootstrap still works and mints a full orchestrator lease.
     const orchestrator = registry.createOrchestratorMcpBootstrap({
       role: 'orchestrator',
       actor: 'fable-agent',
       projectId: project.id,
       sessionId: session.id,
     });
-    const supervisor = registry.createOrchestratorMcpBootstrap({
-      role: 'supervisor',
-      actor: 'fable-agent',
-      projectId: project.id,
-      sessionId: session.id,
-    });
-
     assert.equal(orchestrator.lease.role, 'orchestrator');
-    assert.equal(supervisor.lease.role, 'supervisor');
-    assert.notEqual(orchestrator.lease.id, supervisor.lease.id);
-    assert.deepEqual(
-      registry.listToolLeases({ activeOnly: true })
-        .filter((lease) => lease.actor === 'fable-agent')
-        .map((lease) => lease.role)
-        .sort(),
-      ['orchestrator', 'supervisor'],
-    );
-
     const orchestratorLease = registry.validateToolLease(orchestrator.leaseToken, {
       role: 'orchestrator',
       toolId: 'orchestrator.register',
@@ -340,25 +302,17 @@ test('same external agent can register as supervisor or orchestrator with scoped
     });
     assert.equal(orchestratorLease.active, true);
 
-    // The supervisor lease has scoped authority: it cannot reach orchestrator-only
-    // mutating tools (register/spawn a lane) even for the same actor + scope.
+    // supervisor was removed from ROLES in v2; the bootstrap tier only mints an
+    // orchestrator. Asking for supervisor now fails closed with 422 (the role
+    // check runs before any lease is created). Lock it in.
     assert.throws(
-      () => registry.validateToolLease(supervisor.leaseToken, {
+      () => registry.createOrchestratorMcpBootstrap({
         role: 'supervisor',
-        toolId: 'orchestrator.register',
+        actor: 'fable-agent',
         projectId: project.id,
         sessionId: session.id,
       }),
-      (error) => error.status === 403,
-    );
-    assert.throws(
-      () => registry.validateToolLease(supervisor.leaseToken, {
-        role: 'supervisor',
-        toolId: 'lane.create',
-        projectId: project.id,
-        sessionId: session.id,
-      }),
-      (error) => error.status === 403,
+      (error) => error.status === 422 && /orchestrator/.test(error.message),
     );
   } finally {
     await cleanup();

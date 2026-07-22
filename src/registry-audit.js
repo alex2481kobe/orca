@@ -118,7 +118,7 @@ export const auditMethods = {
     if (!queued.length) { if (reconciled) this.persistState(); return; }
     for (const lane of queued) {
       // v2 contract: every lane's container is an orchestrator, audited BY that
-      // owning orchestrator (v2 has no supervisor and no separate-auditor fallback).
+      // owning orchestrator (v2 has no separate-auditor fallback).
       // The finished lane already surfaces as "done — awaiting reply" in the
       // orchestrator's status view and the dashboard, so we emit ONE durable wakeup
       // event and leave the lane 'queued' for the orchestrator to accept

@@ -34,8 +34,8 @@ function laneLoopState(lane) {
 
 export function chooseNextTool({ registry, role, project, session, lane, auditQueued, flow }) {
   const normalizedRole = normalizeRole(role);
-  // supervisor is deprecated (v2 has no supervisor); it falls through to the
-  // read-only path below and never gets a supervisor-only tool.
+  // Non-orchestrator roles (executor/auditor) fall through to the read-only path
+  // below and never get an orchestrator-only tool.
   if (!project) return normalizedRole === 'orchestrator' || normalizedRole === 'dashboard'
     ? 'orchestrator.register'
     : 'project.list';
@@ -94,7 +94,6 @@ function nextToolForLane({ registry, role, project, session, lane }) {
 }
 
 const SESSION_LANE_ACTION_PRIORITY = {
-  'orchestrator.enroll': 5,
   'audit.queue_one': 30,
   'audit.findings.record': 30,
   'lane.retry': 40,

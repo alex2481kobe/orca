@@ -666,11 +666,10 @@ test('paired devices get operator access but are denied host administration', as
       ['PATCH', '/api/private-access/settings', { actor: 'dashboard', preferredMode: 'local' }],
       ['POST', '/api/private-access/serve', { actor: 'dashboard', action: 'enable' }],
       ['POST', '/api/auth/pairing-codes', { actor: 'dashboard', label: 'rogue' }],
-      // Dashboard/orchestrator/supervisor leases are off-origin host credentials —
+      // Dashboard/orchestrator leases are off-origin host credentials —
       // a paired operator must not be able to mint them.
       ['POST', '/api/agent-tools/leases', { actor: 'dashboard', role: 'dashboard' }],
       ['POST', '/api/agent-tools/leases', { actor: 'dashboard', role: 'orchestrator' }],
-      ['POST', '/api/agent-tools/leases', { actor: 'dashboard', role: 'supervisor' }],
     ];
     for (const [method, route, body] of adminAttempts) {
       const res = await server.requestJson(route, { method, headers: { cookie }, body });
@@ -1746,7 +1745,7 @@ test('project live links are server-authoritative, SSRF-checked, health-checked,
   }
 });
 
-test('orchestrator and supervisor tool leases can read private-access setup state while Serve stays admin-only', async () => {
+test('orchestrator tool leases can read private-access setup state while Serve stays admin-only', async () => {
   const token = 'route-token-agent-project-links';
   const server = await startServer({ token });
 
@@ -1787,31 +1786,6 @@ test('orchestrator and supervisor tool leases can read private-access setup stat
     assert.equal(setup.status, 200);
     assert.equal(Array.isArray(setup.body?.commands), true);
 
-    const supervisorLease = await server.requestJson('/api/agent-tools/leases', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        role: 'supervisor',
-        projectId: project.body.id,
-        ttlMs: 60_000,
-      },
-    });
-    assert.equal(supervisorLease.status, 201);
-
-    const supervisorTailnet = await server.requestJson('/api/private-access/tailnet?fake=serve-https', {
-      method: 'GET',
-      headers: { 'x-orca-tool-lease': supervisorLease.body.leaseToken },
-    });
-    assert.equal(supervisorTailnet.status, 200);
-    assert.equal(supervisorTailnet.body?.serveMode, 'tailnet-https-serve');
-
-    const supervisorSetup = await server.requestJson('/api/private-access/setup-plan?localUrl=http%3A%2F%2F127.0.0.1%3A3000', {
-      method: 'GET',
-      headers: { 'x-orca-tool-lease': supervisorLease.body.leaseToken },
-    });
-    assert.equal(supervisorSetup.status, 200);
-    assert.equal(Array.isArray(supervisorSetup.body?.commands), true);
-
     const added = await server.requestJson(`/api/projects/${project.body.id}/quick-links`, {
       method: 'POST',
       headers: { 'x-orca-tool-lease': lease.body.leaseToken },
@@ -1831,29 +1805,12 @@ test('orchestrator and supervisor tool leases can read private-access setup stat
     assert.equal(added.body?.link?.tailnetHttpUrl, 'http://orca.example.ts.net:5173/');
     assert.equal(added.body?.project?.quickLinks?.length, 1);
 
-    const supervisorWriteDenied = await server.requestJson(`/api/projects/${project.body.id}/quick-links`, {
-      method: 'POST',
-      headers: { 'x-orca-tool-lease': supervisorLease.body.leaseToken },
-      body: {
-        approved: true,
-        label: 'Supervisor should not write',
-        url: 'http://orca.example.ts.net:5173/',
-      },
-    });
-    assert.equal(supervisorWriteDenied.status, 403);
-
     const serveConfigure = await server.requestJson('/api/private-access/serve', {
       method: 'POST',
       headers: { 'x-orca-tool-lease': lease.body.leaseToken },
       body: { action: 'enable', port: 3000 },
     });
     assert.equal(serveConfigure.status, 401);
-    const supervisorServeConfigure = await server.requestJson('/api/private-access/serve', {
-      method: 'POST',
-      headers: { 'x-orca-tool-lease': supervisorLease.body.leaseToken },
-      body: { action: 'enable', port: 3000 },
-    });
-    assert.equal(supervisorServeConfigure.status, 401);
   } finally {
     await server.stop();
   }
@@ -1975,8 +1932,8 @@ test('project archive and restore HTTP routes toggle project state (operator-aut
   }
 });
 
-test('scoped supervisor tool leases can read only their project/session/lane contract routes', async () => {
-  const token = 'route-token-scoped-supervisor-reads';
+test('scoped orchestrator tool leases can read only their project/session/lane contract routes', async () => {
+  const token = 'route-token-scoped-orchestrator-reads';
   const server = await startServer({ token });
 
   try {
@@ -2006,8 +1963,8 @@ test('scoped supervisor tool leases can read only their project/session/lane con
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: {
-        actor: 'scoped-supervisor-reader',
-        role: 'supervisor',
+        actor: 'scoped-orchestrator-reader',
+        role: 'orchestrator',
         projectId: projectAId,
         sessionId: orchestratorA.body.id,
         ttlMs: 60_000,

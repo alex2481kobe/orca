@@ -60,16 +60,18 @@ test('agent queue: drain, replay, and ack are ordered and per consumer', async (
       projectId: project.id,
       sessionId: session.id,
     });
-    registry.enqueueAgentEvent({
-      type: 'supervisor_only',
-      targetRole: 'supervisor',
-      title: 'Supervisor',
+    // A targetRole:'any' broadcast is visible to every orchestrator consumer
+    // (supervisor was removed in v2; 'any' is the broad-reach target now).
+    const third = registry.enqueueAgentEvent({
+      type: 'broadcast_any',
+      targetRole: 'any',
+      title: 'Broadcast',
       projectId: project.id,
       sessionId: session.id,
     });
 
     const orchA = registry.drainAgentEvents(session.id, { role: 'orchestrator', actor: 'orch-a' });
-    assert.deepEqual(orchA.events.map((event) => event.seq), [first.seq, second.seq]);
+    assert.deepEqual(orchA.events.map((event) => event.seq), [first.seq, second.seq, third.seq]);
     assert.equal(orchA.events[0].ackedAt, null);
     assert.equal(orchA.events[0].acks, undefined);
     assert.deepEqual(orchA.events[0].metadata, { safe: 'kept' });
@@ -81,22 +83,24 @@ test('agent queue: drain, replay, and ack are ordered and per consumer', async (
     });
 
     const orchAAfterAck = registry.drainAgentEvents(session.id, { role: 'orchestrator', actor: 'orch-a' });
-    assert.deepEqual(orchAAfterAck.events.map((event) => event.id), [second.id]);
+    assert.deepEqual(orchAAfterAck.events.map((event) => event.id), [second.id, third.id]);
 
     const orchB = registry.drainAgentEvents(session.id, { role: 'orchestrator', actor: 'orch-b' });
-    assert.deepEqual(orchB.events.map((event) => event.id), [first.id, second.id]);
+    assert.deepEqual(orchB.events.map((event) => event.id), [first.id, second.id, third.id]);
 
     const replay = registry.replayAgentEvents(session.id, { role: 'orchestrator', actor: 'orch-a', afterSeq: first.seq });
-    assert.deepEqual(replay.events.map((event) => event.id), [second.id]);
+    assert.deepEqual(replay.events.map((event) => event.id), [second.id, third.id]);
     const fullReplay = registry.replayAgentEvents(session.id, { role: 'orchestrator', actor: 'orch-a' });
     assert.equal(fullReplay.events[0].ackedBy, 'orch-a');
     assert.ok(fullReplay.events[0].ackedAt);
 
-    const supervisor = registry.drainAgentEvents(session.id, { role: 'supervisor', actor: 'sup-a' });
-    assert.deepEqual(supervisor.events.map((event) => event.type), [
+    // A fresh orchestrator consumer sees all three unacked events, including the
+    // targetRole:'any' broadcast (which any role can drain).
+    const anyConsumer = registry.drainAgentEvents(session.id, { role: 'orchestrator', actor: 'orch-c' });
+    assert.deepEqual(anyConsumer.events.map((event) => event.type), [
       'backlog_completed',
       'loop_paused',
-      'supervisor_only',
+      'broadcast_any',
     ]);
   });
 });

@@ -4,7 +4,7 @@
 import { FALL_THROUGH } from './lanes.js';
 import { ROLES } from '../agent-tools/contract.js';
 
-const TOOL_LEASE_ROLE_MESSAGE = 'Tool lease role must be supervisor, orchestrator, executor, auditor, critique, or dashboard.';
+const TOOL_LEASE_ROLE_MESSAGE = 'Tool lease role must be orchestrator, executor, auditor, or dashboard.';
 
 export async function handleAgentToolRoutes(ctx, req, res, method, parts) {
   const { registry, sendJson, sendBodyError, parseJsonBody, rejectSpoofedActor, getSearchParams, buildAgentToolDiscovery, buildNextActionEnvelope, requireAdminAuth } = ctx;
@@ -103,12 +103,12 @@ export async function handleAgentToolRoutes(ctx, req, res, method, parts) {
           sessionId: body.sessionId,
           laneId: body.laneId,
         });
-        // Dashboard/orchestrator/supervisor leases are off-origin host credentials
+        // Dashboard/orchestrator leases are off-origin host credentials
         // with broad workflow/host power. Minting them here must
         // require admin too, or a paired operator (phone) could escalate by asking
-        // for role:"dashboard"/"orchestrator"/"supervisor". Executor/auditor/
-        // critique leases stay operator-level.
-        if (['dashboard', 'orchestrator', 'supervisor'].includes(nextAction.role) && !requireAdminAuth(req, res)) return;
+        // for role:"dashboard"/"orchestrator". Executor/auditor
+        // leases stay operator-level.
+        if (['dashboard', 'orchestrator'].includes(nextAction.role) && !requireAdminAuth(req, res)) return;
         const result = registry.createToolLease({
           role: nextAction.role,
           projectId: body.projectId || null,

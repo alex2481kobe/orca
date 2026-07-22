@@ -18,7 +18,6 @@ const DEFAULT_ORCHESTRATOR_CAPACITY = 4;
 // register/update/resign to change ownership, and spawn executors under the
 // orchestrator you own.
 const OWNERSHIP_EXEMPT_TOOLS = new Set([
-  'orchestrator.enroll',
   'orchestrator.resign',
   'orchestrator.register',
   'orchestrator.update',

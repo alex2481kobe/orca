@@ -14,17 +14,25 @@
 // Env (set by the lane runtime):
 //   ORCA_AGENT_TOOLS_BASE_URL  - e.g. http://127.0.0.1:3000
 //   ORCA_TOOL_LEASE_TOKEN      - scoped lease used as x-orca-tool-lease
-//   ORCA_ROLE                  - supervisor | orchestrator | executor | auditor | critique
+//   ORCA_ROLE                  - orchestrator | executor | auditor
 //   ORCA_LANE_ID / ORCA_SESSION_ID / ORCA_PROJECT_ID - default path params
 
 import readline from 'node:readline';
 import { createRequire } from 'node:module';
-import { TOOL_DEFINITIONS, normalizeRole, CONTRACT_VERSION, roleInstructions } from './agent-tools.js';
+import { TOOL_DEFINITIONS, normalizeRole, CONTRACT_VERSION, roleInstructions, ROLES } from './agent-tools.js';
 
 const require = createRequire(import.meta.url);
 const PACKAGE_VERSION = require('../package.json').version || '0.0.0';
 const BASE_URL = String(process.env.ORCA_AGENT_TOOLS_BASE_URL || 'http://127.0.0.1:3000').replace(/\/$/, '');
 const LEASE_TOKEN = String(process.env.ORCA_TOOL_LEASE_TOKEN || '');
+// normalizeRole silently falls back to 'orchestrator' for an unknown role, which
+// would let a stale ORCA_ROLE (e.g. a now-removed 'supervisor') read as the top
+// role. Warn loudly on stderr (never stdout — that carries JSON-RPC) so a
+// misconfigured lease env is visible instead of silently escalating.
+const RAW_ROLE = String(process.env.ORCA_ROLE || 'executor').trim().toLowerCase();
+if (RAW_ROLE && !ROLES.has(RAW_ROLE)) {
+  process.stderr.write(`[orca-mcp] ORCA_ROLE="${RAW_ROLE}" is not a known role; defaulting to orchestrator. Valid roles: ${[...ROLES].join(', ')}.\n`);
+}
 const ROLE = normalizeRole(process.env.ORCA_ROLE || 'executor');
 const DEFAULT_PARAMS = {
   sessionId: process.env.ORCA_SESSION_ID || '',

@@ -11,7 +11,7 @@ import { availableToolIdsForRole, buildNextActionEnvelope } from './agent-tools.
 import { ROLES } from './agent-tools/contract.js';
 import { buildOrchestratorMcpConfigs } from './mcp-orchestrator-bootstrap.js';
 
-const LANE_SCOPED_LEASE_ROLES = new Set(['executor', 'critique']);
+const LANE_SCOPED_LEASE_ROLES = new Set(['executor']);
 const SESSION_SCOPED_LEASE_ROLES = new Set(['auditor']);
 
 // Authoritative workflow gates: lane states in which each agent tool is legal.
@@ -99,7 +99,7 @@ export const toolLeaseMethods = {
   } = {}) {
     const normalizedRole = String(role || 'orchestrator').trim().toLowerCase() || 'orchestrator';
     if (!ROLES.has(normalizedRole)) {
-      throw { status: 422, message: 'Tool lease role must be supervisor, orchestrator, executor, auditor, critique, or dashboard.' };
+      throw { status: 422, message: 'Tool lease role must be orchestrator, executor, auditor, or dashboard.' };
     }
     const scope = this._resolveToolLeaseScope({ projectId, sessionId, laneId });
     if (LANE_SCOPED_LEASE_ROLES.has(normalizedRole) && !scope.laneId) {
@@ -421,8 +421,11 @@ export const toolLeaseMethods = {
     nodePath = null,
   } = {}) {
     const normalizedRole = String(role || 'orchestrator').trim().toLowerCase();
-    if (!['orchestrator', 'supervisor'].includes(normalizedRole)) {
-      throw { status: 422, message: 'MCP bootstrap role must be orchestrator or supervisor.' };
+    // v2 mints only orchestrator MCP bootstraps. The `role` param + this
+    // list-shaped validator are the re-add seam: to reintroduce a read-only tier
+    // later, add it to ROLES and widen this list.
+    if (!['orchestrator'].includes(normalizedRole)) {
+      throw { status: 422, message: 'MCP bootstrap role must be orchestrator.' };
     }
     const allowedTools = availableToolIdsForRole(normalizedRole);
     if (!allowedTools.length) {
