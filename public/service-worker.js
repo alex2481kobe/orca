@@ -11,6 +11,7 @@ const STATIC_ASSETS = [
   '/ui/icons.js',
   '/ui/home-disclosure.js',
   '/ui/qr.js',
+  '/ui/workstations.js',
   '/theme-init.js',
   '/sw-boot.js',
   '/manifest.webmanifest',

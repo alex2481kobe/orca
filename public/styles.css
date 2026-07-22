@@ -3835,6 +3835,19 @@ textarea:focus-visible {
 /* Inside the mobile pair gate the promo banner is pinned near the top (cleared
    from the floating reopen button), matching the centered start screen. */
 .connect-shell.connect-gate { padding-top: calc(env(safe-area-inset-top) + 3.25rem); }
+/* Remote-client "connect to another workstation" switcher (Remote devices page). */
+.ws-connect { display: flex; gap: var(--space-2); align-items: center; margin-top: var(--space-2); }
+.ws-connect .connect-input { flex: 1 1 auto; }
+.ws-switcher { display: flex; flex-direction: column; gap: var(--space-1); margin-top: var(--space-3); }
+.ws-row { display: flex; align-items: center; gap: var(--space-1); }
+.ws-go {
+  flex: 1 1 auto; display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-3); border: 1px solid var(--line);
+  border-radius: var(--radius-2, 8px); background: var(--panel); color: var(--text);
+  font: inherit; text-align: left; cursor: pointer;
+}
+@media (hover: hover) { .ws-go:hover { border-color: var(--accent); } }
+.ws-forget { flex: 0 0 auto; }
 .connect-shell.connect-offline { padding-top: calc(env(safe-area-inset-top) + 3.25rem); text-align: center; }
 .connect-shell.connect-offline .app-loading { margin: var(--space-4) 0 var(--space-2); }
 .connect-cmd {

@@ -5,6 +5,10 @@
 import { icon, FOLDER_ICON } from './icons.js';
 import { shouldRenderProjectOpen } from './home-disclosure.js';
 import { qrSvgForText } from './qr.js';
+import {
+  normalizeWorkstationUrl, workstationLabel, readWorkstations, rememberWorkstation,
+  forgetWorkstation, activeWorkstationUrl, isActiveWorkstation,
+} from './workstations.js';
 
 const body = document.body;
 const sideProjects = document.getElementById('sidebar-projects');
@@ -459,19 +463,71 @@ function paintRemote(access) {
   remoteAccessCache = access || {};
   const bodyEl = document.getElementById('remote-body');
   if (!bodyEl) return;
-  const ctx = buildRemoteCtx(remoteAccessCache);
-  bodyEl.innerHTML = renderPairPanel(ctx);
-  startPairingCountdown();
+  // On the workstation itself (loopback), Remote devices is the operator PAIR panel
+  // (create codes, Tailscale, revoke devices). On a remote client (a phone/laptop
+  // over the tailnet) those actions are admin-only and 401 — so a remote gets a
+  // device panel instead: its own connection + unlink + switch workstation.
+  if (isLoopbackHost()) {
+    const ctx = buildRemoteCtx(remoteAccessCache);
+    bodyEl.innerHTML = renderPairPanel(ctx);
+    startPairingCountdown();
+  } else {
+    bodyEl.innerHTML = renderRemoteClient();
+  }
+}
+
+// Remote-client "Remote devices" screen (phone / any browser away from the
+// workstation): this device's connection, an unlink button, and a switch-to-another
+// -workstation list. No workstation admin actions (they'd 401 here).
+function renderRemoteClient() {
+  const activeUrl = activeWorkstationUrl();
+  const activeHost = activeUrl ? workstationLabel(activeUrl) : (window.location.host || 'this workstation');
+  const others = readWorkstations().filter((u) => !isActiveWorkstation(u));
+  const otherRows = others.map((u) => `
+    <div class="ws-row">
+      <button class="ws-go" data-action="connectWorkstation" data-url="${safeAttr(u)}" type="button">
+        ${icon('external', { size: 15 })}<span>${safeText(workstationLabel(u))}</span>
+      </button>
+      <button class="ws-forget icon-btn" data-action="forgetWorkstationRow" data-url="${safeAttr(u)}" type="button" title="Forget" aria-label="Forget ${safeAttr(workstationLabel(u))}">${icon('close', { size: 14 })}</button>
+    </div>`).join('');
+
+  return `
+    <section class="card control-card" data-panel-card="access">
+      <h3>This device</h3>
+      <p class="muted">Paired to <strong>${safeText(activeHost)}</strong> over Tailscale.</p>
+      <div class="lane-row">
+        <button class="btn" data-action="unlinkThisDevice" type="button">Unlink this device</button>
+      </div>
+    </section>
+    <section class="card control-card" data-panel-card="access">
+      <h3>Connect to another workstation</h3>
+      <p class="muted">Point this device at a different Orca. Enter its Tailscale URL (or paste a link).</p>
+      <div class="ws-connect">
+        <input id="workstation-url-input" class="connect-input" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="http://mac.tailnet.ts.net:3000" />
+        <button class="btn" data-action="connectWorkstation" type="button">Connect</button>
+      </div>
+      ${otherRows ? `<div class="ws-switcher">${otherRows}</div>` : '<p class="tiny muted">No other workstations yet. Connect to one and it’s remembered here.</p>'}
+    </section>`;
 }
 
 async function renderRemote() {
   topbarTitle.textContent = 'Remote devices';
+  // On a real remote client, remember the workstation we're on so it shows up in
+  // the switcher on other devices / after switching away and back.
+  const active = activeWorkstationUrl();
+  if (active) rememberWorkstation(active);
   // .home-panels[data-active-panel=access] flattens the cards into the exact old
   // borderless sections (760px, centered, dividers) and shows only the access
   // panels. No Back button: Remote devices is a top-level sidebar page.
   content.innerHTML = `<div id="remote-body" class="home-panels" data-active-panel="access"><div class="ov-empty-sub" style="padding:var(--space-5)">Loading…</div></div>`;
-  const access = await fetchRemote();
-  paintRemote(access);
+  // A remote client doesn't need the admin /api/private-access fetch (it 401s);
+  // paint immediately from local state. The workstation still fetches.
+  if (isLoopbackHost()) {
+    const access = await fetchRemote();
+    paintRemote(access);
+  } else {
+    paintRemote({});
+  }
 }
 
 // Re-fetch the read-only APIs and repaint the remote body in place (used after a
@@ -742,6 +798,35 @@ content.addEventListener('click', async (e) => {
         if (!res.ok) { const d = await res.json().catch(() => ({})); remoteNote(`Could not revoke device (${esc(d.error || res.status)}).`); act.disabled = false; }
         else await refreshRemote();
       } catch { remoteNote('Could not reach Orca to revoke the device.'); act.disabled = false; }
+      return;
+    }
+    if (action === 'unlinkThisDevice') {
+      // Self-unlink from a remote client: own-cookie logout (NO sessionId, so it
+      // doesn't hit the admin gate). Clears the cookie → next poll 401s → pair gate.
+      e.preventDefault(); act.disabled = true;
+      try {
+        await fetch('/api/auth/logout', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ actor: 'dashboard' }) });
+      } catch { /* best effort */ }
+      location.hash = '';
+      await poll();
+      renderScreen();
+      return;
+    }
+    if (action === 'connectWorkstation') {
+      // Point this remote client at a different Orca. Row buttons carry data-url;
+      // the free-text field is read otherwise. Remember it, then navigate there.
+      e.preventDefault();
+      const raw = act.dataset.url || (document.getElementById('workstation-url-input')?.value || '');
+      const url = normalizeWorkstationUrl(raw);
+      if (!url) { remoteNote('Enter a valid workstation URL (e.g. http://mac.tailnet.ts.net:3000).'); return; }
+      rememberWorkstation(url);
+      window.location.href = `${url}/`;
+      return;
+    }
+    if (action === 'forgetWorkstationRow') {
+      e.preventDefault();
+      forgetWorkstation(act.dataset.url);
+      paintRemote(remoteAccessCache);
       return;
     }
     return;
