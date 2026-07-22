@@ -2,8 +2,9 @@
 
 Run the audit any time with `npm run audit` (`npm audit --omit=dev`). This file
 records what the audit reports today. Orca v2 ships as a Node daemon plus a
-read-only web/PWA dashboard — there is no native/Rust build in the tree — so the
-dependency surface is JavaScript only.
+read-only web/PWA dashboard. Orca's own source is all JavaScript (no native/Rust
+build in the tree); the only native dependency is `@lydell/node-pty`, which backs
+the interactive terminal for CLI executors.
 
 ## JavaScript app (what users actually run — web / PWA / server)
 

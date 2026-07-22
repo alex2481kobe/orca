@@ -28,8 +28,6 @@ Prerequisites:
 - Node.js `18.18.0` or newer.
 - Git.
 - Optional: Tailscale for private phone access.
-- Optional: Playwright browser install if users want evidence screenshot
-  capture.
 
 Run:
 

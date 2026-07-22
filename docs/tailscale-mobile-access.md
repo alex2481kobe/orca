@@ -100,15 +100,15 @@ tailscale funnel off
 Open the following in mobile Safari/Chrome:
 
 1. `http://<your-mac>/` or `https://<your-mac>.<tailnet>.ts.net/` — the
-   dashboard loads but shows only the **pairing gate**: no projects, sessions,
-   lanes, or settings until you pair. Generate a one-time pairing code on the
+   dashboard loads but shows only the **pairing gate**: no projects, orchestrators,
+   executor lanes, or settings until you pair. Generate a one-time pairing code on the
    workstation (Settings → pairing, or `npm run operator:pair`) and enter it on
    the phone. Do not put tokens or codes in URLs.
 2. `<base-url>/api/health` — JSON `{ "status": "ok" }` (no counts; this is the
    only data-free public route besides `/api/auth/status`).
 3. Before pairing, confirm the URL leaks nothing: `<base-url>/api/projects` and
    `<base-url>/api/mobile/manifest` must both return `401` with no project,
-   session, or lane data. After pairing (browser session cookie), the same
+   orchestrator, or lane data. After pairing (browser session cookie), the same
    routes return your workspace.
 
 The connected phone is a **read-only viewer**: it can browse projects,

@@ -4,17 +4,28 @@ Canonical project guide for coding agents and contributors working in this repo.
 
 ## Project
 
-Orca is a local-first control plane for coordinating AI coding agents, project sessions, worker lanes, browser evidence, logs, artifacts, and review actions from one dashboard.
+Orca is a local daemon — a loop and harness for the coding agents you already run. It
+does not ship its own agent. You bring an existing MCP-capable CLI or desktop agent
+(Claude Code, Codex, or similar), and Orca lets one agent reliably spawn and depend on
+subagents — from the same CLI or a different one — with full MCP, governed lanes,
+dynamically created isolated git worktrees, and an audit → integrate/discard loop. It
+also gives those agents a secure remote face: a read-only dashboard, served privately
+over Tailscale, that shows registered agents, their working trees, and the live
+preview URLs of the projects they are building.
 
-This repo now contains the Node HTTP server, browser dashboard, provider profile system, credential abstraction, MCP tool contract, evidence runner, PWA assets, route inventory, public agent skill docs, tests, and smoke gates. Do not treat it as scaffold-only. Before changing behavior, inspect the current source, `docs/implementation-plan.md`, `docs/full-buildout-ledger.md`, `docs/live-project-links.md`, and the relevant tests/smokes.
+This repo contains the Node daemon, the read-only web/PWA dashboard, the stdio MCP
+bridge and tool contract, the tool-lease auth, PWA assets, public agent skill docs,
+tests, and smoke gates. Do not treat it as scaffold-only. Before changing behavior,
+inspect the current source and the relevant tests/smokes.
 
-External desktop AI apps (Codex app, Claude Desktop) can drive Orca as the orchestrator over a local stdio MCP bridge (`src/mcp-server.js`) using a scoped orchestrator lease — see `docs/desktop-app-control.md` and the `POST /api/mcp/orchestrator-bootstrap` route.
+External desktop AI apps (Codex app, Claude Desktop) can drive Orca as the orchestrator
+over the local stdio MCP bridge (`src/mcp-server.js`) using a scoped orchestrator lease
+— see the `POST /api/mcp/orchestrator-bootstrap` route.
 
 ## Public / Private Boundary
 
-Keep this repo public-safe. Do not add internal roadmap, private task tracking, personal workflow notes, launch chatter, or Codex/Claude coordination details here.
-
-Private planning belongs in the non-git parent workspace.
+Keep this repo public-safe. Do not add internal roadmap, private task tracking,
+personal workflow notes, launch chatter, or Codex/Claude coordination details here.
 
 ## Dependency Safety
 
