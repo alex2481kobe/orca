@@ -45,6 +45,19 @@ async function waitForProcessExit(child, timeoutMs = 5000) {
   });
 }
 
+// Wait for a predicate to become true. The adapter's onComplete/processMeta update
+// fires on a separate async tick AFTER the child 'exit' event, so on a slower runner
+// (Linux CI) the completion assertions can race ahead of it — poll instead of
+// assuming the exit event means the callback already ran.
+async function waitFor(predicate, timeoutMs = 5000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  if (!predicate()) throw new Error('condition not met within timeout');
+}
+
 try {
   process.env.ORCA_ENABLE_CUSTOM_CLI = 'true';
   process.env.ORCA_CLI_BINARY = process.execPath;
@@ -80,6 +93,8 @@ try {
   const success = await adapter.start(successLane);
   assert.equal(success.accepted, true, success.reason);
   await waitForProcessExit(success.runtime.process);
+  // The adapter records processMeta + fires onComplete on the tick after 'exit'.
+  await waitFor(() => successLane.processMeta && completed.includes(successLane.id));
   assert.equal(successLane.processMeta.exitCode, 0);
   assert.equal(successLane.processMeta.binary, process.execPath);
   assert.deepEqual(successLane.processMeta.args, ['--version']);
@@ -123,6 +138,8 @@ try {
   assert.equal(typeof longLane.processMeta.pid, 'number');
   const stop = await adapter.stop(longLane.id, { actor: 'smoke', reason: 'process lifecycle smoke' });
   assert.equal(stop.stopped, true);
+  // onStop + the stop processMeta update land on the tick after the kill — poll.
+  await waitFor(() => stopped.some((item) => item.laneId === longLane.id) && Boolean(longLane.processMeta.stopResult));
   assert.equal(stopped.some((item) => item.laneId === longLane.id), true);
   assert.equal(longLane.processMeta.stopRequestedBy, 'smoke');
   assert.match(longLane.processMeta.stopResult || '', /sigterm|sigkill|no_active_process/i);
