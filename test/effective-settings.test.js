@@ -34,7 +34,7 @@ test('effective settings expose locked product defaults without secrets', () => 
   assert.equal(effective.settings.spawn.approvedCapacity, 2);
   assert.equal(effective.settings.spawn.soloMode, true);
   assert.equal(effective.settings.spawn.idleShutdownMode, 'immediate');
-  assert.equal(effective.settings.spawn.worktreeMode, 'isolated');
+  assert.equal(effective.settings.spawn.worktreeMode, 'auto');
   assert.equal(effective.settings.critique.mode, 'suggested');
   assert.equal(effective.settings.critique.visualBrowserMode, 'visual-required');
   assert.equal(effective.settings.provider.secretPriority[0], 'os-credential');

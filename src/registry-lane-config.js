@@ -4,7 +4,12 @@
 const SPAWN_POLICIES = new Set(['never', 'ask', 'within_capacity', 'auto']);
 const IDLE_SHUTDOWN_MODES = new Set(['immediate', 'short_keepalive', 'policy']);
 const CRITIQUE_MODES = new Set(['off', 'suggested', 'required', 'visual-required']);
-export const WORKTREE_MODES = new Set(['isolated', 'shared']);
+// Worktree isolation modes an orchestrator/lane can request:
+//   auto     — let Orca decide from the situation (the default; see resolveWorktreeMode)
+//   direct   — no worktree; the lane runs in the repo root checkout itself
+//   isolated — a dedicated per-lane git worktree (safe for concurrent writers)
+//   shared   — several lanes deliberately share the one repo checkout (conflict risk)
+export const WORKTREE_MODES = new Set(['auto', 'direct', 'isolated', 'shared']);
 export const DEFAULT_APPROVED_CAPACITY = 2;
 
 export function normalizeSpawnPolicy(value, fallback = 'within_capacity') {
@@ -22,13 +27,37 @@ export function normalizeCritiqueMode(value, fallback = 'suggested') {
   return CRITIQUE_MODES.has(normalized) ? normalized : fallback;
 }
 
-export function normalizeWorktreeMode(value, fallback = 'isolated') {
+export function normalizeWorktreeMode(value, fallback = 'auto') {
   const normalized = String(value || fallback).trim().toLowerCase();
   return WORKTREE_MODES.has(normalized) ? normalized : fallback;
 }
 
 export function isWorktreeMode(value) {
   return WORKTREE_MODES.has(String(value || '').trim().toLowerCase());
+}
+
+// Resolve a concrete worktree mode from a (possibly 'auto') request. Pure — the
+// caller supplies the situation. This encodes the policy the user asked for:
+//   - read-only work, or a non-git folder, never needs a worktree -> direct
+//   - a sole writer can safely edit the checkout in place            -> direct
+//   - once writers overlap, each writer needs its own worktree       -> isolated
+// An explicit non-auto request is honored, except an isolated/shared request on
+// a non-git folder degrades to direct (there is no working tree to branch).
+export function resolveWorktreeMode({
+  requested = 'auto',
+  repoIsGit = false,
+  isReadOnly = false,
+  activeWriterLanes = 0,
+} = {}) {
+  const mode = normalizeWorktreeMode(requested);
+  if (mode !== 'auto') {
+    // Only 'isolated' truly needs a git working tree (to branch a worktree);
+    // 'shared'/'direct' just run in the folder, so they apply anywhere.
+    if (!repoIsGit && mode === 'isolated') return 'direct';
+    return mode;
+  }
+  if (!repoIsGit || isReadOnly) return 'direct';
+  return activeWriterLanes > 0 ? 'isolated' : 'direct';
 }
 
 export function normalizeApprovedCapacity(value, fallback = DEFAULT_APPROVED_CAPACITY) {

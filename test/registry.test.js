@@ -2279,6 +2279,7 @@ test('Worktree manager creates per-lane worktree under approved base and cleanup
       title: 'feature lane',
       executorType: 'mock',
       branch: 'feature/cleanup',
+      worktreeMode: 'isolated',
     }, { actor: 'test', approved: true });
 
     assert.ok(lane.worktreePath, 'lane should have a worktreePath');
@@ -2297,6 +2298,7 @@ test('Worktree manager creates per-lane worktree under approved base and cleanup
       title: 'duplicate branch lane',
       executorType: 'mock',
       branch: 'feature/cleanup',
+      worktreeMode: 'isolated',
     }, { actor: 'test', approved: true });
     assert.match(duplicateLane.branch, /^orca\/lane\//);
     assert.notEqual(duplicateLane.branch, 'feature/cleanup');
@@ -2343,8 +2345,8 @@ test('pruneInMemoryRecords reclaims the on-disk worktree of a dropped terminal l
     g('add', 'README.md'); g('commit', '-qm', 'init');
 
     const { orchestrator: session } = await makeOrchestrator(registry, { cwd: repoDir });
-    const older = registry.createLane(session.id, { title: 'older', executorType: 'mock', branch: 'a' }, { actor: 'test', approved: true });
-    const newer = registry.createLane(session.id, { title: 'newer', executorType: 'mock', branch: 'b' }, { actor: 'test', approved: true });
+    const older = registry.createLane(session.id, { title: 'older', executorType: 'mock', branch: 'a', worktreeMode: 'isolated' }, { actor: 'test', approved: true });
+    const newer = registry.createLane(session.id, { title: 'newer', executorType: 'mock', branch: 'b', worktreeMode: 'isolated' }, { actor: 'test', approved: true });
     assert.ok(older.worktreePath && newer.worktreePath);
 
     for (const [lane, when] of [[older, '2020-01-01T00:00:00.000Z'], [newer, '2020-06-01T00:00:00.000Z']]) {

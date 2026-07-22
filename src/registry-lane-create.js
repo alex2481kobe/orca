@@ -3,7 +3,7 @@
 
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { LANE_STATES } from './worker-contract.js';
+import { LANE_STATES, isRunningLaneState } from './worker-contract.js';
 import {
   nowIso,
   clonePayload,
@@ -16,7 +16,7 @@ import { commandTargetsExecutorFirstToken } from './registry-reinstall.js';
 import { createLaneWorktree, describeRepoRoot } from './worktree-manager.js';
 import { sanitizeSettingsOverrides } from './effective-settings.js';
 import { validateNetworkUrl } from './url-policy.js';
-import { normalizeCritiqueMode, normalizeWorktreeMode } from './registry-lane-config.js';
+import { normalizeCritiqueMode, resolveWorktreeMode } from './registry-lane-config.js';
 
 const { QUEUED: QUEUED_STATE } = LANE_STATES;
 const MAX_WORKDIR_BYTES = 2048;
@@ -81,6 +81,7 @@ export const laneCreateMethods = {
     repoRoot,
     branch,
     sharedWorktree,
+    worktreeMode,
     auditTargetLaneId,
     metadataTaskId,
     metadataLoopId,
@@ -128,42 +129,57 @@ export const laneCreateMethods = {
     let derivedBranch = String(branch || '').trim();
     let derivedRepoRoot = String(repoRoot || '').trim();
     const sessionRepoRoot = session.repoRoot ? String(session.repoRoot).trim() : '';
-    const sessionWorktreeMode = normalizeWorktreeMode(session.worktreeMode);
-    const sharedExplicit = sharedWorktree !== undefined;
-    const wantsShared = sharedExplicit ? Boolean(sharedWorktree) : sessionWorktreeMode === 'shared';
     // Per-lane worktree isolation is only possible inside a git working tree.
     // For non-git folders the agent still spawns — it just runs directly in the
     // directory (no isolation), which is how Codex behaves in any folder.
     const repoIsGit = sessionRepoRoot ? describeRepoRoot(sessionRepoRoot).ok : false;
-    if (wantsShared && sessionRepoRoot && !workdir) {
-      // Shared-worktree means the executor works in the configured session repo,
-      // not the synthetic session workspace. The explicit lane warning below is
-      // the guardrail that this mode has conflict risk.
-      workdirOverride = sessionRepoRoot;
-      derivedRepoRoot = sessionRepoRoot;
-    } else if (!wantsShared && sessionRepoRoot && !workdir && repoIsGit) {
-      const laneId = randomUUID();
-      // Reserve the laneId via the create call below by reusing it for the worktree.
-      const result = createLaneWorktree({
-        repoRoot: sessionRepoRoot,
-        worktreeBase: path.join(this.workspacesRoot, session.id, 'worktrees'),
-        laneId,
-        branchHint: derivedBranch,
-      });
-      if (!result.ok) {
-        throw { status: 422, message: `Could not create lane worktree: ${result.reason}` };
+
+    // Decide isolation for this lane. An explicit worktreeMode wins; the legacy
+    // sharedWorktree boolean maps onto it; otherwise 'auto' decides from the
+    // situation — read-only or sole-writer work runs directly in the checkout
+    // (no worktree), and only overlapping writers get an isolated worktree.
+    const requestedWorktreeMode = worktreeMode !== undefined
+      ? worktreeMode
+      : (sharedWorktree === true ? 'shared' : 'auto');
+    const isReadOnlyLane = String(permissionsProfile || '').trim() === 'read-only';
+    const activeWriterLanes = (this.lanes || []).filter((lane) => (
+      lane.sessionId === session.id
+      && lane.permissionsProfile !== 'read-only'
+      && isRunningLaneState(lane.state)
+    )).length;
+    const resolvedWorktreeMode = resolveWorktreeMode({
+      requested: requestedWorktreeMode,
+      repoIsGit,
+      isReadOnly: isReadOnlyLane,
+      activeWriterLanes,
+    });
+
+    if (sessionRepoRoot && !workdir) {
+      if (resolvedWorktreeMode === 'isolated') {
+        const laneId = randomUUID();
+        // Reserve the laneId by reusing it for the worktree (local, so a later
+        // throw in this method can never leak it into a later createLane call).
+        const result = createLaneWorktree({
+          repoRoot: sessionRepoRoot,
+          worktreeBase: path.join(this.workspacesRoot, session.id, 'worktrees'),
+          laneId,
+          branchHint: derivedBranch,
+        });
+        if (!result.ok) {
+          throw { status: 422, message: `Could not create lane worktree: ${result.reason}` };
+        }
+        workdirOverride = result.worktreePath;
+        derivedWorktree = result.worktreePath;
+        derivedBranch = result.branch || derivedBranch;
+        derivedRepoRoot = result.repoRoot;
+        reservedLaneId = laneId;
+      } else {
+        // direct or shared: run in the repo checkout itself (no worktree). For
+        // 'shared' the conflict-risk warning below is the guardrail; 'direct' is
+        // a sole writer or read-only lane, so in-place editing is safe.
+        workdirOverride = sessionRepoRoot;
+        derivedRepoRoot = sessionRepoRoot;
       }
-      workdirOverride = result.worktreePath;
-      derivedWorktree = result.worktreePath;
-      derivedBranch = result.branch || derivedBranch;
-      derivedRepoRoot = result.repoRoot;
-      // Reuse this laneId for the lane object below (local, so a later throw in
-      // this method can never leak it into a subsequent createLane call).
-      reservedLaneId = laneId;
-    } else if (!wantsShared && sessionRepoRoot && !workdir && !repoIsGit) {
-      // Non-git folder: run the lane directly in the directory.
-      workdirOverride = sessionRepoRoot;
-      derivedRepoRoot = sessionRepoRoot;
     }
     const resolvedWorkdir = this.resolveLaneWorkdir(session, workdirOverride);
 
@@ -296,8 +312,8 @@ export const laneCreateMethods = {
       targetUrl: sanitizedTargetUrl,
       repoRoot: sanitizedRepoRoot,
       branch: sanitizedBranch,
-      sharedWorktree: wantsShared,
-      worktreeMode: wantsShared ? 'shared' : (derivedWorktree ? 'isolated' : 'direct'),
+      sharedWorktree: resolvedWorktreeMode === 'shared',
+      worktreeMode: resolvedWorktreeMode,
       worktreePath: derivedWorktree || resolvedWorkdir,
       state: QUEUED_STATE,
       owner,

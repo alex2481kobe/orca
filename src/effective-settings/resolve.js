@@ -35,7 +35,7 @@ function sessionFieldSettings(session) {
   // forced value at this layer" (there is no session record to carry one). Only
   // carry real enum values into the layered settings so the sentinels fall through
   // to the defaults instead of tripping the schema sanitizer.
-  if (session.worktreeMode !== undefined && ['isolated', 'shared'].includes(session.worktreeMode)) {
+  if (session.worktreeMode !== undefined && ['auto', 'direct', 'isolated', 'shared'].includes(session.worktreeMode)) {
     spawn.worktreeMode = session.worktreeMode;
   }
   if (Object.keys(spawn).length) settings.spawn = spawn;

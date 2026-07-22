@@ -302,6 +302,7 @@ test('real MCP orchestrator registers a repo by cwd and spawns isolated worktree
             executorType: 'mock',
             approved: true,
             branch: 'origin/main',
+            worktreeMode: 'isolated',
             taskPrompt: 'Prove origin/main becomes an isolated workflow branch.',
           },
         }));

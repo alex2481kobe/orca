@@ -26,7 +26,7 @@ export const DEFAULT_EFFECTIVE_SETTINGS = {
     approvedCapacity: 2,
     soloMode: true,
     idleShutdownMode: 'immediate',
-    worktreeMode: 'isolated',
+    worktreeMode: 'auto',
   },
   critique: {
     mode: 'suggested',
@@ -102,7 +102,7 @@ const SCHEMA = {
     approvedCapacity: { type: 'integer', min: 0, max: MAX_APPROVED_CAPACITY },
     soloMode: { type: 'boolean' },
     idleShutdownMode: { type: 'enum', allowed: ['immediate', 'short_keepalive', 'policy'] },
-    worktreeMode: { type: 'enum', allowed: ['isolated', 'shared'] },
+    worktreeMode: { type: 'enum', allowed: ['auto', 'direct', 'isolated', 'shared'] },
   },
   critique: {
     mode: { type: 'enum', allowed: ['off', 'suggested', 'required', 'visual-required'] },

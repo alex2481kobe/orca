@@ -290,7 +290,7 @@ export const TOOL_DEFINITIONS = [
     route: '/api/orchestrators/{orchestratorId}/executors',
     implemented: true,
     mutating: true,
-    summary: 'Spawn an executor lane under your orchestrator (runs in your project\'s cwd). Body: {title, executorType, taskPrompt, model?, permissionsProfile?, worktree?}.',
+    summary: 'Spawn an executor lane under your orchestrator (runs in your project\'s cwd). Body: {title, executorType, taskPrompt, model?, permissionsProfile?, worktreeMode?}. worktreeMode: auto (default — read-only/sole-writer run directly in the checkout, overlapping writers get an isolated worktree), direct (force in-place, no worktree), isolated (force a dedicated per-lane worktree), shared (several lanes share the one checkout; conflict risk). Read-only agents never need a worktree.',
   },
   {
     id: 'orchestrator.resign',
