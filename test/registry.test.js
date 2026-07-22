@@ -2478,6 +2478,216 @@ test('integrateLane rejects non-isolated (direct/shared) lanes', async () => {
   }
 });
 
+test('createLane auto + read-only profile in a git repo resolves to direct (no worktree)', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const { repoDir } = await makeGitRepo('auto-readonly-repo');
+    const { orchestrator: session } = await makeOrchestrator(registry, { cwd: repoDir });
+    assert.equal(registry.getSession(session.id).repoRoot, repoDir);
+
+    // Read-only work never needs a worktree even inside a git repo: auto -> direct,
+    // and the lane runs in the repo checkout itself (worktreePath === repoRoot).
+    const lane = registry.createLane(session.id, {
+      title: 'read-only review',
+      executorType: 'mock',
+      worktreeMode: 'auto',
+      permissionsProfile: 'read-only',
+    }, { actor: 'test', approved: true });
+
+    assert.equal(lane.worktreeMode, 'direct');
+    assert.equal(lane.worktreePath, repoDir);
+    assert.equal(lane.workdir, repoDir);
+    assert.ok(!lane.worktreePath.includes('worktrees'), 'read-only auto lane gets no managed worktree');
+  } finally {
+    await cleanup();
+  }
+});
+
+test('createLane auto writer resolves to isolated when another writer lane is already running', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const { repoDir } = await makeGitRepo('auto-writer-repo');
+    const { orchestrator: session } = await makeOrchestrator(registry, { cwd: repoDir });
+
+    // First writer lane: sole writer, so auto -> direct (edits the checkout).
+    const first = registry.createLane(session.id, {
+      title: 'first writer',
+      executorType: 'mock',
+      worktreeMode: 'auto',
+      permissionsProfile: 'auto-edit',
+    }, { actor: 'test', approved: true });
+    assert.equal(first.worktreeMode, 'direct');
+    // Make the first writer actively running so it counts against isolation.
+    registry.getLane(first.id).state = 'running';
+
+    // Second writer lane created while the first is running: writers now overlap,
+    // so auto -> isolated and a real per-lane worktree is created.
+    const second = registry.createLane(session.id, {
+      title: 'second writer',
+      executorType: 'mock',
+      worktreeMode: 'auto',
+      permissionsProfile: 'auto-edit',
+    }, { actor: 'test', approved: true });
+
+    assert.equal(second.worktreeMode, 'isolated');
+    assert.ok(second.worktreePath.includes('worktrees'), 'isolated lane sits under sessions/worktrees');
+    assert.notEqual(second.worktreePath, repoDir);
+    assert.equal((await fs.stat(second.worktreePath)).isDirectory(), true, 'real worktree created on disk');
+    assert.equal(second.repoRoot, repoDir);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('integrateLane returns a 409 conflict when two isolated lanes edit the same file, and auto-aborts to a clean base', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const { repoDir, g } = await makeGitRepo('integrate-conflict-repo');
+    const baseBranch = g('rev-parse', '--abbrev-ref', 'HEAD').stdout.trim();
+    const { orchestrator: session } = await makeOrchestrator(registry, { cwd: repoDir });
+    const { spawnSync } = await import('node:child_process');
+
+    // Two isolated lanes, both branched off HEAD, both add the SAME new file with
+    // different content -> an add/add conflict once the first is merged.
+    const laneA = registry.createLane(session.id, { title: 'A', executorType: 'mock', branch: 'lane-a', worktreeMode: 'isolated' }, { actor: 'test', approved: true });
+    const laneB = registry.createLane(session.id, { title: 'B', executorType: 'mock', branch: 'lane-b', worktreeMode: 'isolated' }, { actor: 'test', approved: true });
+    assert.ok(laneA.worktreePath && laneB.worktreePath);
+
+    const commitIn = async (worktreePath, content) => {
+      await fs.writeFile(path.join(worktreePath, 'conflict.txt'), content);
+      const gw = (...args) => spawnSync('git', args, { cwd: worktreePath, encoding: 'utf8' });
+      gw('add', 'conflict.txt');
+      gw('commit', '-qm', `edit ${content}`);
+    };
+    await commitIn(laneA.worktreePath, 'from-A');
+    await commitIn(laneB.worktreePath, 'from-B');
+
+    for (const lane of [laneA, laneB]) {
+      registry.getLane(lane.id).state = 'done';
+      registry.acceptLaneAudit(lane.id, { actor: 'auditor' });
+    }
+
+    // First integration succeeds and lands conflict.txt=from-A on the base branch.
+    const firstResult = await registry.integrateLane(laneA.id);
+    assert.equal(firstResult.integrated, true);
+
+    // Second integration collides on conflict.txt -> 409 with conflicts===true.
+    await assert.rejects(
+      registry.integrateLane(laneB.id),
+      (e) => e.status === 409 && e.conflicts === true && e.baseBranch === baseBranch && e.branch === 'lane-b',
+      'overlapping edits must surface a 409 conflict',
+    );
+
+    // Auto-abort left the base checkout clean: no half-merged state, no MERGE_HEAD.
+    const status = spawnSync('git', ['status', '--porcelain'], { cwd: repoDir, encoding: 'utf8' });
+    assert.equal(status.stdout.trim(), '', 'base branch has no leftover conflict markers');
+    const mergeHead = spawnSync('git', ['rev-parse', '--verify', '--quiet', 'MERGE_HEAD'], { cwd: repoDir, encoding: 'utf8' });
+    assert.notEqual(mergeHead.status, 0, 'no merge is left in progress after abort');
+    // conflict.txt still holds the cleanly-integrated first lane's content.
+    assert.equal(await fs.readFile(path.join(repoDir, 'conflict.txt'), 'utf8'), 'from-A');
+    // laneB was NOT marked integrated (the merge failed).
+    assert.ok(!registry.getLane(laneB.id).integratedAt, 'conflicted lane is not marked integrated');
+  } finally {
+    await cleanup();
+  }
+});
+
+test('integrateLane reports nothing-to-merge for an isolated lane with no new commits', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const { repoDir, g } = await makeGitRepo('integrate-empty-repo');
+    const baseBranch = g('rev-parse', '--abbrev-ref', 'HEAD').stdout.trim();
+    const { orchestrator: session } = await makeOrchestrator(registry, { cwd: repoDir });
+
+    // Isolated lane branched off HEAD, but nothing is committed in its worktree.
+    const lane = registry.createLane(session.id, { title: 'empty', executorType: 'mock', branch: 'empty-lane', worktreeMode: 'isolated' }, { actor: 'test', approved: true });
+    assert.ok(lane.worktreePath && lane.branch === 'empty-lane');
+    registry.getLane(lane.id).state = 'done';
+    registry.acceptLaneAudit(lane.id, { actor: 'auditor' });
+
+    const result = await registry.integrateLane(lane.id);
+    assert.equal(result.integrated, false);
+    assert.equal(result.nothingToMerge, true);
+    assert.equal(result.baseBranch, baseBranch);
+    assert.equal(result.branch, 'empty-lane');
+    // Idempotent success-ish: the lane is marked integrated so retention can reap it.
+    assert.ok(registry.getLane(lane.id).integratedAt, 'nothing-to-merge still marks integratedAt');
+  } finally {
+    await cleanup();
+  }
+});
+
+test('integrateLane with push:true propagates the merged commit to a bare origin remote', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const { repoDir, g } = await makeGitRepo('integrate-push-repo');
+    const baseBranch = g('rev-parse', '--abbrev-ref', 'HEAD').stdout.trim();
+    const { spawnSync } = await import('node:child_process');
+
+    // Wire a bare repo as origin and publish the base branch (sets upstream so a
+    // bare `git push` inside mergeLaneBranch has a target).
+    const bareDir = path.join(process.cwd(), 'origin.git');
+    spawnSync('git', ['init', '-q', '--bare', bareDir], { encoding: 'utf8' });
+    g('remote', 'add', 'origin', bareDir);
+    g('push', '-u', 'origin', baseBranch);
+
+    const { orchestrator: session } = await makeOrchestrator(registry, { cwd: repoDir });
+    const lane = registry.createLane(session.id, { title: 'pushable', executorType: 'mock', branch: 'push-lane', worktreeMode: 'isolated' }, { actor: 'test', approved: true });
+    assert.ok(lane.worktreePath && lane.branch === 'push-lane');
+
+    const gw = (...args) => spawnSync('git', args, { cwd: lane.worktreePath, encoding: 'utf8' });
+    await fs.writeFile(path.join(lane.worktreePath, 'shipped.txt'), 'ship it');
+    gw('add', 'shipped.txt');
+    gw('commit', '-qm', 'add shipped feature');
+
+    registry.getLane(lane.id).state = 'done';
+    registry.acceptLaneAudit(lane.id, { actor: 'auditor' });
+
+    const result = await registry.integrateLane(lane.id, { push: true });
+    assert.equal(result.integrated, true);
+    assert.equal(result.pushed, true, `push should succeed (reason: ${result.pushReason || 'none'})`);
+
+    // The merged commit reached the bare remote's base branch.
+    const bareLog = spawnSync('git', ['-C', bareDir, 'log', '--format=%s', baseBranch], { encoding: 'utf8' });
+    assert.equal(bareLog.status, 0);
+    assert.ok(/add shipped feature/.test(bareLog.stdout), 'bare remote received the merged commit');
+  } finally {
+    await cleanup();
+  }
+});
+
+test('deleteLane refuses a running lane and removes a terminal lane worktree', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const { repoDir } = await makeGitRepo('delete-lane-repo');
+    const { orchestrator: session } = await makeOrchestrator(registry, { cwd: repoDir });
+
+    // A running lane cannot be deleted (would orphan its child) -> 422.
+    const liveLane = registry.createLane(session.id, { title: 'live', executorType: 'mock', branch: 'live', worktreeMode: 'isolated' }, { actor: 'test', approved: true });
+    registry.getLane(liveLane.id).state = 'running';
+    await assert.rejects(
+      registry.deleteLane(liveLane.id, { actor: 'test' }),
+      (e) => e.status === 422 && /stop the lane/i.test(e.message),
+      'a running lane must not be deletable',
+    );
+    assert.ok(registry.getLane(liveLane.id), 'refused delete leaves the lane in place');
+
+    // A terminal (done) isolated lane deletes cleanly and its worktree is reaped.
+    const doneLane = registry.createLane(session.id, { title: 'done', executorType: 'mock', branch: 'done', worktreeMode: 'isolated' }, { actor: 'test', approved: true });
+    const doneWorktree = doneLane.worktreePath;
+    assert.equal((await fs.stat(doneWorktree)).isDirectory(), true);
+    registry.getLane(doneLane.id).state = 'done';
+
+    const result = await registry.deleteLane(doneLane.id, { actor: 'test' });
+    assert.equal(result.deleted, true);
+    assert.equal(result.id, doneLane.id);
+    assert.equal(registry.getLane(doneLane.id), undefined, 'deleted lane record is gone');
+    await assert.rejects(fs.access(doneWorktree), (e) => e.code === 'ENOENT', 'terminal lane worktree removed from disk');
+  } finally {
+    await cleanup();
+  }
+});
+
 test('touchOrchestrator refreshes lastSeenAt for the lease owner and rejects others (heartbeat)', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {

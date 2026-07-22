@@ -327,6 +327,43 @@ test('backup copy is throttled per write but the first and forced backups always
   });
 });
 
+test('a debounced persistState write survives the shutdown flush (teardown-race fix)', async () => {
+  await withTempDir('orca-persist-flush-', async (dir) => {
+    const previousCwd = process.cwd();
+    process.chdir(dir);
+    try {
+      const registry = new OrcaRegistry({ heartbeatIntervalMs: 5 });
+      // A mutation queues a DEBOUNCED (250ms) persist — the timer has not fired,
+      // so nothing durable is on disk yet.
+      registry.createProject({ name: 'Flush Race Project', slug: 'flush-race' }, { actor: 'test', approved: true });
+      assert.ok(registry._persistTimer, 'a debounced persist timer is pending (write not yet flushed)');
+
+      // Shutdown flush: stopScheduler force-fires the pending timer into a tracked
+      // write, and drainPendingWrites awaits it. This is the force-flush that makes
+      // the debounced write actually land instead of being dropped at teardown.
+      registry.stopScheduler();
+      await registry.drainPendingWrites();
+      assert.equal(registry._persistTimer, null, 'no pending persist timer remains after drain');
+
+      // Reopen from disk in a fresh registry: the pending write must have persisted.
+      const reopened = new OrcaRegistry({ heartbeatIntervalMs: 5 });
+      try {
+        assert.equal(reopened.stateLoadStatus.source, 'primary', 'reopened the flushed primary state, not a fallback');
+        assert.equal(
+          reopened.projects.some((project) => project.slug === 'flush-race'),
+          true,
+          'the debounced project write survived the shutdown flush',
+        );
+      } finally {
+        reopened.stopScheduler();
+        await reopened.drainPendingWrites();
+      }
+    } finally {
+      process.chdir(previousCwd);
+    }
+  });
+});
+
 test('state-store strips prototype-pollution keys when reading from disk', async () => {
   await withTempDir('orca-proto-pollution-', async (dir) => {
     const target = path.join(dir, 'state.json');

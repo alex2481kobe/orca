@@ -2995,3 +2995,472 @@ test('removed v2 routes fail closed as 404 (not 500) for an authenticated reques
     await server.stop();
   }
 });
+
+// --- HTTP-layer lane-lifecycle, ownership, and auth coverage (audit gap fill) ---
+// These drive the real /api routes (no direct registry poking) using the same
+// harness the tests above use. A git repo is initialized at the harness cwd (an
+// approved repo root) so isolated-worktree lanes have a base branch to merge.
+
+async function initGitRepoAt(dir, { file = 'README.md', content = 'base' } = {}) {
+  const { spawnSync } = await import('node:child_process');
+  const g = (...args) => spawnSync('git', args, { cwd: dir, encoding: 'utf8' });
+  g('init', '-q');
+  g('config', 'user.email', 't@local');
+  g('config', 'user.name', 'Orca Test');
+  g('config', 'commit.gpgsign', 'false');
+  await fs.writeFile(path.join(dir, file), content);
+  g('add', file);
+  g('commit', '-qm', 'init');
+  const baseBranch = g('rev-parse', '--abbrev-ref', 'HEAD').stdout.trim();
+  return { g, baseBranch };
+}
+
+async function gitIn(dir, ...args) {
+  const { spawnSync } = await import('node:child_process');
+  return spawnSync('git', args, { cwd: dir, encoding: 'utf8' });
+}
+
+async function createAcceptedIsolatedLane(server, token, orchestratorId, { branch, worktreeContent = null }) {
+  const created = await server.requestJson(`/api/orchestrators/${orchestratorId}/lanes`, {
+    method: 'POST',
+    headers: { 'x-orca-token': token },
+    body: {
+      title: `Isolated lane ${branch}`,
+      executorType: 'mock',
+      worktreeMode: 'isolated',
+      branch,
+      autoCompleteMs: 40,
+      approved: true,
+    },
+  });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const lane = created.body;
+  assert.ok(lane.worktreePath, 'isolated lane must have a worktreePath');
+  assert.equal(lane.worktreeMode, 'isolated');
+  // Let the mock worker finish so the lane is auditable (not running).
+  const done = await waitForLaneState(server, lane.id, token, (l) => l?.state === 'done');
+  assert.equal(done.body.state, 'done', `lane should reach done: ${JSON.stringify(done.body?.state)}`);
+  // Optionally commit real work on the lane branch inside its worktree.
+  if (worktreeContent) {
+    await fs.writeFile(path.join(lane.worktreePath, worktreeContent.file), worktreeContent.content);
+    await gitIn(lane.worktreePath, 'add', worktreeContent.file);
+    await gitIn(lane.worktreePath, 'commit', '-qm', `lane ${branch} work`);
+  }
+  return lane;
+}
+
+async function acceptAudit(server, token, laneId) {
+  const accepted = await server.requestJson(`/api/lanes/${laneId}/audit/accept`, {
+    method: 'POST',
+    headers: { 'x-orca-token': token },
+    body: { actor: 'dashboard' },
+  });
+  assert.equal(accepted.status, 200, `audit accept: ${JSON.stringify(accepted.body)}`);
+  return accepted;
+}
+
+test('POST /api/lanes/{id}/integrate merges an accepted isolated lane and rejects direct lanes', async () => {
+  const token = 'route-token-integrate-ok';
+  const server = await startServer({ token });
+  try {
+    const { baseBranch } = await initGitRepoAt(process.cwd());
+    const orchestrator = await registerOrchestrator(server, token, { title: 'Integrate OK Orchestrator' });
+
+    // Isolated lane with a real commit on its branch -> integrate merges it back.
+    const lane = await createAcceptedIsolatedLane(server, token, orchestrator.body.id, {
+      branch: 'feat-integrate',
+      worktreeContent: { file: 'feature.txt', content: 'new feature body' },
+    });
+    await acceptAudit(server, token, lane.id);
+
+    const integrated = await server.requestJson(`/api/lanes/${lane.id}/integrate`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'dashboard' },
+    });
+    assert.equal(integrated.status, 200, JSON.stringify(integrated.body));
+    assert.equal(integrated.body.integrated, true);
+    assert.equal(integrated.body.baseBranch, baseBranch);
+    assert.equal(integrated.body.branch, 'feat-integrate');
+    // The lane's commit is now merged into the base checkout.
+    assert.equal((await fs.stat(path.join(process.cwd(), 'feature.txt'))).isFile(), true);
+
+    // A DIRECT (shared/in-place) lane has nothing to merge back -> 422.
+    const directLane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { title: 'Direct lane', executorType: 'mock', worktreeMode: 'direct', autoCompleteMs: 40, approved: true },
+    });
+    assert.equal(directLane.status, 201, JSON.stringify(directLane.body));
+    const directRejected = await server.requestJson(`/api/lanes/${directLane.body.id}/integrate`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'dashboard' },
+    });
+    assert.equal(directRejected.status, 422);
+    assert.match(directRejected.body?.error || '', /isolated/i);
+  } finally {
+    await server.stop();
+  }
+});
+
+test('POST /api/lanes/{id}/integrate returns 409 with conflicts:true on a merge conflict', async () => {
+  const token = 'route-token-integrate-conflict';
+  const server = await startServer({ token });
+  try {
+    const { baseBranch } = await initGitRepoAt(process.cwd(), { file: 'shared.txt', content: 'original line\n' });
+    const orchestrator = await registerOrchestrator(server, token, { title: 'Integrate Conflict Orchestrator' });
+
+    // Lane edits shared.txt on its branch...
+    const lane = await createAcceptedIsolatedLane(server, token, orchestrator.body.id, {
+      branch: 'feat-conflict',
+      worktreeContent: { file: 'shared.txt', content: 'lane edit\n' },
+    });
+    // ...and the base branch edits the SAME line differently -> divergence.
+    await fs.writeFile(path.join(process.cwd(), 'shared.txt'), 'base edit\n');
+    await gitIn(process.cwd(), 'add', 'shared.txt');
+    await gitIn(process.cwd(), 'commit', '-qm', 'base edit');
+
+    await acceptAudit(server, token, lane.id);
+
+    const conflicted = await server.requestJson(`/api/lanes/${lane.id}/integrate`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'dashboard' },
+    });
+    assert.equal(conflicted.status, 409, JSON.stringify(conflicted.body));
+    assert.equal(conflicted.body.conflicts, true);
+    assert.equal(conflicted.body.baseBranch, baseBranch);
+    assert.equal(conflicted.body.branch, 'feat-conflict');
+    // The base checkout must be left clean (merge --abort), not mid-conflict.
+    const status = await gitIn(process.cwd(), 'status', '--porcelain');
+    assert.equal(/^UU |^AA |<<<<<<< /m.test(status.stdout || ''), false, 'base checkout left clean after conflict abort');
+  } finally {
+    await server.stop();
+  }
+});
+
+test('POST /api/lanes/{id}/worktree/discard refuses uncommitted work, forces, and removes the branch', async () => {
+  const token = 'route-token-discard';
+  const server = await startServer({ token });
+  try {
+    await initGitRepoAt(process.cwd());
+    const orchestrator = await registerOrchestrator(server, token, { title: 'Discard Orchestrator' });
+    const lane = await createAcceptedIsolatedLane(server, token, orchestrator.body.id, { branch: 'feat-discard' });
+    const branch = lane.branch;
+    assert.ok(branch, 'lane has a branch');
+
+    // Leave uncommitted work in the worktree.
+    await fs.writeFile(path.join(lane.worktreePath, 'scratch.txt'), 'unsaved');
+
+    // Safe by default: refuse with a client-actionable 409 + uncommittedChanges.
+    const refused = await server.requestJson(`/api/lanes/${lane.id}/worktree/discard`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'dashboard', approved: true },
+    });
+    assert.equal(refused.status, 409, JSON.stringify(refused.body));
+    assert.ok(refused.body.uncommittedChanges >= 1, `expected uncommittedChanges>=1, got ${refused.body.uncommittedChanges}`);
+    assert.equal((await fs.stat(lane.worktreePath)).isDirectory(), true, 'worktree still present after refusal');
+
+    // force:true + removeBranch:true discards the worktree AND deletes the branch.
+    const forced = await server.requestJson(`/api/lanes/${lane.id}/worktree/discard`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'dashboard', approved: true, force: true, removeBranch: true },
+    });
+    assert.equal(forced.status, 200, JSON.stringify(forced.body));
+    assert.equal(forced.body.removed, true);
+    await assert.rejects(fs.access(lane.worktreePath), (e) => e.code === 'ENOENT', 'worktree removed from disk');
+    const branchList = await gitIn(process.cwd(), 'branch', '--list', branch);
+    assert.equal((branchList.stdout || '').trim(), '', `branch ${branch} should be gone`);
+  } finally {
+    await server.stop();
+  }
+});
+
+test('integrate/discard refuse a tool lease that does not own the lane orchestrator', async () => {
+  const token = 'route-token-lane-ownership';
+  const server = await startServer({ token });
+  try {
+    // Two cwd-keyed projects, each with its own orchestrator container.
+    const dirB = path.join(process.cwd(), 'owner-project-b');
+    await fs.mkdir(dirB, { recursive: true });
+    const orchestratorA = await registerOrchestrator(server, token, { title: 'Owner A' });
+    const orchestratorB = await registerOrchestrator(server, token, { title: 'Owner B', cwd: dirB });
+    assert.notEqual(orchestratorA.body.projectId, orchestratorB.body.projectId);
+
+    // A lane lives under orchestrator B.
+    const laneB = await server.requestJson(`/api/orchestrators/${orchestratorB.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { title: 'B lane', executorType: 'mock', autoCompleteMs: 40, approved: true },
+    });
+    assert.equal(laneB.status, 201);
+
+    // An orchestrator lease scoped to project A must not act on B's lane.
+    const leaseA = await server.requestJson('/api/agent-tools/leases', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'owner-a', role: 'orchestrator', projectId: orchestratorA.body.projectId, ttlMs: 60_000 },
+    });
+    assert.equal(leaseA.status, 201);
+    const foreignHeaders = { 'x-orca-tool-lease': leaseA.body.leaseToken };
+
+    const foreignIntegrate = await server.requestJson(`/api/lanes/${laneB.body.id}/integrate`, {
+      method: 'POST',
+      headers: foreignHeaders,
+      body: { actor: 'owner-a' },
+    });
+    assert.equal(foreignIntegrate.status, 403, JSON.stringify(foreignIntegrate.body));
+    assert.match(foreignIntegrate.body?.error || '', /project mismatch/i);
+
+    const foreignDiscard = await server.requestJson(`/api/lanes/${laneB.body.id}/worktree/discard`, {
+      method: 'POST',
+      headers: foreignHeaders,
+      body: { actor: 'owner-a', approved: true },
+    });
+    assert.equal(foreignDiscard.status, 403, JSON.stringify(foreignDiscard.body));
+    assert.match(foreignDiscard.body?.error || '', /project mismatch/i);
+  } finally {
+    await server.stop();
+  }
+});
+
+test('DELETE /api/lanes/{id} refuses a running lane and succeeds on a terminal one', async () => {
+  const token = 'route-token-lane-delete';
+  const server = await startServer({ token });
+  try {
+    const orchestrator = await registerOrchestrator(server, token, { title: 'Delete Orchestrator' });
+    // Default mock runtime (12s) keeps the lane running deterministically.
+    const created = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { title: 'Long lane', executorType: 'mock', approved: true },
+    });
+    assert.equal(created.status, 201);
+    const laneId = created.body.id;
+    const running = await waitForLaneState(server, laneId, token, (l) => l?.state === 'running');
+    assert.equal(running.body.state, 'running');
+
+    // Deleting a live lane is refused so a running child can't be orphaned.
+    const refused = await server.requestJson(`/api/lanes/${laneId}`, {
+      method: 'DELETE',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'dashboard' },
+    });
+    assert.ok([409, 422].includes(refused.status), `running-lane delete must be refused, got ${refused.status}`);
+    assert.ok(await server.requestJson(`/api/lanes/${laneId}`, { method: 'GET', headers: { 'x-orca-token': token } }).then((r) => r.status === 200), 'lane still exists');
+
+    // Stop it -> terminal -> delete succeeds.
+    const stopped = await server.requestJson(`/api/lanes/${laneId}/stop`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'dashboard', approved: true, reason: 'delete test' },
+    });
+    assert.equal(stopped.status, 200);
+    const terminal = await waitForLaneState(server, laneId, token, (l) => ['stopped', 'done', 'failed'].includes(l?.state));
+    assert.ok(['stopped', 'done', 'failed'].includes(terminal.body.state));
+
+    const deleted = await server.requestJson(`/api/lanes/${laneId}`, {
+      method: 'DELETE',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'dashboard' },
+    });
+    assert.equal(deleted.status, 200, JSON.stringify(deleted.body));
+    assert.equal(deleted.body.deleted, true);
+    const gone = await server.requestJson(`/api/lanes/${laneId}`, { method: 'GET', headers: { 'x-orca-token': token } });
+    assert.equal(gone.status, 404);
+  } finally {
+    await server.stop();
+  }
+});
+
+test('GET /api/orchestrators/{id}/events/replay returns history without mutating drain ack state', async () => {
+  const token = 'route-token-events-replay';
+  // Auto-audit ON so a finished executor lane produces a durable audit_required
+  // wakeup event in the orchestrator queue (the only durable-event producer).
+  const server = await startServer({ token, env: { ORCA_AUTO_AUDIT: 'true' } });
+  try {
+    const orchestrator = await registerOrchestrator(server, token, { title: 'Replay Orchestrator' });
+    const orcId = orchestrator.body.id;
+
+    const created = await server.requestJson(`/api/orchestrators/${orcId}/lanes`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { title: 'Replay lane', executorType: 'mock', autoCompleteMs: 40, approved: true },
+    });
+    assert.equal(created.status, 201);
+    await waitForLaneState(server, created.body.id, token, (l) => l?.state === 'done');
+
+    // Explicitly queue the done lane for audit; the scheduler then nudges once.
+    const queued = await server.requestJson(`/api/orchestrators/${orcId}/audit-done-lanes`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'dashboard', approved: true },
+    });
+    assert.equal(queued.status, 200, JSON.stringify(queued.body));
+
+    // Poll drain until the durable wakeup event materializes.
+    const drainUrl = `/api/orchestrators/${orcId}/events/drain`;
+    const replayUrl = `/api/orchestrators/${orcId}/events/replay`;
+    let drainA = null;
+    for (let i = 0; i < 100; i += 1) {
+      drainA = await server.requestJson(drainUrl, { method: 'GET', headers: { 'x-orca-token': token } });
+      if (drainA.status === 200 && (drainA.body?.events?.length || 0) >= 1) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    assert.equal(drainA.status, 200);
+    assert.ok((drainA.body.events?.length || 0) >= 1, 'a durable agent event should be queued');
+    const drainAIds = drainA.body.events.map((e) => e.id).sort();
+
+    // Replay returns the same history and must NOT ack/consume anything.
+    const replay = await server.requestJson(replayUrl, { method: 'GET', headers: { 'x-orca-token': token } });
+    assert.equal(replay.status, 200);
+    const replayIds = replay.body.events.map((e) => e.id).sort();
+    for (const id of drainAIds) assert.ok(replayIds.includes(id), 'replay includes the drained event');
+
+    // Draining again shows the SAME events — replay did not mutate ack state.
+    const drainB = await server.requestJson(drainUrl, { method: 'GET', headers: { 'x-orca-token': token } });
+    assert.equal(drainB.status, 200);
+    const drainBIds = drainB.body.events.map((e) => e.id).sort();
+    assert.deepEqual(drainBIds, drainAIds, 'drain->replay->drain returns the same unacked events');
+
+    // Sanity: an explicit ack DOES remove it from drain while replay keeps history.
+    const ack = await server.requestJson(`/api/orchestrators/${orcId}/events/ack`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { eventIds: drainAIds },
+    });
+    assert.equal(ack.status, 200);
+    const drainC = await server.requestJson(drainUrl, { method: 'GET', headers: { 'x-orca-token': token } });
+    assert.equal(drainC.body.events.some((e) => drainAIds.includes(e.id)), false, 'acked events drop out of drain');
+    const replayAfter = await server.requestJson(replayUrl, { method: 'GET', headers: { 'x-orca-token': token } });
+    assert.ok(drainAIds.every((id) => replayAfter.body.events.map((e) => e.id).includes(id)), 'replay still returns acked history');
+  } finally {
+    await server.stop();
+  }
+});
+
+test('POST /api/orchestrators/{id}/audit-done-lanes queues eligible done lanes and skips others', async () => {
+  const token = 'route-token-audit-done-lanes';
+  const server = await startServer({ token });
+  try {
+    const orchestrator = await registerOrchestrator(server, token, { title: 'Bulk Audit Orchestrator' });
+    const orcId = orchestrator.body.id;
+
+    // One lane that finishes (eligible) and one that stays running (not eligible).
+    const doneLane = await server.requestJson(`/api/orchestrators/${orcId}/lanes`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { title: 'Done lane', executorType: 'mock', autoCompleteMs: 40, approved: true },
+    });
+    assert.equal(doneLane.status, 201);
+    const runningLane = await server.requestJson(`/api/orchestrators/${orcId}/lanes`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { title: 'Running lane', executorType: 'mock', approved: true },
+    });
+    assert.equal(runningLane.status, 201);
+    await waitForLaneState(server, doneLane.body.id, token, (l) => l?.state === 'done');
+    await waitForLaneState(server, runningLane.body.id, token, (l) => l?.state === 'running');
+
+    const first = await server.requestJson(`/api/orchestrators/${orcId}/audit-done-lanes`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'dashboard', approved: true },
+    });
+    assert.equal(first.status, 200, JSON.stringify(first.body));
+    // Only the done lane is eligible; the running lane is skipped.
+    assert.equal(first.body.enqueued, 1, `expected exactly the one done lane queued: ${JSON.stringify(first.body)}`);
+    assert.equal(first.body.enqueuedNew, 1);
+    assert.equal(first.body.queueIds.length, 1);
+
+    // Idempotent: a second call re-uses the pending queue entry, enqueues nothing new.
+    const second = await server.requestJson(`/api/orchestrators/${orcId}/audit-done-lanes`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'dashboard', approved: true },
+    });
+    assert.equal(second.status, 200);
+    assert.equal(second.body.enqueuedNew, 0);
+    assert.equal(second.body.alreadyQueued, 1);
+  } finally {
+    await server.stop();
+  }
+});
+
+test('admin can revoke a paired device by sessionId; a non-admin cannot, and unknown ids 404', async () => {
+  const token = 'route-token-admin-revoke';
+  const server = await startServer({ token });
+  try {
+    // GET /api/auth/sessions with NO credentials is refused outright.
+    const noCred = await server.requestJson('/api/auth/sessions', { method: 'GET' });
+    assert.equal(noCred.status, 401);
+
+    // Pair two devices.
+    const pairDevice = async (label) => {
+      const pairing = await server.requestJson('/api/auth/pairing-codes', {
+        method: 'POST',
+        headers: { 'x-orca-token': token },
+        body: { actor: 'dashboard', label },
+      });
+      assert.equal(pairing.status, 201);
+      const paired = await server.requestJson('/api/auth/pair', {
+        method: 'POST',
+        body: { actor: 'dashboard', code: pairing.body.pairing.code, label },
+      });
+      assert.equal(paired.status, 200);
+      return paired.response.headers['set-cookie'];
+    };
+    const cookie1 = await pairDevice('device-one');
+    const cookie2 = await pairDevice('device-two');
+
+    // Admin lists sessions and finds each device's id by label.
+    const sessions = await server.requestJson('/api/auth/sessions', { method: 'GET', headers: { 'x-orca-token': token } });
+    assert.equal(sessions.status, 200);
+    const idFor = (label) => sessions.body.sessions.find((s) => s.label === label)?.id;
+    const device1Id = idFor('device-one');
+    const device2Id = idFor('device-two');
+    assert.ok(device1Id && device2Id, 'both paired device sessions listed');
+
+    // (b) A non-admin paired operator may NOT revoke ANOTHER device by sessionId.
+    const operatorRevoke = await server.requestJson('/api/auth/logout', {
+      method: 'POST',
+      headers: { cookie: cookie1 },
+      body: { actor: 'dashboard', sessionId: device2Id },
+    });
+    assert.equal(operatorRevoke.status, 403);
+    // Device 2 is still authenticated (not revoked by the failed attempt).
+    const device2StillLive = await server.requestJson('/api/mcp/tools', { method: 'GET', headers: { cookie: cookie2 } });
+    assert.equal(device2StillLive.status, 200);
+
+    // (a) An admin (API token) revokes device 2 by sessionId. Own cookie untouched.
+    const adminRevoke = await server.requestJson('/api/auth/logout', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'dashboard', sessionId: device2Id },
+    });
+    assert.equal(adminRevoke.status, 200, JSON.stringify(adminRevoke.body));
+    assert.equal(adminRevoke.body.revoked, true);
+    // The admin sessionId revoke path must NOT clear the requester's own cookie.
+    assert.equal(adminRevoke.response.headers['set-cookie'], undefined);
+    // Device 2's session is now revoked: its cookie no longer authorizes mutations.
+    const device2Denied = await server.requestJson('/api/projects', {
+      method: 'POST',
+      headers: { cookie: cookie2 },
+      body: { actor: 'dashboard', approved: true, name: 'Revoked Device Project' },
+    });
+    assert.equal(device2Denied.status, 401);
+
+    // (c) Revoking a non-existent sessionId as admin -> 404.
+    const missing = await server.requestJson('/api/auth/logout', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'dashboard', sessionId: 'orca-session-does-not-exist' },
+    });
+    assert.equal(missing.status, 404);
+  } finally {
+    await server.stop();
+  }
+});
