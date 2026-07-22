@@ -56,8 +56,8 @@
 
 /* ---- port previews (registered dev-server ports, opened over Tailscale) ---- */
 .ov-previews { display: flex; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-3) var(--space-5) 0 var(--space-6); }
-.ov-preview { display: inline-flex; align-items: center; gap: 6px; padding: var(--space-2) var(--space-3); border: 1px solid color-mix(in srgb, var(--accent-blue) 35%, var(--line)); border-radius: var(--radius-pill); background: color-mix(in srgb, var(--accent-blue) 8%, transparent); color: var(--text); text-decoration: none; font-size: 0.76rem; line-height: 1; }
-@media (hover: hover) { .ov-preview:hover { background: color-mix(in srgb, var(--accent-blue) 16%, transparent); border-color: var(--accent-blue); } }
+.ov-preview { display: inline-flex; align-items: center; gap: 6px; padding: var(--space-2) var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-pill); background: color-mix(in srgb, var(--text) 5%, transparent); color: var(--text); text-decoration: none; font-size: 0.76rem; line-height: 1; }
+@media (hover: hover) { .ov-preview:hover { background: color-mix(in srgb, var(--text) 10%, transparent); border-color: var(--muted); } }
 .ov-preview-ic { color: var(--accent-blue); flex: 0 0 auto; }
 .ov-preview-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; background: var(--muted); }
 .ov-preview-dot.up { background: var(--accent-blue); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-blue) 22%, transparent); }
@@ -79,7 +79,7 @@
 .seg-opt { padding: var(--space-3) var(--space-5); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); font: inherit; font-size: 0.8rem; cursor: pointer; white-space: nowrap; }
 .seg-opt.is-active { background: var(--panel-soft); color: var(--text); font-weight: 600; }
 .btn { padding: var(--space-3) var(--space-5); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel-soft); color: var(--text); font: inherit; font-size: 0.85rem; cursor: pointer; }
-@media (hover: hover) { .btn:hover { border-color: var(--accent-blue); } }
+@media (hover: hover) { .btn:hover { border-color: var(--muted); } }
 .btn:disabled { opacity: 0.5; cursor: default; }
 .status-pill { font-size: 0.68rem; padding: 2px var(--space-3); border-radius: var(--radius-pill); border: 1px solid var(--line); color: var(--muted); flex: 0 0 auto; }
 .status-pill.ok { color: var(--accent-blue); border-color: color-mix(in srgb, var(--accent-blue) 40%, transparent); }
@@ -106,17 +106,17 @@
 .device-card b { font-size: 0.95rem; font-weight: 650; }
 .device-card > span:not(.device-card-caret) { font-size: 0.72rem; color: var(--muted); }
 .device-card-caret { position: absolute; top: var(--space-3); right: var(--space-2); color: var(--muted); transition: transform 0.15s ease; }
-.device-card.is-open { border-color: var(--accent-blue); background: color-mix(in srgb, var(--accent-blue) 8%, var(--panel-soft)); }
-.device-card.is-open .device-card-caret { transform: rotate(180deg); color: var(--accent-blue); }
-@media (hover: hover) { .device-card:not(.static):hover { border-color: var(--accent-blue); } }
+.device-card.is-open { border-color: var(--text); background: color-mix(in srgb, var(--text) 6%, var(--panel-soft)); }
+.device-card.is-open .device-card-caret { transform: rotate(180deg); color: var(--text); }
+@media (hover: hover) { .device-card:not(.static):hover { border-color: var(--muted); } }
 .device-cards-wrap { position: relative; margin-bottom: var(--space-3); }
 .device-cards-wrap .device-cards { margin-bottom: 0; }
 /* overlay dropdown — floats over the content below instead of pushing it down */
-.device-detail { position: absolute; top: calc(100% + var(--space-2)); left: 0; right: 0; z-index: 30; border: 1px solid color-mix(in srgb, var(--accent-blue) 30%, var(--line)); border-radius: var(--radius-md); background: var(--panel); padding: var(--space-4); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); }
+.device-detail { position: absolute; top: calc(100% + var(--space-2)); left: 0; right: 0; z-index: 30; border: 1px solid color-mix(in srgb, var(--text) 16%, var(--line)); border-radius: var(--radius-md); background: var(--panel); padding: var(--space-4); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); }
 .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 1.7rem; height: 1.7rem; padding: 0; line-height: 0; border: 1px solid var(--line); border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; }
 /* SVG as a block removes the inline baseline descender that pushed the glyph up. */
 .icon-btn svg { display: block; }
-@media (hover: hover) { .icon-btn:hover { color: var(--text); border-color: var(--accent-blue); } }
+@media (hover: hover) { .icon-btn:hover { color: var(--text); border-color: var(--muted); } }
 /* Code on top (value left, refresh/cancel right); countdown sits below it. */
 .pairing-code-top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
 .pairing-code-actions { display: inline-flex; gap: 4px; }
@@ -138,7 +138,9 @@
 /* ---- Remote: colored numbered steps in a card box (no dividers) ---- */
 .steps-card { border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); padding: var(--space-5); display: grid; gap: var(--space-5); margin-top: var(--space-4); }
 .step { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--space-4); align-items: start; }
-.step-num { width: 1.7rem; height: 1.7rem; border-radius: 50%; display: grid; place-items: center; background: color-mix(in srgb, var(--accent-blue) 16%, transparent); color: var(--accent-blue); font-weight: 700; font-size: 0.82rem; }
+/* Solid high-contrast step circle (no blue): white in dark theme / black in
+   light, with inverted text — same treatment as the primary buttons. */
+.step-num { width: 1.7rem; height: 1.7rem; border-radius: 50%; display: grid; place-items: center; background: var(--text); color: var(--ink-on-light); font-weight: 700; font-size: 0.82rem; }
 .step-main { min-width: 0; display: grid; gap: var(--space-2); }
 .step-title { font-weight: 600; }
 .step-action { align-self: center; }
