@@ -63,6 +63,9 @@ jobs:
           ORCA_REQUIRE_BROWSER_PROOF: '1'
         run: npm run smoke:security
 
+      - name: Screen proofs (server-down "Start Orca" + remote-client unlink/switch)
+        run: npm run smoke:screens
+
       - name: Run security guards (unauthenticated-access sweep, SSRF, headers)
         run: |
           npm run smoke:unauth-sweep
