@@ -67,27 +67,13 @@
 
 /* ---- settings + remote screens (use .card/.control-card from styles.css) ---- */
 .screen { display: flex; flex-direction: column; gap: var(--space-5); }
-.screen-head { display: flex; align-items: center; gap: var(--space-4); }
-.screen-head h1 { margin: 0; font-size: 1.1rem; font-weight: 600; }
-.btn-back { display: inline-flex; align-items: center; gap: 2px; padding: var(--space-2) var(--space-3) var(--space-2) var(--space-2); border: 1px solid var(--line); border-radius: var(--radius-sm); background: transparent; color: var(--text); font: inherit; font-size: 0.8rem; cursor: pointer; }
-@media (hover: hover) { .btn-back:hover { background: var(--hover); } }
-.card-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
-.card-label { font-size: 0.78rem; color: var(--muted); margin-bottom: var(--space-2); }
-.card-text { color: var(--text); font-size: 0.88rem; line-height: 1.55; margin: 0; }
-.card-text code, .ov-empty-sub code, .card code { background: var(--panel-soft); padding: 1px 5px; border-radius: var(--radius-xs); font-size: 0.85em; }
-.seg-theme { display: flex; gap: 4px; border: 1px solid var(--line); border-radius: var(--radius); padding: 3px; flex: 0 0 auto; }
+.ov-empty-sub code, .card code { background: var(--panel-soft); padding: 1px 5px; border-radius: var(--radius-xs); font-size: 0.85em; }
 .seg-opt { padding: var(--space-3) var(--space-5); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); font: inherit; font-size: 0.8rem; cursor: pointer; white-space: nowrap; }
 .seg-opt.is-active { background: var(--panel-soft); color: var(--text); font-weight: 600; }
 /* .btn / .btn-ghost visuals come from the unified solid button in styles.css;
    don't re-skin them here (this override used to make them look outlined). */
-.status-pill { font-size: 0.68rem; padding: 2px var(--space-3); border-radius: var(--radius-pill); border: 1px solid var(--line); color: var(--muted); flex: 0 0 auto; }
-.status-pill.ok { color: var(--accent-blue); border-color: color-mix(in srgb, var(--accent-blue) 40%, transparent); }
-.pair-out { margin-top: var(--space-4); }
-.pair-code { font-size: 1.6rem; font-weight: 700; letter-spacing: 0.14em; font-variant-numeric: tabular-nums; color: var(--accent-blue); margin-bottom: var(--space-2); }
 
 /* ---- Remote: Tailscale HTTPS block + step alignment (fix clumping) ---- */
-.ts-https { margin-top: var(--space-3); }
-.ts-https h3 { font-size: 0.95rem; font-weight: 600; margin: 0 0 var(--space-2); }
 .ts-commands { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
 /* Pairing/access step rows: vertically-center the action button with the text,
    give the copy per line more room, and keep the button from stretching. */
@@ -95,8 +81,6 @@
 .home-panels .settings-action-main { gap: 0.3rem; }
 .home-panels .settings-action-controls { flex: 0 0 auto; }
 /* flat sub-section headings (Paired devices, HTTPS) on the one-page Remote screen */
-.ts-subhead { font-size: 0.85rem; font-weight: 600; margin: var(--space-5) 0 var(--space-2); }
-.ts-subhead .tiny { font-weight: 400; }
 
 /* ---- Remote: clickable summary cards + dropdown ---- */
 .device-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-2); margin-bottom: var(--space-3); }
@@ -175,7 +159,6 @@ body.app-offline .ops-main { padding: 0; }
   .qr-wrap, .qr-wrap .qr-code, .qr-code { width: 116px; }
   .qr-code { height: 116px; padding: 0.35rem; }
   .qr-wrap span { max-width: 130px; font-size: 0.64rem; }
-  .onboarding-card { padding: var(--space-3); }
   .steps-card { padding: var(--space-3); gap: var(--space-3); margin-top: var(--space-2); }
   .step { gap: var(--space-3); }
   .step-main { gap: 2px; }
