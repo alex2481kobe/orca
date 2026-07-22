@@ -48,7 +48,11 @@ const isMobile = () => window.matchMedia('(max-width: 880px)').matches;
 // itself; anything else (a tailnet hostname on a phone) is a remote client.
 const isLoopbackHost = () => /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|::1)$/.test(window.location.hostname);
 const closeMobileNav = () => { if (isMobile()) body.classList.remove('nav-open'); };
-try { if (localStorage.getItem('orca.sidebar') === 'collapsed') body.classList.add('sidebar-collapsed'); } catch { /* */ }
+// The collapsed state is a DESKTOP-only affordance. On a phone the sidebar is a
+// drawer, and body.sidebar-collapsed applies pointer-events:none to it — so a stale
+// 'collapsed' value (e.g. set while wide in landscape, then rotated to portrait)
+// would make the drawer untappable. Never apply it at phone widths.
+try { if (!isMobile() && localStorage.getItem('orca.sidebar') === 'collapsed') body.classList.add('sidebar-collapsed'); } catch { /* */ }
 document.addEventListener('click', (e) => {
   // Backdrop tap closes the mobile drawer.
   if (e.target.closest('#sidebar-backdrop')) { body.classList.remove('nav-open'); return; }
@@ -59,7 +63,9 @@ document.addEventListener('click', (e) => {
   if (!toggle) return;
   // On a phone the sidebar is a fixed drawer keyed on body.nav-open; on desktop
   // it fully collapses via body.sidebar-collapsed.
-  if (isMobile()) { body.classList.toggle('nav-open'); return; }
+  // Defensively drop the desktop collapsed state before opening the drawer, so a
+  // stale 'collapsed' class can never make the phone drawer pointer-events:none.
+  if (isMobile()) { body.classList.remove('sidebar-collapsed'); body.classList.toggle('nav-open'); return; }
   body.classList.toggle('sidebar-collapsed');
   try { localStorage.setItem('orca.sidebar', body.classList.contains('sidebar-collapsed') ? 'collapsed' : 'open'); } catch { /* */ }
 });

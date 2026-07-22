@@ -2400,6 +2400,15 @@ body.sidebar-collapsed .pill {
   body.sidebar-collapsed .ops-sidebar {
     align-items: stretch;
     width: min(82vw, 300px);
+    /* The desktop collapse rule sets pointer-events:none / padding:0 / overflow:
+       hidden / border:0 on the sidebar — on a phone that makes the OPEN drawer
+       untappable (taps fall through to the backdrop and close it). Fully restore
+       the mobile drawer so a stale 'collapsed' class can't break navigation. */
+    pointer-events: auto;
+    overflow-x: hidden;
+    overflow-y: auto;
+    border-right: 1px solid var(--line-soft);
+    padding: calc(env(safe-area-inset-top) + 0.75rem) 0.9rem calc(0.8rem + var(--safe-area-bottom)) calc(1rem + env(safe-area-inset-left));
   }
   body.sidebar-collapsed .sidebar-link,
   body.sidebar-collapsed .settings-row,
@@ -2435,7 +2444,7 @@ body.sidebar-collapsed .pill {
   /* Same collapse controls as desktop: floating reopen (to open) + in-drawer
      collapse (to close). The legacy topbar hamburger is gone with the topbar. */
 #sidebar-reopen.sidebar-reopen {
-    display: inline-flex; position: fixed; left: 0.55rem; top: calc(env(safe-area-inset-top) + 0.45rem); z-index: 70;
+    display: inline-flex; position: fixed; left: calc(env(safe-area-inset-left) + 0.55rem); top: calc(env(safe-area-inset-top) + 0.45rem); z-index: 70;
     background: var(--panel); border: 1px solid var(--line); color: var(--text);
   }
   body.nav-open #sidebar-reopen.sidebar-reopen { display: none; }

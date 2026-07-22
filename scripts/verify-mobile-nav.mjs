@@ -83,9 +83,44 @@ const leftEdge = await p.evaluate(() => {
 });
 check('drawer.leftClearsEdge', leftEdge >= 15);
 await p.screenshot({ path: path.join(outDir, 'mobile-nav.png') });
+await ctx.close();
+
+// The reported bug: a stale 'collapsed' sidebar preference on a phone (set while
+// wide in landscape, then rotated) applied body.sidebar-collapsed, whose desktop
+// rule makes the drawer pointer-events:none — so taps fell through to the backdrop
+// and closed it. Seed that exact state and prove nav still works. Fails pre-fix.
+{
+  const code2 = (await (await fetch(`${base}/api/auth/pairing-codes`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-orca-token': 'verify-token' },
+    body: JSON.stringify({ actor: 'test', label: 'phone2' }),
+  })).json())?.pairing?.code;
+  const ctx2 = await b.newContext({ userAgent: IPHONE, viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  await ctx2.addInitScript(() => { try { localStorage.setItem('orca.sidebar', 'collapsed'); } catch { /* */ } });
+  const p2 = await ctx2.newPage();
+  await p2.goto(`http://remote.test:${port}/`, { waitUntil: 'domcontentloaded' });
+  await p2.evaluate(async (c) => { await fetch('/api/auth/pair', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: c, label: 'iPhone2' }) }); }, code2);
+  await p2.goto(`http://remote.test:${port}/`, { waitUntil: 'domcontentloaded' });
+  await p2.waitForTimeout(900);
+  const opener2 = await p2.evaluate(() => {
+    const vis = (el) => el && getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().width > 0;
+    return vis(document.getElementById('sidebar-reopen')) ? '#sidebar-reopen' : (vis(document.getElementById('nav-toggle')) ? '#nav-toggle' : null);
+  });
+  await p2.tap(opener2);
+  await p2.waitForTimeout(400);
+  const drawer = await p2.evaluate(() => {
+    const cs = getComputedStyle(document.querySelector('.ops-sidebar'));
+    return { pe: cs.pointerEvents, collapsed: document.body.classList.contains('sidebar-collapsed') };
+  });
+  check('collapsed.drawerTappable', drawer.pe !== 'none');
+  check('collapsed.classNotAppliedOnPhone', drawer.collapsed === false);
+  await p2.tap('[data-nav="settings"]', { timeout: 5000 }).catch(() => {});
+  await p2.waitForTimeout(500);
+  const nav2 = await p2.evaluate(() => ({ hash: location.hash, appearance: Boolean(document.querySelector('[data-action="setTheme"]')) }));
+  check('collapsed.navigatesToSettings', nav2.hash === '#settings' && nav2.appearance);
+  await ctx2.close();
+}
 
 console.log('[verify] mobile-nav:', JSON.stringify({ ...results, _leftEdge: leftEdge }, null, 2));
-await ctx.close();
 await b.close(); if (sm.stopServer) await sm.stopServer(); await new Promise((r) => s.close(r));
 if (failed) { console.error('[verify] mobile-nav FAILED'); process.exit(1); }
 console.log('[verify] mobile-nav OK');
