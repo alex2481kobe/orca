@@ -51,6 +51,19 @@ async function pairADevice(label, deviceId) {
 async function runPass(scheme) {
   const ctx = await b.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: scheme });
   const p = await ctx.newPage();
+  // Stub the tailnet status as READY so the "Create code" step renders regardless
+  // of whether THIS machine has Tailscale installed/logged-in. The pair panel gates
+  // step 2 (create-code) behind tsReady; on CI there is no Tailscale, so without
+  // this the button never renders and the click times out (real cross-env bug the
+  // clean-CI run caught). Device rows come from /api/auth/sessions, unaffected.
+  await p.route('**/api/private-access', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      tailnet: { binaryAvailable: true, loggedIn: true, serveConfigured: true, servedUrl: `${base}/` },
+      settings: {}, targets: [], setupPlan: { commands: [] },
+    }),
+  }));
   await p.goto(`${base}/`, { waitUntil: 'domcontentloaded' });
   await p.waitForTimeout(600); // let a poll fire (home renders)
   // Navigate to Remote via a hash change (NOT goto#hash — the 2s poll means
