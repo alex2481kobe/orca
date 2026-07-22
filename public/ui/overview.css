@@ -78,9 +78,8 @@
 .seg-theme { display: flex; gap: 4px; border: 1px solid var(--line); border-radius: var(--radius); padding: 3px; flex: 0 0 auto; }
 .seg-opt { padding: var(--space-3) var(--space-5); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); font: inherit; font-size: 0.8rem; cursor: pointer; white-space: nowrap; }
 .seg-opt.is-active { background: var(--panel-soft); color: var(--text); font-weight: 600; }
-.btn { padding: var(--space-3) var(--space-5); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel-soft); color: var(--text); font: inherit; font-size: 0.85rem; cursor: pointer; }
-@media (hover: hover) { .btn:hover { border-color: var(--muted); } }
-.btn:disabled { opacity: 0.5; cursor: default; }
+/* .btn / .btn-ghost visuals come from the unified solid button in styles.css;
+   don't re-skin them here (this override used to make them look outlined). */
 .status-pill { font-size: 0.68rem; padding: 2px var(--space-3); border-radius: var(--radius-pill); border: 1px solid var(--line); color: var(--muted); flex: 0 0 auto; }
 .status-pill.ok { color: var(--accent-blue); border-color: color-mix(in srgb, var(--accent-blue) 40%, transparent); }
 .pair-out { margin-top: var(--space-4); }

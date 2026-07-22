@@ -429,6 +429,9 @@ async function fetchRemote() {
 // Live "Expires in M:SS" countdown on the pairing code (ticks every second).
 function startPairingCountdown() {
   if (pairingCountdownTimer) { clearInterval(pairingCountdownTimer); pairingCountdownTimer = null; }
+  // No live code on screen → don't spin up an interval at all (keeps create/cancel
+  // and constant refresh leak-free: at most one countdown timer ever exists).
+  if (!content.querySelector('.pairing-countdown[data-expires]')) return;
   const tick = () => {
     const els = content.querySelectorAll('.pairing-countdown[data-expires]');
     if (!els.length) { clearInterval(pairingCountdownTimer); pairingCountdownTimer = null; return; }

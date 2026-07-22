@@ -3353,10 +3353,11 @@ body.no-voice .composer-mic { display: none; }
   font-size: 0.85rem; gap: 0.4rem; justify-content: center; min-height: 2.1rem; padding: 0.45rem 0.95rem;
   text-decoration: none; white-space: nowrap; transition: background-color 0.12s ease, border-color 0.12s ease, opacity 0.12s ease;
 }
-.btn { background: var(--text); border: 1px solid var(--text); color: var(--ink-on-light); font-weight: 550; }
-@media (hover: hover) { .btn:hover { opacity: 0.9; } }
-.btn-ghost { background: transparent; border: 1px solid var(--line); color: var(--text); }
-@media (hover: hover) { .btn-ghost:hover { background: var(--hover); border-color: var(--muted); } }
+/* One unified solid button for the whole app (workstation + remote + dropdowns):
+   white in dark theme, black in light theme. Black-and-white design system. */
+.btn, .btn-ghost { background: var(--text); border: 1px solid var(--text); color: var(--ink-on-light); font-weight: 550; }
+@media (hover: hover) { .btn:hover, .btn-ghost:hover { opacity: 0.88; } }
+.btn:disabled, .btn-ghost:disabled { opacity: 0.45; cursor: default; }
 .ts-setup-callout {
   background: var(--panel-soft, #303030); border: 1px solid var(--line); border-radius: var(--radius-md); display: flex;
   flex-direction: column; gap: 0.5rem; margin: 0.4rem 0 0.9rem; padding: 0.85rem 1rem;
@@ -3790,10 +3791,13 @@ textarea:focus-visible {
   min-height: 2rem;
 }
 @media (hover: hover) { .seg-btn:hover { color: var(--text); } }
+/* Selected theme = solid inverted chip (white in dark, black in light) so the
+   active choice is unmistakable in BOTH themes (was near-invisible white-on-white
+   in light mode). */
 .seg-btn.is-on {
-  background: var(--bg);
-  color: var(--text);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+  background: var(--text);
+  color: var(--ink-on-light);
+  font-weight: 600;
 }
 
 /* ===== iOS app download promo (shown to iOS web visitors) =====
