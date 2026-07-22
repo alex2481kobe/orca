@@ -113,8 +113,8 @@ Open the following in mobile Safari/Chrome:
 
 The connected phone is a **read-only viewer**: it can browse projects,
 orchestrators, executor lanes, and lane detail, but it cannot mutate the
-workflow or perform host administration (CLI reinstalls, private-access
-settings, minting pairing codes). Those stay on the workstation. Orchestration
+workflow or perform host administration (private-access settings, minting
+pairing codes). Those stay on the workstation. Orchestration
 itself is driven by agents over MCP, not from the phone UI.
 
 ## 6. Viewing from the phone

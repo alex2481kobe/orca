@@ -665,7 +665,6 @@ test('paired devices get operator access but are denied host administration', as
 
     // Host administration is refused (403) for a paired operator device.
     const adminAttempts = [
-      ['POST', '/api/executors/codex/cli/reinstall', { actor: 'dashboard', approved: true, execute: false }],
       ['PATCH', '/api/private-access/settings', { actor: 'dashboard', preferredMode: 'local' }],
       ['POST', '/api/private-access/serve', { actor: 'dashboard', action: 'enable' }],
       ['POST', '/api/auth/pairing-codes', { actor: 'dashboard', label: 'rogue' }],
@@ -716,15 +715,15 @@ test('paired devices get operator access but are denied host administration', as
     });
     assert.equal(execLease.status, 201, 'operator may still mint a lane-scoped worker lease');
 
-    // The same routes are reachable for the workstation (API token = admin):
+    // The same admin routes are reachable for the workstation (API token = admin):
     // they pass the auth gate and fail later on policy/validation, never 401/403.
-    const tokenReinstall = await server.requestJson('/api/executors/codex/cli/reinstall', {
+    const tokenAdmin = await server.requestJson('/api/auth/pairing-codes', {
       method: 'POST',
       headers: { 'x-orca-token': token },
-      body: { actor: 'dashboard', approved: true, execute: false },
+      body: { actor: 'dashboard', label: 'workstation' },
     });
-    assert.notEqual(tokenReinstall.status, 401);
-    assert.notEqual(tokenReinstall.status, 403);
+    assert.notEqual(tokenAdmin.status, 401);
+    assert.notEqual(tokenAdmin.status, 403);
   } finally {
     await server.stop();
   }
@@ -945,173 +944,6 @@ test('server rejects malformed query strings on query-based endpoints', async ()
   }
 });
 
-test('executor CLI reinstall endpoints require explicit confirmation before execution', async () => {
-  const token = 'route-token-03';
-  const server = await startServer({
-    token,
-    env: {
-      ORCA_CODEX_BINARY: '/usr/bin/codex',
-      ORCA_CODEX_REINSTALL_COMMAND: 'npm install --yes @openai/codex',
-    },
-  });
-
-  try {
-    const info = await server.requestJson('/api/executors/codex/cli', { method: 'GET', headers: { 'x-orca-token': token } });
-    assert.equal(info.status, 200);
-    assert.equal(info.body.type, 'codex');
-    assert.equal(info.body.reinstall?.available, true);
-
-    const dryRun = await server.requestJson('/api/executors/codex/cli/reinstall', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        approved: true,
-        execute: false,
-      },
-    });
-    assert.equal(dryRun.status, 200);
-    assert.equal(dryRun.body.executed, false);
-    assert.equal(Array.isArray(dryRun.body.command), true);
-
-    const executeDenied = await server.requestJson('/api/executors/codex/cli/reinstall', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        approved: true,
-        execute: true,
-      },
-    });
-    assert.equal(executeDenied.status, 409);
-    assert.equal(
-      String(executeDenied.body?.error || '').includes('explicit confirmation'),
-      true,
-    );
-  } finally {
-    await server.stop();
-  }
-});
-
-test('executor CLI reinstall requires approval for planning requests', async () => {
-  const token = 'route-token-03e';
-  const server = await startServer({
-    token,
-    env: {
-      ORCA_CODEX_BINARY: '/usr/bin/codex',
-      ORCA_CODEX_REINSTALL_COMMAND: 'npm install --yes @openai/codex',
-    },
-  });
-
-  try {
-    const denied = await server.requestJson('/api/executors/codex/cli/reinstall', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        approved: false,
-        execute: false,
-      },
-    });
-    assert.equal(denied.status, 409);
-    assert.equal(Boolean(denied.body?.requiresApproval), true);
-  } finally {
-    await server.stop();
-  }
-});
-
-test('executor CLI reinstall endpoint rejects unsafe override commands', async () => {
-  const token = 'route-token-03b';
-  const server = await startServer({
-    token,
-    env: {
-      ORCA_CODEX_BINARY: '/usr/bin/codex',
-      ORCA_CODEX_REINSTALL_COMMAND: 'npm install --yes @openai/codex',
-    },
-  });
-
-  try {
-    const badOverride = await server.requestJson('/api/executors/codex/cli/reinstall', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        approved: true,
-        execute: false,
-        command: 'rm -rf /',
-      },
-    });
-    assert.equal(badOverride.status, 422);
-    assert.equal(String(badOverride.body?.error || '').includes('Invalid reinstall command override'), true);
-  } finally {
-    await server.stop();
-  }
-});
-
-test('executor CLI reinstall supports forcing source-based reinstall commands', async () => {
-  const token = 'route-token-03c';
-  const server = await startServer({
-    token,
-    env: {
-      ORCA_CODEX_BINARY: '/usr/bin/codex',
-      ORCA_CODEX_REINSTALL_COMMAND: 'npm install --yes @openai/codex',
-      ORCA_CODEX_REINSTALL_SOURCE_REPOS: 'my-org/codex-fork,openai/codex',
-      ORCA_CODEX_REINSTALL_PREFER_SOURCE: 'false',
-    },
-  });
-
-  try {
-    const sourceMode = await server.requestJson('/api/executors/codex/cli/reinstall', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        approved: true,
-        execute: false,
-        useSource: true,
-      },
-    });
-    assert.equal(sourceMode.status, 200);
-    assert.equal(sourceMode.body.executed, false);
-    assert.equal(
-      String(sourceMode.body.command?.join(' ') || '').includes('git+https://github.com/my-org/codex-fork.git'),
-      true,
-    );
-  } finally {
-    await server.stop();
-  }
-});
-
-test('executor CLI reinstall rejects source mode with custom override command', async () => {
-  const token = 'route-token-03d';
-  const server = await startServer({
-    token,
-    env: {
-      ORCA_CODEX_BINARY: '/usr/bin/codex',
-      ORCA_CODEX_REINSTALL_COMMAND: 'npm install --yes @openai/codex',
-      ORCA_CODEX_REINSTALL_SOURCE_REPOS: 'my-org/codex-fork,openai/codex',
-    },
-  });
-
-  try {
-    const rejected = await server.requestJson('/api/executors/codex/cli/reinstall', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        approved: true,
-        execute: false,
-        useSource: true,
-        command: 'npm install --yes @openai/codex',
-      },
-    });
-    assert.equal(rejected.status, 422);
-    assert.equal(String(rejected.body?.error || '').includes('Cannot combine custom command override'), true);
-  } finally {
-    await server.stop();
-  }
-});
-
 test('executor CLI APIs reject unsupported executor types', async () => {
   const token = 'route-token-03f';
   const server = await startServer({ token });
@@ -1119,16 +951,6 @@ test('executor CLI APIs reject unsupported executor types', async () => {
   try {
     const missingInfo = await server.requestJson('/api/executors/unknown/cli', { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(missingInfo.status, 404);
-
-    const missingReinstall = await server.requestJson('/api/executors/unknown/cli/reinstall', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        approved: true,
-      },
-    });
-    assert.equal(missingReinstall.status, 404);
   } finally {
     await server.stop();
   }
@@ -1390,62 +1212,6 @@ test('dashboard event routes use canonical consumer identity despite role actor 
   }
 });
 
-test('executor CLI reinstall supports claude with source-mode and command validation', async () => {
-  const token = 'route-token-03e';
-  const server = await startServer({
-    token,
-    env: {
-      ORCA_CLAUDE_BINARY: '/usr/bin/claude',
-      ORCA_CLAUDE_REINSTALL_COMMAND: 'npm install --yes @anthropic/claude-code',
-      ORCA_CLAUDE_REINSTALL_SOURCE_REPOS: 'anthropic/claude-code,my-org/claude-fork',
-      ORCA_CLAUDE_REINSTALL_PREFER_SOURCE: 'false',
-    },
-  });
-
-  try {
-    const info = await server.requestJson('/api/executors/claude/cli', { method: 'GET', headers: { 'x-orca-token': token } });
-    assert.equal(info.status, 200);
-    assert.equal(info.body.type, 'claude');
-    assert.equal(info.body.reinstall?.available, true);
-    assert.equal(Array.isArray(info.body.reinstall.command), true);
-
-    const sourceMode = await server.requestJson('/api/executors/claude/cli/reinstall', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        approved: true,
-        execute: false,
-        useSource: true,
-      },
-    });
-    assert.equal(sourceMode.status, 200);
-    assert.equal(sourceMode.body.executed, false);
-    assert.equal(
-      String(sourceMode.body.command?.join(' ') || '').includes('git+https://github.com/anthropic/claude-code.git'),
-      true,
-    );
-
-    const executeDenied = await server.requestJson('/api/executors/claude/cli/reinstall', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        approved: true,
-        execute: true,
-        useSource: true,
-      },
-    });
-    assert.equal(executeDenied.status, 409);
-    assert.equal(
-      String(executeDenied.body?.error || '').includes('requires explicit confirmation'),
-      true,
-    );
-  } finally {
-    await server.stop();
-  }
-});
-
 test('server MCP tooling routes require token and support CRUD workflow', async () => {
   const token = 'route-token-04';
   const server = await startServer({ token });
@@ -1693,7 +1459,6 @@ test('mobile manifest exposes project entries and workflow action URLs', async (
     assert.equal(typeof manifest.body?.artifactCleanupNowUrl, 'string');
     assert.equal(typeof manifest.body?.executorProfilesUrl, 'string');
     assert.equal(typeof manifest.body?.executorCliInfoUrl, 'string');
-    assert.equal(typeof manifest.body?.executorCliReinstallUrl, 'string');
     assert.equal(manifest.body?.browserSessionSupported, true);
     assert.equal(typeof manifest.body?.authStatusUrl, 'string');
     assert.equal(typeof manifest.body?.authPairingCodeUrl, 'string');

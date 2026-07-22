@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { resolveWorktreeMode } from '../src/registry-lane-config.js';
+import { resolveWorktreeMode, commandTargetsExecutorFirstToken } from '../src/registry-lane-config.js';
 
 // resolveWorktreeMode is the pure policy that turns a (possibly 'auto') worktree
 // request + the current situation into a concrete mode. These tests pin the exact
@@ -72,4 +72,26 @@ test('resolveWorktreeMode: explicit modes are honored (isolated degrades on non-
     resolveWorktreeMode({ requested: 'isolated', repoIsGit: true }),
     'isolated',
   );
+});
+
+// commandTargetsExecutorFirstToken gates lane commands for first-class CLI
+// executors: the command must actually start with a token that names that CLI
+// (accounting for the binary alias, e.g. composer-cli -> cursor-agent). Used by
+// firstClassCliTokenAllowed in src/registry-lane-create.js.
+test('commandTargetsExecutorFirstToken: first token must name the target CLI', () => {
+  // Direct name match.
+  assert.equal(commandTargetsExecutorFirstToken('codex', ['codex']), true);
+  assert.equal(commandTargetsExecutorFirstToken('claude', ['claude']), true);
+  // Alias: composer-cli runs the `cursor-agent` binary.
+  assert.equal(commandTargetsExecutorFirstToken('composer-cli', ['cursor-agent']), true);
+  assert.equal(commandTargetsExecutorFirstToken('gemini-cli', ['gemini']), true);
+  // A first token for a different tool is rejected.
+  assert.equal(commandTargetsExecutorFirstToken('codex', ['claude']), false);
+  assert.equal(commandTargetsExecutorFirstToken('claude', ['rm']), false);
+  // Only the first token is inspected; later tokens are irrelevant here.
+  assert.equal(commandTargetsExecutorFirstToken('codex', ['codex', 'exec', '--foo']), true);
+  // Empty/degenerate inputs are permissive (validation happens elsewhere).
+  assert.equal(commandTargetsExecutorFirstToken('codex', []), true);
+  assert.equal(commandTargetsExecutorFirstToken('', ['anything']), true);
+  assert.equal(commandTargetsExecutorFirstToken('codex', 'notarray'), false);
 });

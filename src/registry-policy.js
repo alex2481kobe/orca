@@ -87,11 +87,6 @@ export const defaultPolicy = {
     risk: 'medium',
     message: 'Changes periodic cleanup policy and can increase data retention risk.',
   },
-  manageExecutorCli: {
-    requiresApproval: true,
-    risk: 'high',
-    message: 'Reinstalling/updating the CLI can change execution trust boundaries.',
-  },
   manageMcpTools: {
     requiresApproval: true,
     risk: 'high',

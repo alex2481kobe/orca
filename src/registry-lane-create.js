@@ -12,11 +12,15 @@ import {
   buildLaneRoute,
 } from './registry-utils.js';
 import { FIRST_CLASS_CLI_EXECUTOR_TYPES, getExecutorProfile } from './executor-factory.js';
-import { commandTargetsExecutorFirstToken } from './registry-reinstall.js';
 import { createLaneWorktree, describeRepoRoot } from './worktree-manager.js';
 import { sanitizeSettingsOverrides } from './effective-settings.js';
 import { validateNetworkUrl } from './url-policy.js';
-import { normalizeCritiqueMode, resolveWorktreeMode, normalizeIdleShutdownMode } from './registry-lane-config.js';
+import {
+  normalizeCritiqueMode,
+  resolveWorktreeMode,
+  normalizeIdleShutdownMode,
+  commandTargetsExecutorFirstToken,
+} from './registry-lane-config.js';
 
 const { QUEUED: QUEUED_STATE } = LANE_STATES;
 const MAX_WORKDIR_BYTES = 2048;

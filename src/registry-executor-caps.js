@@ -1,12 +1,11 @@
-// Executor capability discovery + CLI info/reinstall methods, as a prototype
-// mixin for OrcaRegistry. Extracted from registry.js. Owns the CLI capability
-// cache (module-scoped, shared across instances — it's just a probe cache).
+// Executor capability discovery + CLI info methods, as a prototype mixin for
+// OrcaRegistry. Extracted from registry.js. Owns the CLI capability cache
+// (module-scoped, shared across instances — it's just a probe cache).
 
 import fs from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn, spawnSync } from 'node:child_process';
 import {
   normalizeExecutorType,
   publicBinaryName,
@@ -15,7 +14,6 @@ import {
   clonePayload,
   nowIso,
 } from './registry-utils.js';
-import { defaultPolicy } from './registry-policy.js';
 import {
   getCliVersion,
   getCliHelp,
@@ -26,14 +24,6 @@ import {
   detectSlashCommands,
   compactCapabilities,
 } from './registry-cli-info.js';
-import {
-  REINSTALL_COMMAND_TIMEOUT_MS,
-  getReinstallCommand,
-  normalizeReinstallCommand,
-  getReinstallSourceCommand,
-  getReinstallSourceRepos,
-  shouldPreferSourceReinstall,
-} from './registry-reinstall.js';
 
 // Codex stores its default model + reasoning effort in ~/.codex/config.toml. Read
 // them so the UI default matches the terminal (e.g. "gpt-5.5 high"). The full
@@ -373,22 +363,12 @@ export const executorCapabilityMethods = {
         version: null,
         binaryExitCode: null,
         capabilities: this.getExecutorCapabilities(type),
-        reinstall: {
-          available: false,
-          command: null,
-          preferSource: false,
-          sourceRepos: [],
-          sourceCommand: null,
-        },
       };
     }
 
     const profile = getExecutorProfileFromFactory(type) || {};
     const binary = String(profile.defaultBinary || type);
     const versionInfo = getCliVersion(binary);
-    const reinstallCommand = getReinstallCommand(type);
-    const reinstallSourceRepos = getReinstallSourceRepos(type);
-    const preferSource = shouldPreferSourceReinstall(type);
     return {
       type,
       profile,
@@ -397,167 +377,6 @@ export const executorCapabilityMethods = {
       version: versionInfo.version,
       binaryExitCode: versionInfo.exitCode,
       capabilities: this.getExecutorCapabilities(type),
-      reinstall: {
-        available: Boolean(reinstallCommand),
-        command: reinstallCommand,
-        preferSource,
-        sourceRepos: reinstallSourceRepos,
-        sourceCommand: getReinstallSourceCommand(type),
-      },
-    };
-  },
-
-  async runExecutorCliReinstall(executorType, {
-    actor = 'dashboard',
-    approved = false,
-    execute = false,
-    command,
-    confirmed = false,
-    useSource = false,
-  } = {}) {
-    const type = normalizeExecutorType(executorType);
-    if (!['codex', 'claude'].includes(type)) {
-      throw { status: 404, message: 'Unsupported executor type.' };
-    }
-
-    const policyCheck = this.evaluateActionPolicy('manageExecutorCli', { actor, approved });
-    if (!policyCheck.allowed) {
-      throw {
-        status: 409,
-        message: policyCheck.message,
-        requiresApproval: true,
-        risk: policyCheck.policy.risk,
-      };
-    }
-
-    const willExecute = Boolean(execute);
-    const requestSource = Boolean(useSource);
-    const hasOverride = command !== undefined;
-    if (hasOverride && requestSource) {
-      throw {
-        status: 422,
-        message: `Cannot combine custom command override and source mode for ${type} reinstall.`,
-        risk: defaultPolicy.manageExecutorCli.risk,
-      };
-    }
-
-    if (willExecute && !confirmed) {
-      throw {
-        status: 409,
-        message: `Execution for ${type} CLI reinstall requires explicit confirmation.`,
-        risk: defaultPolicy.manageExecutorCli.risk,
-      };
-    }
-
-    const overrideCommand = hasOverride ? normalizeReinstallCommand(command, type) : null;
-    const preferredCommand = getReinstallCommand(type);
-    const sourceCommand = requestSource ? getReinstallSourceCommand(type) : null;
-
-    if (hasOverride && !overrideCommand) {
-      throw {
-        status: 422,
-        message: `Invalid reinstall command override for ${type}.`,
-        risk: defaultPolicy.manageExecutorCli.risk,
-      };
-    }
-
-    let commandToRun = null;
-    let commandOrigin = 'policy';
-    if (requestSource) {
-      if (!sourceCommand) {
-        throw {
-          status: 422,
-          message: `No trusted source reinstall command is available for ${type}.`,
-          risk: defaultPolicy.manageExecutorCli.risk,
-        };
-      }
-      const normalizedSourceCommand = normalizeReinstallCommand(sourceCommand, type);
-      if (!normalizedSourceCommand) {
-        throw {
-          status: 422,
-          message: `No trusted source reinstall command is available for ${type}.`,
-          risk: defaultPolicy.manageExecutorCli.risk,
-        };
-      }
-      commandToRun = normalizedSourceCommand;
-      commandOrigin = 'source';
-    } else if (hasOverride) {
-      commandToRun = overrideCommand;
-      commandOrigin = 'request';
-    } else {
-      commandToRun = preferredCommand;
-    }
-
-    if (!commandToRun) {
-      throw {
-        status: 422,
-        message: `No safe reinstall command configured for ${type}.`,
-        risk: defaultPolicy.manageExecutorCli.risk,
-      };
-    }
-
-    if (!execute) {
-      this.recordAudit({
-        type: 'executor_cli_reinstall_plan_only',
-        actor,
-        projectId: null,
-        sessionId: null,
-        laneId: null,
-        summary: `${type} CLI reinstall plan requested (dry-run mode)`,
-        evidence: { executorType: type, command: commandToRun, source: commandOrigin },
-        status: 'passed',
-      });
-      return {
-        executorType: type,
-        executed: false,
-        command: commandToRun,
-        reason: 'Dry-run mode. Set execute=true to apply.',
-      };
-    }
-
-    const [binary, ...args] = commandToRun;
-    const startedAt = new Date().toISOString();
-    const result = spawnSync(binary, args, {
-      encoding: 'utf8',
-      timeout: REINSTALL_COMMAND_TIMEOUT_MS,
-      windowsHide: true,
-    });
-
-    const evidence = {
-      executorType: type,
-      command: commandToRun,
-      status: result.status,
-      stdout: (result.stdout || '').slice(0, 8000),
-      stderr: (result.stderr || '').slice(0, 8000),
-      startedAt,
-      completedAt: new Date().toISOString(),
-      signal: result.signal || null,
-    };
-
-    this.recordAudit({
-      type: 'executor_cli_reinstall_run',
-      actor,
-      projectId: null,
-      sessionId: null,
-      laneId: null,
-      summary: `Executed ${type} CLI reinstall command`,
-      evidence,
-      status: result.status === 0 ? 'passed' : 'failed',
-    });
-
-    if (result.error && result.error.code) {
-      evidence.errorCode = result.error.code;
-      evidence.error = String(result.error.message || result.error);
-    }
-
-    return {
-      executorType: type,
-      executed: true,
-      command: commandToRun,
-      status: result.status,
-      signal: result.signal || null,
-      errorCode: result.error?.code || null,
-      evidence,
     };
   },
 };

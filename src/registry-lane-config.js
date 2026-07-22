@@ -65,3 +65,24 @@ export function normalizeApprovedCapacity(value, fallback = DEFAULT_APPROVED_CAP
   if (!Number.isFinite(parsed) || parsed < 0) return fallback;
   return Math.min(64, parsed);
 }
+
+// A lane command for a first-class CLI must actually invoke that CLI. Executor
+// types don't all match their binary name 1:1 (e.g. composer-cli runs the
+// `cursor-agent` binary), so map each type to the tokens its command may start
+// with. Used by lane-command validation in registry-lane-create.js.
+const FIRST_CLASS_CLI_TARGET_ALIASES = {
+  codex: ['codex'],
+  claude: ['claude'],
+  'gemini-cli': ['gemini', 'gemini-cli'],
+  'composer-cli': ['cursor-agent', 'composer-cli'],
+};
+
+export function commandTargetsExecutorFirstToken(type, commandParts) {
+  const normalizedType = String(type || '').toLowerCase().trim();
+  if (!normalizedType) return true;
+  if (!Array.isArray(commandParts)) return false;
+  if (!commandParts.length) return true;
+  const first = String(commandParts[0] || '').toLowerCase();
+  const aliases = FIRST_CLASS_CLI_TARGET_ALIASES[normalizedType] || [normalizedType];
+  return aliases.some((alias) => first.includes(alias));
+}

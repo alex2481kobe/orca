@@ -95,7 +95,6 @@ function classifyRoute(method, parts) {
     if (p3 === 'lanes' && verb === 'POST') return 'processSpawn';
     if (p3 === 'capacity' || p3 === 'audit-done-lanes') return 'processControl';
   }
-  if (p1 === 'executors' && p4 === 'reinstall') return 'processControl';
   // The cleanup SCHEDULE is read (GET) on every dashboard refresh; only the
   // destructive cleanup runs (POST run-now / cleanup) belong on the strict
   // `cleanup` mutation budget. Keeping the GET on `cleanup` 429'd it at the

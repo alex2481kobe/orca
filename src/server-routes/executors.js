@@ -1,11 +1,11 @@
-// Executor profiles / CLI info / reinstall API route group (/api/executors/*)
-// extracted from server.js. Three sibling route checks self-guard on parts[1];
-// caller gates on parts[1]==='executors'. ctx-threaded.
+// Executor profiles / CLI info API route group (/api/executors/*) extracted
+// from server.js. Sibling route checks self-guard on parts[1]; caller gates on
+// parts[1]==='executors'. ctx-threaded.
 
 import { FALL_THROUGH } from './lanes.js';
 
 export async function handleExecutorRoutes(ctx, req, res, method, parts) {
-  const { registry, sendJson, sendBodyError, parseJsonBody, rejectSpoofedActor, requireAdminAuth } = ctx;
+  const { registry, sendJson } = ctx;
   if (parts[1] === 'executors' && parts[2] === 'profiles' && method === 'GET') {
     // Enrich each executor profile with its detected capabilities so the lane
     // form can render per-CLI permission modes, intelligence/effort levels,
@@ -32,30 +32,6 @@ export async function handleExecutorRoutes(ctx, req, res, method, parts) {
     } catch (error) {
       return sendJson(res, error.status || 500, {
         error: error.message || 'Could not load executor CLI info.',
-        requiresApproval: error.requiresApproval || false,
-        risk: error.risk || null,
-      });
-    }
-  }
-
-  if (parts[1] === 'executors' && ['codex', 'claude'].includes(parts[2]) && parts[3] === 'cli' && parts[4] === 'reinstall' && method === 'POST') {
-    if (!requireAdminAuth(req, res)) return;
-    const body = await parseJsonBody(req);
-    if (body === null) return sendBodyError(req, res);
-    if (rejectSpoofedActor(body, res)) return;
-    try {
-      const result = await registry.runExecutorCliReinstall(parts[2], {
-        actor: body.actor || 'dashboard',
-        approved: body.approved,
-        execute: Boolean(body.execute),
-        command: body.command,
-        confirmed: body.confirmed,
-        useSource: Boolean(body.useSource),
-      });
-      return sendJson(res, 200, result);
-    } catch (error) {
-      return sendJson(res, error.status || 500, {
-        error: error.message || 'Could not run CLI management action.',
         requiresApproval: error.requiresApproval || false,
         risk: error.risk || null,
       });

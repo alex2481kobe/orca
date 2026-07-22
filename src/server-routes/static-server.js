@@ -135,7 +135,6 @@ function buildMobileManifest(req) {
     artifactCleanupNowUrl: `/api/artifacts/cleanup/run-now`,
     executorProfilesUrl: `/api/executors/profiles`,
     executorCliInfoUrl: `/api/executors/{executor}/cli`,
-    executorCliReinstallUrl: `/api/executors/{executor}/cli/reinstall`,
     mcpToolsUrl: `${origin}/api/mcp/tools`,
     projectsUrl: `${origin}/api/projects`,
     overviewUrl: `${origin}/api/overview`,
