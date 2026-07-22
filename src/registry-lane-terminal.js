@@ -62,12 +62,8 @@ export const laneTerminalMethods = {
       status: 'passed',
       followUpQueued: false,
     });
-    this.notifyLaneTerminal(
-      lane,
-      'success',
-      'Lane completed',
-      `${lane.title} finished successfully.`,
-    );
+    // NOTIFIER CHOKE POINT: lane reached a terminal state (completed). A future
+    // push/notifier subsystem hooks in here.
     this._trackAsync(this.writeLaneArtifacts(lane, lane.state).catch(() => {}));
     this.clearLaneExecutor(lane.id);
     if (typeof this.revokeToolLeasesForLane === 'function') {
@@ -108,12 +104,8 @@ export const laneTerminalMethods = {
       evidence: { lane },
       status: 'failed',
     });
-    this.notifyLaneTerminal(
-      lane,
-      'error',
-      'Lane failed',
-      `${lane.title} failed: ${lane.exitReason}`,
-    );
+    // NOTIFIER CHOKE POINT: lane reached a terminal state (failed). A future
+    // push/notifier subsystem hooks in here.
     this._trackAsync(this.writeLaneArtifacts(lane, 'failed').catch(() => {}));
     this.clearLaneExecutor(lane.id);
     if (typeof this.revokeToolLeasesForLane === 'function') {
@@ -152,12 +144,8 @@ export const laneTerminalMethods = {
       evidence: { lane },
       status: 'passed',
     });
-    this.notifyLaneTerminal(
-      lane,
-      'warning',
-      'Lane stopped',
-      `${lane.title} stopped: ${reason}`,
-    );
+    // NOTIFIER CHOKE POINT: lane reached a terminal state (stopped). A future
+    // push/notifier subsystem hooks in here.
     this._trackAsync(this.writeLaneArtifacts(lane, 'stopped').catch(() => {}));
     this.clearLaneExecutor(lane.id);
     if (typeof this.revokeToolLeasesForLane === 'function') {

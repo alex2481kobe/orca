@@ -489,7 +489,6 @@ test('an unpaired client with only the URL receives no workspace or host data', 
       '/api/providers',
       '/api/mcp/tools',
       '/api/settings/effective',
-      '/api/notifications',
       '/api/executors/profiles',
     ];
     for (const route of protectedReads) {
@@ -669,10 +668,6 @@ test('paired devices get operator access but are denied host administration', as
       ['POST', '/api/executors/codex/cli/reinstall', { actor: 'dashboard', approved: true, execute: false }],
       ['PATCH', '/api/private-access/settings', { actor: 'dashboard', preferredMode: 'local' }],
       ['POST', '/api/private-access/serve', { actor: 'dashboard', action: 'enable' }],
-      ['POST', '/api/private-access/targets', { actor: 'dashboard', label: 'phone target', mode: 'local', localUrl: 'http://127.0.0.1:3000' }],
-      ['PATCH', '/api/private-access/targets/example-target', { actor: 'dashboard', label: 'phone target edit' }],
-      ['DELETE', '/api/private-access/targets/example-target', { actor: 'dashboard' }],
-      ['POST', '/api/private-access/targets/example-target/check', { actor: 'dashboard' }],
       ['POST', '/api/auth/pairing-codes', { actor: 'dashboard', label: 'rogue' }],
       // Dashboard/orchestrator/supervisor leases are off-origin host credentials —
       // a paired operator must not be able to mint them.
@@ -735,108 +730,6 @@ test('paired devices get operator access but are denied host administration', as
   }
 });
 
-test('notifications expose secret-free state with token-gated settings and read actions', async () => {
-  const token = 'route-token-notifications';
-  const server = await startServer({ token });
-
-  try {
-    const deniedSettings = await server.requestJson('/api/notifications/settings', {
-      method: 'PATCH',
-      body: {
-        actor: 'dashboard',
-        inAppEnabled: true,
-      },
-    });
-    assert.equal(deniedSettings.status, 401);
-
-    const approvalRequired = await server.requestJson('/api/notifications/settings', {
-      method: 'PATCH',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        inAppEnabled: true,
-        browserEnabled: true,
-        minSeverity: 'info',
-      },
-    });
-    assert.equal(approvalRequired.status, 409);
-    assert.equal(approvalRequired.body?.requiresApproval, true);
-
-    const settings = await server.requestJson('/api/notifications/settings', {
-      method: 'PATCH',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        approved: true,
-        inAppEnabled: true,
-        browserEnabled: true,
-        minSeverity: 'info',
-      },
-    });
-    assert.equal(settings.status, 200);
-    assert.equal(settings.body?.settings?.browserEnabled, true);
-
-    const orchestrator = await registerOrchestrator(server, token, { title: 'Notification Route Orchestrator' });
-
-    const lane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        approved: true,
-        title: 'Do not leak sk-route-notification-secret',
-        executorType: 'mock',
-      },
-    });
-    assert.equal(lane.status, 201);
-
-    const stopped = await server.requestJson(`/api/lanes/${lane.body.id}/stop`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        approved: true,
-        reason: 'notification test terminal transition',
-      },
-    });
-    assert.equal(stopped.status, 200);
-
-    const notifications = await server.requestJson('/api/notifications?limit=20', {
-      method: 'GET',
-      headers: { 'x-orca-token': token },
-    });
-    assert.equal(notifications.status, 200);
-    assert.equal(JSON.stringify(notifications.body).includes('sk-route-notification-secret'), false);
-    const terminal = notifications.body.notifications.find((item) => item.laneId === lane.body.id);
-    assert.ok(terminal);
-    assert.equal(terminal.severity, 'warning');
-    assert.equal(notifications.body.unreadCount >= 1, true);
-
-    const deniedRead = await server.requestJson(`/api/notifications/${terminal.id}/read`, {
-      method: 'POST',
-      body: { actor: 'dashboard' },
-    });
-    assert.equal(deniedRead.status, 401);
-
-    const read = await server.requestJson(`/api/notifications/${terminal.id}/read`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { actor: 'dashboard' },
-    });
-    assert.equal(read.status, 200);
-    assert.ok(read.body?.readAt);
-
-    const readAll = await server.requestJson('/api/notifications/read-all', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { actor: 'dashboard' },
-    });
-    assert.equal(readAll.status, 200);
-    assert.equal(readAll.body?.unreadCount, 0);
-  } finally {
-    await server.stop();
-  }
-});
 
 test('project API endpoints require explicit approval', async () => {
   const token = 'route-token-01c';
@@ -2385,66 +2278,6 @@ test('scoped supervisor tool leases can read only their project/session/lane con
   }
 });
 
-test('lane-level audit-event listing supports filtering by scope and status', async () => {
-  const token = 'route-token-09';
-  const server = await startServer({ token });
-
-  try {
-    // v2: lanes live under the orchestrator container. The session-level
-    // /api/sessions/{id}/audit-events listing was removed with the session model;
-    // lane-level listing (the meaningful scope filter) is exercised here.
-    const orchestrator = await registerOrchestrator(server, token, { title: 'Audit Scope Orchestrator' });
-
-    const lane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        title: 'Audit Scope Lane',
-        executorType: 'mock',
-        owner: 'dashboard',
-        approved: true,
-      },
-    });
-    assert.equal(lane.status, 201);
-
-    const auditQueued = await server.requestJson(`/api/lanes/${lane.body.id}/audit`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        approved: true,
-      },
-    });
-    assert.equal(auditQueued.status, 201);
-    const queuedAuditEventId = auditQueued.body?.event?.id || auditQueued.body?.id;
-    assert.equal(typeof queuedAuditEventId, 'string');
-
-    const lanePending = await server.requestJson(`/api/lanes/${lane.body.id}/audit-events?status=pending`, { method: 'GET', headers: { 'x-orca-token': token } });
-    assert.equal(lanePending.status, 200);
-    assert.equal(Array.isArray(lanePending.body), true);
-    assert.equal(lanePending.body.some((event) => event.id === queuedAuditEventId), true);
-
-    const laneAck = await server.requestJson(`/api/audit/events/${queuedAuditEventId}/ack`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { actor: 'dashboard' },
-    });
-    assert.equal(laneAck.status, 200);
-
-    const lanePendingAfterAck = await server.requestJson(`/api/lanes/${lane.body.id}/audit-events?status=pending`, { method: 'GET', headers: { 'x-orca-token': token } });
-    assert.equal(lanePendingAfterAck.status, 200);
-    assert.equal(Array.isArray(lanePendingAfterAck.body), true);
-    assert.equal(lanePendingAfterAck.body.some((event) => event.id === queuedAuditEventId), false);
-
-    const lanePassed = await server.requestJson(`/api/lanes/${lane.body.id}/audit-events?status=passed`, { method: 'GET', headers: { 'x-orca-token': token } });
-    assert.equal(lanePassed.status, 200);
-    assert.equal(Array.isArray(lanePassed.body), true);
-    assert.equal(lanePassed.body.some((event) => event.id === queuedAuditEventId), true);
-  } finally {
-    await server.stop();
-  }
-});
-
 test('high-risk lane stop action requires explicit approval', async () => {
   const token = 'route-token-10';
   const server = await startServer({ token });
@@ -2697,7 +2530,7 @@ test('lane heartbeat endpoint can be gated by ORCA_WORKER_TOKEN', async () => {
   }
 });
 
-test('private access API exposes mocked tailnet state, dry-run setup plans, and rejects Funnel targets', async () => {
+test('private access API exposes mocked tailnet state, dry-run setup plans, and rejects Funnel', async () => {
   const token = 'route-token-private-access';
   const server = await startServer({ token });
 
@@ -2721,46 +2554,6 @@ test('private access API exposes mocked tailnet state, dry-run setup plans, and 
     const metadataPlan = await server.requestJson('/api/private-access/setup-plan?localUrl=http%3A%2F%2F169.254.169.254%2Flatest%2Fmeta-data', { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(metadataPlan.status, 422);
     assert.match(metadataPlan.body?.error || '', /blocked private/);
-
-    const target = await server.requestJson('/api/private-access/targets', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        label: 'Local target',
-        mode: 'local',
-        localUrl: 'http://127.0.0.1:3000',
-      },
-    });
-    assert.equal(target.status, 201);
-    assert.equal(target.body?.mode, 'local');
-
-    const badFunnel = await server.requestJson('/api/private-access/targets', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        label: 'Bad Funnel',
-        mode: 'tailnet-https-serve',
-        localUrl: 'http://127.0.0.1:3000',
-        httpsServeUrl: 'https://orca.funnel.ts.net',
-      },
-    });
-    assert.equal(badFunnel.status, 422);
-    assert.equal(String(badFunnel.body?.error || '').includes('Funnel'), true);
-
-    const missingTailnetUrl = await server.requestJson('/api/private-access/targets', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        label: 'Tailnet without URL',
-        mode: 'tailnet-http',
-        localUrl: 'http://127.0.0.1:3000',
-      },
-    });
-    assert.equal(missingTailnetUrl.status, 422);
-    assert.match(missingTailnetUrl.body?.error || '', /tailnetHttpUrl/);
   } finally {
     await server.stop();
   }

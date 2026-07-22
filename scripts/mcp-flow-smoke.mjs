@@ -281,16 +281,6 @@ try {
   if (hb.isError) fail('executor lane__heartbeat', hb.text);
   log('executor heartbeat', 'ok');
 
-  // Authoritative state gate (executor path): critique.findings.record is only
-  // legal in needs_critique -> refused while running via MCP with nextAction.
-  if (execTools.includes('critique__findings__record')) {
-    const illegalCritique = await exec.call('critique__findings__record', { laneId: execLane.body.id, body: { actor: 'executor', ready: true } });
-    if (!illegalCritique.isError || !/not allowed while lane is "running"|nextRequiredTool/i.test(illegalCritique.text)) {
-      fail('authoritative gate did not refuse out-of-order critique.findings.record', illegalCritique.text);
-    }
-    log('authoritative gate (executor)', 'critique.findings.record refused while running');
-  }
-
   // Permission-approval loop via MCP: executor requests, orchestrator approves.
   const reqApproval = await exec.call('approval__request', {
     laneId: execLane.body.id,

@@ -6,7 +6,6 @@ import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { nowIso, safeArray } from './registry-utils.js';
-import { DEFAULT_NOTIFICATION_SETTINGS, sanitizeNotificationSettings } from './registry-notifications.js';
 import { normalizeQuickLinks } from './registry-quick-links.js';
 import { defaultPolicy } from './registry-policy.js';
 import { normalizeAgentQueueForRestore } from './registry-agent-queue.js';
@@ -23,9 +22,7 @@ export const persistenceMethods = {
       auditEvents: [],
       mcpTools: [],
       toolLeases: [],
-      notifications: [],
       agentQueue: [],
-      notificationSettings: { ...DEFAULT_NOTIFICATION_SETTINGS },
       policies: {},
       cleanupSchedule: {},
     };
@@ -57,9 +54,7 @@ export const persistenceMethods = {
             auditEvents: safeArray(parsed.auditEvents),
             mcpTools: safeArray(parsed.mcpTools),
             toolLeases: safeArray(parsed.toolLeases),
-            notifications: safeArray(parsed.notifications),
             agentQueue: safeArray(parsed.agentQueue),
-            notificationSettings: parsed.notificationSettings || { ...DEFAULT_NOTIFICATION_SETTINGS },
             policies: parsed.policies || {},
             cleanupSchedule: parsed.cleanupSchedule || {},
           };
@@ -118,18 +113,9 @@ export const persistenceMethods = {
       if (Array.isArray(parsed.toolLeases)) {
         this.toolLeases = parsed.toolLeases.filter((lease) => lease && typeof lease.id === 'string').slice(0, 500);
       }
-      if (Array.isArray(parsed.notifications)) {
-        this.notifications = parsed.notifications
-          .filter((item) => item && typeof item.id === 'string')
-          .slice(0, 200);
-      }
       if (Array.isArray(parsed.agentQueue)) {
         this.agentQueue = normalizeAgentQueueForRestore(parsed.agentQueue);
       }
-      this.notificationSettings = sanitizeNotificationSettings(
-        parsed.notificationSettings || {},
-        this.notificationSettings,
-      );
       if (parsed.cleanupSchedule && typeof parsed.cleanupSchedule === 'object') {
         this.cleanupSchedule = {
           ...this.cleanupSchedule,
@@ -239,9 +225,7 @@ export const persistenceMethods = {
       cleanupSchedule: this.cleanupSchedule,
       mcpTools: this.mcpTools,
       toolLeases: this.toolLeases,
-      notifications: this.notifications,
       agentQueue: normalizeAgentQueueForRestore(this.agentQueue),
-      notificationSettings: this.notificationSettings,
     };
   },
 };

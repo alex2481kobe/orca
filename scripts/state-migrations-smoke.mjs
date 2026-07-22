@@ -4,11 +4,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { AuthSessionStore } from '../src/auth-sessions.js';
 import { PrivateAccessStore } from '../src/private-access.js';
-import {
-  CredentialStore,
-  ProviderProfileStore,
-  defaultProfiles,
-} from '../src/provider-profiles.js';
 import { OrcaRegistry } from '../src/registry.js';
 import {
   backupPathFor,
@@ -44,34 +39,15 @@ async function verifySharedStore(dir) {
   assert.equal(JSON.parse(await fs.readFile(backupPathFor(stateFile), 'utf8')).check, 'shared-store');
 }
 
-async function verifyProviderStore(dir) {
-  const stateFile = path.join(dir, 'providers.json');
-  const profiles = defaultProfiles();
-  profiles.gemini = { ...profiles.gemini, enabled: false };
-  await writeJsonFileAtomic(stateFile, { schemaVersion: 1, profiles, auditEvents: [] });
-  await corruptPrimary(stateFile);
-  const store = new ProviderProfileStore({
-    stateFile,
-    credentialStore: new CredentialStore({ backend: 'memory' }),
-  });
-  const listed = await store.listProfiles();
-  assert.equal(listed.loadStatus.source, 'backup');
-  assert.equal(store.state.auditEvents.some((event) => event.type === 'provider_state_recovered'), true);
-}
-
 async function verifyPrivateAccessStore(dir) {
   const stateFile = path.join(dir, 'private-access.json');
   const store = new PrivateAccessStore({ stateFile });
-  await store.createTarget({
-    label: 'Local dashboard',
-    mode: 'local',
-    localUrl: 'http://localhost:3042',
-  });
+  await store.updateSettings({ preferredMode: 'tailnet-https-serve' });
   await corruptPrimary(stateFile);
   const recovered = new PrivateAccessStore({ stateFile });
   const described = await recovered.describe({ fakeTailnetState: 'serve-http' });
   assert.equal(described.loadStatus.source, 'backup');
-  assert.equal(described.targets.length, 1);
+  assert.equal(described.settings.preferredMode, 'tailnet-https-serve');
   assert.equal(recovered.state.auditEvents.some((event) => event.type === 'private_access_state_recovered'), true);
 }
 
@@ -124,9 +100,7 @@ async function verifyRegistryStore(dir) {
       cleanupSchedule: {},
       mcpTools: [],
       toolLeases: [],
-      notifications: [],
       agentQueue: [],
-      notificationSettings: {},
     });
     await corruptPrimary(stateFile);
     const registry = new OrcaRegistry({ heartbeatIntervalMs: 5 });
@@ -145,7 +119,6 @@ async function verifyRegistryStore(dir) {
 
 await withTempDir('orca-state-smoke-', async (dir) => {
   await verifySharedStore(dir);
-  await verifyProviderStore(dir);
   await verifyPrivateAccessStore(dir);
   await verifyAuthStore(dir);
   await verifyRegistryStore(dir);

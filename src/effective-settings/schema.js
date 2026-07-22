@@ -7,12 +7,6 @@ const PROVIDER_IDS = [
   'codex',
   'claude',
   'custom-cli',
-  'openai-compatible',
-  'gemini',
-  'kimi',
-  'deepseek',
-  'openrouter',
-  'composer',
 ];
 
 export const DEFAULT_EFFECTIVE_SETTINGS = {
@@ -64,11 +58,6 @@ export const DEFAULT_EFFECTIVE_SETTINGS = {
   cleanup: {
     retentionDays: 14,
     dryRunDefault: true,
-  },
-  notifications: {
-    inApp: true,
-    browser: false,
-    sensitiveContent: false,
   },
   privateAccess: {
     preferredMode: 'auto',
@@ -127,11 +116,6 @@ const SCHEMA = {
   cleanup: {
     retentionDays: { type: 'integer', min: 1, max: MAX_RETENTION_DAYS },
     dryRunDefault: { type: 'boolean' },
-  },
-  notifications: {
-    inApp: { type: 'boolean' },
-    browser: { type: 'boolean' },
-    sensitiveContent: { type: 'boolean' },
   },
   privateAccess: {
     preferredMode: { type: 'enum', allowed: ['auto', 'tailnet-http', 'tailnet-https-serve', 'local'] },

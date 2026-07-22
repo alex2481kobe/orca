@@ -11,9 +11,6 @@ const DEFAULT_LIMITS = {
   // "workstation takes ~27s to show the paired device" bug). The brute-force
   // surface (pair attempts / code creation) stays on the strict authPair budget.
   authRead: { limit: 600, windowMs: 60_000 },
-  providerHealth: { limit: 120, windowMs: 60_000 },
-  providerSecret: { limit: 12, windowMs: 60_000 },
-  providerImportExport: { limit: 30, windowMs: 60_000 },
   evidenceCapture: { limit: 20, windowMs: 60_000 },
   processSpawn: { limit: 30, windowMs: 60_000 },
   processControl: { limit: 60, windowMs: 60_000 },
@@ -88,12 +85,6 @@ function classifyRoute(method, parts) {
     // status + sessions are frequently-polled, auth-gated reads — generous budget.
     if (verb === 'GET') return 'authRead';
     return 'auth';
-  }
-  if (p1 === 'providers') {
-    if (p3 === 'health' && verb === 'GET') return 'providerHealth';
-    if (p3 === 'secret') return 'providerSecret';
-    if (p2 === 'export' || p2 === 'import') return 'providerImportExport';
-    if (verb !== 'GET') return 'providerImportExport';
   }
   if (p1 === 'lanes') {
     if (p3 === 'evidence' && verb === 'POST') return 'evidenceCapture';

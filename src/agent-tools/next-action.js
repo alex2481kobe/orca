@@ -289,7 +289,6 @@ export function buildNextActionEnvelope(registry, {
     auditRequired,
     auditSatisfied: auditRequired ? auditSatisfied : true,
     flow,
-    turnPolicy: lane?.turnPolicy || null,
     capacity: buildCapacity(registry, session),
     executorCapabilities: (!lean && typeof registry?.getExecutorCapabilitiesMatrix === 'function')
       ? registry.getExecutorCapabilitiesMatrix()

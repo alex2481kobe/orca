@@ -11,7 +11,6 @@ import {
   fakeTailnetState,
   validateAccessUrl,
 } from '../src/private-access.js';
-import { targetUrlForMode } from '../src/private-access/validation.js';
 
 test('private access URL validation rejects unsafe protocols, credentials, and Funnel URLs', () => {
   assert.equal(validateAccessUrl('http://127.0.0.1:3000', { mode: 'local' }), 'http://127.0.0.1:3000/');
@@ -52,7 +51,7 @@ test('fake tailnet provider covers setup states without real Tailscale', () => {
   assert.equal(fakeTailnetState('funnel').blockers.some((item) => item.includes('Funnel')), true);
 });
 
-test('private access settings default to auto while targets require explicit modes', async () => {
+test('private access settings default to auto and accept explicit modes; tailnet state persists', async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-private-access-settings-'));
   const store = new PrivateAccessStore({ stateFile: path.join(dir, 'private-access.json') });
   try {
@@ -67,93 +66,11 @@ test('private access settings default to auto while targets require explicit mod
     const settings = await store.updateSettings({ preferredMode: 'tailnet-https-serve' });
     assert.equal(settings.preferredMode, 'tailnet-https-serve');
 
-    await assert.rejects(
-      () => store.createTarget({
-        label: 'Ambiguous target',
-        mode: 'auto',
-        localUrl: 'http://127.0.0.1:3000',
-      }),
-      (error) => /Unsupported private access mode/.test(error.message),
-    );
-    await assert.rejects(
-      () => store.createTarget({
-        label: 'Tailnet without URL',
-        mode: 'tailnet-http',
-        localUrl: 'http://127.0.0.1:3000',
-      }),
-      (error) => /tailnetHttpUrl/.test(error.message),
-    );
-    await assert.rejects(
-      () => store.createTarget({
-        label: 'HTTPS without URL',
-        mode: 'tailnet-https-serve',
-        localUrl: 'http://127.0.0.1:3000',
-      }),
-      (error) => /httpsServeUrl/.test(error.message),
-    );
-    assert.equal(targetUrlForMode({
-      mode: 'tailnet-http',
-      localUrl: 'http://127.0.0.1:3000/',
-      tailnetHttpUrl: null,
-    }), null);
-  } finally {
-    await fs.rm(dir, { recursive: true, force: true });
-  }
-});
-
-test('private access store persists targets and rejects Funnel targets', async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-private-access-'));
-  const store = new PrivateAccessStore({ stateFile: path.join(dir, 'private-access.json') });
-  try {
-    const target = await store.createTarget({
-      label: 'Local app',
-      mode: 'local',
-      localUrl: 'http://localhost:4173',
-      favorite: true,
-    });
-    assert.equal(target.label, 'Local app');
-    assert.equal(target.favorite, true);
-
-    await assert.rejects(
-      () => store.createTarget({
-        label: 'Bad public funnel',
-        mode: 'tailnet-https-serve',
-        localUrl: 'http://127.0.0.1:3000',
-        httpsServeUrl: 'https://bad.funnel.ts.net',
-      }),
-      (error) => /Funnel/.test(error.message),
-    );
-
     const nextStore = new PrivateAccessStore({ stateFile: path.join(dir, 'private-access.json') });
-    const state = await nextStore.describe({ fakeTailnetState: 'serve-http' });
-    assert.equal(state.targets.length, 1);
-    assert.equal(state.tailnet.provider, 'fake');
-    assert.equal(state.tailnet.serveMode, 'tailnet-http');
-  } finally {
-    await fs.rm(dir, { recursive: true, force: true });
-  }
-});
-
-test('private access targets are capped to avoid unbounded state growth', async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-private-access-cap-'));
-  const store = new PrivateAccessStore({ stateFile: path.join(dir, 'private-access.json') });
-  try {
-    for (let index = 0; index < 100; index += 1) {
-      await store.createTarget({
-        label: `Local app ${index}`,
-        mode: 'local',
-        localUrl: 'http://127.0.0.1:4173',
-      });
-    }
-
-    await assert.rejects(
-      () => store.createTarget({
-        label: 'One too many',
-        mode: 'local',
-        localUrl: 'http://127.0.0.1:5173',
-      }),
-      (error) => error.status === 409 && /target limit/.test(error.message),
-    );
+    const reloaded = await nextStore.describe({ fakeTailnetState: 'serve-http' });
+    assert.equal(reloaded.settings.preferredMode, 'tailnet-https-serve');
+    assert.equal(reloaded.tailnet.provider, 'fake');
+    assert.equal(reloaded.tailnet.serveMode, 'tailnet-http');
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }

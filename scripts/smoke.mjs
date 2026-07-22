@@ -13,13 +13,11 @@
  *   7. orchestrator register (project-by-cwd) + mock executor lane; lane reaches done
  *   8. MCP CRUD + Codex executor lane attachment (blocked execution OK)
  *   9. audit queue + ack + worktree route shape
- *  10. private access states/targets (Funnel rejection), PWA static guards
- *  11. notifications settings + read-all
+ *  10. private access states + setup plan (Funnel rejection), PWA static guards
  *
  * (v2 note: provider-config HTTP routes, browsing/evidence, app export/import,
  * and artifacts/cleanup were removed in the v2 refactor; their sections were
- * dropped here. Provider secret-redaction coverage lives in the node suite —
- * test/provider-profiles.test.js and test/api-provider-executor.test.js.)
+ * dropped here.)
  *
  * Usage:
  *   node scripts/smoke.mjs
@@ -415,26 +413,9 @@ if (privateState.body.tailnet?.provider !== 'fake') fail('private access fake ta
 const privatePlan = await req('GET', `/api/private-access/setup-plan?localUrl=${encodeURIComponent(base)}`);
 if (privatePlan.status !== 200) fail('private access setup plan', JSON.stringify(privatePlan));
 if (!JSON.stringify(privatePlan.body.commands || []).includes('tailscale serve')) fail('private access setup plan missing tailscale serve command');
-const privateTarget = await req('POST', '/api/private-access/targets', {
-  actor: 'dashboard',
-  label: `Full-flow ${slugSuffix}`,
-  mode: 'local',
-  localUrl: base,
-});
-if (privateTarget.status !== 201) fail('private access target create', JSON.stringify(privateTarget));
-const funnelTarget = await req('POST', '/api/private-access/targets', {
-  actor: 'dashboard',
-  label: 'Blocked Funnel',
-  mode: 'tailnet-https-serve',
-  localUrl: base,
-  httpsServeUrl: 'https://orca.funnel.ts.net',
-});
-if (funnelTarget.status !== 422) fail('Funnel private access target should be rejected', JSON.stringify(funnelTarget));
-const privateCheck = await req('POST', `/api/private-access/targets/${privateTarget.body.id}/check`, { actor: 'dashboard' });
-if (privateCheck.status !== 200) fail('private access target check', JSON.stringify(privateCheck));
-const privateDelete = await req('DELETE', `/api/private-access/targets/${privateTarget.body.id}`, { actor: 'dashboard' });
-if (privateDelete.status !== 200) fail('private access target delete', JSON.stringify(privateDelete));
-log('privateAccess', 'fake states, dry-run setup, target check, and Funnel rejection ok');
+const funnelPlan = await req('GET', '/api/private-access/setup-plan?localUrl=https%3A%2F%2Forca.funnel.ts.net');
+if (funnelPlan.status !== 422) fail('Funnel private access setup plan should be rejected', JSON.stringify(funnelPlan));
+log('privateAccess', 'fake states, dry-run setup, and Funnel rejection ok');
 
 const webManifest = await req('GET', '/manifest.webmanifest');
 if (webManifest.status !== 200 || !webManifest.text.includes('"start_url"')) fail('web manifest', String(webManifest.status));
@@ -442,22 +423,6 @@ const serviceWorker = await req('GET', '/service-worker.js');
 if (serviceWorker.status !== 200) fail('service worker', String(serviceWorker.status));
 if (!serviceWorker.text.includes('/api/') || !serviceWorker.text.includes('/artifacts/')) fail('service worker missing sensitive route bypasses');
 log('pwa', 'manifest and static-only service worker guards present');
-
-// --- notifications ---
-const notificationSettings = await req('PATCH', '/api/notifications/settings', {
-  actor: 'dashboard',
-  approved: true,
-  inAppEnabled: true,
-  browserEnabled: true,
-  minSeverity: 'info',
-  muted: false,
-});
-if (notificationSettings.status !== 200) fail('notification settings update', JSON.stringify(notificationSettings));
-const notifications = await req('GET', '/api/notifications');
-if (notifications.status !== 200) fail('notifications list', JSON.stringify(notifications));
-const markAll = await req('POST', '/api/notifications/read-all', { actor: 'dashboard' });
-if (markAll.status !== 200) fail('notifications mark all read', JSON.stringify(markAll));
-log('notifications', `readAll=${markAll.body.updatedCount ?? 'ok'}`);
 
 // --- browser proof: paired-cookie desktop and phone screenshots ---
 const browserProof = await captureBrowserScreenshots({

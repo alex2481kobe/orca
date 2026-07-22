@@ -64,57 +64,5 @@ export async function handlePrivateAccessApi(ctx, req, res, method, parts) {
     }
   }
 
-  if (parts.length === 3 && parts[2] === 'targets' && method === 'POST') {
-    if (!requireAdminAuth(req, res)) return;
-    const body = await parseJsonBody(req);
-    if (body === null) return sendBodyError(req, res);
-    if (rejectSpoofedActor(body, res)) return;
-    try {
-      const target = await privateAccess.createTarget(body, { actor: body.actor || 'dashboard' });
-      return sendJson(res, 201, target);
-    } catch (error) {
-      return sendJson(res, error.status || 500, { error: error.message || 'Could not create private access target.' });
-    }
-  }
-
-  if (parts.length === 4 && parts[2] === 'targets' && method === 'PATCH') {
-    if (!requireAdminAuth(req, res)) return;
-    const body = await parseJsonBody(req);
-    if (body === null) return sendBodyError(req, res);
-    if (rejectSpoofedActor(body, res)) return;
-    try {
-      const target = await privateAccess.updateTarget(parts[3], body, { actor: body.actor || 'dashboard' });
-      return sendJson(res, 200, target);
-    } catch (error) {
-      return sendJson(res, error.status || 500, { error: error.message || 'Could not update private access target.' });
-    }
-  }
-
-  if (parts.length === 4 && parts[2] === 'targets' && method === 'DELETE') {
-    if (!requireAdminAuth(req, res)) return;
-    const body = await parseJsonBody(req);
-    if (body === null) return sendBodyError(req, res);
-    if (rejectSpoofedActor(body, res)) return;
-    try {
-      const result = await privateAccess.deleteTarget(parts[3], { actor: body.actor || 'dashboard' });
-      return sendJson(res, 200, result);
-    } catch (error) {
-      return sendJson(res, error.status || 500, { error: error.message || 'Could not delete private access target.' });
-    }
-  }
-
-  if (parts.length === 5 && parts[2] === 'targets' && parts[4] === 'check' && method === 'POST') {
-    if (!requireAdminAuth(req, res)) return;
-    const body = await parseJsonBody(req);
-    if (body === null) return sendBodyError(req, res);
-    if (rejectSpoofedActor(body, res)) return;
-    try {
-      const result = await privateAccess.checkTarget(parts[3], { actor: body.actor || 'dashboard' });
-      return sendJson(res, 200, result);
-    } catch (error) {
-      return sendJson(res, error.status || 500, { error: error.message || 'Could not check private access target.' });
-    }
-  }
-
   return sendJson(res, 404, { error: 'Private access API route not found.' });
 }

@@ -76,16 +76,14 @@ const PROBES = [
   ['POST', '/api/lanes/does-not-exist/approvals'],
   ['POST', '/api/lanes/does-not-exist/approvals/ap-x/decide'],
   ['POST', '/api/emergency-stop'],
-  ['GET', '/api/notifications'],
-  ['POST', '/api/notifications/read-all'],
   ['GET', '/api/private-access'],
   ['POST', '/api/private-access/serve'],
   ['GET', '/api/streams/events'],
   ['POST', '/api/mcp'],
   ['GET', '/api/mcp'],
   ['POST', '/api/agent-tools/next-action'],
-  ['GET', '/api/policies'],
-  ['GET', '/api/blockers'],
+  ['GET', '/api/policy'],
+  ['GET', '/api/system/blockers'],
   ['GET', '/artifacts/any/lane/evidence.json'],
 ];
 

@@ -56,12 +56,12 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Run security smoke
+      - name: Run full-flow smoke
         # Playwright Chromium is installed above, so the pairing-gate + browser
         # proofs must actually RUN — never silently skip to a false green.
         env:
           ORCA_REQUIRE_BROWSER_PROOF: '1'
-        run: npm run smoke:security
+        run: npm run smoke
 
       - name: Screen proofs (server-down "Start Orca" + remote-client unlink/switch)
         run: npm run smoke:screens
@@ -71,6 +71,12 @@ jobs:
           npm run smoke:unauth-sweep
           npm run smoke:ssrf
           npm run smoke:security-headers
+
+      - name: Run supplemental smokes (PWA cache, state migrations, MCP flow)
+        run: |
+          npm run smoke:pwa-cache
+          npm run smoke:state-migrations
+          npm run smoke:mcp-flow
 
       - name: Audit production dependencies
         run: npm audit --omit=dev

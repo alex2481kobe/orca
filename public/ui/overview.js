@@ -376,47 +376,9 @@ function renderSettings() {
 function buildRemoteCtx(access) {
   const tailnet = access.tailnet || {};
   const privateSettings = access.settings || {};
-  const privateTargets = Array.isArray(access.targets) ? access.targets : [];
-  const httpsSelected = privateSettings.preferredMode === 'tailnet-https-serve';
-  const accessModeSummary = httpsSelected ? 'Tailscale HTTPS' : 'Tailscale HTTP';
-  const accessModeOptions = `
-    <option value="tailnet-http" ${httpsSelected ? '' : 'selected'}>HTTP (recommended)</option>
-    <option value="tailnet-https-serve" ${httpsSelected ? 'selected' : ''}>HTTPS</option>
-  `;
+  const accessModeSummary = privateSettings.preferredMode === 'tailnet-https-serve' ? 'Tailscale HTTPS' : 'Tailscale HTTP';
   const phoneUrl = tailnet.servedUrl || (tailnet.hostname ? `http://${tailnet.hostname}:${location.port || '3000'}/` : '');
-  // v2 has no orca:// deep link — reuse the same tailnet-URL QR for both slots.
   const phoneQr = phoneUrl ? qrSvgForText(phoneUrl) : '';
-  const phoneDeepLinkQr = phoneQr;
-  const setupCommands = Array.isArray(access.setupPlan?.commands) ? access.setupPlan.commands : [];
-  const commandRows = setupCommands.map((item) => `
-    <div class="access-command">
-      <div>
-        <strong>${safeText(item.label)}</strong>
-        <div class="tiny muted">${safeText(item.note || '')}</div>
-        <code>${safeText(item.copyText || 'No command needed')}</code>
-      </div>
-      <button class="secondary" data-action="copyPrivateAccessCommand" data-command="${safeAttr(item.copyText || '')}" type="button">Copy</button>
-    </div>
-  `).join('');
-  const targetUrlForMode = (t) => (t.mode === 'tailnet-https-serve' ? t.httpsServeUrl : t.mode === 'tailnet-http' ? t.tailnetHttpUrl : t.localUrl)
-    || t.localUrl || t.tailnetHttpUrl || t.httpsServeUrl || '';
-  const targetRows = privateTargets.map((target) => {
-    const targetUrl = targetUrlForMode(target);
-    return `
-      <div class="access-target">
-        <div>
-          <strong>${safeText(target.label)}</strong>
-          <div class="tiny muted">${safeText(target.mode)} · ${safeText(target.healthStatus || 'configured_unchecked')} · ${safeText(targetUrl)}</div>
-          ${target.lastHealthDetail ? `<div class="tiny muted">${safeText(target.lastHealthDetail)}</div>` : ''}
-        </div>
-        <div class="lane-row">
-          ${targetUrl && /^https?:\/\//i.test(targetUrl) ? `<a class="secondary" href="${safeAttr(targetUrl)}" target="_blank" rel="noopener noreferrer">Open</a>` : ''}
-          <button class="secondary" data-action="checkPrivateAccessTarget" data-target-id="${safeAttr(target.id)}" type="button">Check</button>
-          <button class="secondary" data-action="deletePrivateAccessTarget" data-target-id="${safeAttr(target.id)}" type="button">Remove</button>
-        </div>
-      </div>
-    `;
-  }).join('');
   const authSessionRows = remoteAuthSessions
     .filter((session) => session && (session.paired || session.pairedFromId) && session.active !== false)
     .map((session) => `
@@ -429,10 +391,7 @@ function buildRemoteCtx(access) {
       <button class="device-revoke" data-action="revokePairing" data-id="${safeAttr(session.id)}" type="button" ${session.active ? '' : 'disabled'}>Revoke</button>
     </div>
   `).join('');
-  return {
-    tailnet, privateSettings, privateTargets, accessModeSummary, accessModeOptions,
-    phoneUrl, phoneQr, phoneDeepLinkQr, commandRows, targetRows, authSessionRows,
-  };
+  return { tailnet, accessModeSummary, phoneUrl, phoneQr, authSessionRows };
 }
 
 async function fetchRemote() {

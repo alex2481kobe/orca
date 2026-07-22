@@ -5,11 +5,6 @@ import path from 'node:path';
 import test from 'node:test';
 import { AuthSessionStore } from '../src/auth-sessions.js';
 import { PrivateAccessStore } from '../src/private-access.js';
-import {
-  CredentialStore,
-  ProviderProfileStore,
-  defaultProfiles,
-} from '../src/provider-profiles.js';
 import { OrcaRegistry } from '../src/registry.js';
 import {
   backupPathFor,
@@ -79,48 +74,18 @@ test('sync state store writes atomically and recovers corrupt primary from backu
   });
 });
 
-test('provider profile store recovers from backup and audits recovery', async () => {
-  await withTempDir('orca-provider-recovery-', async (dir) => {
-    const stateFile = path.join(dir, 'providers.json');
-    const profiles = defaultProfiles();
-    profiles['openai-compatible'] = {
-      ...profiles['openai-compatible'],
-      enabled: false,
-    };
-    await writeJsonFileAtomic(stateFile, {
-      schemaVersion: 1,
-      profiles,
-      auditEvents: [],
-    });
-    await fs.writeFile(stateFile, '{ broken provider json');
-
-    const store = new ProviderProfileStore({
-      stateFile,
-      credentialStore: new CredentialStore({ backend: 'memory' }),
-    });
-    const listed = await store.listProfiles();
-    assert.equal(listed.loadStatus.source, 'backup');
-    assert.equal(listed.loadStatus.recovered, true);
-    assert.equal(store.state.auditEvents.some((event) => event.type === 'provider_state_recovered'), true);
-  });
-});
-
 test('private access store recovers targets from backup and audits recovery', async () => {
   await withTempDir('orca-private-recovery-', async (dir) => {
     const stateFile = path.join(dir, 'private-access.json');
     const seed = new PrivateAccessStore({ stateFile });
-    await seed.createTarget({
-      label: 'Local app',
-      mode: 'local',
-      localUrl: 'http://localhost:4173',
-    });
+    await seed.updateSettings({ preferredMode: 'tailnet-https-serve' });
     await fs.writeFile(stateFile, '{ broken private access json');
 
     const recovered = new PrivateAccessStore({ stateFile });
     const described = await recovered.describe();
     assert.equal(described.loadStatus.source, 'backup');
     assert.equal(described.loadStatus.recovered, true);
-    assert.equal(described.targets.length, 1);
+    assert.equal(described.settings.preferredMode, 'tailnet-https-serve');
     assert.equal(recovered.state.auditEvents.some((event) => event.type === 'private_access_state_recovered'), true);
   });
 });

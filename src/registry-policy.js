@@ -107,11 +107,6 @@ export const defaultPolicy = {
     risk: 'medium',
     message: 'Requests more executor capacity without spawning agents.',
   },
-  manageNotifications: {
-    requiresApproval: true,
-    risk: 'medium',
-    message: 'Changes browser/in-app notification delivery and mobile alert behavior.',
-  },
   manageAppBackups: {
     requiresApproval: true,
     risk: 'high',

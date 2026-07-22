@@ -23,15 +23,15 @@ import {
   sanitizeBinary,
   normalizeAllowedBinaries,
   displayArg,
+  parseEnv,
   MAX_EXECUTOR_OUTPUT_BYTES,
   RESERVED_EXECUTOR_ENV_KEYS,
   RUNTIME_ONLY_ENV_KEYS,
 } from './sanitize.js';
 import { buildExecutorCommandArgs } from './command-builder.js';
-import { parseEnv } from './api-support.js';
 
 function presentationModeForLane(lane) {
-  return String(lane?.presentationMode || lane?.executionMode || 'chat').trim().toLowerCase() === 'terminal'
+  return String(lane?.presentationMode || 'chat').trim().toLowerCase() === 'terminal'
     ? 'terminal'
     : 'chat';
 }

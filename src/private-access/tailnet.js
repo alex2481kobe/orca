@@ -227,28 +227,3 @@ function readServeStatus(runner, { localPort = process.env.PORT || 3000 } = {}) 
     return { servedUrl: null, serveMode: null };
   }
 }
-
-export async function boundedHealthCheck(url) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 2500);
-  try {
-    const response = await fetch(url, {
-      method: 'GET',
-      redirect: 'manual',
-      signal: controller.signal,
-    });
-    return {
-      status: response.ok ? 'reachable' : 'unreachable',
-      httpStatus: response.status,
-      detail: response.ok ? 'URL responded successfully.' : `URL responded with HTTP ${response.status}.`,
-    };
-  } catch (error) {
-    return {
-      status: 'unreachable',
-      httpStatus: null,
-      detail: error?.name === 'AbortError' ? 'Health check timed out.' : 'Health check failed.',
-    };
-  } finally {
-    clearTimeout(timeout);
-  }
-}

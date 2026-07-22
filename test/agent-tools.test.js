@@ -100,13 +100,6 @@ test('agent tool discovery is public-safe and includes stable required tool ids'
   assert.equal(findTool('project.quick_link.health')?.implemented, true);
 });
 
-test('supervisor docs match the bounded read/audit role contract', async () => {
-  const doc = await fs.readFile(new URL('../docs/agent-supervisor-skill.md', import.meta.url), 'utf8');
-  assert.match(doc, /does not mutate session plans, backlog tasks, capacity, worktree\s+policy, settings, lanes, or orchestrator ownership/i);
-  assert.doesNotMatch(doc, /session\.plan\.update/);
-  assert.doesNotMatch(doc, /task\.add|task\.bulk_add|task\.update/);
-});
-
 test('role instructions and next-action only reference live tool ids (v2 coherence guard)', () => {
   const liveIds = new Set(TOOL_DEFINITIONS.map((tool) => tool.id));
   // Dotted tokens that appear in the rulebook prose but are NOT tool ids. Kept

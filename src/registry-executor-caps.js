@@ -75,10 +75,8 @@ function readCodexModelCatalog() {
 }
 import {
   FIRST_CLASS_CLI_EXECUTOR_TYPES,
-  getApiProviderExecutorTypes,
   getExecutorProfiles as getExecutorProfilesFromFactory,
   getExecutorProfile as getExecutorProfileFromFactory,
-  getApiProviderProfile as getApiProviderProfileFromFactory,
 } from './executor-factory.js';
 
 const CLI_CAPABILITY_CACHE_MS = 30 * 1000;
@@ -87,7 +85,7 @@ const cliCapabilityCache = new Map();
 
 export const executorCapabilityMethods = {
   getSupportedExecutorTypes() {
-    const supported = ['mock', ...FIRST_CLASS_CLI_EXECUTOR_TYPES, ...getApiProviderExecutorTypes()];
+    const supported = ['mock', ...FIRST_CLASS_CLI_EXECUTOR_TYPES];
     if (getExecutorProfileFromFactory('cli')) {
       supported.push('cli');
     }
@@ -338,33 +336,9 @@ export const executorCapabilityMethods = {
       return clonePayload(capabilities);
     }
 
-    const profile = getApiProviderProfileFromFactory(type) || {};
-    return compactCapabilities({
-      type,
-      displayName: profile.id || type,
-      kind: 'api',
-      binary: null,
-      binaryExists: false,
-      version: null,
-      roles: ['orchestrator', 'executor', 'auditor', 'critique'],
-      controls: {
-        model: { supported: true, values: safeArray(profile.allowedModels), freeText: true, defaultValue: profile.defaultModel || null },
-        permissions: { supported: false, values: ['restricted'] },
-        intelligence: { supported: false, values: ['low', 'medium', 'high', 'xhigh'], passthrough: true },
-        structuredOutput: { supported: Boolean(profile.streaming), formats: profile.streaming ? ['provider-stream'] : ['provider-json'] },
-        backgroundAgents: { supported: false },
-      },
-      invocation: {
-        canRunAsOrchestrator: true,
-        canRunAsExecutor: true,
-        commandDerivedFromLane: false,
-        customArgs: false,
-        rawTerminalArtifacts: false,
-        structuredAgentEvents: false,
-      },
-      mcpScopes: ['api', type, 'all'],
-      detection: { source: 'provider-profile', checkedAt: nowIso() },
-    });
+    // Only mock + CLI executor types are supported; the guard above rejects
+    // anything else with a 404.
+    throw { status: 404, message: 'Unsupported executor type.' };
   },
 
   getExecutorCapabilitiesMatrix() {
@@ -393,7 +367,7 @@ export const executorCapabilityMethods = {
     if (!FIRST_CLASS_CLI_EXECUTOR_TYPES.includes(type) && type !== 'cli') {
       return {
         type,
-        profile: getApiProviderProfileFromFactory(type) || {},
+        profile: {},
         binary: null,
         binaryExists: false,
         version: null,

@@ -48,8 +48,6 @@ export const schedulerMethods = {
       onComplete: async (lane) => this.markLaneCompleted(lane),
       onFail: async (lane, reason) => this.markLaneFailed(lane, reason, 'scheduler'),
       onStop: async (lane, context) => this.markLaneStopped(lane, context),
-      credentialStore: this.credentialStore,
-      providerProfileStore: this.providerProfileStore,
       runtimeEnvForLane: (lane) => this.laneRuntimeEnv.get(String(lane?.id || '')) || {},
     };
     const adapter = createExecutorAdapter(normalized, callbackBundle);

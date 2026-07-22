@@ -39,9 +39,6 @@ test('rate limiter enforces a fixed-window policy without leaking actor keys', (
 
 test('route classifier maps privileged surfaces to specific policies', () => {
   assert.equal(classifyRoute('POST', ['api', 'auth', 'pair']), 'authPair');
-  assert.equal(classifyRoute('GET', ['api', 'providers', 'codex', 'health']), 'providerHealth');
-  assert.equal(classifyRoute('POST', ['api', 'providers', 'openai-compatible', 'secret']), 'providerSecret');
-  assert.equal(classifyRoute('POST', ['api', 'providers', 'import', 'apply']), 'providerImportExport');
   assert.equal(classifyRoute('POST', ['api', 'lanes', 'lane-1', 'evidence']), 'evidenceCapture');
   assert.equal(classifyRoute('POST', ['api', 'sessions', 'session-1', 'lanes']), 'processSpawn');
   assert.equal(classifyRoute('POST', ['api', 'artifacts', 'cleanup']), 'cleanup');

@@ -12,15 +12,11 @@ import {
   clone,
   nowIso,
   normalizeSettings,
-  normalizeTarget,
-  targetUrlForMode,
   DEFAULT_SETTINGS,
-  MAX_PRIVATE_ACCESS_TARGETS,
 } from './validation.js';
 import {
   buildSetupPlan,
   detectTailnetState,
-  boundedHealthCheck,
 } from './tailnet.js';
 
 export class PrivateAccessStore {
@@ -32,7 +28,6 @@ export class PrivateAccessStore {
     this.state = {
       version: 1,
       settings: { ...DEFAULT_SETTINGS },
-      targets: [],
       auditEvents: [],
     };
   }
@@ -54,7 +49,6 @@ export class PrivateAccessStore {
     const fallback = {
       version: 1,
       settings: { ...DEFAULT_SETTINGS },
-      targets: [],
       auditEvents: [],
     };
     try {
@@ -65,7 +59,6 @@ export class PrivateAccessStore {
       this.state = {
         version: 1,
         settings: normalizeSettings(parsed.settings || {}),
-        targets: Array.isArray(parsed.targets) ? parsed.targets.map((target) => normalizeTarget(target)).slice(0, MAX_PRIVATE_ACCESS_TARGETS) : [],
         auditEvents: Array.isArray(parsed.auditEvents) ? parsed.auditEvents.slice(0, 200) : [],
       };
       if (shouldAuditRecovery) {
@@ -123,7 +116,6 @@ export class PrivateAccessStore {
       version: this.state.version,
       loadStatus: clone(this.loadStatus),
       settings: clone(this.state.settings),
-      targets: clone(this.state.targets),
       tailnet,
       setupPlan,
       pwa: {
@@ -153,78 +145,6 @@ export class PrivateAccessStore {
     });
     await this.persist();
     return clone(settings);
-  }
-
-  async createTarget(raw, { actor = 'dashboard' } = {}) {
-    await this.ensureLoaded();
-    if (this.state.targets.length >= MAX_PRIVATE_ACCESS_TARGETS) {
-      throw { status: 409, message: `Private access target limit reached (${MAX_PRIVATE_ACCESS_TARGETS}). Delete an old target before adding another.` };
-    }
-    const target = normalizeTarget(raw);
-    this.state.targets.push(target);
-    this.recordAudit({
-      type: 'private_access_target_created',
-      actor,
-      summary: `Private access target ${target.label} created`,
-      status: 'passed',
-      evidence: { targetId: target.id, mode: target.mode },
-    });
-    await this.persist();
-    return clone(target);
-  }
-
-  async updateTarget(id, raw, { actor = 'dashboard' } = {}) {
-    await this.ensureLoaded();
-    const index = this.state.targets.findIndex((target) => target.id === id);
-    if (index < 0) throw { status: 404, message: 'Private access target not found.' };
-    const next = normalizeTarget(raw, this.state.targets[index]);
-    this.state.targets[index] = next;
-    this.recordAudit({
-      type: 'private_access_target_updated',
-      actor,
-      summary: `Private access target ${next.label} updated`,
-      status: 'passed',
-      evidence: { targetId: next.id, mode: next.mode },
-    });
-    await this.persist();
-    return clone(next);
-  }
-
-  async deleteTarget(id, { actor = 'dashboard' } = {}) {
-    await this.ensureLoaded();
-    const index = this.state.targets.findIndex((target) => target.id === id);
-    if (index < 0) throw { status: 404, message: 'Private access target not found.' };
-    const [removed] = this.state.targets.splice(index, 1);
-    this.recordAudit({
-      type: 'private_access_target_deleted',
-      actor,
-      summary: `Private access target ${removed.label} deleted`,
-      status: 'passed',
-      evidence: { targetId: removed.id },
-    });
-    await this.persist();
-    return { removed: true, targetId: removed.id };
-  }
-
-  async checkTarget(id, { actor = 'dashboard' } = {}) {
-    await this.ensureLoaded();
-    const target = this.state.targets.find((item) => item.id === id);
-    if (!target) throw { status: 404, message: 'Private access target not found.' };
-    const url = targetUrlForMode(target);
-    const result = await boundedHealthCheck(url);
-    target.healthStatus = result.status;
-    target.lastCheckedAt = nowIso();
-    target.lastHealthDetail = result.detail;
-    target.updatedAt = nowIso();
-    this.recordAudit({
-      type: 'private_access_target_health_checked',
-      actor,
-      summary: `Private access target ${target.label} checked`,
-      status: result.status === 'reachable' ? 'passed' : 'failed',
-      evidence: { targetId: target.id, url, httpStatus: result.httpStatus },
-    });
-    await this.persist();
-    return { target: clone(target), result };
   }
 
   async setupPlan(input = {}) {

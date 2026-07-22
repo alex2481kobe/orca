@@ -1,13 +1,11 @@
 // Private-access validation, normalization, and URL/settings helpers.
 // Extracted from private-access.js.
 
-import { randomUUID } from 'node:crypto';
 import { validateNetworkUrl } from '../url-policy.js';
 
 export const nowIso = () => new Date().toISOString();
 
 export const ACCESS_MODES = new Set(['auto', 'local', 'tailnet-http', 'tailnet-https-serve']);
-export const TARGET_ACCESS_MODES = new Set(['local', 'tailnet-http', 'tailnet-https-serve']);
 export const SETUP_STATES = new Set([
   'not_configured',
   'setup_pending',
@@ -16,7 +14,6 @@ export const SETUP_STATES = new Set([
   'unreachable',
   'external_verification_required',
 ]);
-export const MAX_PRIVATE_ACCESS_TARGETS = 100;
 
 export const DEFAULT_SETTINGS = {
   preferredMode: 'auto',
@@ -111,8 +108,7 @@ export function validateAccessUrl(raw, { mode = 'local', allowBlank = false, fie
 
 export function normalizeMode(raw, { allowAuto = false } = {}) {
   const mode = normalizeText(raw || (allowAuto ? 'auto' : 'local')).toLowerCase();
-  const allowedModes = allowAuto ? ACCESS_MODES : TARGET_ACCESS_MODES;
-  if (containsFunnel(mode) || !allowedModes.has(mode)) {
+  if (containsFunnel(mode) || !ACCESS_MODES.has(mode) || (!allowAuto && mode === 'auto')) {
     throw { status: 422, message: 'Unsupported private access mode.' };
   }
   return mode;
@@ -149,63 +145,6 @@ export function normalizeSettings(raw = {}) {
     settings.setupStatus = normalizeSetupStatus(raw.setupStatus, DEFAULT_SETTINGS.setupStatus);
   }
   return settings;
-}
-
-export function normalizeTarget(raw = {}, existing = null) {
-  rejectPrototypeKeys(raw, 'target');
-  const id = normalizeText(existing?.id || raw.id || randomUUID());
-  const label = normalizeText(raw.label || existing?.label || 'Local dev server').slice(0, 100);
-  const mode = normalizeMode(raw.mode || existing?.mode || 'local');
-  const localUrl = validateAccessUrl(raw.localUrl ?? existing?.localUrl, { mode: 'local', field: 'localUrl' });
-  const tailnetHttpUrl = validateAccessUrl(raw.tailnetHttpUrl ?? existing?.tailnetHttpUrl, {
-    mode: 'tailnet-http',
-    allowBlank: true,
-    field: 'tailnetHttpUrl',
-  });
-  const httpsServeUrl = validateAccessUrl(raw.httpsServeUrl ?? existing?.httpsServeUrl, {
-    mode: 'tailnet-https-serve',
-    allowBlank: true,
-    field: 'httpsServeUrl',
-  });
-  if (mode === 'tailnet-http' && !tailnetHttpUrl) {
-    throw { status: 422, message: 'tailnet-http targets require tailnetHttpUrl.' };
-  }
-  if (mode === 'tailnet-https-serve' && !httpsServeUrl) {
-    throw { status: 422, message: 'tailnet-https-serve targets require httpsServeUrl.' };
-  }
-  const preferredOpenTarget = normalizeText(raw.preferredOpenTarget || existing?.preferredOpenTarget || 'external').toLowerCase();
-  const type = normalizeText(raw.type || existing?.type || 'app').slice(0, 40);
-  const group = normalizeText(raw.group || existing?.group || '').slice(0, 80);
-  const notes = normalizeText(raw.notes || existing?.notes || '').slice(0, 500);
-  const evidencePreset = normalizeText(raw.evidencePreset || existing?.evidencePreset || 'screenshot').slice(0, 40);
-
-  return {
-    id,
-    label,
-    type,
-    group,
-    mode,
-    localUrl,
-    tailnetHttpUrl,
-    httpsServeUrl,
-    preferredOpenTarget: ['external', 'in_app'].includes(preferredOpenTarget) ? preferredOpenTarget : 'external',
-    favorite: Boolean(raw.favorite ?? existing?.favorite ?? false),
-    hidden: Boolean(raw.hidden ?? existing?.hidden ?? false),
-    healthStatus: existing?.healthStatus || 'configured_unchecked',
-    lastCheckedAt: existing?.lastCheckedAt || null,
-    lastHealthDetail: existing?.lastHealthDetail || null,
-    evidencePreset,
-    notes,
-    createdAt: existing?.createdAt || nowIso(),
-    updatedAt: nowIso(),
-  };
-}
-
-export function targetUrlForMode(target) {
-  if (!target) return null;
-  if (target.mode === 'tailnet-https-serve') return target.httpsServeUrl || null;
-  if (target.mode === 'tailnet-http') return target.tailnetHttpUrl || null;
-  return target.localUrl;
 }
 
 export function commandText(command) {

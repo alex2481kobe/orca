@@ -2,11 +2,9 @@
 // the factory + re-exports the public surface.
 
 import { MockWorkerAdapter } from './worker-contract.js';
-import { API_PROVIDER_TYPES, FIRST_CLASS_CLI_EXECUTOR_TYPES, CLI_EXECUTOR_TYPES, CLI_EXECUTOR_DEFAULTS } from './executor/constants.js';
+import { FIRST_CLASS_CLI_EXECUTOR_TYPES, CLI_EXECUTOR_TYPES, CLI_EXECUTOR_DEFAULTS } from './executor/constants.js';
 import { buildExecutorCommandArgs } from './executor/command-builder.js';
-import { isApiProviderType, getApiProviderProfile, getApiProviderExecutorTypes } from './executor/api-support.js';
 import { CliExecutorAdapter, PendingExecutorAdapter } from './executor/cli-adapter.js';
-import { ApiExecutorAdapter } from './executor/api-adapter.js';
 
 function parseEnvList(rawValue, fallback = []) {
   if (!rawValue) return fallback;
@@ -123,24 +121,12 @@ export function createExecutorAdapter(type, callbacks = {}) {
     return new CliExecutorAdapter(executorType, options);
   }
 
-  if (isApiProviderType(executorType)) {
-    const profile = getApiProviderProfile(executorType);
-    if (!profile) {
-      return new PendingExecutorAdapter(executorType, callbacks);
-    }
-    return new ApiExecutorAdapter(executorType, {
-      ...callbacks,
-      profile,
-    });
-  }
-
+  // SEAM: unknown executor types fall through to a PendingExecutorAdapter.
+  // A future API-backed adapter is one more branch here (+ one adapter file),
+  // mirroring the CliExecutorAdapter wiring above.
   return new PendingExecutorAdapter(executorType, callbacks);
 }
 export {
-  API_PROVIDER_TYPES,
   buildExecutorCommandArgs,
   FIRST_CLASS_CLI_EXECUTOR_TYPES,
-  getApiProviderExecutorTypes,
-  getApiProviderProfile,
-  isApiProviderType,
 };

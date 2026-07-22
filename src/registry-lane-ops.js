@@ -302,20 +302,6 @@ export const laneOpsMethods = {
       return clonePayload(lane);
     }
 
-    const attachedTerminalId = lane.processMeta?.attachedOperatorTerminalId || '';
-    if (attachedTerminalId && this.operatorTerminals?.stop) {
-      await this.operatorTerminals.stop(attachedTerminalId, {
-        actor: context.actor || 'dashboard',
-      }).catch(() => null);
-      if (![DONE_STATE, FAILED_STATE, STOPPED_STATE].includes(lane.state)) {
-        this.markLaneStopped(lane, {
-          actor: context.actor || 'dashboard',
-          reason: `Stopped by ${context.actor || 'dashboard'}`,
-        });
-      }
-      return clonePayload(lane);
-    }
-
     const executor = this.getExecutorForLane(lane);
     const workerStopped = await executor.stop(lane.id, {
       actor: context.actor || 'dashboard',
@@ -344,12 +330,8 @@ export const laneOpsMethods = {
         evidence: { lane },
         status: 'passed',
       });
-      this.notifyLaneTerminal(
-        lane,
-        'warning',
-        'Lane stopped',
-        `${lane.title} stopped: ${lane.exitReason}`,
-      );
+      // NOTIFIER CHOKE POINT: lane reached a terminal state (stopped). A future
+      // push/notifier subsystem hooks in here.
     }
     this.clearLaneExecutor(lane.id);
     if (typeof this.revokeToolLeasesForLane === 'function') {
@@ -438,7 +420,6 @@ export const laneOpsMethods = {
     input = '',
     raw = false,
     actor = 'dashboard',
-    recordThreadMessage = true,
   } = {}) {
     const lane = this.getLane(laneLocator);
     if (!lane) {
@@ -447,46 +428,6 @@ export const laneOpsMethods = {
     if (!isLiveLaneState(lane.state)) {
       throw { status: 409, message: 'Lane is not running.' };
     }
-    const attachedTerminalId = lane.processMeta?.attachedOperatorTerminalId || '';
-    if (attachedTerminalId && this.operatorTerminals?.writeInput) {
-      const terminal = this.operatorTerminals.writeInput(attachedTerminalId, input, {
-        actor,
-        raw,
-        skipAudit: raw,
-      });
-      lane.heartbeatAt = nowIso();
-      lane.updatedAt = nowIso();
-      if (!raw && recordThreadMessage && lane.owner === 'orchestrator' && typeof this.appendOrchestratorRuntimeUserMessage === 'function') {
-        const session = this.getSession(lane.sessionId);
-        if (session) {
-          this.appendOrchestratorRuntimeUserMessage(session, {
-            text: input,
-            lane,
-            terminalId: attachedTerminalId,
-            source: 'lane-terminal',
-          });
-        }
-      }
-      if (!raw) {
-        this.recordAudit({
-          type: 'lane_terminal_input',
-          actor: String(actor || 'dashboard').slice(0, 120),
-          projectId: lane.projectId,
-          sessionId: lane.sessionId,
-          laneId: lane.id,
-          summary: `Terminal input sent to lane ${lane.title}`,
-          status: 'passed',
-          evidence: {
-            laneId: lane.id,
-            terminalId: attachedTerminalId,
-            bytes: String(input || '').length,
-            firstToken: String(input || '').trim().split(/\s+/)[0]?.slice(0, 80) || '',
-          },
-        });
-      }
-      return { lane: clonePayload(lane), result: { terminal, bytes: String(input || '').length } };
-    }
-
     const executor = this.getExecutorForLane(lane);
     if (typeof executor.writeTerminalInput !== 'function') {
       throw { status: 409, message: 'Lane executor does not support interactive terminal input.' };
@@ -521,28 +462,6 @@ export const laneOpsMethods = {
     if (!isLiveLaneState(lane.state)) {
       throw { status: 409, message: 'Lane is not running.' };
     }
-    const attachedTerminalId = lane.processMeta?.attachedOperatorTerminalId || '';
-    if (attachedTerminalId && this.operatorTerminals?.resize) {
-      const terminal = this.operatorTerminals.resize(attachedTerminalId, { cols, rows }, { actor });
-      lane.processMeta = {
-        ...(lane.processMeta || {}),
-        cols: terminal.cols,
-        rows: terminal.rows,
-      };
-      lane.updatedAt = nowIso();
-      this.recordAudit({
-        type: 'lane_terminal_resized',
-        actor: String(actor || 'dashboard').slice(0, 120),
-        projectId: lane.projectId,
-        sessionId: lane.sessionId,
-        laneId: lane.id,
-        summary: `Terminal resized for lane ${lane.title}`,
-        status: 'passed',
-        evidence: { laneId: lane.id, terminalId: attachedTerminalId, cols: terminal.cols, rows: terminal.rows },
-      });
-      return { lane: clonePayload(lane), result: { cols: terminal.cols, rows: terminal.rows } };
-    }
-
     const executor = this.getExecutorForLane(lane);
     if (typeof executor.resizeTerminal !== 'function') {
       throw { status: 409, message: 'Lane executor does not support terminal resize.' };

@@ -252,15 +252,6 @@ export const agentMethods = {
     };
   },
 
-  // Archived items for the Settings -> Archive view. v2 has no sessions, so only
-  // archived projects surface (kept so the /api/archive route stays live).
-  listArchived() {
-    const projects = (this.projects || [])
-      .filter((project) => project.state === 'archived')
-      .map((project) => clonePayload(project));
-    return { projects, sessions: [] };
-  },
-
   // Exclusive-ownership enforcement for lease-authed mutating calls, invoked from
   // the server's agent-tool gate. v2 model: the orchestrator RECORD is the owner.
   // Grant iff the calling lease owns the orchestrator container (sessionId is the

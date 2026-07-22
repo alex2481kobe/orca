@@ -17,13 +17,6 @@ const MCP_TOOL_SCOPE_ALLOWLIST = new Set([
   'composer-cli',
   'cli',
   'custom-cli',
-  'api',
-  'openai-compatible',
-  'gemini',
-  'kimi',
-  'deepseek',
-  'openrouter',
-  'composer',
 ]);
 const MAX_MCP_TOOL_ARG_LENGTH = 255;
 const MAX_MCP_TOOL_ARGS = 64;

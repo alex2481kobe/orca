@@ -13,10 +13,6 @@ const TERMINAL_TAIL_DEFAULT_BYTES = 32 * 1024;
 const TERMINAL_TAIL_MAX_BYTES = 128 * 1024;
 
 function laneTerminalLogPath(lane) {
-  const attachedTerminalId = String(lane?.processMeta?.attachedOperatorTerminalId || '').trim();
-  if (attachedTerminalId && /^[A-Za-z0-9_-]+$/.test(attachedTerminalId)) {
-    return path.join(process.cwd(), 'artifacts', String(lane.sessionId || 'orphan'), 'operator-terminals', attachedTerminalId, 'terminal.log');
-  }
   return path.join(process.cwd(), 'artifacts', String(lane.sessionId || 'orphan'), String(lane.id), 'terminal.log');
 }
 
@@ -249,24 +245,6 @@ export async function handleLaneRoutes(ctx, req, res, method, parts) {
         return sendJson(res, error.status || 500, {
           error: error.message || 'Could not record audit outcome.',
         });
-      }
-    }
-
-    if (parts.length === 4 && parts[3] === 'audit-events' && method === 'GET') {
-      const searchParams = getSearchParams(req.url || '/');
-      if (!searchParams) {
-        return sendJson(res, 400, {
-          error: 'Invalid request query string.',
-        });
-      }
-      const status = searchParams.get('status');
-      try {
-        return sendJson(res, 200, registry.listAuditEvents({
-          status,
-          laneId: lane.id,
-        }));
-      } catch (error) {
-        return sendJson(res, error.status || 500, { error: error.message || 'Could not list lane audit events.' });
       }
     }
 

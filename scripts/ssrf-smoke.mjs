@@ -166,19 +166,6 @@ async function main() {
       },
     });
     if (lane.status !== 201) fail('safe lane create', JSON.stringify(lane.body));
-
-    const badPrivateTarget = await request(routeRequest, '/api/private-access/targets', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'ssrf-smoke',
-        label: 'Bad private target',
-        mode: 'tailnet-http',
-        localUrl: 'http://127.0.0.1:3000',
-        tailnetHttpUrl: 'http://192.168.1.12:3000',
-      },
-    });
-    if (badPrivateTarget.status !== 422) fail('private target rfc1918 tailnet URL must be rejected', JSON.stringify(badPrivateTarget.body));
     log('api policy', 'ok');
     log('done', 'SSRF/private URL policy verified');
   } finally {

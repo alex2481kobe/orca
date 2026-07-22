@@ -91,8 +91,6 @@ export const laneCreateMethods = {
     metadataTaskId,
     metadataLoopId,
     presentationMode,
-    executionMode,
-    turnPolicy,
   }, context = {}) {
     // v2: the container is the ORCHESTRATOR record (there are no session records).
     // Resolve it directly; the project's cwd is the repo root; per-lane worktree
@@ -271,7 +269,7 @@ export const laneCreateMethods = {
     const sanitizedIntelligenceProfile = typeof intelligenceProfile === 'string'
       ? intelligenceProfile.trim().slice(0, 80) : '';
     const sanitizedSpeed = typeof speed === 'string' ? speed.trim().slice(0, 24) : '';
-    const rawPresentationMode = String(presentationMode || executionMode || '').trim().toLowerCase();
+    const rawPresentationMode = String(presentationMode || '').trim().toLowerCase();
     const sanitizedPresentationMode = rawPresentationMode === 'terminal' ? 'terminal' : 'chat';
     const executorCapabilities = this.getExecutorCapabilities(normalizedExecutorType);
     const sanitizedVerificationCommand = typeof verificationCommand === 'string'
@@ -290,7 +288,6 @@ export const laneCreateMethods = {
     const expectedArtifactsList = Array.isArray(expectedArtifacts)
       ? expectedArtifacts.map((value) => String(value || '').trim()).filter(Boolean).slice(0, 32)
       : [];
-    const sanitizedTurnPolicy = null; // v2 executor lanes are not chat turns
 
     const lane = {
       id: laneId,
@@ -357,7 +354,6 @@ export const laneCreateMethods = {
       metadataTaskId: metadataTaskId ? String(metadataTaskId).slice(0, 80) : null,
       // Set when a durable loop queues the task that spawned this lane.
       metadataLoopId: metadataLoopId ? String(metadataLoopId).slice(0, 80) : null,
-      turnPolicy: sanitizedTurnPolicy,
       route: buildLaneRoute(project.slug, session.id, laneId),
       runProfile: {
         autoCompleteMs: Number.parseInt(autoCompleteMs, 10) || this.autoCompleteMs,

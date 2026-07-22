@@ -21,17 +21,7 @@ export const DEFAULT_ENV_WHITELIST = [
 
 export const MAX_ARGS = 256;
 export const MAX_WORKDIR_BYTES = 2048;
-export const API_RESPONSE_BYTES = 256 * 1024;
 export const CONTROL_CHAR_RE = /[\x00-\x1f\x7f]/;
-export const API_PROVIDER_TYPES = [
-  'api',
-  'openai-compatible',
-  'gemini',
-  'kimi',
-  'deepseek',
-  'openrouter',
-  'composer',
-];
 export const FIRST_CLASS_CLI_EXECUTOR_TYPES = ['codex', 'claude', 'gemini-cli', 'composer-cli'];
 export const CLI_EXECUTOR_TYPES = [...FIRST_CLASS_CLI_EXECUTOR_TYPES, 'cli'];
 export const CLI_EXECUTOR_DEFAULTS = {

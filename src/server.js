@@ -4,7 +4,6 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { OrcaRegistry } from './registry.js';
 import { PrivateAccessStore } from './private-access.js';
-import { ProviderProfileStore } from './provider-profiles.js';
 import {
   AuthSessionStore,
   SESSION_COOKIE_NAME,
@@ -16,7 +15,6 @@ import {
 import { handleLaneRoutes, FALL_THROUGH as LANE_FALL_THROUGH } from './server-routes/lanes.js';
 import { handleProjectRoutes } from './server-routes/projects.js';
 import { handleMcpRoutes } from './server-routes/mcp.js';
-import { handleNotificationRoutes } from './server-routes/notifications.js';
 import { handleExecutorRoutes } from './server-routes/executors.js';
 import { handleOrchestratorRoutes } from './server-routes/orchestrators.js';
 import { handlePrivateAccessApi } from './server-routes/private-access.js';
@@ -35,10 +33,7 @@ import { fileURLToPath } from 'node:url';
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.ORCA_HOST || '127.0.0.1';
 const PUBLIC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
-const providerProfiles = new ProviderProfileStore();
 const registry = new OrcaRegistry({
-  credentialStore: providerProfiles.credentialStore,
-  providerProfileStore: providerProfiles,
   // Optional tuning (mainly for tests/smokes): speed up the scheduler heartbeat
   // and the mock executor's auto-complete. Unset -> registry defaults.
   heartbeatIntervalMs: Number.parseInt(process.env.ORCA_HEARTBEAT_MS, 10) || undefined,
@@ -801,7 +796,6 @@ const ROUTE_CTX = {
   requestOrigin,
   requireAdminAuth,
   privateAccess,
-  providerProfiles,
   buildAgentToolDiscovery,
   hasOperatorAuth,
   hasAdminAuth,
@@ -833,13 +827,6 @@ async function handleApi(req, res, pathname, method, parts) {
   }
 
   if (await handleMiscRoutes(ROUTE_CTX, req, res, method, parts) !== LANE_FALL_THROUGH) return;
-
-
-
-  if (parts[1] === 'notifications') {
-    const result = await handleNotificationRoutes(ROUTE_CTX, req, res, method, parts);
-    if (result !== LANE_FALL_THROUGH) return;
-  }
 
 
 

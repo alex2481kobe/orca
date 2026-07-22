@@ -3,6 +3,18 @@
 
 import { MAX_ARGS, CONTROL_CHAR_RE } from './constants.js';
 
+export function parseEnv(raw) {
+  if (!raw || typeof raw !== 'object') return {};
+  const output = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof key !== 'string' || !key.trim()) continue;
+    if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') continue;
+    if (CONTROL_CHAR_RE.test(key) || CONTROL_CHAR_RE.test(String(value))) continue;
+    output[key.trim()] = String(value);
+  }
+  return output;
+}
+
 export function safeFire(callback, ...args) {
   try {
     return Promise.resolve(callback(...args)).catch(() => {});

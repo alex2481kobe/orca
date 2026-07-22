@@ -3067,11 +3067,6 @@ test('assertAgentToolAllowed enforces the workflow state machine', async () => {
       (err) => err.status === 409,
     );
 
-    // critique.findings.record only legal in needs_critique.
-    assert.throws(() => registry.assertAgentToolAllowed('critique.findings.record', { laneId: lane.id }), (e) => e.status === 409);
-    target.state = 'needs_critique';
-    assert.equal(registry.assertAgentToolAllowed('critique.findings.record', { laneId: lane.id }), true);
-
     // Ungated tools always pass regardless of state.
     assert.equal(registry.assertAgentToolAllowed('lane.shutdown', { laneId: lane.id }), true);
     assert.equal(registry.assertAgentToolAllowed('lane.create', { laneId: lane.id }), true);
@@ -3131,67 +3126,6 @@ test('lane approval flow records, decides, and surfaces pending approvals', asyn
 // saveSessionAttachment (session plan/attachments surface) was removed with the
 // session container; there is no orchestrator-native attachment method to port to.
 
-test('notification redaction scrubs secret formats and the orca token name', async () => {
-  const { registry, cleanup } = await withIsolatedRegistry();
-  try {
-    const note = registry.enqueueNotification({
-      severity: 'error',
-      title: 'Lane failed with orca-api-token leak',
-      body: 'env ORCA_OPENAI_COMPATIBLE_API_KEY=sk-abcdef123456 and Bearer abc.def-ghi and ghp_ABCDEFGHIJKLMNOPQRST12345 and AKIAABCDEFGHIJKLMNOP',
-    });
-    assert.ok(note, 'notification enqueued');
-    const fetched = registry.getNotifications({ limit: 5 }).notifications.find((n) => n.id === note.id);
-    const blob = `${fetched.title} ${fetched.body}`;
-    assert.ok(!/sk-abcdef123456/.test(blob), 'sk- secret redacted');
-    assert.ok(!/ghp_ABCDEFGHIJKLMNOPQRST12345/.test(blob), 'github PAT redacted');
-    assert.ok(!/AKIAABCDEFGHIJKLMNOP/.test(blob), 'AWS key redacted');
-    assert.ok(!/Bearer abc\.def-ghi/.test(blob), 'bearer redacted');
-    assert.ok(/REDACTED/.test(blob), 'redaction markers present');
-    assert.ok(!/orca-api-token/i.test(blob), 'orca token name redacted');
-  } finally {
-    await cleanup();
-  }
-});
-
-test('deduped notifications recur as unread with updated visible fields', async () => {
-  const { registry, cleanup } = await withIsolatedRegistry();
-  try {
-    const first = registry.enqueueNotification({
-      type: 'loop',
-      severity: 'warning',
-      title: 'Loop paused',
-      body: 'First pause',
-      dedupeKey: 'loop-paused:test',
-      href: '/projects/a',
-    });
-    assert.ok(first?.id);
-    registry.markNotificationRead(first.id, { actor: 'test' });
-    const read = registry.getNotifications({ limit: 5 }).notifications.find((n) => n.id === first.id);
-    assert.ok(read.readAt);
-
-    const second = registry.enqueueNotification({
-      type: 'loop',
-      severity: 'error',
-      title: 'Loop paused again',
-      body: 'Second pause',
-      actor: 'loop-daemon',
-      dedupeKey: 'loop-paused:test',
-      href: '/projects/b',
-      metadata: { reason: 'rate_limit' },
-    });
-    assert.equal(second.id, first.id);
-    assert.equal(second.occurrences, 2);
-    assert.equal(second.readAt, null);
-    assert.equal(second.title, 'Loop paused again');
-    assert.equal(second.severity, 'error');
-    assert.equal(second.href, '/projects/b');
-    const state = registry.getNotifications({ limit: 5 });
-    assert.equal(state.unreadCount, 1);
-    assert.ok(registry.auditEvents.some((event) => event.type === 'notification_deduped' && event.evidence?.occurrences === 2));
-  } finally {
-    await cleanup();
-  }
-});
 
 test('reinstall override rejects alternate registries, alias packages, and bare URLs', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
@@ -3237,7 +3171,6 @@ test('deleteProject requires approval and archived state before permanent remova
     const result = await registry.deleteProject(project.id, { actor: 'test', approved: true });
     assert.equal(result.deleted, true);
     assert.equal(registry.getProject(project.id), undefined);
-    assert.equal(registry.listArchived().projects.length, 0);
   } finally {
     await cleanup();
   }

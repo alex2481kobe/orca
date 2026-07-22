@@ -108,37 +108,9 @@ if ((plan.data.commands || []).some((command) => command.id !== 'local' && comma
 if (!JSON.stringify(plan.data.commands).includes('tailscale serve')) fail('setup plan missing tailscale serve command');
 const badPlan = await req('GET', '/api/private-access/setup-plan?localUrl=https%3A%2F%2Forca.funnel.ts.net');
 if (badPlan.status !== 422) fail('setup plan should reject supplied Funnel URL', JSON.stringify(badPlan.data));
-log('setup plan', 'dry-run only');
-
-const target = await req('POST', '/api/private-access/targets', {
-  actor: 'dashboard',
-  label: `Smoke private access ${Date.now().toString(36)}`,
-  mode: 'local',
-  localUrl: base,
-});
-if (target.status !== 201) fail('create target', JSON.stringify(target.data));
-log('target', target.data.id);
-
-const funnel = await req('POST', '/api/private-access/targets', {
-  actor: 'dashboard',
-  label: 'Bad Funnel',
-  mode: 'tailnet-https-serve',
-  localUrl: base,
-  httpsServeUrl: 'https://orca.funnel.ts.net',
-});
-if (funnel.status !== 422) fail('Funnel URL should be rejected', JSON.stringify(funnel.data));
-const missingTailnetUrl = await req('POST', '/api/private-access/targets', {
-  actor: 'dashboard',
-  label: 'Tailnet missing URL',
-  mode: 'tailnet-http',
-  localUrl: base,
-});
-if (missingTailnetUrl.status !== 422) fail('Tailnet target without tailnet URL should be rejected', JSON.stringify(missingTailnetUrl.data));
-log('target rejections', 'ok');
-
-const check = await req('POST', `/api/private-access/targets/${target.data.id}/check`, { actor: 'dashboard' });
-if (check.status !== 200) fail('target check', JSON.stringify(check.data));
-log('health check', check.data.result?.status || 'checked');
+const metadataPlan = await req('GET', '/api/private-access/setup-plan?localUrl=http%3A%2F%2F169.254.169.254%2Flatest%2Fmeta-data');
+if (metadataPlan.status !== 422) fail('setup plan should reject cloud-metadata URL', JSON.stringify(metadataPlan.data));
+log('setup plan', 'dry-run only, Funnel + metadata rejected');
 
 const manifest = await req('GET', '/manifest.webmanifest');
 if (manifest.status !== 200) fail('manifest webmanifest', String(manifest.status));
@@ -149,9 +121,6 @@ if (sw.status !== 200) fail('service worker', String(sw.status));
 if (!sw.text.includes('/api/') || !sw.text.includes('/artifacts/')) fail('service worker must explicitly bypass sensitive routes');
 if (!sw.text.includes('STATIC_ASSETS')) fail('service worker missing static cache list');
 log('pwa assets', 'ok');
-
-const deleted = await req('DELETE', `/api/private-access/targets/${target.data.id}`, { actor: 'dashboard' });
-if (deleted.status !== 200) fail('delete target', JSON.stringify(deleted.data));
 log('done', 'ok');
 }
 

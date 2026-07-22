@@ -1,7 +1,6 @@
 import fsSync from 'node:fs';
 import path from 'node:path';
 import { toolLeaseMethods } from './registry-tool-leases.js';
-import { notificationMethods } from './registry-notification-methods.js';
 import { agentQueueMethods } from './registry-agent-queue.js';
 import { defaultPolicy } from './registry-policy.js';
 import { executorCapabilityMethods } from './registry-executor-caps.js';
@@ -25,9 +24,6 @@ import {
   parseBooleanEnv,
   clonePayload,
 } from './registry-utils.js';
-import {
-  DEFAULT_NOTIFICATION_SETTINGS,
-} from './registry-notifications.js';
 
 import {
   createExecutorAdapter,
@@ -43,8 +39,6 @@ export class OrcaRegistry {
     // 3x, policy = never). Distinct from heartbeatTimeoutMs, which reaps a dead/hung
     // PROCESS fast; this reaps a lane that is alive but idle. 0 disables. 15min default.
     laneIdleTimeoutMs = Number(process.env.ORCA_LANE_IDLE_TIMEOUT_MS ?? '') || 900000,
-    credentialStore = null,
-    providerProfileStore = null,
     autoAudit,
   } = {}) {
     this.projects = [];
@@ -53,9 +47,7 @@ export class OrcaRegistry {
     this.auditEvents = [];
     this.mcpTools = [];
     this.toolLeases = [];
-    this.notifications = [];
     this.agentQueue = [];
-    this.notificationSettings = { ...DEFAULT_NOTIFICATION_SETTINGS };
     this.artifactRoot = path.join(process.cwd(), 'artifacts');
     this.workspacesRoot = path.join(process.cwd(), '.orca', 'workspaces');
     this.storageDir = path.join(process.cwd(), '.orca');
@@ -71,8 +63,6 @@ export class OrcaRegistry {
     // setting). On by default; ORCA_AUTO_AUDIT=false (or {autoAudit:false})
     // disables it. Tests run with it off so they drive lanes deterministically.
     this.autoAuditEnabled = autoAudit ?? (process.env.ORCA_AUTO_AUDIT !== 'false');
-    this.credentialStore = credentialStore;
-    this.providerProfileStore = providerProfileStore;
     this.policies = { ...defaultPolicy };
     this.cleanupSchedule = {
       enabled: false,
@@ -105,8 +95,6 @@ export class OrcaRegistry {
       onComplete: async (lane) => this.markLaneCompleted(lane),
       onFail: async (lane, reason) => this.markLaneFailed(lane, reason, 'scheduler'),
       onStop: async (lane, context) => this.markLaneStopped(lane, context),
-      credentialStore: this.credentialStore,
-      providerProfileStore: this.providerProfileStore,
       runtimeEnvForLane: (lane) => this.laneRuntimeEnv.get(String(lane?.id || '')) || {},
     };
     this.executors = {
@@ -175,7 +163,6 @@ export class OrcaRegistry {
 // merged onto the prototype here, preserving the public API (registry.create
 // ToolLease(...), registry.validateToolLease(...), etc.).
 Object.assign(OrcaRegistry.prototype, toolLeaseMethods);
-Object.assign(OrcaRegistry.prototype, notificationMethods);
 Object.assign(OrcaRegistry.prototype, agentQueueMethods);
 Object.assign(OrcaRegistry.prototype, executorCapabilityMethods);
 Object.assign(OrcaRegistry.prototype, settingsMethods);

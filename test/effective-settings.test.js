@@ -96,7 +96,6 @@ test('effective settings precedence applies project, session, lane, and action o
       artifactRetentionDays: 30,
       settingsOverrides: {
         spawn: { approvedCapacity: 5 },
-        notifications: { browser: true },
       },
     },
     lane: {
@@ -126,7 +125,6 @@ test('effective settings precedence applies project, session, lane, and action o
   assert.equal(effective.settings.evidence.retentionDays, 30);
   assert.equal(effective.settings.cleanup.retentionDays, 30);
   assert.equal(effective.settings.cleanup.dryRunDefault, false);
-  assert.equal(effective.settings.notifications.browser, true);
   assert.equal(effective.settings.privateAccess.preferredMode, 'local');
   assert.equal(effective.settings.urlOpening.defaultMode, 'in-app');
   assert.deepEqual(
@@ -177,7 +175,7 @@ async function makeOrchestrator(registry, { actor = 'test', title = 'Orch' } = {
 // then feeds it into the "session:fields" layer), and durable settingsOverrides
 // live at project + lane scope. Arbitrary session-scoped settingsOverrides have no
 // backing record on the ephemeral container seam, so the container-level override
-// (privateAccess + notifications) is asserted at PROJECT scope — the durable
+// (privateAccess) is asserted at PROJECT scope — the durable
 // container scope in v3 — while the update/audit path is exercised there too.
 test('registry persists scoped settings overrides and audits updates', async () => {
   await withTempRegistry(async (registry) => {
@@ -190,7 +188,6 @@ test('registry persists scoped settings overrides and audits updates', async () 
       locator: projectId,
       settingsOverrides: {
         privateAccess: { preferredMode: 'local' },
-        notifications: { browser: true },
       },
       actor: 'dashboard',
       approved: true,
@@ -214,7 +211,6 @@ test('registry persists scoped settings overrides and audits updates', async () 
     assert.equal(laneEffective.scope.sessionId, orchestrator.id);
     assert.equal(laneEffective.scope.laneId, lane.id);
     assert.equal(laneEffective.settings.spawn.approvedCapacity, 6);
-    assert.equal(laneEffective.settings.notifications.browser, true);
     assert.equal(laneEffective.settings.privateAccess.preferredMode, 'local');
     assert.equal(laneEffective.settings.urlOpening.defaultMode, 'in-app');
 
