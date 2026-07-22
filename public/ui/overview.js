@@ -5,10 +5,6 @@
 import { icon, FOLDER_ICON } from './icons.js';
 import { shouldRenderProjectOpen } from './home-disclosure.js';
 import { qrSvgForText } from './qr.js';
-import {
-  normalizeWorkstationUrl, workstationLabel, readWorkstations, rememberWorkstation,
-  forgetWorkstation, activeWorkstationUrl, isActiveWorkstation,
-} from './workstations.js';
 
 const body = document.body;
 const sideProjects = document.getElementById('sidebar-projects');
@@ -442,45 +438,23 @@ function paintRemote(access) {
 }
 
 // Remote-client "Remote devices" screen (phone / any browser away from the
-// workstation): this device's connection, an unlink button, and a switch-to-another
-// -workstation list. No workstation admin actions (they'd 401 here).
+// workstation): this device's connection + an unlink button. Each workstation is
+// its own Tailscale URL, so "switching" is just opening a different link — no
+// in-app switcher. No workstation admin actions here (they'd 401).
 function renderRemoteClient() {
-  const activeUrl = activeWorkstationUrl();
-  const activeHost = activeUrl ? workstationLabel(activeUrl) : (window.location.host || 'this workstation');
-  const others = readWorkstations().filter((u) => !isActiveWorkstation(u));
-  const otherRows = others.map((u) => `
-    <div class="ws-row">
-      <button class="ws-go" data-action="connectWorkstation" data-url="${safeAttr(u)}" type="button">
-        ${icon('external', { size: 15 })}<span>${safeText(workstationLabel(u))}</span>
-      </button>
-      <button class="ws-forget icon-btn" data-action="forgetWorkstationRow" data-url="${safeAttr(u)}" type="button" title="Forget" aria-label="Forget ${safeAttr(workstationLabel(u))}">${icon('close', { size: 14 })}</button>
-    </div>`).join('');
-
+  const activeHost = window.location.host || 'this workstation';
   return `
     <section class="card control-card" data-panel-card="access">
       <h3>This device</h3>
-      <p class="muted">Paired to <strong>${safeText(activeHost)}</strong> over Tailscale.</p>
+      <p class="muted">Paired to <strong>${safeText(activeHost)}</strong> over Tailscale. To use a different workstation, open its Tailscale URL.</p>
       <div class="lane-row">
         <button class="btn" data-action="unlinkThisDevice" type="button">Unlink this device</button>
       </div>
-    </section>
-    <section class="card control-card" data-panel-card="access">
-      <h3>Connect to another workstation</h3>
-      <p class="muted">Point this device at a different Orca. Enter its Tailscale URL (or paste a link).</p>
-      <div class="ws-connect">
-        <input id="workstation-url-input" class="connect-input" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="http://mac.tailnet.ts.net:3000" />
-        <button class="btn" data-action="connectWorkstation" type="button">Connect</button>
-      </div>
-      ${otherRows ? `<div class="ws-switcher">${otherRows}</div>` : '<p class="tiny muted">No other workstations yet. Connect to one and it’s remembered here.</p>'}
     </section>`;
 }
 
 async function renderRemote() {
   topbarTitle.textContent = 'Remote devices';
-  // On a real remote client, remember the workstation we're on so it shows up in
-  // the switcher on other devices / after switching away and back.
-  const active = activeWorkstationUrl();
-  if (active) rememberWorkstation(active);
   // .home-panels[data-active-panel=access] flattens the cards into the exact old
   // borderless sections (760px, centered, dividers) and shows only the access
   // panels. No Back button: Remote devices is a top-level sidebar page.
@@ -513,6 +487,16 @@ function applyTheme(pref) {
     b.classList.toggle('is-on', on);
     b.setAttribute('aria-pressed', String(on));
   });
+}
+
+// When Appearance is "System", follow LIVE OS theme changes — the user flipping the
+// phone to dark (or auto-dark at night) while the app is open. Without this the app
+// only reads prefers-color-scheme once at load/apply and never updates.
+if (window.matchMedia) {
+  const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
+  const onSystemThemeChange = () => { if (themePref() === 'system') applyTheme('system'); };
+  if (systemDark.addEventListener) systemDark.addEventListener('change', onSystemThemeChange);
+  else if (systemDark.addListener) systemDark.addListener(onSystemThemeChange); // older Safari
 }
 
 // Brief "Copied" affordance on a copy button.
@@ -775,23 +759,6 @@ content.addEventListener('click', async (e) => {
       location.hash = '';
       await poll();
       renderScreen();
-      return;
-    }
-    if (action === 'connectWorkstation') {
-      // Point this remote client at a different Orca. Row buttons carry data-url;
-      // the free-text field is read otherwise. Remember it, then navigate there.
-      e.preventDefault();
-      const raw = act.dataset.url || (document.getElementById('workstation-url-input')?.value || '');
-      const url = normalizeWorkstationUrl(raw);
-      if (!url) { remoteNote('Enter a valid workstation URL (e.g. http://mac.tailnet.ts.net:3000).'); return; }
-      rememberWorkstation(url);
-      window.location.href = `${url}/`;
-      return;
-    }
-    if (action === 'forgetWorkstationRow') {
-      e.preventDefault();
-      forgetWorkstation(act.dataset.url);
-      paintRemote(remoteAccessCache);
       return;
     }
     return;

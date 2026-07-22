@@ -1654,19 +1654,6 @@ textarea:focus-visible {
 
 /* The mobile pair gate is pinned near the top, clear of the floating reopen button. */
 .connect-shell.connect-gate { padding-top: calc(env(safe-area-inset-top) + 3.25rem); }
-/* Remote-client "connect to another workstation" switcher (Remote devices page). */
-.ws-connect { display: flex; gap: var(--space-2); align-items: center; margin-top: var(--space-2); }
-.ws-connect .connect-input { flex: 1 1 auto; }
-.ws-switcher { display: flex; flex-direction: column; gap: var(--space-1); margin-top: var(--space-3); }
-.ws-row { display: flex; align-items: center; gap: var(--space-1); }
-.ws-go {
-  flex: 1 1 auto; display: flex; align-items: center; gap: var(--space-2);
-  padding: var(--space-2) var(--space-3); border: 1px solid var(--line);
-  border-radius: var(--radius-2, 8px); background: var(--panel); color: var(--text);
-  font: inherit; text-align: left; cursor: pointer;
-}
-@media (hover: hover) { .ws-go:hover { border-color: var(--accent); } }
-.ws-forget { flex: 0 0 auto; }
 .connect-shell.connect-offline { padding-top: calc(env(safe-area-inset-top) + 3.25rem); text-align: center; }
 .connect-shell.connect-offline .app-loading { margin: var(--space-4) 0 var(--space-2); }
 .connect-cmd {
@@ -1730,19 +1717,6 @@ textarea:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .app-loading-logo,
 .app-loading-spinner { animation: none; }
-}
-
-/* Workstation switcher: known workstations, the active one checkmarked + tagged. */
-.ws-switcher { width: 100%; min-width: 0; max-width: 100%; display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.5rem; text-align: left; }
-.ws-row { display: flex; align-items: stretch; gap: var(--space-1); min-width: 0; }
-.ws-forget {
-  flex: 0 0 auto; width: 2.1rem; cursor: pointer; font-size: 1.15rem; line-height: 1;
-  display: inline-flex; align-items: center; justify-content: center;
-  border-radius: var(--radius-sm); border: 1px solid var(--line); background: transparent; color: var(--muted);
-}
-@media (hover: hover) {
-  .ws-pick:hover { background: var(--hover); }
-  .ws-forget:hover { background: var(--hover); color: var(--text); }
 }
 
 /* Pair-gate stepper: step 1 done (connected to workstation), step 2 active (code). */

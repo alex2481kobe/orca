@@ -36,10 +36,6 @@ const code = codeResp?.pairing?.code;
 check('setup.gotPairingCode', Boolean(code));
 
 const ctx = await b.newContext({ userAgent: IPHONE_UA, viewport: { width: 390, height: 844 }, colorScheme: 'dark' });
-// Seed a SECOND known workstation so the switcher list has a row.
-await ctx.addInitScript(() => {
-  localStorage.setItem('orca.workstations', JSON.stringify(['http://other-mac.tailnet.ts.net:3000']));
-});
 const p = await ctx.newPage();
 await p.goto(`http://remote.test:${port}/`, { waitUntil: 'domcontentloaded' });
 // Pair this device from the page context so the cookie lands on the remote origin.
@@ -61,20 +57,15 @@ await p.waitForTimeout(700);
 const rc = await p.evaluate(() => ({
   thisDevice: Boolean([...document.querySelectorAll('#remote-body h3')].find((h) => h.textContent.includes('This device'))),
   unlinkBtn: Boolean(document.querySelector('[data-action="unlinkThisDevice"]')),
-  connectHeading: Boolean([...document.querySelectorAll('#remote-body h3')].find((h) => h.textContent.includes('Connect to another workstation'))),
-  urlInput: Boolean(document.querySelector('#workstation-url-input')),
-  switcherRows: document.querySelectorAll('.ws-switcher .ws-row').length,
-  switcherLabel: document.querySelector('.ws-switcher .ws-go span')?.textContent || '',
   // The workstation-only admin pair panel must NOT be shown to a remote client.
   noPairPanel: !document.querySelector('.pair-panel'),
+  // The removed cross-workstation switcher must NOT be present.
+  noSwitcher: !document.querySelector('#workstation-url-input, .ws-switcher'),
 }));
 check('remote.thisDeviceCard', rc.thisDevice);
 check('remote.unlinkButton', rc.unlinkBtn);
-check('remote.connectHeading', rc.connectHeading);
-check('remote.urlInput', rc.urlInput);
-check('remote.switcherHasRow', rc.switcherRows === 1);
-check('remote.switcherLabelHost', rc.switcherLabel === 'other-mac.tailnet.ts.net:3000');
 check('remote.noAdminPairPanel', rc.noPairPanel);
+check('remote.noSwitcher', rc.noSwitcher);
 await p.screenshot({ path: path.join(outDir, 'remote-client.png') });
 
 // Sidebar nav on a remote client (mobile drawer) must actually navigate — clicking
@@ -122,12 +113,8 @@ check('unlink.showsGate', afterUnlink);
 
 await ctx.close();
 
-// ---- LIGHT theme pass + workstation-switcher actions (forget / connect) ----
-// A fresh remote client in LIGHT mode, paired to its own device, seeded with TWO
-// known workstations so the switcher shows two rows. Proves: the remote-client
-// panel renders in light, forgetWorkstationRow drops a row, and Connect with a
-// valid URL performs the window.location assignment (asserted via the remembered
-// list — the URL rememberWorkstation persists just before navigating).
+// ---- LIGHT theme pass ---- the remote-client panel renders correctly in light,
+// with This device + Unlink and NO cross-workstation switcher (feature removed).
 {
   const code2 = await fetch(`${base}/api/auth/pairing-codes`, {
     method: 'POST', headers: { 'content-type': 'application/json', 'x-orca-token': 'verify-token' },
@@ -136,13 +123,7 @@ await ctx.close();
   check('light.gotPairingCode', Boolean(code2));
 
   const ctx2 = await b.newContext({ userAgent: IPHONE_UA, viewport: { width: 390, height: 844 }, colorScheme: 'light' });
-  await ctx2.addInitScript(() => {
-    localStorage.setItem('orca.theme', 'light');
-    localStorage.setItem('orca.workstations', JSON.stringify([
-      'http://mac-one.tailnet.ts.net:3000',
-      'http://mac-two.tailnet.ts.net:3000',
-    ]));
-  });
+  await ctx2.addInitScript(() => { try { localStorage.setItem('orca.theme', 'light'); } catch { /* */ } });
   const p2 = await ctx2.newPage();
   await p2.goto(`http://remote.test:${port}/`, { waitUntil: 'domcontentloaded' });
   await p2.evaluate(async (c) => {
@@ -159,34 +140,14 @@ await ctx.close();
   const lightRender = await p2.evaluate(() => ({
     theme: document.documentElement.getAttribute('data-theme'),
     thisDevice: Boolean([...document.querySelectorAll('#remote-body h3')].find((h) => h.textContent.includes('This device'))),
-    rows: document.querySelectorAll('.ws-switcher .ws-row').length,
-    urlInput: Boolean(document.querySelector('#workstation-url-input')),
+    unlink: Boolean(document.querySelector('[data-action="unlinkThisDevice"]')),
+    noSwitcher: !document.querySelector('#workstation-url-input, .ws-switcher'),
   }));
   check('light.themeIsLight', lightRender.theme === 'light');
   check('light.thisDeviceCard', lightRender.thisDevice);
-  check('light.switcherHasTwoRows', lightRender.rows === 2);
-  check('light.urlInput', lightRender.urlInput);
+  check('light.unlinkButton', lightRender.unlink);
+  check('light.noSwitcher', lightRender.noSwitcher);
   await p2.screenshot({ path: path.join(outDir, 'remote-client-light.png') });
-
-  // forgetWorkstationRow: click a row's Forget → row count drops.
-  await p2.click('.ws-switcher .ws-row .ws-forget');
-  await p2.waitForTimeout(400);
-  const afterForget = await p2.evaluate(() => document.querySelectorAll('.ws-switcher .ws-row').length);
-  check('forget.rowCountDrops', afterForget === 1);
-
-  // connectWorkstation: type a valid URL and Connect. The handler's connect branch
-  // is synchronous — rememberWorkstation(url) then window.location.href = url — so
-  // clicking and reading localStorage in the SAME synchronous evaluate captures the
-  // remembered URL before the scheduled navigation unloads the page (a real
-  // cross-origin navigation would leave us on a chrome-error page). This proves the
-  // click reaches the window.location assignment for a valid URL.
-  await p2.fill('#workstation-url-input', 'http://connect-target.test:3000');
-  const remembered = await p2.evaluate(() => {
-    document.querySelector('.ws-connect [data-action="connectWorkstation"]').click();
-    try { return JSON.parse(localStorage.getItem('orca.workstations') || '[]'); } catch { return []; }
-  });
-  check('connect.urlRemembered', remembered.includes('http://connect-target.test:3000'));
-
   await ctx2.close();
 }
 
