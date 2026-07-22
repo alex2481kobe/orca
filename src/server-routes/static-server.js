@@ -6,9 +6,6 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const CLIENT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 export function createStaticServer(deps) {
   const {
@@ -38,21 +35,12 @@ function artifactContentType(filePath) {
   return contentTypes[ext] || 'application/octet-stream';
 }
 
-const VENDOR_ASSETS = new Map([
-  ['/vendor/xterm/xterm.mjs', path.join(CLIENT_ROOT, 'node_modules', '@xterm', 'xterm', 'lib', 'xterm.mjs')],
-  ['/vendor/xterm/xterm.css', path.join(CLIENT_ROOT, 'node_modules', '@xterm', 'xterm', 'css', 'xterm.css')],
-]);
-
 async function serveStaticOrIndex(pathname, res, req = null) {
   if (!pathname || pathname === '/') {
     return serveFile('/index.html', res);
   }
 
   const hasExtension = pathname.includes('.');
-  if (VENDOR_ASSETS.has(pathname)) {
-    return serveVendorAsset(pathname, res);
-  }
-
   if (pathname.startsWith('/artifacts/')) {
     // Fail closed: artifacts (evidence, attachments, logs) are operator-gated.
     // Without a request context we cannot authenticate, so deny.
@@ -101,23 +89,6 @@ async function serveStaticOrIndex(pathname, res, req = null) {
     return serveFile('/index.html', res);
   }
   return serveFile(pathname, res);
-}
-
-async function serveVendorAsset(filePath, res) {
-  const fullPath = VENDOR_ASSETS.get(filePath);
-  if (!fullPath) return sendText(res, 404, 'Not found');
-  try {
-    const buffer = await fs.readFile(fullPath);
-    const ext = path.extname(fullPath);
-    res.statusCode = 200;
-    applySecurityHeaders(res);
-    res.setHeader('Content-Type', contentTypes[ext] || 'application/octet-stream');
-    setCacheHeaders(res, staticCachePolicy(filePath));
-    res.end(buffer);
-  } catch (error) {
-    if (error.code === 'ENOENT') return sendText(res, 404, 'Not found');
-    return sendText(res, 500, 'Server error');
-  }
 }
 
 async function serveFile(filePath, res) {

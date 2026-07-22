@@ -2928,27 +2928,6 @@ body.sidebar-collapsed .pill {
   color: var(--terminal-text);
   min-height: 0;
 }
-.operator-terminal-xterm-host,
-.terminal-xterm-host {
-  overflow: hidden;
-  padding: 0;
-  white-space: normal;
-  word-break: normal;
-}
-.operator-terminal-xterm-host .xterm,
-.terminal-xterm-host .xterm {
-  height: 100%;
-  padding: 0.55rem 0.65rem;
-}
-.operator-terminal-xterm-host .xterm-viewport,
-.terminal-xterm-host .xterm-viewport {
-  background: transparent;
-}
-.operator-terminal-xterm-host .xterm-screen,
-.terminal-xterm-host .xterm-screen {
-  min-height: 100%;
-}
-
 @media (max-width: 420px) {
   .operator-terminal-actions .terminal-action-button {
     justify-content: center;
