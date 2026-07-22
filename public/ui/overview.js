@@ -150,9 +150,8 @@ content.addEventListener('toggle', (e) => {
 
 // ================= Settings + Remote panels (ported verbatim from the old
 // experimental render-home-panels.js — EXACT markup/classes, all defined in
-// styles.css). Helpers below (settingsSummaryGrid, settingsActionRows,
-// settingsCallout, pairedDevicesDisclosure, pairingCodeBox, pairingCodeButton,
-// copyUrlButton, tailscaleServeCommand) are inlined from that file. ================
+// styles.css). Helpers below (pairingCodeBox, pairingCodeButton, copyUrlButton,
+// tailscaleServeCommand) are inlined from that file. ================
 
 // safeText/safeAttr map to esc (the old format.js helpers); a small relative
 // time formatter replaces the old formatRelative.
@@ -183,7 +182,6 @@ let openDeviceCard = null; // which summary card's dropdown is open: 'serve' | '
 let remoteAccessCache = {}; // last /api/private-access response, for in-place re-paint on card toggle
 let pairingCountdownTimer = null; // live mins:secs countdown on the pairing code
 
-const selectedOpt = (actual, expected) => String(actual || '') === String(expected || '') ? 'selected' : '';
 function localServeTarget() {
   const port = (typeof window !== 'undefined' && window.location.port) ? window.location.port : '3000';
   return `http://127.0.0.1:${port || '3000'}`;
@@ -193,63 +191,11 @@ function tailscaleServeCommand(mode = 'http') {
   if (mode === 'https') return `tailscale serve --bg --https=443 ${target}`;
   return `tailscale serve --bg ${target}`;
 }
-function pairedDeviceCount() {
-  if (!Array.isArray(remoteAuthSessions)) return null;
-  return remoteAuthSessions.filter((s) => s && (s.paired || s.pairedFromId) && s.active !== false).length;
-}
-function pairedDeviceSummary(unit = 'device') {
-  const n = pairedDeviceCount() ?? 0;
-  return `${n} ${unit}${n === 1 ? '' : 's'}`;
-}
 function pairingCodeButton(label, cls = 'secondary') {
   return `<button class="${cls}" data-action="createPairingCode" type="button">${safeText(label)}</button>`;
 }
 function copyUrlButton(url, label, cls = 'secondary') {
   return `<button class="${cls}" data-action="copyPhoneUrl" data-url="${safeAttr(url)}" type="button">${safeText(label)}</button>`;
-}
-function settingsSummaryGrid(items = []) {
-  const rows = items
-    .filter((item) => item && item.label)
-    .map((item) => `
-      <div class="settings-summary-item">
-        <strong>${safeText(item.value ?? '')}</strong>
-        <span>${safeText(item.label)}</span>
-      </div>
-    `).join('');
-  return rows ? `<div class="settings-summary-grid">${rows}</div>` : '';
-}
-function settingsActionRows(rows = []) {
-  const html = rows
-    .filter((row) => row && row.title)
-    .map((row) => `
-      <div class="settings-action-row">
-        <div class="settings-action-main">
-          ${row.kicker ? `<span class="settings-row-kicker">${safeText(row.kicker)}</span>` : ''}
-          <strong>${safeText(row.title)}</strong>
-          ${row.detail ? `<span class="tiny muted">${safeText(row.detail)}</span>` : ''}
-          ${row.content || ''}
-        </div>
-        ${row.actions ? `<div class="settings-action-controls">${row.actions}</div>` : ''}
-      </div>
-    `).join('');
-  return html ? `<div class="settings-action-list">${html}</div>` : '';
-}
-function settingsCallout(title, detail, actions = '') {
-  return `
-    <div class="settings-callout">
-      <div>
-        <strong>${safeText(title)}</strong>
-        ${detail ? `<span class="tiny muted">${safeText(detail)}</span>` : ''}
-      </div>
-      ${actions ? `<div class="lane-row">${actions}</div>` : ''}
-    </div>`;
-}
-function pairedDevicesDisclosure({ uikey, summary, rows, emptyText, bodyPrefix = '' }) {
-  return `
-        <details class="disclosure compact-disclosure" data-uikey="${uikey}">
-          <summary><span>Paired devices</span><small>${safeText(summary)}</small></summary>
-          <div class="disclosure-body">${bodyPrefix}${rows || `<div class="muted">${safeText(emptyText)}</div>`}</div>
-        </details>`;
 }
 function pairingCodeBox(placeholder) {
   if (pairingAccepted) {

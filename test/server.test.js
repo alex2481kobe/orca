@@ -631,7 +631,6 @@ test('paired devices get operator access but are denied host administration', as
     token,
     env: {
       ORCA_CODEX_BINARY: '/usr/bin/codex',
-      ORCA_CODEX_REINSTALL_COMMAND: 'npm install --yes @openai/codex',
       ORCA_CREDENTIAL_BACKEND: 'memory',
     },
   });

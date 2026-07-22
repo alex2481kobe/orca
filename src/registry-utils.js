@@ -8,8 +8,6 @@ import path from 'node:path';
 
 export const nowIso = () => new Date().toISOString();
 
-export const sleep = async (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
 export const parsePositiveInteger = (value, fallback = null) => {
   const parsed = Number.parseInt(value, 10);
   if (Number.isNaN(parsed) || parsed <= 0) return fallback;

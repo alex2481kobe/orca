@@ -323,8 +323,8 @@ export const laneCreateMethods = {
       id: laneId,
       projectId: session.projectId,
       sessionId: session.id,
-      // v2: when the container is an orchestrator, group the executor under it in
-      // the overview tree. Null for legacy session-owned lanes.
+      // When the container is an orchestrator, group the executor under it in
+      // the overview tree; null when the container has no orchestrator.
       orchestratorId: session.orchestratorId || null,
       title: String(title).trim(),
       taskDescription: String(taskDescription || '').trim(),
@@ -372,9 +372,6 @@ export const laneCreateMethods = {
       lastEvidence: null,
       critiqueMode: normalizedCritiqueMode,
       critiqueState: ['required', 'visual-required'].includes(normalizedCritiqueMode) ? 'needed' : 'not_required',
-      critiqueRevision: 1,
-      critiqueNonce: null,
-      critiqueFindings: [],
       auditState: 'not_queued',
       auditFindings: [],
       // Set on a dedicated auditor lane (owner='auditor') — points at the

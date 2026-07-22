@@ -99,9 +99,9 @@ The dashboard and clients stay in sync through an event stream:
 
 - **The orchestrator is the unit, not the "session."** You register an
   orchestrator per working directory and spawn executor lanes under it. Some API
-  responses and on-disk artifact paths still carry a `sessionId` field — that is
-  an internal legacy alias of the orchestrator id; do not build integrations that
-  depend on a separate "session" concept.
+  responses and on-disk artifact paths still carry a `sessionId` field that
+  mirrors the orchestrator id; do not build integrations that depend on a
+  separate "session" concept.
 - **Sandboxed Codex has two landmines.** A `codex exec` running under
   `--sandbox workspace-write`/`read-only` (a) cancels outbound MCP calls and
   (b) cannot bind localhost ports. If you run Codex as an orchestrator or

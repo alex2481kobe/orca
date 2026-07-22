@@ -410,8 +410,6 @@ export const laneOpsMethods = {
     lane.startedAt = null;
     lane.auditState = 'not_queued';
     lane.critiqueState = 'not_required';
-    lane.critiqueNonce = null;
-    lane.critiqueRevision = (Number.parseInt(lane.critiqueRevision, 10) || 1) + 1;
     // If this lane came from a backlog task that was requeued to 'pending' when the
     // lane failed, re-link it so the retry's eventual accept/fail syncs the task
     // (otherwise markTask*FromLane finds no task) and dispatchPendingTasks won't
@@ -626,7 +624,7 @@ export const laneOpsMethods = {
 
   // Remove/discard a lane's managed worktree. Safe by DEFAULT: refuses when the
   // worktree still holds uncommitted work unless the caller passes force:true.
-  // This is the backend for both the dashboard worktree-remove and the
+  // This is the backend for the worktree/discard route and the
   // lane.worktree.discard MCP tool.
   async removeLaneWorktree(laneLocator, { actor = 'dashboard', approved, removeBranch = false, force = false } = {}) {
     const lane = this.getLane(laneLocator);

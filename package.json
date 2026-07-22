@@ -56,6 +56,7 @@
     "smoke:theme-system": "node scripts/verify-theme-system.mjs",
     "smoke:screens": "node scripts/verify-offline-screen.mjs && node scripts/verify-remote-client.mjs && node scripts/verify-pair-panel-workstation.mjs && node scripts/verify-pair-gate.mjs && node scripts/verify-home-seeded.mjs && node scripts/verify-mobile-nav.mjs && node scripts/verify-theme-system.mjs",
     "smoke:screens-webkit": "VERIFY_ENGINE=webkit node scripts/verify-mobile-nav.mjs && VERIFY_ENGINE=webkit node scripts/verify-theme-system.mjs",
+    "visual:capture": "node scripts/verify-visual.mjs",
     "assets:version": "node scripts/sync-asset-version.mjs",
     "assets:shots": "node scripts/capture-readme-shots.mjs",
     "audit": "npm audit --omit=dev",

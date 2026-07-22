@@ -7,9 +7,9 @@
    - Radius: --radius-xs..xl + --radius-pill.
    - Spacing: --space-1..6 (use for padding/gap/margin instead of ad-hoc rem).
    - Icons: public/ui/icons.js — icon(name,{cls,size}) + named glyphs. Never inline <svg>.
-   - Components: .card / .control-card (surfaces), button + button.secondary/.danger/
-     .warn + .btn/.btn-ghost (actions), .tag[.ok/.warn/.bad] (status), .lane-row[.spread]
-     (action rows), .seg-control (segmented), .dd (dropdown), .disclosure, .picker.
+   - Components: .card / .control-card (surfaces), button + .btn/.btn-ghost (actions),
+     .ov-tag[.working/.waiting/.failed] (status), .lane-row[.spread] (action rows),
+     .seg-control (segmented).
    ============================================================================ */
 :root {
   --bg: #212121;
@@ -157,33 +157,6 @@ pre {
 a {
   color: var(--accent-strong);
 }
-
-/* Top bar — sticky operator header */
-.topbar {
-  position: sticky;
-  top: 0;
-  z-index: 20;
-  background: var(--bg);
-  border-bottom: 1px solid var(--line);
-  padding: 0.65rem 1rem;
-}
-
-.brand h1 {
-  margin: 0;
-  font-size: 1.15rem;
-  letter-spacing: -0.015em;
-}
-
-.brand p {
-  margin: 0;
-  font-size: 0.78rem;
-}
-
-.topbar-actions {
-  display: flex;
-  gap: 0.4rem;
-}
-
 
 .panel-toggle-icon {
   border: 1.5px solid currentColor;
@@ -414,11 +387,7 @@ body.sidebar-collapsed .sidebar-pair-label {
      truncate (…) instead of widening the row and overflowing the static sidebar. */
   grid-template-columns: minmax(0, 1fr);
 }
-.sidebar-list > *,
-.sidebar-project-group,
-.sidebar-project-line,
-.sidebar-sessions,
-.sidebar-session-line { min-width: 0; }
+.sidebar-list > * { min-width: 0; }
 
 .sidebar-link {
   align-items: center;
@@ -530,9 +499,6 @@ body.sidebar-collapsed .sidebar-pair-label {
 }
 
 body.sidebar-collapsed .sidebar-title,
-body.sidebar-collapsed .sidebar-thread,
-body.sidebar-collapsed .sidebar-session-line,
-body.sidebar-collapsed .sidebar-compose,
 body.sidebar-collapsed .settings-row span:not(.settings-icon),
 body.sidebar-collapsed .sidebar-link span:not(.pill):not(.sidebar-folder):not(.settings-icon),
 body.sidebar-collapsed .pill {
@@ -571,66 +537,16 @@ body.sidebar-collapsed .settings-row {
   padding: 0;
 }
 
-/* Panels and cards */
-.panel {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  padding: var(--space-5);
-  margin-top: 0.65rem;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.2);
-}
-
-
-.breadcrumbs,
-.alerts,
-.card-grid,
-.grid-2,
-.toolbar,
-.row {
-  margin-top: 0.65rem;
-}
-
-
 .row {
   display: flex;
   gap: 0.6rem;
   flex-wrap: wrap;
 }
 
-.stat {
-  background: var(--panel-soft);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: var(--space-3);
-}
-
-.stat b {
-  display: block;
-  font-size: 1.2rem;
-}
-
-.stat span {
-  color: var(--muted);
-  font-size: 0.78rem;
-}
-
-
-.home-panels[data-active-panel="overview"] > [data-panel-card]:not([data-panel-card="projects"]),
-.home-panels[data-active-panel="projects"] > [data-panel-card]:not([data-panel-card="projects"]),
 .home-panels[data-active-panel="system"] > [data-panel-card]:not([data-panel-card="system"]),
-.home-panels[data-active-panel="agents"] > [data-panel-card]:not([data-panel-card="agents"]),
-.home-panels[data-active-panel="mcp"] > [data-panel-card]:not([data-panel-card="mcp"]),
-.home-panels[data-active-panel="providers"] > [data-panel-card]:not([data-panel-card="providers"]),
-.home-panels[data-active-panel="access"] > [data-panel-card]:not([data-panel-card="access"]),
-.home-panels[data-active-panel="operations"] > [data-panel-card]:not([data-panel-card="operations"]) {
+.home-panels[data-active-panel="access"] > [data-panel-card]:not([data-panel-card="access"]) {
   display: none;
 }
-
-.is-hidden {
-  display: none !important;
-}
-
 
 .copy-url {
   background: rgba(0, 0, 0, 0.28);
@@ -742,12 +658,6 @@ body.sidebar-collapsed .settings-row {
 }
 
 
-.home-panels[data-active-panel="overview"] > [data-panel-card],
-.home-panels[data-active-panel="projects"] > [data-panel-card] {
-  display: none;
-}
-
-
 .card {
   border: 1px solid var(--line);
   background: var(--panel);
@@ -780,250 +690,16 @@ body.sidebar-collapsed .settings-row {
 }
 
 
-.settings-summary-grid {
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius);
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
-  overflow: hidden;
-}
-
-.settings-summary-item {
-  background: var(--panel-soft);
-  border-left: 1px solid var(--line-soft);
-  display: grid;
-  gap: 0.18rem;
-  min-width: 0;
-  padding: 0.62rem 0.72rem;
-}
-
-.settings-summary-item:first-child {
-  border-left: 0;
-}
-
-.settings-summary-item strong {
-  color: var(--text);
-  font-size: 0.88rem;
-  font-weight: 620;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.settings-summary-item span {
-  color: var(--muted);
-  font-size: 0.72rem;
-}
-
-.settings-action-list {
-  border-top: 1px solid var(--line-soft);
-  display: grid;
-}
-
-.settings-action-row {
-  align-items: start;
-  border-bottom: 1px solid var(--line-soft);
-  display: flex;
-  gap: var(--space-4);
-  justify-content: space-between;
-  padding: 0.72rem 0;
-}
-
-.settings-action-row:last-child {
-  border-bottom: 0;
-}
-
-.settings-action-main {
-  display: grid;
-  flex: 1 1 14rem;
-  gap: 0.25rem;
-  min-width: 0;
-}
-
-.settings-action-main strong {
-  font-size: 0.9rem;
-}
-
-.settings-row-kicker {
-  color: var(--muted);
-  font-size: 0.68rem;
-  text-transform: uppercase;
-}
-
-.settings-action-controls {
-  align-items: center;
-  display: flex;
-  flex: 1 1 18rem;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-  justify-content: flex-end;
-  min-width: 0;
-}
-
-.settings-callout {
-  align-items: center;
-  background: var(--panel-soft);
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius);
-  display: flex;
-  gap: var(--space-4);
-  justify-content: space-between;
-  padding: 0.72rem 0.85rem;
-}
-
-.settings-callout > div:first-child {
-  display: grid;
-  gap: 0.18rem;
-  min-width: 0;
-}
-
 .settings-row {
   align-items: flex-start;
 }
 
 
 @media (max-width: 700px) {
-  .settings-summary-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .settings-summary-item,
-  .settings-summary-item:first-child {
-    border-left: 0;
-    border-top: 1px solid var(--line-soft);
-  }
-
-  .settings-summary-item:first-child {
-    border-top: 0;
-  }
-
-  .settings-action-row,
-  .settings-panel-head,
-  .settings-callout {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .settings-panel-head > button {
-    width: 100%;
-  }
-
   .settings-row {
     align-items: stretch;
   }
-
-  .settings-row-side {
-    align-items: flex-start;
-    flex-wrap: wrap;
-    justify-content: flex-start;
-    max-width: 100%;
-    width: 100%;
-  }
-
-  .settings-action-main,
-  .settings-action-controls {
-    flex: 0 1 auto;
-  }
-
-  .settings-row-controls {
-    justify-content: flex-start;
-  }
-
-  .settings-info[open] {
-    flex-basis: 100%;
-    width: 100%;
-  }
-
-  .settings-info-body {
-    box-shadow: none;
-    position: static;
-    width: 100%;
-  }
-
-  .settings-action-controls {
-    justify-content: flex-start;
-  }
 }
-
-.disclosure {
-  display: grid;
-  gap: 0.62rem;
-}
-
-.disclosure > summary {
-  align-items: center;
-  color: var(--text);
-  cursor: pointer;
-  display: flex;
-  gap: var(--space-4);
-  justify-content: space-between;
-  list-style: none;
-}
-
-.disclosure > summary::-webkit-details-marker {
-  display: none;
-}
-
-.disclosure > summary::after {
-  content: "+";
-  align-items: center;
-  border: 0;
-  border-radius: var(--radius-pill);
-  color: var(--accent-strong);
-  display: inline-flex;
-  flex: 0 0 auto;
-  font-size: 0.82rem;
-  height: 1.35rem;
-  justify-content: center;
-  width: 1.35rem;
-}
-
-.disclosure[open] > summary::after {
-  content: "-";
-}
-
-.disclosure > summary small {
-  color: var(--muted);
-  font-size: 0.72rem;
-  font-weight: 500;
-  margin-left: auto;
-}
-
-.disclosure-body {
-  display: grid;
-  gap: 0.6rem;
-  padding-top: 0.15rem;
-}
-
-.compact-disclosure {
-  border-top: 1px solid var(--line-soft);
-  margin-top: 0.58rem;
-  padding-top: 0.5rem;
-}
-
-.compact-disclosure > summary {
-  color: var(--muted);
-  font-size: 0.78rem;
-}
-
-.tag,
-.status-strip [data-status] {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  border-radius: var(--radius-pill);
-  font-size: 0.74rem;
-  padding: 0.18rem 0.55rem;
-  margin-right: 0.35rem;
-  margin-bottom: 0.25rem;
-  background: color-mix(in srgb, var(--muted) 20%, var(--panel));
-  color: var(--text);
-}
-
-.tag.ok { background: color-mix(in srgb, var(--ok) 18%, var(--panel)); color: color-mix(in srgb, var(--ok) 55%, var(--text)); }
-.tag.warn { background: color-mix(in srgb, var(--warn) 18%, var(--panel)); color: color-mix(in srgb, var(--warn) 55%, var(--text)); }
-.tag.bad { background: color-mix(in srgb, var(--bad) 18%, var(--panel)); color: color-mix(in srgb, var(--bad) 55%, var(--text)); }
 
 button,
 input,
@@ -1076,16 +752,6 @@ button {
   background: var(--active);
 } }
 
-button.danger {
-  background: transparent;
-  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
-  color: var(--danger);
-}
-
-@media (hover: hover) { button.danger:hover {
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
-} }
-
 button:focus-visible {
   outline: none;
 }
@@ -1114,31 +780,10 @@ button:active,
   outline: none;
 }
 
-.sidebar-compose:active,
-.sidebar-archive:active,
-.simple-row:active,
-.click-card:active,
-.nav-tile:active,
 .sidebar-link:active {
   filter: brightness(1);
 }
 
-
-button.secondary,
-a.secondary,
-.button-secondary {
-  background: var(--panel-soft);
-  border: 1px solid var(--line);
-  text-decoration: none;
-  color: var(--text);
-  cursor: pointer;
-}
-
-@media (hover: hover) { button.secondary:hover,
-a.secondary:hover,
-.button-secondary:hover {
-  background: var(--hover);
-} }
 
 button:disabled,
 button[disabled] {
@@ -1146,34 +791,12 @@ button[disabled] {
   opacity: 0.55;
 }
 
-a.secondary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* Inline danger/warn buttons are de-emphasized outline actions (canonical
-   button.danger is defined above). The final committed destructive action uses
-   the solid .modal-confirm.danger instead — that hierarchy is intentional. */
-button.warn {
-  background: transparent;
-  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
-  color: var(--warn);
-}
-@media (hover: hover) { button.warn:hover { background: color-mix(in srgb, var(--warn) 12%, transparent); } }
-
 .tiny {
   font-size: 0.78rem;
   color: var(--muted);
 }
 
 .muted { color: var(--muted); }
-
-.grid-2 {
-  display: grid;
-  gap: var(--space-5);
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-}
 
 form {
   display: grid;
@@ -1234,45 +857,6 @@ pre {
   color: #e4f2ff;
   font-size: 0.78rem;
   max-height: 18rem;
-}
-
-
-.alert {
-  border-radius: var(--radius);
-  border: 1px solid var(--line);
-  background: var(--panel-soft);
-  color: var(--text);
-  padding: 0.5rem 0.75rem;
-  margin-bottom: 0.4rem;
-  font-size: 0.88rem;
-}
-
-/* Theme-aware tints: a light wash in light mode, a deeper one in dark — even
-   1px border on all four sides (no bold left edge). */
-.alert.bad { border-color: var(--bad); background: color-mix(in srgb, var(--bad) 16%, var(--panel)); }
-.alert.ok { border-color: var(--ok); background: color-mix(in srgb, var(--ok) 16%, var(--panel)); }
-
-
-.access-command,
-.access-target {
-  align-items: center;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  display: flex;
-  gap: 0.75rem;
-  justify-content: space-between;
-  padding: 0.7rem;
-}
-
-.access-command code {
-  color: var(--accent-strong);
-  display: block;
-  font-size: 0.76rem;
-  margin-top: 0.3rem;
-}
-
-.access-target + .access-target {
-  margin-top: 0.5rem;
 }
 
 
@@ -1363,9 +947,6 @@ body.nav-open {
     align-items: stretch;
   }
   body.sidebar-collapsed .sidebar-title,
-body.sidebar-collapsed .sidebar-thread,
-body.sidebar-collapsed .sidebar-session-line,
-body.sidebar-collapsed .sidebar-compose,
 body.sidebar-collapsed .settings-row span:not(.settings-icon),
 body.sidebar-collapsed .sidebar-link span:not(.pill):not(.sidebar-folder):not(.settings-icon),
 body.sidebar-collapsed .pill {
@@ -1423,9 +1004,6 @@ body.sidebar-collapsed .pill {
   }
 	  .lane-row button,
 .lane-row a.secondary,
-.access-command button,
-.access-target button,
-.access-target a.secondary,
 .provider-row button,
 .provider-row a.secondary {
 	    flex: 1 1 calc(50% - 0.45rem);
@@ -1434,39 +1012,10 @@ body.sidebar-collapsed .pill {
 	    text-align: center;
 	    white-space: nowrap;
 	  }
-	  .access-command,
-.access-target,
-.provider-row {
+	  .provider-row {
 	    align-items: stretch;
 	    display: grid;
 	  }
-}
-
-.provider-row.settings-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-
-
-@media (max-width: 700px) {
-  .provider-row.settings-row {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .provider-row.settings-row .settings-row-side {
-    width: 100%;
-  }
-
-  .provider-row.settings-row .settings-row-controls {
-    flex: 1 1 100%;
-    width: 100%;
-  }
-
-  .provider-row.settings-row .settings-row-controls button {
-    flex: 1 1 calc(50% - 0.25rem);
-    min-width: 7rem;
-    white-space: nowrap;
-  }
 }
 
 @media (max-width: 420px) {
@@ -1481,14 +1030,8 @@ body.sidebar-collapsed .pill {
 
 /* flex:0 0 auto so the icon isn't shrunk along the button's main axis (that was
    squishing every toolbar glyph to a sliver — width collapsed while height held). */
-.composer-attach svg,
-.composer-mic svg,
-.composer-send svg,
-.info-toggle svg,
-.dd-trigger .dd-chevron,
 .sidebar-collapse svg,
-.sidebar-reopen svg,
-.sidebar-project-new svg { flex: 0 0 auto; }
+.sidebar-reopen svg { flex: 0 0 auto; }
 /* Sidebar header collapse + floating reopen icons. */
 .sidebar-collapse .panel-toggle-icon,
 .sidebar-reopen .panel-toggle-icon { transform: scale(1.15); }
@@ -1538,7 +1081,6 @@ body.sidebar-collapsed .pill {
 
 /* Live pairing-code countdown. */
 .pairing-countdown { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
-.pairing-countdown.soon { color: var(--warn, #d8a657); }
 .pairing-countdown.expired { color: var(--danger, #f0816a); }
 
 /* ===== Paired device rows ===== */

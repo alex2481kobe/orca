@@ -228,7 +228,7 @@ async function main() {
 // v2: lanes hang off an orchestrator RECORD registered by cwd, not a session.
 // We deliberately register against a NON-git working dir (the smoke tempDir), so
 // executor lanes run "direct" with no managed worktree — this preserves the
-// worktree/remove → 422 assertion below (a git repo would auto-provision an
+// worktree/discard → 422 assertion below (a git repo would auto-provision an
 // isolated worktree and change that shape).
 let registerCwd = null;
 if (!explicitBase) {
@@ -401,10 +401,10 @@ if (auditId) {
   log('ackedAudit', ack.body.status);
 }
 
-// --- worktree remove (expected 422 because lane has no managed worktree) ---
-const wtRemove = await req('POST', `/api/lanes/${lane.body.id}/worktree/remove`, { actor: 'dashboard', approved: true });
-if (wtRemove.status !== 422) fail('worktree remove without managed worktree should be 422', JSON.stringify(wtRemove));
-log('worktreeRemoveShape', `${wtRemove.status} ok`);
+// --- worktree discard (expected 422 because lane has no managed worktree) ---
+const wtRemove = await req('POST', `/api/lanes/${lane.body.id}/worktree/discard`, { actor: 'dashboard', approved: true });
+if (wtRemove.status !== 422) fail('worktree discard without managed worktree should be 422', JSON.stringify(wtRemove));
+log('worktreeDiscardShape', `${wtRemove.status} ok`);
 
 // --- private access + PWA static assets ---
 const privateState = await req('GET', '/api/private-access?fakeTailnetState=serve-https');

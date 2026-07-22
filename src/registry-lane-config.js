@@ -32,10 +32,6 @@ export function normalizeWorktreeMode(value, fallback = 'auto') {
   return WORKTREE_MODES.has(normalized) ? normalized : fallback;
 }
 
-export function isWorktreeMode(value) {
-  return WORKTREE_MODES.has(String(value || '').trim().toLowerCase());
-}
-
 // Resolve a concrete worktree mode from a (possibly 'auto') request. Pure — the
 // caller supplies the situation. This encodes the policy the user asked for:
 //   - read-only work, or a non-git folder, never needs a worktree -> direct

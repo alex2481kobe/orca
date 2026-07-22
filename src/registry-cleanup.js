@@ -253,14 +253,14 @@ export const cleanupMethods = {
   },
 
   // Bound in-memory growth on a long-lived server: keep only the most recent
-  // terminal lanes/tasks per session (everything else — auditEvents, notifications,
+  // terminal lanes/tasks (everything else — auditEvents, notifications,
   // toolLeases, logs — is already capped). Caps are generous + env-configurable.
   // Cheap early-out when nothing is large; called throttled from the scheduler.
   pruneInMemoryRecords() {
     const TERMINAL_LANES = new Set(['done', 'failed', 'stopped', 'accepted', 'archived']);
     const maxLanes = parsePositiveInteger(process.env.ORCA_MAX_TERMINAL_LANES_PER_SESSION, null) || 200;
     const laneCount = Array.isArray(this.lanes) ? this.lanes.length : 0;
-    if (laneCount <= maxLanes) return false; // no session can exceed its cap
+    if (laneCount <= maxLanes) return false; // total lanes still under the cap
     // USER POLICY: an isolated lane's on-disk worktree must NOT be reaped by
     // retention pruning while it still holds un-integrated work. Reaping only
     // happens after lane.integrate succeeds (sets integratedAt) or an explicit

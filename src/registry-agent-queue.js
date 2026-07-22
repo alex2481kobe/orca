@@ -1,6 +1,6 @@
-// Durable agent wakeup queue. This is separate from in-app notifications:
-// notifications are user-facing read state, while agent events are work items
-// that orchestrators can drain and acknowledge over MCP/API.
+// Durable agent-event queue (this.agentQueue). This is separate from in-app
+// notifications: notifications are user-facing read state, while agent events
+// are work items that orchestrators can drain and acknowledge over MCP/API.
 
 import { randomUUID } from 'node:crypto';
 import { nowIso, clonePayload, safeArray } from './registry-utils.js';

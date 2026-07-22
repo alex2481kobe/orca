@@ -354,32 +354,8 @@ export async function handleLaneRoutes(ctx, req, res, method, parts) {
       }
     }
 
-    if (parts.length === 5 && parts[3] === 'worktree' && parts[4] === 'remove' && method === 'POST') {
-      const body = await parseJsonBody(req);
-      if (body === null) return sendBodyError(req, res);
-      if (rejectSpoofedActor(body, res)) return;
-      try {
-        const result = await registry.removeLaneWorktree(lane.id, {
-          actor: body.actor || 'dashboard',
-          approved: body.approved,
-          removeBranch: Boolean(body.removeBranch),
-          force: Boolean(body.force),
-        });
-        return sendJson(res, 200, result);
-      } catch (error) {
-        return sendJson(res, error.status || 500, {
-          error: error.message || 'Could not remove worktree.',
-          requiresApproval: error.requiresApproval || false,
-          uncommittedChanges: error.uncommittedChanges || 0,
-          unmergedCommits: error.unmergedCommits || 0,
-          nextAction: error.nextAction || null,
-          risk: error.risk || null,
-        });
-      }
-    }
-
     // Safe worktree discard (lane.worktree.discard): refuses uncommitted work
-    // unless body.force:true. Same backend as worktree/remove.
+    // unless body.force:true.
     if (parts.length === 5 && parts[3] === 'worktree' && parts[4] === 'discard' && method === 'POST') {
       const body = await parseJsonBody(req);
       if (body === null) return sendBodyError(req, res);

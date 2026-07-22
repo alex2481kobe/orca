@@ -45,8 +45,8 @@ Older prerelease builds may be asked to upgrade before a fix is validated.
 - Tailscale Serve is private tailnet access only. Tailscale Funnel is not part
   of the v1 model.
 - Paired phone browsers are operator sessions. They cannot perform workstation
-  admin actions such as credential writes, CLI reinstall execution, pairing-code
-  creation, private-access mutation, or app export.
+  admin actions such as credential writes, pairing-code creation,
+  private-access mutation, or app export.
 - Provider secrets, updater private keys, Apple signing material, pairing
   codes, cookies, and API tokens must never be committed or stored in generated
   artifacts.
