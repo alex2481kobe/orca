@@ -32,31 +32,6 @@ function laneLoopState(lane) {
   return `lane_${lane.state || 'unknown'}`;
 }
 
-function critiqueRequiredForLane(registry, lane) {
-  if (!lane) return false;
-  if (typeof registry?.critiqueRequiredForLane === 'function') {
-    return registry.critiqueRequiredForLane(lane);
-  }
-  return ['required', 'visual-required'].includes(String(lane.critiqueMode || '').toLowerCase());
-}
-
-function critiqueSatisfiedForLane(registry, lane) {
-  if (!lane) return true;
-  if (typeof registry?.critiqueSatisfiedForLane === 'function') {
-    return registry.critiqueSatisfiedForLane(lane);
-  }
-  if (!critiqueRequiredForLane(registry, lane)) return true;
-  return ['satisfied', 'waived'].includes(lane.critiqueState);
-}
-
-function evidenceFreshForLane(registry, lane) {
-  if (!lane) return false;
-  if (lane.critiqueMode === 'visual-required' && typeof registry?.hasFreshVisualEvidence === 'function') {
-    return registry.hasFreshVisualEvidence(lane);
-  }
-  return Boolean(lane.lastEvidence && lane.lastEvidenceCaptureAt);
-}
-
 export function chooseNextTool({ registry, role, project, session, lane, auditQueued, flow }) {
   const normalizedRole = normalizeRole(role);
   // supervisor is deprecated (v2 has no supervisor); it falls through to the
@@ -79,11 +54,6 @@ export function chooseNextTool({ registry, role, project, session, lane, auditQu
   }
   if (lane.state === 'queued') return 'session.next_action';
   if (lane.state === 'starting' || lane.state === 'running') return normalizedRole === 'executor' ? 'lane.heartbeat' : 'session.next_action';
-  if (lane.state === 'needs_critique') {
-    // v2 removed the critique/evidence tools; self-verification folds into the
-    // orchestrator audit. Point at a live read so callers inspect the lane.
-    return 'lane.get';
-  }
   if (lane.state === 'done' || lane.state === 'ready_for_audit') return auditQueued ? 'audit.findings.record' : 'audit.queue_one';
   if (lane.state === 'fix_requested') {
     // Route the fix per the configurable flow: a fresh agent (new lane) or the
@@ -92,7 +62,10 @@ export function chooseNextTool({ registry, role, project, session, lane, auditQu
   }
   if (lane.state === 'failed') return 'lane.retry';
   if (lane.state === 'stopped') return 'lane.retry';
-  if (lane.state === 'blocked') return 'lane.retry'; // blocked is retryable — don't dead-end
+  // A blocked lane was stopped by the auditor for a reason (out of scope / needs
+  // human direction). Don't point at lane.retry — that just re-runs the same work
+  // and can loop a policy-blocked lane. Escalate for a human/orchestrator decision.
+  if (lane.state === 'blocked') return 'approval.request';
   return 'session.next_action';
 }
 
@@ -235,10 +208,12 @@ export function buildNextActionEnvelope(registry, {
     lane,
   });
   const nextTool = findTool(nextRequiredTool);
-  const critiqueRequired = critiqueRequiredForLane(registry, lane);
-  const critiqueSatisfied = critiqueSatisfiedForLane(registry, lane);
+  // Live audit-evidence gate: UI/browser work (a targetUrl, or visual-required
+  // mode) must produce captured evidence before an auditor accepts it (enforced
+  // in acceptLaneAudit). The dead critique-role signals (critiqueRequired/
+  // critiqueSatisfied/evidenceFresh) were removed — they referenced a flow that no
+  // longer exists, and an agent could act on them.
   const evidenceRequired = Boolean(lane?.targetUrl || lane?.critiqueMode === 'visual-required');
-  const evidenceFresh = evidenceFreshForLane(registry, lane);
   // 'auditing' and 'fix_requested' are post-submission states where the audit is
   // demonstrably not yet accepted; include them so auditSatisfied below reflects
   // reality (was reporting satisfied=true for them).
@@ -278,14 +253,10 @@ export function buildNextActionEnvelope(registry, {
     // driving an action the role can't perform (e.g. executor on audit.queue_one).
     nextToolPermitted: effectiveAllowedTools.includes(nextRequiredTool),
     allowedTools: effectiveAllowedTools,
-    blockedTools: [],
     summary: lane
       ? `Lane "${lane.title}" is ${lane.state}.`
       : (session ? `Session "${session.name}" is ready for orchestration.` : (project ? `Project "${project.name}" is selected.` : 'No project selected.')),
     evidenceRequired,
-    evidenceFresh,
-    critiqueRequired,
-    critiqueSatisfied,
     auditRequired,
     auditSatisfied: auditRequired ? auditSatisfied : true,
     flow,

@@ -3,7 +3,7 @@
 
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { LANE_STATES, isRunningLaneState } from './worker-contract.js';
+import { LANE_STATES, isRunningLaneState, isLiveLaneState } from './worker-contract.js';
 import {
   nowIso,
   clonePayload,
@@ -11,6 +11,7 @@ import {
   normalizeExecutorType,
   buildLaneRoute,
 } from './registry-utils.js';
+import { buildNextActionEnvelope } from './agent-tools.js';
 import { FIRST_CLASS_CLI_EXECUTOR_TYPES, getExecutorProfile } from './executor-factory.js';
 import { createLaneWorktree, describeRepoRoot } from './worktree-manager.js';
 import { sanitizeSettingsOverrides } from './effective-settings.js';
@@ -20,6 +21,8 @@ import {
   resolveWorktreeMode,
   normalizeIdleShutdownMode,
   commandTargetsExecutorFirstToken,
+  normalizeApprovedCapacity,
+  normalizeSpawnPolicy,
 } from './registry-lane-config.js';
 
 const { QUEUED: QUEUED_STATE } = LANE_STATES;
@@ -117,6 +120,37 @@ export const laneCreateMethods = {
 
     if (!title || !String(title).trim()) {
       throw { status: 422, message: 'Lane title is required.' };
+    }
+
+    // Concurrency enforcement: an agent must not fan out past the orchestrator's
+    // approved capacity / lane-concurrency limit. Mirror buildCapacity/the
+    // scheduler — count LIVE lanes (queued/starting/running) under this container.
+    // Auditor lanes are infrastructure the orchestrator spawns to review work, so
+    // they don't consume an executor slot. spawnPolicy 'auto'/'within_capacity'
+    // enforce the numeric limit; a 0 limit means "unset" → not enforced here.
+    const spawnPolicy = normalizeSpawnPolicy(session.spawnPolicy, 'auto');
+    const approvedCapacity = normalizeApprovedCapacity(session.approvedCapacity, 0);
+    const laneConcurrencyLimit = normalizeApprovedCapacity(session.laneConcurrencyLimit, approvedCapacity);
+    const effectiveLimit = laneConcurrencyLimit || approvedCapacity;
+    if (effectiveLimit > 0 && owner !== 'auditor') {
+      const activeAgents = (this.lanes || []).filter((lane) => (
+        lane.sessionId === session.id
+        && lane.owner !== 'auditor'
+        && isLiveLaneState(lane.state)
+      )).length;
+      if (activeAgents >= effectiveLimit) {
+        throw {
+          status: 409,
+          message: `Orchestrator is at capacity: ${activeAgents}/${effectiveLimit} lanes are live (spawnPolicy ${spawnPolicy}). Wait for a lane to finish (or accept/stop one) before spawning another, or raise the limit (orchestrator.update).`,
+          nextAction: (() => {
+            try {
+              return buildNextActionEnvelope(this, {
+                role: 'orchestrator', projectId: session.projectId, sessionId: session.id, lean: true,
+              });
+            } catch { return null; }
+          })(),
+        };
+      }
     }
 
     // Auto-create per-lane git worktree when the session has a vetted
@@ -423,6 +457,15 @@ export const laneCreateMethods = {
       });
     }
     this.persistState();
-    return clonePayload(lane);
+    // Guide the spawning orchestrator to observe the new lane (and, once it
+    // finishes, audit it) without a separate session.next_action round-trip.
+    const result = clonePayload(lane);
+    try {
+      const env = buildNextActionEnvelope(this, {
+        role: 'orchestrator', projectId: session.projectId, sessionId: session.id, laneId: lane.id, lean: true,
+      });
+      result.nextAction = { ...env, nextRequiredTool: 'lane.get' };
+    } catch { /* envelope is best-effort guidance */ }
+    return result;
   },
 };

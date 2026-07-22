@@ -65,7 +65,7 @@ test('acceptLaneAudit refuses a still-running lane (dashboard path)', async () =
     assert.throws(() => registry.acceptLaneAudit(lane.id, { actor: 'dashboard' }), (e) => e.status === 409);
     // A terminal lane accepts fine.
     registry.getLane(lane.id).state = 'done';
-    const r = registry.acceptLaneAudit(lane.id, { actor: 'dashboard' });
+    const r = registry.acceptLaneAudit(lane.id, { actor: 'dashboard', findings: ['reviewed'] });
     assert.equal(r.lane.state, 'accepted');
   });
 });

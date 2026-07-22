@@ -240,12 +240,12 @@ test('orchestrator (Model-B register path): owning lease may audit + accept its 
     // The lane is still 'done' here (queue_one doesn't change lane.state), so the
     // audit.accept state-gate passes and the 409 can ONLY be the ownership refusal.
     const refused = await req('POST', `/api/lanes/${laneId}/audit/accept`,
-      { verdict: 'accepted', actor: 'chat-other' }, withLease(otherToken));
+      { verdict: 'accepted', actor: 'chat-other', findings: ['reviewed'] }, withLease(otherToken));
     assert.equal(refused.status, 409, `non-owning lease audit.accept must be refused (was ${refused.status}: ${refused.text})`);
 
     // The OWNING lease may accept.
     const accepted = await req('POST', `/api/lanes/${laneId}/audit/accept`,
-      { verdict: 'accepted', actor: 'chat-owner' }, withLease(ownerToken));
+      { verdict: 'accepted', actor: 'chat-owner', findings: ['reviewed'] }, withLease(ownerToken));
     assert.equal(accepted.status, 200, `owner audit.accept must succeed (was ${accepted.status}: ${accepted.text})`);
   } finally {
     if (stopServer) await stopServer();

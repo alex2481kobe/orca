@@ -2609,7 +2609,7 @@ async function acceptAudit(server, token, laneId) {
   const accepted = await server.requestJson(`/api/lanes/${laneId}/audit/accept`, {
     method: 'POST',
     headers: { 'x-orca-token': token },
-    body: { actor: 'dashboard' },
+    body: { actor: 'dashboard', findings: ['reviewed'] },
   });
   assert.equal(accepted.status, 200, `audit accept: ${JSON.stringify(accepted.body)}`);
   return accepted;

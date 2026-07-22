@@ -333,6 +333,12 @@ function toolLeaseRequirementForRoute(method, parts) {
   if (parts[1] === 'private-access' && parts[2] === 'setup-plan' && parts.length === 3 && method === 'GET') {
     return { toolId: 'orca.setup_guide' };
   }
+  if (parts[1] === 'audit' && parts[2] === 'events' && parts.length === 3 && method === 'GET') {
+    return { toolId: 'audit.log.read' };
+  }
+  if (parts[1] === 'audit' && parts[2] === 'events' && parts[3] && parts[4] === 'ack' && parts.length === 5 && method === 'POST') {
+    return { toolId: 'audit.log.ack' };
+  }
   if (parts[1] === 'orchestrators' && parts.length === 2 && method === 'POST') {
     return { toolId: 'orchestrator.register' };
   }
@@ -365,11 +371,23 @@ function toolLeaseRequirementForRoute(method, parts) {
   if (parts[1] === 'orchestrators' && parts[2] && parts[3] === 'status' && parts.length === 4 && method === 'GET') {
     return { toolId: 'orchestrator.status', sessionId: parts[2] };
   }
+  if (parts[1] === 'orchestrators' && parts[2] && parts[3] === 'emergency-stop' && parts.length === 4 && method === 'POST') {
+    return { toolId: 'fleet.emergency_stop', sessionId: parts[2] };
+  }
   if (parts[1] === 'lanes' && parts[2] && parts.length === 3 && method === 'GET') {
     return { toolId: 'lane.get', laneId: parts[2] };
   }
   if (parts[1] === 'lanes' && parts[2] && parts[3] === 'terminal-tail' && method === 'GET') {
     return { toolId: 'lane.terminal.tail', laneId: parts[2] };
+  }
+  if (parts[1] === 'lanes' && parts[2] && parts[3] === 'terminal-input' && parts.length === 4 && method === 'POST') {
+    return { toolId: 'lane.terminal.write', laneId: parts[2] };
+  }
+  if (parts[1] === 'lanes' && parts[2] && parts[3] === 'artifacts' && parts.length === 4 && method === 'GET') {
+    return { toolId: 'lane.artifacts.list', laneId: parts[2] };
+  }
+  if (parts[1] === 'lanes' && parts[2] && parts[3] === 'artifacts' && parts[4] && parts.length === 5 && method === 'GET') {
+    return { toolId: 'lane.artifacts.get', laneId: parts[2] };
   }
   if (parts[1] === 'lanes' && parts[2] && parts.length === 3 && method === 'DELETE') {
     return { toolId: 'lane.delete', laneId: parts[2] };

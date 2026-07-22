@@ -2,8 +2,14 @@
 // mixin for OrcaRegistry. Extracted from registry.js.
 
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import { LANE_STATES, isLiveLaneState, isRunningLaneState } from './worker-contract.js';
 import { nowIso, clonePayload, safeArray } from './registry-utils.js';
+import { buildNextActionEnvelope } from './agent-tools.js';
+
+// Files that count as captured visual/browser evidence for a targetUrl lane.
+const EVIDENCE_ARTIFACT_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.pdf', '.mp4', '.webm']);
 
 const MAX_AUDIT_DISPATCHES = 2;
 // A lane has at most ONE pending audit follow-up regardless of how it was queued
@@ -273,6 +279,43 @@ export const auditMethods = {
     };
   },
 
+  // Does a lane have fresh captured evidence (a screenshot/artifact)? True when a
+  // capture was recorded on the lane, or an image/video/pdf artifact exists under
+  // the lane's artifact dir. Used to gate accepting UI/browser (targetUrl) work.
+  laneHasCapturedEvidence(lane) {
+    if (!lane) return false;
+    if (lane.lastEvidence && lane.lastEvidenceCaptureAt) return true;
+    try {
+      const dir = path.join(process.cwd(), 'artifacts', String(lane.sessionId), String(lane.id));
+      for (const name of fs.readdirSync(dir)) {
+        if (EVIDENCE_ARTIFACT_EXTENSIONS.has(path.extname(name).toLowerCase())) return true;
+      }
+    } catch { /* no artifact dir yet */ }
+    return false;
+  },
+
+  // Build a nextAction envelope for an audit outcome. Optionally override the
+  // computed nextRequiredTool with the concrete corrective/next tool for the call.
+  _auditNextAction(lane, overrideTool = null) {
+    try {
+      const env = buildNextActionEnvelope(this, {
+        role: 'orchestrator',
+        projectId: lane?.projectId || null,
+        sessionId: lane?.sessionId || null,
+        laneId: lane?.id || null,
+        lean: true,
+      });
+      return overrideTool ? { ...env, nextRequiredTool: overrideTool } : env;
+    } catch {
+      return overrideTool ? { nextRequiredTool: overrideTool } : null;
+    }
+  },
+
+  // Build a nextAction envelope that points a refused accept at the recovery tool.
+  _auditFindingsNextAction(lane) {
+    return this._auditNextAction(lane, 'audit.findings.record');
+  },
+
   acceptLaneAudit(laneLocator, {
     actor = 'dashboard',
     findings = [],
@@ -289,6 +332,28 @@ export const auditMethods = {
     if (isRunningLaneState(lane.state)) {
       throw { status: 409, message: 'Cannot accept a lane that is still running. Stop it first.' };
     }
+    const findingsList = safeArray(findings).map((item) => String(item || '').trim()).filter(Boolean).slice(0, 100);
+    const reviewedList = safeArray(reviewedFiles).map((item) => String(item || '').trim()).filter(Boolean).slice(0, 200);
+    // Integrity gate: an accept must record a real review — at least one finding
+    // or a reviewed file — so an agent (or a hasty operator) can't rubber-stamp
+    // work with an empty verdict. The corrective step is audit.findings.record.
+    if (!findingsList.length && !reviewedList.length) {
+      throw {
+        status: 409,
+        message: 'Cannot accept an audit with no recorded review. Record at least one finding or list the files you reviewed (audit.findings.record) before accepting.',
+        nextAction: this._auditFindingsNextAction(lane),
+      };
+    }
+    // UI/browser lanes (a targetUrl was set) additionally require fresh captured
+    // evidence — a screenshot/artifact — so nobody signs off on visual work
+    // sight-unseen.
+    if (lane.targetUrl && !this.laneHasCapturedEvidence(lane)) {
+      throw {
+        status: 409,
+        message: 'This lane targets a URL (UI/browser work); accepting it requires fresh captured evidence (a screenshot or artifact). Capture evidence in the lane, then record findings that reference it (audit.findings.record).',
+        nextAction: this._auditFindingsNextAction(lane),
+      };
+    }
     lane.auditState = 'accepted';
     lane.state = ACCEPTED_STATE;
     lane.auditLoopCount = 0; // work passed audit — reset the fix-loop budget
@@ -297,8 +362,8 @@ export const auditMethods = {
       id: randomUUID(),
       actor: String(actor || 'dashboard').slice(0, 120),
       verdict,
-      findings: safeArray(findings).map((item) => String(item || '').trim()).filter(Boolean).slice(0, 100),
-      reviewedFiles: safeArray(reviewedFiles).map((item) => String(item || '').trim()).filter(Boolean).slice(0, 200),
+      findings: findingsList,
+      reviewedFiles: reviewedList,
       recordedAt: nowIso(),
     };
     lane.auditFindings = [...safeArray(lane.auditFindings), record].slice(-50);
@@ -319,7 +384,10 @@ export const auditMethods = {
       evidence: record,
     });
     this.persistState();
-    return { lane: clonePayload(lane), audit: clonePayload(record) };
+    // After accept, an isolated lane's work still needs merging back — point the
+    // agent at lane.integrate; other lanes are done in place.
+    const nextTool = lane.worktreeMode === 'isolated' ? 'lane.integrate' : null;
+    return { lane: clonePayload(lane), audit: clonePayload(record), nextAction: this._auditNextAction(lane, nextTool) };
   },
 
   requestLaneFix(laneLocator, {
@@ -366,7 +434,12 @@ export const auditMethods = {
       evidence: record,
     });
     this.persistState();
-    return { lane: clonePayload(lane), audit: clonePayload(record) };
+    // Route the agent to the fix per the flow (new lane vs retry this one), or to
+    // escalation when the loop budget is spent.
+    const nextTool = escalated
+      ? 'session.next_action'
+      : (record.fixRouting === 'new-agent' ? 'lane.create' : 'lane.retry');
+    return { lane: clonePayload(lane), audit: clonePayload(record), nextAction: this._auditNextAction(lane, nextTool) };
   },
 
   blockLaneAudit(laneLocator, {

@@ -40,6 +40,7 @@ const fromMcpName = (name) => name.replace(/__/g, '.');
 const TOOL_QUERY_PARAMS = {
   'session.next_action': ['role', 'projectId', 'sessionId', 'laneId'],
   'lane.terminal.tail': ['offset', 'maxBytes'],
+  'audit.log.read': ['status'],
   'tailscale.status': ['fake'],
   'orca.setup_guide': ['localUrl', 'httpPort', 'httpsPort'],
 };

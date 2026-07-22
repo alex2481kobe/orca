@@ -8,6 +8,7 @@ import { LANE_STATES, isLiveLaneState } from './worker-contract.js';
 import { nowIso, clonePayload, safeArray } from './registry-utils.js';
 import { removeLaneWorktree, mergeLaneBranch } from './worktree-manager.js';
 import { validateNetworkUrl } from './url-policy.js';
+import { buildNextActionEnvelope } from './agent-tools.js';
 
 const {
   QUEUED: QUEUED_STATE,
@@ -24,6 +25,24 @@ const {
 } = LANE_STATES;
 
 export const laneOpsMethods = {
+  // Attach a machine-readable next step to a recoverable refusal so an agent can
+  // self-correct without an extra session.next_action round-trip. Overrides the
+  // computed nextRequiredTool with the corrective tool for this specific refusal.
+  _laneNextAction(lane, nextRequiredTool) {
+    try {
+      const env = buildNextActionEnvelope(this, {
+        role: 'orchestrator',
+        projectId: lane?.projectId || null,
+        sessionId: lane?.sessionId || null,
+        laneId: lane?.id || null,
+        lean: true,
+      });
+      return nextRequiredTool ? { ...env, nextRequiredTool } : env;
+    } catch {
+      return nextRequiredTool ? { nextRequiredTool } : null;
+    }
+  },
+
   // Permanently remove a TERMINAL lane (done/failed/stopped/accepted/blocked):
   // best-effort worktree cleanup, clear runtime maps, unlink any backlog task,
   // drop the record. Refuses a live lane so a running child can't be orphaned.
@@ -32,7 +51,7 @@ export const laneOpsMethods = {
     if (!lane) throw { status: 404, message: 'Lane not found.' };
     const deletable = new Set([DONE_STATE, FAILED_STATE, STOPPED_STATE, ACCEPTED_STATE, BLOCKED_STATE, 'archived']);
     if (!deletable.has(lane.state)) {
-      throw { status: 422, message: 'Stop the lane before deleting it.' };
+      throw { status: 422, message: 'Stop the lane before deleting it.', nextAction: this._laneNextAction(lane, 'lane.shutdown') };
     }
     if (typeof this.clearLaneExecutor === 'function') this.clearLaneExecutor(lane.id);
     if (typeof this.revokeToolLeasesForLane === 'function') {
@@ -71,7 +90,11 @@ export const laneOpsMethods = {
     if (!lane) throw { status: 404, message: 'Lane not found.' };
     const submittable = new Set([STARTING_STATE, RUNNING_STATE, NEEDS_CRITIQUE_STATE]);
     if (!submittable.has(lane.state)) {
-      throw { status: 409, message: `Lane cannot be submitted from state "${lane.state}".` };
+      throw {
+        status: 409,
+        message: `Lane cannot be submitted from state "${lane.state}".`,
+        nextAction: this._laneNextAction(lane),
+      };
     }
     if (summary) lane.summary = String(summary).slice(0, 4000);
     if (Array.isArray(changedFiles) && changedFiles.length) {
@@ -99,7 +122,9 @@ export const laneOpsMethods = {
     this.persistState();
     // `needsCritique` is retained in the return shape (always false) as a stable
     // API field consumed by callers/tests; the critique flow itself was removed.
-    return { lane: clonePayload(lane), needsCritique: false };
+    // Guide the agent to the next step (audit.queue_one) so a successful submit
+    // doesn't force a separate session.next_action round-trip.
+    return { lane: clonePayload(lane), needsCritique: false, nextAction: this._laneNextAction(lane) };
   },
 
   // --- Permission-approval relay (Codex-app-style approval loop) -----------
@@ -527,6 +552,77 @@ export const laneOpsMethods = {
     }
   },
 
+  // Read one lane artifact file by name for an agent (the auditor/orchestrator
+  // fetching a screenshot or transcript it enumerated via listArtifactFiles).
+  // Traversal-safe: the name must be a plain basename that resolves to a regular
+  // file inside the lane's artifact dir. Text artifacts come back utf8; images/
+  // pdf/video base64. Bounded so a huge artifact can't blow up the response.
+  async readArtifactFile(laneLocator, name) {
+    const lane = this.getLane(laneLocator);
+    if (!lane) throw { status: 404, message: 'Lane not found.' };
+    const rawName = String(name || '').trim();
+    if (!rawName || rawName !== path.basename(rawName) || rawName === '.' || rawName === '..' || rawName.includes('/') || rawName.includes('\\')) {
+      throw { status: 422, message: 'Invalid artifact name.' };
+    }
+    const laneDir = path.join(process.cwd(), 'artifacts', String(lane.sessionId), String(lane.id));
+    const target = path.join(laneDir, rawName);
+    let stat;
+    try {
+      const resolved = await fs.realpath(target);
+      const laneReal = await fs.realpath(laneDir);
+      if (resolved !== path.join(laneReal, rawName)) {
+        throw { status: 422, message: 'Artifact resolves outside the lane directory.' };
+      }
+      stat = await fs.stat(resolved);
+    } catch (error) {
+      if (error && error.status) throw error;
+      throw { status: 404, message: 'Artifact not found.' };
+    }
+    if (!stat.isFile()) throw { status: 404, message: 'Artifact not found.' };
+    const MAX_ARTIFACT_BYTES = 2 * 1024 * 1024;
+    if (stat.size > MAX_ARTIFACT_BYTES) {
+      throw { status: 413, message: `Artifact is ${stat.size} bytes; too large to fetch inline (limit ${MAX_ARTIFACT_BYTES}). Open it from the dashboard.` };
+    }
+    const TEXT_EXT = new Set(['.txt', '.json', '.log', '.md', '.csv', '.html', '.xml', '.yml', '.yaml', '.js', '.ts', '.css', '.diff', '.patch']);
+    const encoding = TEXT_EXT.has(path.extname(rawName).toLowerCase()) ? 'utf8' : 'base64';
+    const buffer = await fs.readFile(target);
+    return {
+      laneId: lane.id,
+      sessionId: lane.sessionId,
+      name: rawName,
+      size: stat.size,
+      encoding,
+      content: buffer.toString(encoding),
+    };
+  },
+
+  // Break-glass: stop EVERY live lane under one orchestrator container at once
+  // (queued/starting/running). Best-effort per lane so one stubborn lane doesn't
+  // block the rest. The orchestrator's fleet-wide "stop it all now" button, vs
+  // lane.shutdown which stops a single lane.
+  async emergencyStopContainer(orchestratorId, { actor = 'operator', reason = 'emergency stop' } = {}) {
+    const orch = (this.orchestrators || []).find((o) => o.id === orchestratorId);
+    if (!orch) throw { status: 404, message: 'Orchestrator not found.' };
+    const live = (this.lanes || []).filter((lane) => lane.sessionId === orchestratorId && isLiveLaneState(lane.state));
+    let stopped = 0;
+    for (const lane of live) {
+      try {
+        await this.stopLane(lane.id, { actor, approved: true, reason });
+        stopped += 1;
+      } catch { /* best effort — keep stopping the rest */ }
+    }
+    this.recordAudit({
+      type: 'fleet_emergency_stop',
+      actor: String(actor || 'operator').slice(0, 120),
+      projectId: orch.projectId,
+      sessionId: orchestratorId,
+      summary: `Emergency-stopped ${stopped}/${live.length} live lane(s) under orchestrator ${orch.title || orch.actor || orchestratorId}`,
+      status: 'passed',
+      evidence: { orchestratorId, requested: live.length, stopped },
+    });
+    return { stopped, laneCount: live.length };
+  },
+
 
   // Remove/discard a lane's managed worktree. Safe by DEFAULT: refuses when the
   // worktree still holds uncommitted work unless the caller passes force:true.
@@ -561,10 +657,18 @@ export const laneOpsMethods = {
       force: Boolean(force),
     });
     if (!result.removed) {
-      // Uncommitted-work refusal is a client-actionable 409 (integrate or force),
-      // not a server error — surface the reason so the agent knows what to do.
-      const status = result.uncommittedChanges ? 409 : 500;
-      throw { status, message: result.reason || 'Could not remove worktree.', uncommittedChanges: result.uncommittedChanges || 0 };
+      // Uncommitted work OR unmerged commits are client-actionable 409s (integrate
+      // or force), not server errors — surface the reason + the corrective tool so
+      // the agent knows what to do next.
+      const recoverable = Boolean(result.uncommittedChanges || result.unmergedCommits);
+      const status = recoverable ? 409 : 500;
+      throw {
+        status,
+        message: result.reason || 'Could not remove worktree.',
+        uncommittedChanges: result.uncommittedChanges || 0,
+        unmergedCommits: result.unmergedCommits || 0,
+        nextAction: recoverable ? this._laneNextAction(lane, 'lane.integrate') : null,
+      };
     }
     lane.worktreePath = '';
     this.recordAudit({
@@ -630,7 +734,16 @@ export const laneOpsMethods = {
       return { integrated: false, nothingToMerge: true, baseBranch: result.baseBranch, branch: result.branch };
     }
     if (result.conflicts) {
-      throw { status: 409, message: result.reason || 'Integration hit merge conflicts.', conflicts: true, baseBranch: result.baseBranch, branch: result.branch };
+      throw {
+        status: 409,
+        message: result.reason || 'Integration hit merge conflicts.',
+        conflicts: true,
+        baseBranch: result.baseBranch,
+        branch: result.branch,
+        // Conflicts need a fresh fix pass on the lane before it can be integrated;
+        // point the agent at requesting that fix rather than retrying the merge.
+        nextAction: this._laneNextAction(lane, 'audit.request_fix'),
+      };
     }
     throw { status: 422, message: result.reason || 'Could not integrate lane.' };
   },

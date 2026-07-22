@@ -253,7 +253,7 @@ test('session nextAction picks the highest-priority actionable lane after orches
     }, { actor: 'test', approved: true });
 
     registry.markLaneCompleted(registry.getLane(acceptedLane.id));
-    registry.acceptLaneAudit(acceptedLane.id, { actor: 'test-auditor' });
+    registry.acceptLaneAudit(acceptedLane.id, { actor: 'test-auditor', findings: ['reviewed'] });
     registry.markLaneCompleted(registry.getLane(reviewLane.id));
 
     // The accepted lane is no longer actionable, so next-action selects the lane

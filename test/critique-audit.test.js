@@ -90,7 +90,7 @@ test('agent-flow: audit mandatory + fix loop budget + routing per config', async
     assert.equal(fix2.audit.escalated, true);
 
     // Accepting the audit resets the loop budget and allows return to orchestrator.
-    registry.acceptLaneAudit(lane.id, { actor: 'auditor' });
+    registry.acceptLaneAudit(lane.id, { actor: 'auditor', findings: ['reviewed'] });
     const accepted = registry.getLane(lane.id);
     assert.equal(accepted.auditLoopCount, 0);
     const envAfter = buildNextActionEnvelope(registry, { role: 'orchestrator', projectId: orchestrator.projectId, sessionId: orchestrator.id, laneId: lane.id });

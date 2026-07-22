@@ -30,6 +30,12 @@ const CORE_V2_TOOLS = {
   'lane.integrate': 'lane__integrate',
   'lane.worktree.discard': 'lane__worktree__discard',
   'orchestrator.heartbeat': 'orchestrator__heartbeat',
+  // Round-2 agent-parity gap-closers: audit-log read/ack, artifact enumerate/
+  // fetch, interactive terminal write, and the orchestrator break-glass stop.
+  'audit.log.read': 'audit__log__read',
+  'lane.artifacts.list': 'lane__artifacts__list',
+  'lane.terminal.write': 'lane__terminal__write',
+  'fleet.emergency_stop': 'fleet__emergency_stop',
 };
 
 // Drive the MCP server: write JSON-RPC lines, resolve once the awaited id lands.
@@ -73,7 +79,10 @@ test('TOOL_DEFINITIONS exposes exactly the current tool set including the core v
   // /api/sessions route (38 -> 37); worktree isolation is per-lane by default.
   // Lifecycle gap-closers added (37 -> 40): lane.integrate, lane.worktree.discard,
   // orchestrator.heartbeat.
-  assert.equal(TOOL_DEFINITIONS.length, 40);
+  // Round-2 agent-parity gap-closers added (40 -> 46): audit.log.read,
+  // audit.log.ack, lane.artifacts.list, lane.artifacts.get, lane.terminal.write,
+  // fleet.emergency_stop.
+  assert.equal(TOOL_DEFINITIONS.length, 46);
 
   const byId = new Map(TOOL_DEFINITIONS.map((tool) => [tool.id, tool]));
   for (const id of Object.keys(CORE_V2_TOOLS)) {
@@ -108,7 +117,7 @@ test('MCP tools/list advertises the core v2 tools to an orchestrator with unders
   const orchestratorCallable = TOOL_DEFINITIONS.filter(
     (tool) => tool.implemented && tool.route && tool.roles.includes('orchestrator'),
   ).length;
-  assert.equal(orchestratorCallable, 38);
+  assert.equal(orchestratorCallable, 44);
   assert.equal(names.includes('permission_prompt'), true, 'permission gateway is always advertised');
   assert.equal(tools.length, orchestratorCallable + 1, 'orchestrator surface = callable tools + permission gateway');
 });

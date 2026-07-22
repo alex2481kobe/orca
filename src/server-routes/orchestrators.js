@@ -239,6 +239,35 @@ export async function handleOrchestratorRoutes(ctx, req, res, method, parts) {
     }
   }
 
+  // POST /api/orchestrators/{id}/emergency-stop — break-glass: stop all live lanes
+  // under this orchestrator at once. Body {all:true} stops EVERY executor fleet-
+  // wide and is admin/owner-only (a paired-device/lease caller can't fan it out).
+  if (parts.length === 4 && parts[3] === 'emergency-stop' && method === 'POST') {
+    if (!orchestratorExists(parts[2])) return sendJson(res, 404, { error: 'Orchestrator not found.' });
+    const body = await parseJsonBody(req).catch(() => ({}));
+    if (rejectSpoofedActor(body || {}, res)) return;
+    const actor = req._toolLease?.actor || (body && body.actor) || 'operator';
+    try {
+      if (body && body.all) {
+        const privileged = typeof hasAdminAuth === 'function' && hasAdminAuth(req);
+        if (!privileged) {
+          return sendJson(res, 403, {
+            error: 'Stopping ALL lanes fleet-wide requires workstation admin auth. Omit all:true to stop just this orchestrator\'s lanes.',
+          });
+        }
+        const count = await registry.stopAllExecutors('emergency stop (operator break-glass)');
+        return sendJson(res, 200, { stopped: 'all', count: count ?? null });
+      }
+      const result = await registry.emergencyStopContainer(parts[2], {
+        actor,
+        reason: 'emergency stop (orchestrator break-glass)',
+      });
+      return sendJson(res, 200, result);
+    } catch (error) {
+      return sendJson(res, error.status || 500, { error: error.message || 'Could not emergency-stop lanes.' });
+    }
+  }
+
   // GET /api/orchestrators/{id}/status — ownership + lane tree + next tool.
   if (parts.length === 4 && parts[3] === 'status' && method === 'GET') {
     try {

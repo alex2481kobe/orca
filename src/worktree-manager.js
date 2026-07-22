@@ -50,6 +50,21 @@ function refExists(repoRoot, ref) {
   return result.status === 0;
 }
 
+// Count commits on `branch` that are NOT reachable from the repo root's current
+// base branch — i.e. work that was committed on the lane branch but never
+// integrated. Returns 0 when it can't tell (missing branch, detached HEAD, or the
+// branch IS the base), so the caller never refuses on a false positive.
+function countUnmergedCommits(repoRoot, branch) {
+  const safeBranch = validRefText(branch);
+  if (!safeBranch || !refExists(repoRoot, safeBranch)) return 0;
+  const headOut = runGit(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repoRoot });
+  const baseBranch = headOut.status === 0 ? headOut.stdout.trim() : '';
+  if (!baseBranch || baseBranch === 'HEAD' || baseBranch === safeBranch) return 0;
+  const ahead = runGit(['rev-list', '--count', `${baseBranch}..${safeBranch}`], { cwd: repoRoot });
+  if (ahead.status !== 0) return 0;
+  return Number.parseInt(ahead.stdout.trim(), 10) || 0;
+}
+
 function isValidBranchName(repoRoot, branch) {
   if (!branch) return false;
   const result = runGit(['check-ref-format', '--branch', branch], { cwd: repoRoot });
@@ -251,6 +266,19 @@ export function removeLaneWorktree({ repoRoot, worktreePath, removeBranch = fals
         reason: `Worktree has ${dirty.length} uncommitted change(s). Integrate or commit them, or pass force:true to discard them.`,
         uncommittedChanges: dirty.length,
       };
+    }
+    // Second data-loss guard: a branch with commits that were never integrated
+    // into the base branch would be silently lost by `worktree remove --force`.
+    if (branch) {
+      const unmerged = countUnmergedCommits(descriptor.repoRoot, branch);
+      if (unmerged > 0) {
+        return {
+          removed: false,
+          reason: `Branch "${branch}" has ${unmerged} commit(s) not integrated into the base branch. Integrate them (lane.integrate) or pass force:true to discard them.`,
+          unmergedCommits: unmerged,
+          branch,
+        };
+      }
     }
   }
   const removeResult = runGit(['worktree', 'remove', '--force', resolvedTarget], { cwd: descriptor.repoRoot });

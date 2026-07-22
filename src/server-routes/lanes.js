@@ -145,7 +145,7 @@ export async function handleLaneRoutes(ctx, req, res, method, parts) {
         const result = await registry.deleteLane(lane.id, { actor: (body && body.actor) || 'dashboard' });
         return sendJson(res, 200, result);
       } catch (error) {
-        return sendJson(res, error.status || 500, { error: error.message || 'Could not delete lane.' });
+        return sendJson(res, error.status || 500, { error: error.message || 'Could not delete lane.', nextAction: error.nextAction || null });
       }
     }
 
@@ -244,6 +244,7 @@ export async function handleLaneRoutes(ctx, req, res, method, parts) {
       } catch (error) {
         return sendJson(res, error.status || 500, {
           error: error.message || 'Could not record audit outcome.',
+          nextAction: error.nextAction || null,
         });
       }
     }
@@ -284,7 +285,7 @@ export async function handleLaneRoutes(ctx, req, res, method, parts) {
         });
         return sendJson(res, 200, result);
       } catch (error) {
-        return sendJson(res, error.status || 500, { error: error.message || 'Could not submit lane.' });
+        return sendJson(res, error.status || 500, { error: error.message || 'Could not submit lane.', nextAction: error.nextAction || null });
       }
     }
 
@@ -344,6 +345,15 @@ export async function handleLaneRoutes(ctx, req, res, method, parts) {
       }
     }
 
+    if (parts.length === 5 && parts[3] === 'artifacts' && method === 'GET') {
+      try {
+        const artifact = await registry.readArtifactFile(lane.id, parts[4]);
+        return sendJson(res, 200, artifact);
+      } catch (error) {
+        return sendJson(res, error.status || 500, { error: error.message || 'Could not read artifact.' });
+      }
+    }
+
     if (parts.length === 5 && parts[3] === 'worktree' && parts[4] === 'remove' && method === 'POST') {
       const body = await parseJsonBody(req);
       if (body === null) return sendBodyError(req, res);
@@ -361,6 +371,8 @@ export async function handleLaneRoutes(ctx, req, res, method, parts) {
           error: error.message || 'Could not remove worktree.',
           requiresApproval: error.requiresApproval || false,
           uncommittedChanges: error.uncommittedChanges || 0,
+          unmergedCommits: error.unmergedCommits || 0,
+          nextAction: error.nextAction || null,
           risk: error.risk || null,
         });
       }
@@ -385,6 +397,8 @@ export async function handleLaneRoutes(ctx, req, res, method, parts) {
           error: error.message || 'Could not discard worktree.',
           requiresApproval: error.requiresApproval || false,
           uncommittedChanges: error.uncommittedChanges || 0,
+          unmergedCommits: error.unmergedCommits || 0,
+          nextAction: error.nextAction || null,
           risk: error.risk || null,
         });
       }
@@ -407,6 +421,7 @@ export async function handleLaneRoutes(ctx, req, res, method, parts) {
           conflicts: error.conflicts || false,
           baseBranch: error.baseBranch || null,
           branch: error.branch || null,
+          nextAction: error.nextAction || null,
         });
       }
     }

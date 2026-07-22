@@ -1968,7 +1968,7 @@ test('integrateLane merges an accepted isolated lane branch into the base branch
     await assert.rejects(registry.integrateLane(lane.id), (e) => e.status === 409, 'must be audit-accepted first');
 
     registry.getLane(lane.id).state = 'done';
-    registry.acceptLaneAudit(lane.id, { actor: 'auditor' });
+    registry.acceptLaneAudit(lane.id, { actor: 'auditor', findings: ['reviewed'] });
 
     const result = await registry.integrateLane(lane.id);
     assert.equal(result.integrated, true, 'merge should succeed');
@@ -1990,7 +1990,7 @@ test('integrateLane rejects non-isolated (direct/shared) lanes', async () => {
     // direct: runs in the repo checkout, no worktree to merge back.
     const lane = registry.createLane(session.id, { title: 'inplace', executorType: 'mock', worktreeMode: 'direct' }, { actor: 'test', approved: true });
     registry.getLane(lane.id).state = 'done';
-    registry.acceptLaneAudit(lane.id, { actor: 'auditor' });
+    registry.acceptLaneAudit(lane.id, { actor: 'auditor', findings: ['reviewed'] });
     await assert.rejects(
       registry.integrateLane(lane.id),
       (e) => e.status === 422 && /isolated/i.test(e.message),
@@ -2087,7 +2087,7 @@ test('integrateLane returns a 409 conflict when two isolated lanes edit the same
 
     for (const lane of [laneA, laneB]) {
       registry.getLane(lane.id).state = 'done';
-      registry.acceptLaneAudit(lane.id, { actor: 'auditor' });
+      registry.acceptLaneAudit(lane.id, { actor: 'auditor', findings: ['reviewed'] });
     }
 
     // First integration succeeds and lands conflict.txt=from-A on the base branch.
@@ -2126,7 +2126,7 @@ test('integrateLane reports nothing-to-merge for an isolated lane with no new co
     const lane = registry.createLane(session.id, { title: 'empty', executorType: 'mock', branch: 'empty-lane', worktreeMode: 'isolated' }, { actor: 'test', approved: true });
     assert.ok(lane.worktreePath && lane.branch === 'empty-lane');
     registry.getLane(lane.id).state = 'done';
-    registry.acceptLaneAudit(lane.id, { actor: 'auditor' });
+    registry.acceptLaneAudit(lane.id, { actor: 'auditor', findings: ['reviewed'] });
 
     const result = await registry.integrateLane(lane.id);
     assert.equal(result.integrated, false);
@@ -2164,7 +2164,7 @@ test('integrateLane with push:true propagates the merged commit to a bare origin
     gw('commit', '-qm', 'add shipped feature');
 
     registry.getLane(lane.id).state = 'done';
-    registry.acceptLaneAudit(lane.id, { actor: 'auditor' });
+    registry.acceptLaneAudit(lane.id, { actor: 'auditor', findings: ['reviewed'] });
 
     const result = await registry.integrateLane(lane.id, { push: true });
     assert.equal(result.integrated, true);
