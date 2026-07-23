@@ -202,14 +202,23 @@ export const persistenceMethods = {
       clearTimeout(this._persistTimer);
       this._persistTimer = null;
     }
-    const write = (async () => {
+    // Snapshot NOW (at flush-issue time) and CHAIN this write after any in-flight
+    // write to the same state file. Two concurrent writes' atomic temp+rename can
+    // land OUT of issue order under I/O contention, so an earlier (staler) snapshot
+    // would win the rename race and silently drop just-persisted state — e.g. an
+    // initial stopScheduler flush (empty) racing the drain flush that carries a
+    // freshly enqueued agent event. Serializing on _writeChain guarantees the
+    // last-ISSUED (freshest) snapshot is the last to hit disk.
+    const snapshot = this.snapshotState();
+    const write = (this._writeChain || Promise.resolve()).then(async () => {
       try {
         await fs.mkdir(this.storageDir, { recursive: true });
-        await writeJsonFileAtomic(this.stateFile, this.snapshotState(), { forceBackup });
+        await writeJsonFileAtomic(this.stateFile, snapshot, { forceBackup });
       } catch (error) {
         console.error('Persist failed:', error);
       }
-    })();
+    });
+    this._writeChain = write;
     this._trackAsync(write);
     return write;
   },

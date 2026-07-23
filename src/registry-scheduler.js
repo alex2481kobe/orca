@@ -6,19 +6,6 @@ import { nowIso } from './registry-utils.js';
 import { createExecutorAdapter } from './executor-factory.js';
 import { normalizeApprovedCapacity, normalizeSpawnPolicy, normalizeIdleShutdownMode } from './registry-lane-config.js';
 
-// The scheduler heartbeat must NOT, by itself, keep the Node process alive — a
-// listening HTTP server (the real entrypoint) is what should. Without unref(),
-// merely importing server.js (which constructs the registry and starts this
-// loop) spins a setTimeout chain that never lets the process exit — leaking a
-// zombie node process on every module load-check. unref() lets the process exit
-// when nothing else (no open socket) is holding the event loop.
-function schedulerSleep(ms) {
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    if (typeof timer?.unref === 'function') timer.unref();
-  });
-}
-
 const {
   QUEUED: QUEUED_STATE,
   STARTING: STARTING_STATE,
@@ -112,14 +99,43 @@ export const schedulerMethods = {
     if (this.stateLoadStatus?.recovered || this.stateLoadStatus?.ok === false) {
       this.persistState();
     }
-    while (this._schedulerRunning) {
-      await schedulerSleep(this.heartbeatIntervalMs);
-      await this.advanceLanes();
-    }
+    // Capture the loop promise so shutdown/drain can AWAIT the in-flight tick.
+    // Without this, stopScheduler() only flips the flag; a tick already inside
+    // advanceLanes() runs to completion untracked and can schedule a persist/
+    // artifact write AFTER drainPendingWrites() has emptied — that fs op is then
+    // still in flight when the (unref'd-sleep) loop lets the process exit, which
+    // trips node's execution_async_id()==0 assertion abort under teardown load.
+    this._schedulerLoopDone = (async () => {
+      while (this._schedulerRunning) {
+        await this._schedulerSleep(this.heartbeatIntervalMs);
+        if (!this._schedulerRunning) break;
+        await this.advanceLanes();
+      }
+    })();
+  },
+
+  // Interruptible unref'd sleep for the scheduler heartbeat. unref() so the
+  // heartbeat never by itself keeps the Node process alive — a listening HTTP
+  // server (the real entrypoint) is what should; without it, merely importing
+  // server.js would spin a timer chain that leaks a zombie node process on every
+  // load-check. The stored _wakeScheduler lets stopScheduler() end the current
+  // sleep immediately, so the loop exits now instead of after a full heartbeat.
+  _schedulerSleep(ms) {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => { this._wakeScheduler = null; resolve(); }, ms);
+      if (typeof timer?.unref === 'function') timer.unref();
+      this._wakeScheduler = () => {
+        clearTimeout(timer);
+        this._wakeScheduler = null;
+        resolve();
+      };
+    });
   },
 
   stopScheduler() {
     this._schedulerRunning = false;
+    // Wake the current heartbeat sleep so the loop checks the flag and exits now.
+    this._wakeScheduler?.();
     if (this._persistTimer) {
       // Flush a final persist so drainPendingWrites can await it. forceBackup:
       // the per-persist `.bak` copy is throttled during normal running, so on
@@ -139,6 +155,17 @@ export const schedulerMethods = {
 
   async drainPendingWrites() {
     if (!this._pendingWrites) return;
+    // FIRST stop the scheduler loop and await its in-flight tick, so no late
+    // advanceLanes() can schedule a NEW persist/artifact write after the drain
+    // below empties. An escaped write is still in flight when the unref'd-sleep
+    // loop lets the process exit → node's execution_async_id()==0 assertion
+    // abort (the "AfterMkdirp"/teardown crash). Idempotent — safe if already stopped.
+    this._schedulerRunning = false;
+    this._wakeScheduler?.();
+    if (this._schedulerLoopDone) {
+      try { await this._schedulerLoopDone; } catch { /* loop errors are non-fatal at teardown */ }
+      this._schedulerLoopDone = null;
+    }
     // A pending debounce timer holds an untracked write; force it into
     // _pendingWrites first so its in-flight fs.mkdir can't escape the drain
     // and resolve during process teardown (the AfterMkdirp crash).

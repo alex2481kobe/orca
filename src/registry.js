@@ -75,7 +75,10 @@ export class OrcaRegistry {
     };
 
     this._persistTimer = null;
+    this._writeChain = null;
     this._schedulerRunning = false;
+    this._schedulerLoopDone = null;
+    this._wakeScheduler = null;
     this._storageReady = false;
     this.stateLoadStatus = null;
     this._starting = true;

@@ -16,8 +16,11 @@ async function withTempRegistry(callback) {
     registry = new OrcaRegistry();
     await callback(registry);
   } finally {
-    if (registry && typeof registry.stopScheduler === 'function') {
-      registry.stopScheduler();
+    // drainPendingWrites() stops the scheduler loop, awaits its in-flight tick,
+    // and flushes+awaits every pending fs write BEFORE we rm the temp dir — so no
+    // persist write is still in flight at process exit (the teardown-crash class).
+    if (registry && typeof registry.drainPendingWrites === 'function') {
+      await registry.drainPendingWrites();
     }
     process.chdir(previousCwd);
     await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
