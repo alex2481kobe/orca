@@ -295,9 +295,14 @@ function positionMenu() {
 }
 function openNodeMenu(id, kind) {
   openMenuId = id;
+  // Orchestrator: stop the agents it runs (its executor lanes), OR close the agent
+  // itself (resign it). Executor (a leaf): just stop it.
   canvasEls.menu.innerHTML = kind === 'orchestrator'
-    ? `<div class="ov-menu-head">Agent</div><button class="ov-menu-item danger" data-stop-orch="${esc(id)}" type="button">Stop agent &amp; all lanes</button>`
-    : `<div class="ov-menu-head">Executor</div><button class="ov-menu-item danger" data-stop-lane="${esc(id)}" type="button">Stop executor</button>`;
+    ? `<div class="ov-menu-head">Agent</div>
+       <button class="ov-menu-item danger" data-stop-orch="${esc(id)}" type="button">Stop agents under it</button>
+       <button class="ov-menu-item danger" data-resign-orch="${esc(id)}" type="button">Close this agent</button>`
+    : `<div class="ov-menu-head">Executor</div>
+       <button class="ov-menu-item danger" data-stop-lane="${esc(id)}" type="button">Stop this executor</button>`;
   canvasEls.scene.querySelectorAll('.ov-menu-btn.is-open').forEach((b) => b.classList.remove('is-open'));
   canvasEls.scene.querySelector(`.ov-menu-btn[data-menu="${id}"]`)?.classList.add('is-open');
   positionMenu();
@@ -312,11 +317,8 @@ function closeNodeMenu() {
 function buildCanvas() {
   content.innerHTML = `
     <div class="ov-workspace">
-      <div class="ov-head">
-        <div class="ov-head-titles">
-          <div class="ov-head-title" id="ov-head-title">Live orchestration</div>
-          <div class="ov-head-sub">Agent tree — updates live</div>
-        </div>
+      <div class="ov-topbar">
+        <div class="ov-statbar" id="ov-statbar"></div>
         <div class="ov-controls">
           <button class="ov-ctrl ov-links-btn" data-canvas="links" type="button" title="Live links">${icon('external', { cls: 'ov-preview-ic', size: 14 })}<span>Live links</span></button>
           <button class="ov-ctrl" data-canvas="fit" type="button" title="Fit to view" aria-label="Fit to view">⤢</button>
@@ -325,7 +327,6 @@ function buildCanvas() {
           <button class="ov-ctrl" data-canvas="fullscreen" type="button" title="Fullscreen" aria-label="Fullscreen">⛶</button>
         </div>
       </div>
-      <div class="ov-statbar" id="ov-statbar"></div>
       <div class="ov-canvas" id="ov-canvas">
         <div class="ov-links" id="ov-links" hidden></div>
         <div class="ov-node-menu" id="ov-node-menu" role="menu" hidden></div>
@@ -341,8 +342,7 @@ function buildCanvas() {
   const statbar = document.getElementById('ov-statbar');
   const links = document.getElementById('ov-links');
   const menu = document.getElementById('ov-node-menu');
-  const headTitle = document.getElementById('ov-head-title');
-  canvasEls = { workspace, canvas, scene, edges, statbar, links, menu, headTitle };
+  canvasEls = { workspace, canvas, scene, edges, statbar, links, menu };
 
   // Pan: drag the canvas background (not a node/menu/link). rAF-coalesced → one
   // transform write per frame. Pointer capture so the drag survives leaving the box.
@@ -398,10 +398,7 @@ function renderHome(data) {
   if (!canvasBuilt || !document.getElementById('ov-canvas')) { buildCanvas(); lastLayoutSig = null; fitPending = true; }
   startRuntimeTicker();
 
-  // Header title + stat cards: cheap, every render.
-  canvasEls.headTitle.textContent = selectedProjectId
-    ? (data.projects.find((p) => p.id === selectedProjectId)?.name || 'Live orchestration')
-    : (shown.length === 1 ? shown[0].name : 'Live orchestration');
+  // Stat cards: cheap, every render.
   canvasEls.statbar.innerHTML = renderStats(shown);
   // Live-links popover contents (kept in sync; visibility toggled by the button).
   const previews = collectPreviews(shown);
@@ -1023,19 +1020,21 @@ content.addEventListener('click', async (e) => {
     return;
   }
 
-  // ---- Stop (from inside the ⋯ menu): per-lane, or project-wide on an orchestrator.
-  // The menu is the deliberate gate, so this fires directly (no accidental click).
-  const stop = e.target.closest('[data-stop-lane], [data-stop-orch]');
-  if (stop) {
+  // ---- ⋯ menu actions (the menu is the deliberate gate → fire directly):
+  //   stop one executor · stop the agents an orchestrator runs · close (resign) an agent.
+  const stopAct = e.target.closest('[data-stop-lane], [data-stop-orch], [data-resign-orch]');
+  if (stopAct) {
     e.preventDefault();
-    const laneId = stop.dataset.stopLane;
-    const orchId = stop.dataset.stopOrch;
-    if (!laneId && !orchId) return;
-    stop.disabled = true;
+    const laneId = stopAct.dataset.stopLane;
+    const stopOrch = stopAct.dataset.stopOrch;
+    const resignOrch = stopAct.dataset.resignOrch;
+    if (!laneId && !stopOrch && !resignOrch) return;
+    stopAct.disabled = true;
     closeNodeMenu();
     try {
       if (laneId) await fetch('/api/emergency-stop', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ laneId }) });
-      else await fetch(`/api/orchestrators/${encodeURIComponent(orchId)}/emergency-stop`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ actor: 'dashboard', approved: true }) });
+      else if (stopOrch) await fetch(`/api/orchestrators/${encodeURIComponent(stopOrch)}/emergency-stop`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ actor: 'dashboard', approved: true }) });
+      else await fetch(`/api/orchestrators/${encodeURIComponent(resignOrch)}/resign`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ actor: 'dashboard', reason: 'closed from dashboard' }) });
     } catch { /* */ }
     poll();
   }

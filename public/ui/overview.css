@@ -30,13 +30,11 @@
 body.home-canvas .ops-content { max-width: none; }
 body.home-canvas .ops-main { padding: calc(var(--topbar-height) + var(--safe-area-top) + 0.9rem) min(3vw, 1.5rem) 0.7rem; }
 
-.ov-workspace { display: flex; flex-direction: column; gap: var(--space-4); height: calc(var(--vph, 100vh) - var(--topbar-height) - 2.6rem); min-height: 480px; }
+.ov-workspace { display: flex; flex-direction: column; gap: var(--space-3); height: calc(var(--vph, 100vh) - var(--topbar-height) - 2.4rem); min-height: 480px; }
 .ov-workspace:fullscreen { height: 100vh; padding: var(--space-5); background: var(--bg); }
 
-/* header row */
-.ov-head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; }
-.ov-head-title { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.01em; }
-.ov-head-sub { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+/* ONE row above the tree: stat cards on the left, controls on the right */
+.ov-topbar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; }
 
 /* controls cluster */
 .ov-controls { display: flex; gap: var(--space-2); flex: 0 0 auto; }
@@ -47,14 +45,14 @@ body.home-canvas .ops-main { padding: calc(var(--topbar-height) + var(--safe-are
 .ov-ctrl.ov-links-btn.is-on { border-color: var(--accent-blue); color: var(--accent-blue); }
 .ov-links-btn .ov-preview-ic { color: var(--accent-blue); }
 
-/* stat cards row */
-.ov-statbar { display: flex; gap: var(--space-3); flex-wrap: wrap; }
-.ov-stat { flex: 1 1 0; min-width: 140px; max-width: 280px; padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--panel); }
-.ov-stat-n { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+/* stat cards — share the top row, take the left, wrap gracefully if narrow */
+.ov-statbar { display: flex; gap: var(--space-3); flex: 1 1 auto; flex-wrap: wrap; min-width: 0; }
+.ov-stat { flex: 0 1 auto; min-width: 132px; padding: var(--space-2) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--panel); display: flex; align-items: baseline; gap: var(--space-2); }
+.ov-stat-n { font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.15; }
 .ov-stat-n.st-run { color: var(--accent-blue); }
 .ov-stat-n.st-queue { color: var(--warn); }
 .ov-stat-n.st-idle { color: var(--ok); }
-.ov-stat-l { font-size: 0.74rem; color: var(--muted); margin-top: 3px; }
+.ov-stat-l { font-size: 0.76rem; color: var(--muted); }
 
 /* the pannable graph */
 .ov-canvas {
@@ -74,15 +72,17 @@ body.home-canvas .ops-main { padding: calc(var(--topbar-height) + var(--safe-are
 /* ---- node cards ---- */
 .ov-node {
   position: absolute; width: 228px; box-sizing: border-box;
-  display: grid; gap: var(--space-2); padding: var(--space-4);
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2); padding: var(--space-4);
   border: 1px solid var(--line); border-radius: var(--radius-lg);
   background: var(--panel); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
+  overflow: hidden; /* belt-and-suspenders: nothing escapes the card */
 }
 .ov-node--orchestrator { border-color: color-mix(in srgb, var(--accent-blue) 55%, var(--line)); background: color-mix(in srgb, var(--accent-blue) 7%, var(--panel)); box-shadow: 0 4px 14px color-mix(in srgb, var(--accent-blue) 14%, transparent); }
 .ov-node.st-idle, .ov-node.st-done { opacity: 0.7; }
-.ov-node-top { display: flex; align-items: center; gap: var(--space-2); min-height: 22px; }
-.ov-node-title { flex: 1 1 auto; font-weight: 650; font-size: 0.95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ov-node-sub { color: var(--muted); font-size: 0.76rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* min-width:0 lets the flex/grid children shrink so ellipsis actually clips */
+.ov-node-top { display: flex; align-items: center; gap: var(--space-2); min-height: 22px; min-width: 0; }
+.ov-node-title { flex: 1 1 auto; min-width: 0; font-weight: 650; font-size: 0.95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-node-sub { min-width: 0; color: var(--muted); font-size: 0.76rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* nowrap + clip so the pill/badge/runtime never leak past the card edge */
 .ov-node-foot { display: flex; align-items: center; gap: var(--space-2); flex-wrap: nowrap; overflow: hidden; margin-top: var(--space-1); }
 
