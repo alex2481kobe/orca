@@ -22,85 +22,98 @@
 .ov-empty-sub code { background: var(--panel-soft); padding: 1px 5px; border-radius: var(--radius-xs); }
 
 /* ================= Home: live agent node-graph canvas =================
-   The home route widens out of the 980px reading column and fills the viewport;
-   the canvas is a single transform layer (.ov-scene) panned/zoomed over. All
-   color from design tokens (no hardcoded theme colors — smoke:no-hardcoded-colors). */
+   The home route widens out of the 980px reading column and fills the viewport.
+   Layout is a flex column: header (title + controls) → stat cards → the pannable
+   .ov-canvas (a single transform layer .ov-scene). Stats/controls sit ABOVE the
+   canvas (never overlay the graph). All color from design tokens (no hardcoded
+   theme colors — smoke:no-hardcoded-colors). */
 body.home-canvas .ops-content { max-width: none; }
-body.home-canvas .ops-main { padding-left: min(3vw, 1.6rem); padding-right: min(3vw, 1.6rem); padding-bottom: 0.75rem; }
+body.home-canvas .ops-main { padding: calc(var(--topbar-height) + var(--safe-area-top) + 0.9rem) min(3vw, 1.5rem) 0.7rem; }
 
+.ov-workspace { display: flex; flex-direction: column; gap: var(--space-4); height: calc(var(--vph, 100vh) - var(--topbar-height) - 2.6rem); min-height: 480px; }
+.ov-workspace:fullscreen { height: 100vh; padding: var(--space-5); background: var(--bg); }
+
+/* header row */
+.ov-head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; }
+.ov-head-title { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.01em; }
+.ov-head-sub { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+
+/* controls cluster */
+.ov-controls { display: flex; gap: var(--space-2); flex: 0 0 auto; }
+.ov-ctrl { display: inline-flex; align-items: center; justify-content: center; min-width: 36px; height: 36px; padding: 0 9px; font: inherit; font-size: 1rem; line-height: 1; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel); color: var(--text); cursor: pointer; }
+.ov-ctrl svg { display: block; }
+@media (hover: hover) { .ov-ctrl:hover { border-color: var(--muted); background: var(--panel-soft); } }
+.ov-ctrl.ov-links-btn { gap: 6px; font-size: 0.82rem; font-weight: 550; }
+.ov-ctrl.ov-links-btn.is-on { border-color: var(--accent-blue); color: var(--accent-blue); }
+.ov-links-btn .ov-preview-ic { color: var(--accent-blue); }
+
+/* stat cards row */
+.ov-statbar { display: flex; gap: var(--space-3); flex-wrap: wrap; }
+.ov-stat { flex: 1 1 0; min-width: 140px; max-width: 280px; padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--panel); }
+.ov-stat-n { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.ov-stat-n.st-run { color: var(--accent-blue); }
+.ov-stat-n.st-queue { color: var(--warn); }
+.ov-stat-n.st-idle { color: var(--ok); }
+.ov-stat-l { font-size: 0.74rem; color: var(--muted); margin-top: 3px; }
+
+/* the pannable graph */
 .ov-canvas {
-  position: relative; width: 100%;
-  height: calc(var(--vph, 100vh) - var(--topbar-height) - 6.5rem);
-  min-height: 420px;
+  position: relative; flex: 1 1 auto; min-height: 300px;
   border: 1px solid var(--line); border-radius: var(--radius-lg);
   background: var(--bg-soft);
-  /* subtle dot-grid so panning reads as movement */
   background-image: radial-gradient(circle, var(--line-soft) 1px, transparent 1px);
   background-size: 26px 26px;
   overflow: hidden; cursor: grab; touch-action: none; user-select: none;
 }
 .ov-canvas.grabbing { cursor: grabbing; }
-.ov-canvas:fullscreen { border-radius: 0; }
 
 .ov-scene { position: absolute; top: 0; left: 0; transform-origin: 0 0; will-change: transform; }
 .ov-edges { position: absolute; top: 0; left: 0; overflow: visible; pointer-events: none; }
-.ov-edges path { stroke: var(--line); stroke-width: 1.5; }
+.ov-edges path { stroke: var(--line); stroke-width: 1.75; stroke-linejoin: round; stroke-linecap: round; }
 
 /* ---- node cards ---- */
 .ov-node {
-  position: absolute; width: 208px; box-sizing: border-box;
-  display: grid; gap: 6px; padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--line); border-radius: var(--radius-md);
-  background: var(--panel); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  position: absolute; width: 228px; box-sizing: border-box;
+  display: grid; gap: var(--space-2); padding: var(--space-4);
+  border: 1px solid var(--line); border-radius: var(--radius-lg);
+  background: var(--panel); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
 }
-.ov-node--orchestrator { border-color: color-mix(in srgb, var(--accent-blue) 55%, var(--line)); background: color-mix(in srgb, var(--accent-blue) 6%, var(--panel)); }
-.ov-node.st-idle, .ov-node.st-done { opacity: 0.72; }
-.ov-node-top { display: flex; align-items: center; gap: var(--space-2); min-height: 20px; }
-.ov-node-title { flex: 1 1 auto; font-weight: 600; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ov-node-sub { color: var(--muted); font-size: 0.74rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ov-node-foot { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.ov-node--orchestrator { border-color: color-mix(in srgb, var(--accent-blue) 55%, var(--line)); background: color-mix(in srgb, var(--accent-blue) 7%, var(--panel)); box-shadow: 0 4px 14px color-mix(in srgb, var(--accent-blue) 14%, transparent); }
+.ov-node.st-idle, .ov-node.st-done { opacity: 0.7; }
+.ov-node-top { display: flex; align-items: center; gap: var(--space-2); min-height: 22px; }
+.ov-node-title { flex: 1 1 auto; font-weight: 650; font-size: 0.95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-node-sub { color: var(--muted); font-size: 0.76rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* nowrap + clip so the pill/badge/runtime never leak past the card edge */
+.ov-node-foot { display: flex; align-items: center; gap: var(--space-2); flex-wrap: nowrap; overflow: hidden; margin-top: var(--space-1); }
+
+/* ---- ⋯ actions menu button + dropdown (gates Stop) ---- */
+.ov-menu-btn { flex: 0 0 auto; width: 28px; height: 22px; padding: 0; font: inherit; font-size: 1.05rem; line-height: 1; letter-spacing: 1px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; opacity: 0.5; transition: opacity 0.12s; }
+.ov-node:hover .ov-menu-btn { opacity: 1; }
+@media (hover: hover) { .ov-menu-btn:hover { background: var(--panel-soft); border-color: var(--line); color: var(--text); } }
+.ov-menu-btn.is-open { opacity: 1; background: var(--panel-soft); border-color: var(--line); color: var(--text); }
+@media (hover: none) { .ov-menu-btn { opacity: 1; } }
+.ov-node-menu { position: absolute; z-index: 8; min-width: 184px; padding: var(--space-2); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--panel); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.42); display: flex; flex-direction: column; gap: 2px; }
+.ov-node-menu[hidden] { display: none; }
+.ov-menu-head { font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding: var(--space-1) var(--space-2) 3px; }
+.ov-menu-item { display: flex; align-items: center; gap: var(--space-2); width: 100%; text-align: left; font: inherit; font-size: 0.82rem; padding: var(--space-2) var(--space-3); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--bad); cursor: pointer; }
+@media (hover: hover) { .ov-menu-item:hover { background: color-mix(in srgb, var(--bad) 13%, transparent); } }
+.ov-menu-item:disabled { opacity: 0.5; cursor: default; }
 
 /* ---- status pill (color per UI state, token-driven) ---- */
-.ov-pill { display: inline-flex; align-items: center; gap: 5px; font-size: 0.7rem; font-weight: 550; padding: 2px var(--space-2); border-radius: var(--radius-pill); border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.ov-pill { display: inline-flex; align-items: center; gap: 5px; font-size: 0.71rem; font-weight: 550; padding: 2px var(--space-2); border-radius: var(--radius-pill); border: 1px solid var(--line); color: var(--muted); white-space: nowrap; flex: 0 0 auto; }
 .ov-pill-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: 0 0 auto; }
-.ov-pill.st-run { color: var(--accent-blue); border-color: color-mix(in srgb, var(--accent-blue) 40%, transparent); }
-.ov-pill.st-spawn { color: var(--accent-blue); border-color: color-mix(in srgb, var(--accent-blue) 40%, transparent); }
+.ov-pill.st-run, .ov-pill.st-spawn { color: var(--accent-blue); border-color: color-mix(in srgb, var(--accent-blue) 40%, transparent); }
 .ov-pill.st-wait { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 42%, transparent); }
 .ov-pill.st-done { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 42%, transparent); }
 .ov-pill.st-bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
 .ov-pill.st-queue, .ov-pill.st-idle { color: var(--muted); }
 
-.ov-cli { font-size: 0.66rem; color: var(--muted); padding: 1px var(--space-2); border-radius: var(--radius-xs); background: var(--panel-soft); text-transform: lowercase; }
-.ov-runtime { font-size: 0.68rem; color: var(--muted); font-variant-numeric: tabular-nums; margin-left: auto; }
-
-/* ---- glass-red kill button ---- */
-.ov-kill { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; padding: 0 6px; font: inherit; font-size: 0.68rem; line-height: 1; border: 1px solid var(--line); border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; opacity: 0.5; transition: opacity 0.12s, color 0.12s, border-color 0.12s; }
-.ov-kill-glyph { font-size: 0.6rem; }
-.ov-node:hover .ov-kill { opacity: 1; }
-@media (hover: hover) { .ov-kill:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 60%, var(--line)); } }
-.ov-kill.armed { opacity: 1; font-weight: 700; color: var(--bad); border-color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, transparent); }
-@media (hover: none) { .ov-kill { opacity: 1; } }
-
-/* ---- top stat cards ---- */
-.ov-statbar { position: absolute; top: var(--space-4); left: var(--space-4); z-index: 4; display: flex; gap: var(--space-3); pointer-events: none; }
-.ov-stat { min-width: 128px; padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-md); background: color-mix(in srgb, var(--panel) 80%, transparent); backdrop-filter: blur(6px); }
-.ov-stat-n { font-size: 1.35rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
-.ov-stat-n.st-run { color: var(--accent-blue); }
-.ov-stat-n.st-queue { color: var(--warn); }
-.ov-stat-n.st-idle { color: var(--ok); }
-.ov-stat-l { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
-
-/* ---- canvas controls (zoom / fit / fullscreen / live links) ---- */
-.ov-controls { position: absolute; top: var(--space-4); right: var(--space-4); z-index: 5; display: flex; gap: var(--space-2); }
-.ov-ctrl { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; height: 34px; padding: 0 8px; font: inherit; font-size: 1rem; line-height: 1; border: 1px solid var(--line); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--panel) 82%, transparent); backdrop-filter: blur(6px); color: var(--text); cursor: pointer; }
-.ov-ctrl svg { display: block; }
-@media (hover: hover) { .ov-ctrl:hover { border-color: var(--muted); background: var(--panel); } }
-.ov-ctrl.ov-links-btn { gap: 6px; font-size: 0.82rem; font-weight: 550; }
-.ov-links-btn .ov-preview-ic { color: var(--accent-blue); }
+.ov-cli { flex: 0 1 auto; font-size: 0.66rem; color: var(--muted); padding: 1px var(--space-2); border-radius: var(--radius-xs); background: var(--panel-soft); text-transform: lowercase; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 74px; }
+.ov-runtime { flex: 0 0 auto; font-size: 0.68rem; color: var(--muted); font-variant-numeric: tabular-nums; margin-left: auto; }
 
 /* ---- live links popover (registered dev-server ports over Tailscale) ---- */
-.ov-links { position: absolute; top: calc(var(--space-4) + 40px); right: var(--space-4); z-index: 6; display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--panel); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); max-width: 340px; }
-.ov-links:empty, .ov-links[hidden] { display: none; }
+.ov-links { position: absolute; top: var(--space-3); right: var(--space-3); z-index: 7; display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--panel); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.42); max-width: 340px; }
+.ov-links[hidden] { display: none; }
 .ov-preview { display: inline-flex; align-items: center; gap: 6px; padding: var(--space-2) var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-pill); background: color-mix(in srgb, var(--text) 5%, transparent); color: var(--text); text-decoration: none; font-size: 0.76rem; line-height: 1; }
 @media (hover: hover) { .ov-preview:hover { background: color-mix(in srgb, var(--text) 10%, transparent); border-color: var(--muted); } }
 .ov-preview-ic { color: var(--accent-blue); flex: 0 0 auto; }

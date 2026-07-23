@@ -41,6 +41,8 @@ const closeMobileNav = () => { if (isMobile()) body.classList.remove('nav-open')
 // would make the drawer untappable. Never apply it at phone widths.
 try { if (!isMobile() && localStorage.getItem('orca.sidebar') === 'collapsed') body.classList.add('sidebar-collapsed'); } catch { /* */ }
 document.addEventListener('click', (e) => {
+  // A click outside the ⋯ menu (and not on a menu button) closes it.
+  if (openMenuId && !e.target.closest('.ov-node-menu, [data-menu]')) closeNodeMenu();
   // Backdrop tap closes the mobile drawer.
   if (e.target.closest('#sidebar-backdrop')) { body.classList.remove('nav-open'); return; }
   // A click anywhere outside an open device-card dropdown closes it (not just
@@ -81,15 +83,16 @@ function renderSidebar(data) {
 // bug class). Pan/zoom is a single CSS transform on .ov-scene (GPU compositing,
 // no layout/paint per frame); layout only re-runs when data.revision changes.
 
-const NODE_W = 208, NODE_H = 104, GAP_X = 30, GAP_Y = 78, PAD = 60;
+const NODE_W = 228, NODE_H = 120, GAP_X = 44, GAP_Y = 100, PAD = 52, SUBTREE_GAP = 72;
 // Viewport + drag state live at module scope so they survive every re-render.
 let viewport = { x: 0, y: 0, scale: 1 };
 let canvasBuilt = false;
-let canvasEls = null;   // { canvas, scene, edges, statbar, controls }
+let canvasEls = null;   // { workspace, head, canvas, scene, edges, statbar, links, menu }
 let lastLayoutSig = null; // re-layout only when the tree shape/state changes
 let fitPending = true;
 let runtimeTimer = null;
 let lastPos = null; // last computed layout, for the fit control between polls
+let openMenuId = null; // which node's ⋯ action menu is open (survives the poll)
 
 // Real lane/orchestrator state → the minimal UI vocabulary (no bloat).
 function laneUi(e) {
@@ -167,31 +170,25 @@ function layoutForest(roots) {
     pos.set(node.id, { x, y: depth * (NODE_H + GAP_Y), node });
     return x;
   };
-  roots.forEach((r) => { place(r, 0); cursor += GAP_X; });
+  // Wider gap BETWEEN orchestrator subtrees than between sibling leaves, so
+  // multiple orchestrators under one project read as distinct trees, not a row.
+  roots.forEach((r) => { place(r, 0); cursor += SUBTREE_GAP - GAP_X; });
   return pos;
 }
 
-function killBtn(node) {
-  const id = node.id;
-  const wide = node.kind === 'orchestrator';
-  const attr = wide ? `data-stop-orch="${esc(id)}"` : `data-stop-lane="${esc(id)}"`;
-  const title = wide ? 'Stop this agent and all its lanes' : 'Break-glass: stop this executor';
-  return armed.has(id)
-    ? `<button class="ov-kill armed" ${attr} type="button" title="Click again to confirm">Stop?</button>`
-    : `<button class="ov-kill" ${attr} type="button" title="${title}" aria-label="Stop"><span class="ov-kill-glyph" aria-hidden="true">■</span></button>`;
-}
-
+// The kill action is gated behind a ⋯ menu (not an always-visible button) so it
+// can't be clicked by accident. Only non-terminal nodes (something to stop) get it.
 function nodeCard(node, p) {
   const cls = UI_CLS[node.ui] || 'st-idle';
   const runtime = (INFLIGHT.has(node.ui) && node.startedAt)
     ? `<span class="ov-runtime" data-started="${esc(node.startedAt)}"></span>` : '';
   const cli = node.cli ? `<span class="ov-cli" title="CLI agent">${esc(node.cli)}</span>` : '';
-  const showKill = !node.terminal;
+  const menu = node.terminal ? '' : `<button class="ov-menu-btn${openMenuId === node.id ? ' is-open' : ''}" data-menu="${esc(node.id)}" type="button" title="Actions" aria-label="Actions" aria-haspopup="menu">⋯</button>`;
   return `<div class="ov-node ov-node--${node.kind} ${cls}" data-id="${esc(node.id)}" data-kind="${node.kind}"
       style="left:${Math.round(p.x)}px;top:${Math.round(p.y)}px">
     <div class="ov-node-top">
       <span class="ov-node-title" title="${esc(node.title)}">${esc(node.title)}</span>
-      ${showKill ? killBtn(node) : ''}
+      ${menu}
     </div>
     <div class="ov-node-sub">${esc(node.sub)}</div>
     <div class="ov-node-foot">
@@ -201,9 +198,11 @@ function nodeCard(node, p) {
   </div>`;
 }
 
-// Orthogonal parent→child edges (down → across → down), drawn in scene coords.
+// Orthogonal parent→child edges with ROUNDED elbows (down → arc → across → arc →
+// down), drawn in scene coords. Straight drop when the child sits under the parent.
 function edgesPath(roots, pos) {
   let d = '';
+  const R = 12;
   const walk = (node) => {
     const pp = pos.get(node.id);
     node.children.forEach((c) => {
@@ -211,7 +210,12 @@ function edgesPath(roots, pos) {
       const px = pp.x + NODE_W / 2, py = pp.y + NODE_H;
       const cx = cp.x + NODE_W / 2, cy = cp.y;
       const midY = py + (cy - py) / 2;
-      d += `M${px} ${py}V${midY}H${cx}V${cy}`;
+      if (Math.abs(cx - px) < 2 * R + 1) {
+        d += `M${px} ${py}V${cy}`;
+      } else {
+        const s = cx > px ? 1 : -1;
+        d += `M${px} ${py}V${midY - R}Q${px} ${midY} ${px + s * R} ${midY}H${cx - s * R}Q${cx} ${midY} ${cx} ${midY + R}V${cy}`;
+      }
       walk(c);
     });
   };
@@ -274,34 +278,78 @@ function renderStats(projects) {
   return card(active, 'Active agents', 'st-run') + card(queued, 'Queued agents', 'st-queue') + card(done, 'Idle / complete', 'st-idle');
 }
 
+// ---- per-node ⋯ action menu: ONE shared element positioned at SCREEN coords
+// (so the canvas transform never scales it) and reflecting openMenuId so it
+// survives the poll re-render. Gates the destructive Stop actions. ----
+function positionMenu() {
+  if (!openMenuId || !canvasEls) return;
+  const btn = canvasEls.scene.querySelector(`.ov-menu-btn[data-menu="${openMenuId}"]`);
+  if (!btn) { closeNodeMenu(); return; }
+  const b = btn.getBoundingClientRect();
+  const c = canvasEls.canvas.getBoundingClientRect();
+  const menu = canvasEls.menu;
+  menu.hidden = false;
+  const w = menu.offsetWidth || 200;
+  menu.style.left = `${Math.max(8, Math.min(b.right - c.left - w, c.width - w - 8))}px`;
+  menu.style.top = `${Math.min(b.bottom - c.top + 6, c.height - menu.offsetHeight - 8)}px`;
+}
+function openNodeMenu(id, kind) {
+  openMenuId = id;
+  canvasEls.menu.innerHTML = kind === 'orchestrator'
+    ? `<div class="ov-menu-head">Agent</div><button class="ov-menu-item danger" data-stop-orch="${esc(id)}" type="button">Stop agent &amp; all lanes</button>`
+    : `<div class="ov-menu-head">Executor</div><button class="ov-menu-item danger" data-stop-lane="${esc(id)}" type="button">Stop executor</button>`;
+  canvasEls.scene.querySelectorAll('.ov-menu-btn.is-open').forEach((b) => b.classList.remove('is-open'));
+  canvasEls.scene.querySelector(`.ov-menu-btn[data-menu="${id}"]`)?.classList.add('is-open');
+  positionMenu();
+}
+function closeNodeMenu() {
+  openMenuId = null;
+  if (!canvasEls) return;
+  canvasEls.menu.hidden = true;
+  canvasEls.scene.querySelectorAll('.ov-menu-btn.is-open').forEach((b) => b.classList.remove('is-open'));
+}
+
 function buildCanvas() {
   content.innerHTML = `
-    <div class="ov-canvas" id="ov-canvas">
-      <div class="ov-statbar" id="ov-statbar"></div>
-      <div class="ov-controls">
-        <button class="ov-ctrl ov-links-btn" data-canvas="links" type="button" title="Live links">${icon('external', { cls: 'ov-preview-ic', size: 14 })}<span>Live links</span></button>
-        <button class="ov-ctrl" data-canvas="fit" type="button" title="Fit to view" aria-label="Fit to view">⤢</button>
-        <button class="ov-ctrl" data-canvas="zoom-out" type="button" title="Zoom out" aria-label="Zoom out">&#8722;</button>
-        <button class="ov-ctrl" data-canvas="zoom-in" type="button" title="Zoom in" aria-label="Zoom in">&#43;</button>
-        <button class="ov-ctrl" data-canvas="fullscreen" type="button" title="Fullscreen" aria-label="Fullscreen">⛶</button>
+    <div class="ov-workspace">
+      <div class="ov-head">
+        <div class="ov-head-titles">
+          <div class="ov-head-title" id="ov-head-title">Live orchestration</div>
+          <div class="ov-head-sub">Agent tree — updates live</div>
+        </div>
+        <div class="ov-controls">
+          <button class="ov-ctrl ov-links-btn" data-canvas="links" type="button" title="Live links">${icon('external', { cls: 'ov-preview-ic', size: 14 })}<span>Live links</span></button>
+          <button class="ov-ctrl" data-canvas="fit" type="button" title="Fit to view" aria-label="Fit to view">⤢</button>
+          <button class="ov-ctrl" data-canvas="zoom-out" type="button" title="Zoom out" aria-label="Zoom out">&#8722;</button>
+          <button class="ov-ctrl" data-canvas="zoom-in" type="button" title="Zoom in" aria-label="Zoom in">&#43;</button>
+          <button class="ov-ctrl" data-canvas="fullscreen" type="button" title="Fullscreen" aria-label="Fullscreen">⛶</button>
+        </div>
       </div>
-      <div class="ov-links" id="ov-links" hidden></div>
-      <div class="ov-scene" id="ov-scene">
-        <svg class="ov-edges" id="ov-edges"><path fill="none"/></svg>
+      <div class="ov-statbar" id="ov-statbar"></div>
+      <div class="ov-canvas" id="ov-canvas">
+        <div class="ov-links" id="ov-links" hidden></div>
+        <div class="ov-node-menu" id="ov-node-menu" role="menu" hidden></div>
+        <div class="ov-scene" id="ov-scene">
+          <svg class="ov-edges" id="ov-edges"><path fill="none"/></svg>
+        </div>
       </div>
     </div>`;
+  const workspace = content.querySelector('.ov-workspace');
   const canvas = document.getElementById('ov-canvas');
   const scene = document.getElementById('ov-scene');
   const edges = document.getElementById('ov-edges');
   const statbar = document.getElementById('ov-statbar');
   const links = document.getElementById('ov-links');
-  canvasEls = { canvas, scene, edges, statbar, links };
+  const menu = document.getElementById('ov-node-menu');
+  const headTitle = document.getElementById('ov-head-title');
+  canvasEls = { workspace, canvas, scene, edges, statbar, links, menu, headTitle };
 
-  // Pan: drag the background (not a node/control). rAF-coalesced → one transform
-  // write per frame. Pointer capture so the drag survives leaving the canvas.
+  // Pan: drag the canvas background (not a node/menu/link). rAF-coalesced → one
+  // transform write per frame. Pointer capture so the drag survives leaving the box.
   let drag = null, raf = 0;
   canvas.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('.ov-node, .ov-controls, .ov-statbar, .ov-kill, a')) return;
+    if (e.target.closest('.ov-node, .ov-node-menu, .ov-links, a')) return;
+    closeNodeMenu();
     drag = { px: e.clientX, py: e.clientY, x: viewport.x, y: viewport.y };
     canvas.setPointerCapture(e.pointerId); canvas.classList.add('grabbing');
   });
@@ -314,9 +362,9 @@ function buildCanvas() {
   const endDrag = (e) => { if (drag) { drag = null; canvas.classList.remove('grabbing'); try { canvas.releasePointerCapture(e.pointerId); } catch { /* */ } } };
   canvas.addEventListener('pointerup', endDrag);
   canvas.addEventListener('pointercancel', endDrag);
-  // Wheel zoom, anchored at the cursor.
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
+    closeNodeMenu();
     const rect = canvas.getBoundingClientRect();
     zoomAt(e.clientX - rect.left, e.clientY - rect.top, e.deltaY < 0 ? 1.1 : 1 / 1.1);
   }, { passive: false });
@@ -350,7 +398,10 @@ function renderHome(data) {
   if (!canvasBuilt || !document.getElementById('ov-canvas')) { buildCanvas(); lastLayoutSig = null; fitPending = true; }
   startRuntimeTicker();
 
-  // Stat cards: cheap, every render.
+  // Header title + stat cards: cheap, every render.
+  canvasEls.headTitle.textContent = selectedProjectId
+    ? (data.projects.find((p) => p.id === selectedProjectId)?.name || 'Live orchestration')
+    : (shown.length === 1 ? shown[0].name : 'Live orchestration');
   canvasEls.statbar.innerHTML = renderStats(shown);
   // Live-links popover contents (kept in sync; visibility toggled by the button).
   const previews = collectPreviews(shown);
@@ -383,6 +434,7 @@ function renderHome(data) {
     tickRuntimes();
   }
   applyViewport();
+  if (openMenuId) positionMenu(); // the node may have moved — keep the menu anchored
 }
 
 // ================= Settings + Remote panels (ported verbatim from the old
@@ -953,25 +1005,34 @@ content.addEventListener('click', async (e) => {
     e.preventDefault();
     const k = ctrl.dataset.canvas;
     const canvas = canvasEls && canvasEls.canvas;
-    if (k === 'zoom-in' || k === 'zoom-out') { const r = canvas.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, k === 'zoom-in' ? 1.15 : 1 / 1.15); }
-    else if (k === 'fit') { if (lastPos) fitView(lastPos); }
-    else if (k === 'fullscreen') { if (document.fullscreenElement) document.exitFullscreen(); else if (canvas && canvas.requestFullscreen) canvas.requestFullscreen(); }
+    if (k === 'zoom-in' || k === 'zoom-out') { closeNodeMenu(); const r = canvas.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, k === 'zoom-in' ? 1.15 : 1 / 1.15); }
+    else if (k === 'fit') { closeNodeMenu(); if (lastPos) fitView(lastPos); }
+    else if (k === 'fullscreen') { const el = canvasEls && canvasEls.workspace; if (document.fullscreenElement) document.exitFullscreen(); else if (el && el.requestFullscreen) el.requestFullscreen(); }
     else if (k === 'links') { linksOpen = !linksOpen; if (canvasEls) canvasEls.links.hidden = !linksOpen; ctrl.classList.toggle('is-on', linksOpen); }
     return;
   }
 
-  // ---- glass-red kill: per-lane (break-glass) or project-wide on an orchestrator ----
-  // Both are arm-then-confirm; the orchestrator-wide one stops every live lane
-  // under that agent and should be seldom used, so it stays a two-click action.
-  const kill = e.target.closest('[data-stop-lane], [data-stop-orch]');
-  if (kill) {
+  // ---- ⋯ node menu: toggle the per-node action menu (gates the Stop actions) ----
+  const menuBtn = e.target.closest('[data-menu]');
+  if (menuBtn) {
     e.preventDefault();
-    const laneId = kill.dataset.stopLane;
-    const orchId = kill.dataset.stopOrch;
-    const id = laneId || orchId;
-    if (!id) return;
-    if (!armed.has(id)) { armed.add(id); renderHome(lastData); setTimeout(() => { if (armed.delete(id)) renderHome(lastData); }, 12000); return; }
-    armed.delete(id); kill.disabled = true;
+    const id = menuBtn.dataset.menu;
+    if (openMenuId === id) { closeNodeMenu(); return; }
+    const node = menuBtn.closest('.ov-node');
+    openNodeMenu(id, node ? node.dataset.kind : 'executor');
+    return;
+  }
+
+  // ---- Stop (from inside the ⋯ menu): per-lane, or project-wide on an orchestrator.
+  // The menu is the deliberate gate, so this fires directly (no accidental click).
+  const stop = e.target.closest('[data-stop-lane], [data-stop-orch]');
+  if (stop) {
+    e.preventDefault();
+    const laneId = stop.dataset.stopLane;
+    const orchId = stop.dataset.stopOrch;
+    if (!laneId && !orchId) return;
+    stop.disabled = true;
+    closeNodeMenu();
     try {
       if (laneId) await fetch('/api/emergency-stop', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ laneId }) });
       else await fetch(`/api/orchestrators/${encodeURIComponent(orchId)}/emergency-stop`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ actor: 'dashboard', approved: true }) });

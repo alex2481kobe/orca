@@ -12,8 +12,9 @@
 //
 // NOTE: the mock lane may auto-complete quickly, so we assert only on structure
 // that's true whether the lane is running or complete (not a hard "working" pill).
-// For the non-terminal kill assertion we target the ORCHESTRATOR's .ov-kill
-// [data-stop-orch] — the orchestrator stays active while a lane can race to done.
+// For the non-terminal stop-affordance assertion we target the ORCHESTRATOR's
+// .ov-menu-btn (the ⋯ menu that gates Stop) — it stays active while a lane can
+// race to done. The actual Stop action lives inside that menu once opened.
 import { chromium } from 'playwright';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -68,7 +69,7 @@ const view = await p.evaluate(() => {
     nodeCount: nodes.length,
     orchIsOrch: Boolean(orchNode && orchNode.classList.contains('ov-node--orchestrator') && orchNode.dataset.kind === 'orchestrator'),
     orchTitle: orchNode?.querySelector('.ov-node-title')?.textContent || '',
-    orchHasKill: Boolean(orchNode && orchNode.querySelector('.ov-kill[data-stop-orch]')),
+    orchHasKill: Boolean(orchNode && orchNode.querySelector('.ov-menu-btn[data-menu]')),
     execKind: execNode?.dataset.kind || '',
     execTitle: execNode?.querySelector('.ov-node-title')?.textContent || '',
     execHasPill: Boolean(execNode && execNode.querySelector('.ov-pill')),
