@@ -21,47 +21,92 @@
 .ov-empty-sub { font-size: 0.9rem; line-height: 1.5; }
 .ov-empty-sub code { background: var(--panel-soft); padding: 1px 5px; border-radius: var(--radius-xs); }
 
-/* ---- home tree ---- */
-.ov-tree { display: flex; flex-direction: column; gap: var(--space-5); }
-.ov-project { border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--panel); overflow: hidden; }
-.ov-project > summary { list-style: none; cursor: pointer; padding: var(--space-4) var(--space-5); display: flex; align-items: center; gap: var(--space-3); }
-.ov-project > summary::-webkit-details-marker { display: none; }
-.ov-project .sidebar-folder { width: 18px; height: 15px; }
-.ov-pname { font-weight: 600; }
-.ov-ppath { color: var(--muted); font-size: 0.72rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ov-orch { border-top: 1px solid var(--line); padding: var(--space-4) var(--space-5) var(--space-4) var(--space-6); }
-.ov-orch.stale { opacity: 0.55; }
-.ov-orow { display: flex; align-items: center; gap: var(--space-3); }
-.ov-oicon { color: var(--muted); flex: 0 0 auto; }
-.ov-otitle { font-weight: 550; }
-.ov-oactor { color: var(--muted); font-size: 0.72rem; }
-.ov-ofocus { color: var(--muted); font-size: 0.78rem; margin: 2px 0 var(--space-3) 28px; }
-.ov-execs { display: flex; flex-direction: column; gap: var(--space-2); margin-left: 28px; }
-.ov-exec { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel-soft); font-size: 0.82rem; }
-.ov-exec.terminal { opacity: 0.5; }
-.ov-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; background: var(--accent-blue); }
-.ov-exec.terminal .ov-dot { background: var(--muted); }
-.ov-etitle { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ov-etype { color: var(--muted); font-size: 0.7rem; }
-.ov-tag { font-size: 0.68rem; padding: 2px var(--space-2); border-radius: var(--radius-pill); border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
-.ov-tag.working { color: var(--accent-blue); border-color: color-mix(in srgb, var(--accent-blue) 40%, transparent); }
-.ov-tag.waiting { color: #e0b34d; border-color: color-mix(in srgb, #e0b34d 40%, transparent); }
-.ov-tag.failed { color: #ff6b6b; border-color: color-mix(in srgb, #ff6b6b 40%, transparent); }
-.ov-etext { color: var(--muted); font-size: 0.72rem; }
-.ov-stop { flex: 0 0 auto; font-size: 0.7rem; line-height: 1; padding: 3px 7px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer; font-family: inherit; opacity: 0.55; transition: opacity 0.12s; }
-.ov-exec:hover .ov-stop { opacity: 1; }
-.ov-stop.armed { color: #ff6b6b; border-color: #ff6b6b; background: color-mix(in srgb, #ff6b6b 12%, transparent); opacity: 1; font-weight: 600; }
-.ov-stop:disabled { opacity: 0.3; cursor: default; }
-@media (hover: none) { .ov-stop { opacity: 1; } }
+/* ================= Home: live agent node-graph canvas =================
+   The home route widens out of the 980px reading column and fills the viewport;
+   the canvas is a single transform layer (.ov-scene) panned/zoomed over. All
+   color from design tokens (no hardcoded theme colors — smoke:no-hardcoded-colors). */
+body.home-canvas .ops-content { max-width: none; }
+body.home-canvas .ops-main { padding-left: min(3vw, 1.6rem); padding-right: min(3vw, 1.6rem); padding-bottom: 0.75rem; }
 
-/* ---- port previews (registered dev-server ports, opened over Tailscale) ---- */
-.ov-previews { display: flex; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-3) var(--space-5) 0 var(--space-6); }
+.ov-canvas {
+  position: relative; width: 100%;
+  height: calc(var(--vph, 100vh) - var(--topbar-height) - 6.5rem);
+  min-height: 420px;
+  border: 1px solid var(--line); border-radius: var(--radius-lg);
+  background: var(--bg-soft);
+  /* subtle dot-grid so panning reads as movement */
+  background-image: radial-gradient(circle, var(--line-soft) 1px, transparent 1px);
+  background-size: 26px 26px;
+  overflow: hidden; cursor: grab; touch-action: none; user-select: none;
+}
+.ov-canvas.grabbing { cursor: grabbing; }
+.ov-canvas:fullscreen { border-radius: 0; }
+
+.ov-scene { position: absolute; top: 0; left: 0; transform-origin: 0 0; will-change: transform; }
+.ov-edges { position: absolute; top: 0; left: 0; overflow: visible; pointer-events: none; }
+.ov-edges path { stroke: var(--line); stroke-width: 1.5; }
+
+/* ---- node cards ---- */
+.ov-node {
+  position: absolute; width: 208px; box-sizing: border-box;
+  display: grid; gap: 6px; padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line); border-radius: var(--radius-md);
+  background: var(--panel); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+.ov-node--orchestrator { border-color: color-mix(in srgb, var(--accent-blue) 55%, var(--line)); background: color-mix(in srgb, var(--accent-blue) 6%, var(--panel)); }
+.ov-node.st-idle, .ov-node.st-done { opacity: 0.72; }
+.ov-node-top { display: flex; align-items: center; gap: var(--space-2); min-height: 20px; }
+.ov-node-title { flex: 1 1 auto; font-weight: 600; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-node-sub { color: var(--muted); font-size: 0.74rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-node-foot { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+
+/* ---- status pill (color per UI state, token-driven) ---- */
+.ov-pill { display: inline-flex; align-items: center; gap: 5px; font-size: 0.7rem; font-weight: 550; padding: 2px var(--space-2); border-radius: var(--radius-pill); border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.ov-pill-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: 0 0 auto; }
+.ov-pill.st-run { color: var(--accent-blue); border-color: color-mix(in srgb, var(--accent-blue) 40%, transparent); }
+.ov-pill.st-spawn { color: var(--accent-blue); border-color: color-mix(in srgb, var(--accent-blue) 40%, transparent); }
+.ov-pill.st-wait { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 42%, transparent); }
+.ov-pill.st-done { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 42%, transparent); }
+.ov-pill.st-bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
+.ov-pill.st-queue, .ov-pill.st-idle { color: var(--muted); }
+
+.ov-cli { font-size: 0.66rem; color: var(--muted); padding: 1px var(--space-2); border-radius: var(--radius-xs); background: var(--panel-soft); text-transform: lowercase; }
+.ov-runtime { font-size: 0.68rem; color: var(--muted); font-variant-numeric: tabular-nums; margin-left: auto; }
+
+/* ---- glass-red kill button ---- */
+.ov-kill { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; padding: 0 6px; font: inherit; font-size: 0.68rem; line-height: 1; border: 1px solid var(--line); border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; opacity: 0.5; transition: opacity 0.12s, color 0.12s, border-color 0.12s; }
+.ov-kill-glyph { font-size: 0.6rem; }
+.ov-node:hover .ov-kill { opacity: 1; }
+@media (hover: hover) { .ov-kill:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 60%, var(--line)); } }
+.ov-kill.armed { opacity: 1; font-weight: 700; color: var(--bad); border-color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, transparent); }
+@media (hover: none) { .ov-kill { opacity: 1; } }
+
+/* ---- top stat cards ---- */
+.ov-statbar { position: absolute; top: var(--space-4); left: var(--space-4); z-index: 4; display: flex; gap: var(--space-3); pointer-events: none; }
+.ov-stat { min-width: 128px; padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-md); background: color-mix(in srgb, var(--panel) 80%, transparent); backdrop-filter: blur(6px); }
+.ov-stat-n { font-size: 1.35rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.ov-stat-n.st-run { color: var(--accent-blue); }
+.ov-stat-n.st-queue { color: var(--warn); }
+.ov-stat-n.st-idle { color: var(--ok); }
+.ov-stat-l { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
+
+/* ---- canvas controls (zoom / fit / fullscreen / live links) ---- */
+.ov-controls { position: absolute; top: var(--space-4); right: var(--space-4); z-index: 5; display: flex; gap: var(--space-2); }
+.ov-ctrl { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; height: 34px; padding: 0 8px; font: inherit; font-size: 1rem; line-height: 1; border: 1px solid var(--line); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--panel) 82%, transparent); backdrop-filter: blur(6px); color: var(--text); cursor: pointer; }
+.ov-ctrl svg { display: block; }
+@media (hover: hover) { .ov-ctrl:hover { border-color: var(--muted); background: var(--panel); } }
+.ov-ctrl.ov-links-btn { gap: 6px; font-size: 0.82rem; font-weight: 550; }
+.ov-links-btn .ov-preview-ic { color: var(--accent-blue); }
+
+/* ---- live links popover (registered dev-server ports over Tailscale) ---- */
+.ov-links { position: absolute; top: calc(var(--space-4) + 40px); right: var(--space-4); z-index: 6; display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--panel); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); max-width: 340px; }
+.ov-links:empty, .ov-links[hidden] { display: none; }
 .ov-preview { display: inline-flex; align-items: center; gap: 6px; padding: var(--space-2) var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-pill); background: color-mix(in srgb, var(--text) 5%, transparent); color: var(--text); text-decoration: none; font-size: 0.76rem; line-height: 1; }
 @media (hover: hover) { .ov-preview:hover { background: color-mix(in srgb, var(--text) 10%, transparent); border-color: var(--muted); } }
 .ov-preview-ic { color: var(--accent-blue); flex: 0 0 auto; }
 .ov-preview-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; background: var(--muted); }
 .ov-preview-dot.up { background: var(--accent-blue); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-blue) 22%, transparent); }
-.ov-preview-dot.down { background: #ff6b6b; }
+.ov-preview-dot.down { background: var(--bad); }
 .ov-preview-label { font-weight: 550; }
 .ov-preview-port { color: var(--muted); font-variant-numeric: tabular-nums; }
 

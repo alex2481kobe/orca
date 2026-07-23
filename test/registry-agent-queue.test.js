@@ -158,6 +158,73 @@ test('agent queue: dedupe preserves ack state and caps per-event consumers', asy
   });
 });
 
+test('agent queue: stopping an executor lane enqueues a drainable lane_stopped for the orchestrator', async () => {
+  await withRegistry(async (registry) => {
+    const { session } = await makeSession(registry);
+    const created = makeLane(registry, session.id);
+    const lane = registry.getLane(created.id);
+
+    // No spurious terminal events before the lane reaches a terminal state.
+    assert.deepEqual(
+      registry.drainAgentEvents(session.id, { role: 'orchestrator', actor: 'orch-owner' })
+        .events.filter((event) => event.type === 'lane_stopped' || event.type === 'lane_failed'),
+      [],
+    );
+
+    registry.markLaneStopped(lane, { actor: 'orch-owner', reason: 'Stopped by orch-owner' });
+
+    const drained = registry.drainAgentEvents(session.id, { role: 'orchestrator', actor: 'orch-owner' });
+    const stopEvent = drained.events.find((event) => event.type === 'lane_stopped');
+    assert.ok(stopEvent, 'orchestrator must see a lane_stopped event on its next drain');
+    assert.equal(stopEvent.laneId, lane.id);
+    assert.equal(stopEvent.severity, 'warning');
+    assert.equal(stopEvent.body, 'Stopped by orch-owner');
+
+    // Re-terminalizing an already-stopped lane must not enqueue a second event
+    // (markLaneStopped no-ops on terminal state; the dedupeKey also collapses).
+    registry.markLaneStopped(lane, { actor: 'orch-owner', reason: 'Stopped again' });
+    const stopEvents = registry.agentQueue.filter((event) => event.type === 'lane_stopped');
+    assert.equal(stopEvents.length, 1, 'a stopped lane must not enqueue lane_stopped twice');
+  });
+});
+
+test('agent queue: failing an executor lane enqueues a drainable lane_failed for the orchestrator', async () => {
+  await withRegistry(async (registry) => {
+    const { session } = await makeSession(registry);
+    const created = makeLane(registry, session.id);
+    const lane = registry.getLane(created.id);
+
+    registry.markLaneFailed(lane, 'Executor crashed', 'scheduler');
+
+    const drained = registry.drainAgentEvents(session.id, { role: 'orchestrator', actor: 'orch-owner' });
+    const failEvent = drained.events.find((event) => event.type === 'lane_failed');
+    assert.ok(failEvent, 'orchestrator must see a lane_failed event on its next drain');
+    assert.equal(failEvent.laneId, lane.id);
+    assert.equal(failEvent.severity, 'error');
+    assert.equal(failEvent.body, 'Executor crashed');
+
+    // Idempotent: re-failing a terminal lane does not duplicate the event.
+    registry.markLaneFailed(lane, 'Executor crashed again', 'scheduler');
+    const failEvents = registry.agentQueue.filter((event) => event.type === 'lane_failed');
+    assert.equal(failEvents.length, 1, 'a failed lane must not enqueue lane_failed twice');
+  });
+});
+
+test('agent queue: a cleanly completed lane enqueues no lane_stopped/lane_failed', async () => {
+  await withRegistry(async (registry) => {
+    const { session } = await makeSession(registry);
+    const created = makeLane(registry, session.id);
+    const lane = registry.getLane(created.id);
+
+    registry.markLaneCompleted(lane);
+
+    const terminalFailures = registry.agentQueue.filter(
+      (event) => event.type === 'lane_stopped' || event.type === 'lane_failed',
+    );
+    assert.deepEqual(terminalFailures, [], 'a clean completion must not enqueue stop/fail events');
+  });
+});
+
 test('agent queue: ack state persists and remains scoped per consumer after reload', async () => {
   await withRegistry(async (registry, tempDir) => {
     const { session } = await makeSession(registry);

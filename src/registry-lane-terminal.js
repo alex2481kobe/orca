@@ -104,6 +104,25 @@ export const laneTerminalMethods = {
       evidence: { lane },
       status: 'failed',
     });
+    // Push a DURABLE, drainable wakeup to the owning orchestrator (lane.sessionId
+    // IS the orchestrator container id in v2) so a dependent orchestrator learns
+    // of the failure on its next drainAgentEvents — not only by re-polling the
+    // lane. dedupeKey collapses re-fires; the terminal-state guard above already
+    // prevents re-entry.
+    if (typeof this.enqueueAgentEvent === 'function') {
+      this.enqueueAgentEvent({
+        type: 'lane_failed',
+        targetRole: 'orchestrator',
+        title: `Executor lane "${lane.title}" failed`.slice(0, 160),
+        body: lane.exitReason || reason || 'Execution failed',
+        severity: 'error',
+        actor,
+        projectId: lane.projectId,
+        sessionId: lane.sessionId,
+        laneId: lane.id,
+        dedupeKey: `lane-failed:${lane.id}`,
+      });
+    }
     // NOTIFIER CHOKE POINT: lane reached a terminal state (failed). A future
     // push/notifier subsystem hooks in here.
     this._trackAsync(this.writeLaneArtifacts(lane, 'failed').catch(() => {}));
@@ -144,6 +163,25 @@ export const laneTerminalMethods = {
       evidence: { lane },
       status: 'passed',
     });
+    // Push a DURABLE, drainable wakeup to the owning orchestrator (lane.sessionId
+    // IS the orchestrator container id in v2) so a dependent orchestrator learns
+    // of the stop on its next drainAgentEvents — not only by re-polling the lane.
+    // dedupeKey collapses re-fires; the terminal-state guard above already
+    // prevents re-entry.
+    if (typeof this.enqueueAgentEvent === 'function') {
+      this.enqueueAgentEvent({
+        type: 'lane_stopped',
+        targetRole: 'orchestrator',
+        title: `Executor lane "${lane.title}" stopped`.slice(0, 160),
+        body: reason,
+        severity: 'warning',
+        actor,
+        projectId: lane.projectId,
+        sessionId: lane.sessionId,
+        laneId: lane.id,
+        dedupeKey: `lane-stopped:${lane.id}`,
+      });
+    }
     // NOTIFIER CHOKE POINT: lane reached a terminal state (stopped). A future
     // push/notifier subsystem hooks in here.
     this._trackAsync(this.writeLaneArtifacts(lane, 'stopped').catch(() => {}));

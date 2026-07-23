@@ -355,6 +355,24 @@ export const laneOpsMethods = {
         evidence: { lane },
         status: 'passed',
       });
+      // Mirror markLaneStopped's durable orchestrator wakeup so this fallback stop
+      // path (worker wasn't actively stopped) also notifies the owning orchestrator
+      // on its next drain. Same dedupeKey as markLaneStopped so the two stop paths
+      // never double-notify for the same lane.
+      if (typeof this.enqueueAgentEvent === 'function') {
+        this.enqueueAgentEvent({
+          type: 'lane_stopped',
+          targetRole: 'orchestrator',
+          title: `Executor lane "${lane.title}" stopped`.slice(0, 160),
+          body: lane.exitReason,
+          severity: 'warning',
+          actor: context.actor || 'dashboard',
+          projectId: lane.projectId,
+          sessionId: lane.sessionId,
+          laneId: lane.id,
+          dedupeKey: `lane-stopped:${lane.id}`,
+        });
+      }
       // NOTIFIER CHOKE POINT: lane reached a terminal state (stopped). A future
       // push/notifier subsystem hooks in here.
     }

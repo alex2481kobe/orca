@@ -3,7 +3,6 @@
 // + .ops-main/.ops-content. Screens: Home (projects→orchestrators→executors tree),
 // Settings, Remote devices. Hash-routed. CSP: script-src 'self' (external module only).
 import { icon, FOLDER_ICON } from './icons.js';
-import { shouldRenderProjectOpen } from './home-disclosure.js';
 import { qrSvgForText } from './qr.js';
 
 const body = document.body;
@@ -12,18 +11,10 @@ const topbarTitle = document.getElementById('topbar-title');
 const content = document.getElementById('content');
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const tagClass = (tag) => {
-  const t = String(tag || '').toLowerCase();
-  if (t.includes('working') || t === 'auditing') return 'working';
-  if (t.includes('waiting') || t.includes('approval') || t.includes('awaiting')) return 'waiting';
-  if (t.includes('fail') || t.includes('block')) return 'failed';
-  return '';
-};
 
 // ---- state ----
 let selectedProjectId = null;
 const armed = new Set();
-const collapsed = new Set(); // project pids the operator explicitly collapsed
 let lastData = { projects: [] };
 // An unpaired remote device (a phone over Tailscale) gets a 401 from /api/overview.
 // When that happens we take over the whole screen with the pairing GATE below
@@ -68,69 +59,286 @@ document.addEventListener('click', (e) => {
 document.getElementById('brand-home').addEventListener('click', (e) => { e.preventDefault(); selectedProjectId = null; closeMobileNav(); location.hash = ''; renderScreen(); });
 
 // ---- sidebar project list ----
-function activeAgents(p) { return p.orchestrators.filter((o) => !o.stale).length; }
 function renderSidebar(data) {
   const r = route();
   sideProjects.innerHTML = data.projects.map((p) => {
-    const active = activeAgents(p);
     const sel = (r === 'home' && p.id === selectedProjectId) ? ' is-selected' : '';
     return `<button class="sidebar-link sidebar-project${sel}" data-pid="${esc(p.id)}" type="button" title="${esc(p.cwd)}">
       <span class="sidebar-folder" aria-hidden="true">${FOLDER_ICON}</span>
       <span>${esc(p.name)}</span>
-      ${active ? `<span class="pill">${active}</span>` : '<span></span>'}
+      <span></span>
     </button>`;
   }).join('') || '<div class="sidebar-empty">No projects yet.</div>';
   // Nav active state (Remote devices pair-button + Settings footer row)
   document.querySelectorAll('#sidebar [data-nav]').forEach((b) => b.classList.toggle('is-selected', b.dataset.nav === r));
 }
 
-// ---- home tree ----
-function stopControl(id) {
-  return armed.has(id)
-    ? `<button class="ov-stop armed" data-lane="${esc(id)}" title="Click again to stop">⚠ stop?</button>`
-    : `<button class="ov-stop" data-lane="${esc(id)}" title="Break-glass: stop this executor">⏹</button>`;
+// ================= Home: live agent node-graph canvas =================
+// The main area is an interactive orchestration tree — orchestrator roots →
+// executor lanes, connected by edges, pan/zoom + auto-layout. Built ONCE and
+// then patched: the 2s poll must NEVER rebuild the canvas or it would reset the
+// viewport / kill an in-progress drag (the [[render-ephemeral-state-invariant]]
+// bug class). Pan/zoom is a single CSS transform on .ov-scene (GPU compositing,
+// no layout/paint per frame); layout only re-runs when data.revision changes.
+
+const NODE_W = 208, NODE_H = 104, GAP_X = 30, GAP_Y = 78, PAD = 60;
+// Viewport + drag state live at module scope so they survive every re-render.
+let viewport = { x: 0, y: 0, scale: 1 };
+let canvasBuilt = false;
+let canvasEls = null;   // { canvas, scene, edges, statbar, controls }
+let lastLayoutSig = null; // re-layout only when the tree shape/state changes
+let fitPending = true;
+let runtimeTimer = null;
+let lastPos = null; // last computed layout, for the fit control between polls
+
+// Real lane/orchestrator state → the minimal UI vocabulary (no bloat).
+function laneUi(e) {
+  if (e.terminal) {
+    if (e.state === 'failed') return 'failed';
+    if (e.state === 'stopped') return 'stopped';
+    if (e.state === 'done' || e.state === 'accepted') return 'complete';
+    return 'idle';
+  }
+  if (e.state === 'starting') return 'spawning';
+  if (e.state === 'queued') return 'queued';
+  if (e.state === 'ready_for_audit' || e.state === 'auditing' || e.state === 'fix_requested' || e.state === 'blocked') return 'waiting';
+  return 'running'; // running, needs_critique
 }
-function executorRow(e) {
-  return `<div class="ov-exec${e.terminal ? ' terminal' : ''}">
-      <span class="ov-dot"></span>
-      <span class="ov-etitle">${esc(e.title) || '<span class="ov-etype">untitled</span>'}</span>
-      <span class="ov-etype">${esc(e.executorType || '')}</span>
-      ${e.statusText ? `<span class="ov-etext">${esc(e.statusText)}</span>` : ''}
-      <span class="ov-tag ${tagClass(e.statusTag)}">${esc(e.statusTag)}</span>
-      ${e.terminal ? '' : stopControl(e.id)}
-    </div>`;
+const orchUi = (o) => (o.stale || o.resignedAt) ? 'idle' : 'running';
+const UI_LABEL = { running: 'Running', spawning: 'Spawning', queued: 'Queued', waiting: 'Waiting', complete: 'Complete', idle: 'Idle', failed: 'Failed', stopped: 'Stopped' };
+const UI_CLS = { running: 'st-run', spawning: 'st-spawn', queued: 'st-queue', waiting: 'st-wait', complete: 'st-done', idle: 'st-idle', failed: 'st-bad', stopped: 'st-bad' };
+const INFLIGHT = new Set(['running', 'spawning', 'waiting']); // states that show a live runtime
+
+function shownProjects(data) {
+  return selectedProjectId ? data.projects.filter((p) => p.id === selectedProjectId) : data.projects;
 }
+
+// Live URL chip (a registered dev-server port, auto-served over Tailscale).
 function previewChip(v) {
   const href = v.url || v.localUrl || '';
   if (!href) return '';
   const h = String(v.healthStatus || '').toLowerCase();
   const cls = /ok|health|reachable|up|200/.test(h) ? ' up' : /unreach|fail|down|error|refus/.test(h) ? ' down' : '';
-  const remote = Boolean(v.tailnetUrl);
+  const remote = Boolean(v.tailnetUrl || (v.url && !v.url.includes('127.0.0.1')));
   return `<a class="ov-preview" href="${esc(href)}" target="_blank" rel="noopener" title="${esc(v.tailnetUrl || v.localUrl || href)}${remote ? '' : ' (local only, Tailscale not detected)'}">
     <span class="ov-preview-dot${cls}"></span>${icon('external', { cls: 'ov-preview-ic', size: 13 })}<span class="ov-preview-label">${esc(v.label) || 'Preview'}</span>${v.port ? `<span class="ov-preview-port">:${esc(v.port)}</span>` : ''}
   </a>`;
 }
-function projectCard(p) {
-  const open = shouldRenderProjectOpen({ pid: p.id, collapsedPids: collapsed }) ? ' open' : '';
-  const previews = (p.previews || []).filter((v) => v.url || v.localUrl);
-  const previewsHtml = previews.length ? `<div class="ov-previews">${previews.map(previewChip).join('')}</div>` : '';
-  const orchs = p.orchestrators.map((o) => `
-    <div class="ov-orch${o.stale ? ' stale' : ''}">
-      <div class="ov-orow">${icon('agent', { cls: 'ov-oicon' })}<span class="ov-otitle">${esc(o.title) || 'Untitled orchestrator'}</span><span class="ov-oactor">${esc(o.actor)}</span></div>
-      ${o.focus ? `<div class="ov-ofocus">${esc(o.focus)}</div>` : ''}
-      <div class="ov-execs">${o.executors.map(executorRow).join('') || '<span class="ov-etext" style="margin-left:var(--space-3)">no executors</span>'}</div>
-    </div>`).join('');
-  return `
-    <details class="ov-project" data-pid="${esc(p.id)}"${open}>
-      <summary>${FOLDER_ICON}<span class="ov-pname">${esc(p.name)}</span><span class="ov-ppath">${esc(p.parentName ? p.parentName + ' / ' : '')}${esc(p.cwd)}</span></summary>
-      ${previewsHtml}
-      ${orchs}
-    </details>`;
+let linksOpen = false;
+function collectPreviews(projects) {
+  return projects.flatMap((p) => (p.previews || []).filter((v) => v.url || v.localUrl));
 }
+
+// Build the node forest (orchestrator roots → executor lanes) from the projects.
+function buildForest(projects) {
+  const roots = [];
+  projects.forEach((p) => {
+    (p.orchestrators || []).forEach((o) => {
+      const ui = orchUi(o);
+      roots.push({
+        id: o.id, kind: 'orchestrator', title: o.title || 'Orchestrator',
+        sub: o.focus || 'Orchestrator', cli: o.actor || '', ui, startedAt: null, terminal: false,
+        children: (o.executors || []).map((e) => {
+          const eui = laneUi(e);
+          return {
+            id: e.id, kind: 'executor', title: e.title || 'Executor',
+            sub: e.statusText || 'Executor', cli: e.executorType || '', ui: eui,
+            startedAt: e.startedAt || null, terminal: Boolean(e.terminal), children: [],
+          };
+        }),
+      });
+    });
+  });
+  return roots;
+}
+
+// Deterministic tidy-tree layout: leaves get sequential x, parents center over
+// their children. A forest lays subtrees left→right. Positions in scene coords.
+function layoutForest(roots) {
+  const pos = new Map();
+  let cursor = 0;
+  const place = (node, depth) => {
+    let x;
+    if (!node.children.length) { x = cursor; cursor += NODE_W + GAP_X; }
+    else {
+      const xs = node.children.map((c) => place(c, depth + 1));
+      x = (xs[0] + xs[xs.length - 1]) / 2;
+    }
+    pos.set(node.id, { x, y: depth * (NODE_H + GAP_Y), node });
+    return x;
+  };
+  roots.forEach((r) => { place(r, 0); cursor += GAP_X; });
+  return pos;
+}
+
+function killBtn(node) {
+  const id = node.id;
+  const wide = node.kind === 'orchestrator';
+  const attr = wide ? `data-stop-orch="${esc(id)}"` : `data-stop-lane="${esc(id)}"`;
+  const title = wide ? 'Stop this agent and all its lanes' : 'Break-glass: stop this executor';
+  return armed.has(id)
+    ? `<button class="ov-kill armed" ${attr} type="button" title="Click again to confirm">Stop?</button>`
+    : `<button class="ov-kill" ${attr} type="button" title="${title}" aria-label="Stop"><span class="ov-kill-glyph" aria-hidden="true">■</span></button>`;
+}
+
+function nodeCard(node, p) {
+  const cls = UI_CLS[node.ui] || 'st-idle';
+  const runtime = (INFLIGHT.has(node.ui) && node.startedAt)
+    ? `<span class="ov-runtime" data-started="${esc(node.startedAt)}"></span>` : '';
+  const cli = node.cli ? `<span class="ov-cli" title="CLI agent">${esc(node.cli)}</span>` : '';
+  const showKill = !node.terminal;
+  return `<div class="ov-node ov-node--${node.kind} ${cls}" data-id="${esc(node.id)}" data-kind="${node.kind}"
+      style="left:${Math.round(p.x)}px;top:${Math.round(p.y)}px">
+    <div class="ov-node-top">
+      <span class="ov-node-title" title="${esc(node.title)}">${esc(node.title)}</span>
+      ${showKill ? killBtn(node) : ''}
+    </div>
+    <div class="ov-node-sub">${esc(node.sub)}</div>
+    <div class="ov-node-foot">
+      <span class="ov-pill ${cls}"><span class="ov-pill-dot"></span>${UI_LABEL[node.ui] || 'Idle'}</span>
+      ${cli}${runtime}
+    </div>
+  </div>`;
+}
+
+// Orthogonal parent→child edges (down → across → down), drawn in scene coords.
+function edgesPath(roots, pos) {
+  let d = '';
+  const walk = (node) => {
+    const pp = pos.get(node.id);
+    node.children.forEach((c) => {
+      const cp = pos.get(c.id);
+      const px = pp.x + NODE_W / 2, py = pp.y + NODE_H;
+      const cx = cp.x + NODE_W / 2, cy = cp.y;
+      const midY = py + (cy - py) / 2;
+      d += `M${px} ${py}V${midY}H${cx}V${cy}`;
+      walk(c);
+    });
+  };
+  roots.forEach(walk);
+  return d;
+}
+
+function applyViewport() {
+  if (!canvasEls) return;
+  canvasEls.scene.style.transform = `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})`;
+}
+
+function fitView(pos) {
+  if (!canvasEls || !pos.size) return;
+  let maxX = 0, maxY = 0;
+  pos.forEach((pt) => { maxX = Math.max(maxX, pt.x + NODE_W); maxY = Math.max(maxY, pt.y + NODE_H); });
+  const vw = canvasEls.canvas.clientWidth || 1000, vh = canvasEls.canvas.clientHeight || 700;
+  const scale = Math.min(1, (vw - PAD * 2) / maxX, (vh - PAD * 2) / maxY);
+  viewport.scale = Math.max(0.3, scale);
+  viewport.x = Math.max(PAD, (vw - maxX * viewport.scale) / 2);
+  viewport.y = PAD;
+  applyViewport();
+}
+
+// Live "running Xm on current task" ticker — updates in place every second, no
+// layout (mirrors the pairing countdown). Runs only while Home is on screen.
+function fmtDur(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
+}
+function tickRuntimes() {
+  if (!canvasEls) return;
+  const now = Date.now();
+  canvasEls.scene.querySelectorAll('.ov-runtime[data-started]').forEach((el) => {
+    const t = Date.parse(el.dataset.started);
+    el.textContent = Number.isNaN(t) ? '' : fmtDur(now - t);
+  });
+}
+function startRuntimeTicker() { if (!runtimeTimer) { tickRuntimes(); runtimeTimer = setInterval(tickRuntimes, 1000); } }
+function stopRuntimeTicker() { if (runtimeTimer) { clearInterval(runtimeTimer); runtimeTimer = null; } }
+
+// Top stat cards — Active / Queued / Idle-or-Complete agents. Pure client
+// reduction over the shown projects; recomputed cheaply every poll.
+function renderStats(projects) {
+  let active = 0, queued = 0, done = 0;
+  projects.forEach((p) => (p.orchestrators || []).forEach((o) => {
+    if (orchUi(o) === 'idle') done++; else active++;
+    (o.executors || []).forEach((e) => {
+      const u = laneUi(e);
+      if (u === 'queued') queued++;
+      else if (u === 'complete' || u === 'idle' || u === 'failed' || u === 'stopped') done++;
+      else active++;
+    });
+  }));
+  const card = (n, label, cls) => `<div class="ov-stat"><div class="ov-stat-n ${cls}">${n}</div><div class="ov-stat-l">${label}</div></div>`;
+  return card(active, 'Active agents', 'st-run') + card(queued, 'Queued agents', 'st-queue') + card(done, 'Idle / complete', 'st-idle');
+}
+
+function buildCanvas() {
+  content.innerHTML = `
+    <div class="ov-canvas" id="ov-canvas">
+      <div class="ov-statbar" id="ov-statbar"></div>
+      <div class="ov-controls">
+        <button class="ov-ctrl ov-links-btn" data-canvas="links" type="button" title="Live links">${icon('external', { cls: 'ov-preview-ic', size: 14 })}<span>Live links</span></button>
+        <button class="ov-ctrl" data-canvas="fit" type="button" title="Fit to view" aria-label="Fit to view">⤢</button>
+        <button class="ov-ctrl" data-canvas="zoom-out" type="button" title="Zoom out" aria-label="Zoom out">&#8722;</button>
+        <button class="ov-ctrl" data-canvas="zoom-in" type="button" title="Zoom in" aria-label="Zoom in">&#43;</button>
+        <button class="ov-ctrl" data-canvas="fullscreen" type="button" title="Fullscreen" aria-label="Fullscreen">⛶</button>
+      </div>
+      <div class="ov-links" id="ov-links" hidden></div>
+      <div class="ov-scene" id="ov-scene">
+        <svg class="ov-edges" id="ov-edges"><path fill="none"/></svg>
+      </div>
+    </div>`;
+  const canvas = document.getElementById('ov-canvas');
+  const scene = document.getElementById('ov-scene');
+  const edges = document.getElementById('ov-edges');
+  const statbar = document.getElementById('ov-statbar');
+  const links = document.getElementById('ov-links');
+  canvasEls = { canvas, scene, edges, statbar, links };
+
+  // Pan: drag the background (not a node/control). rAF-coalesced → one transform
+  // write per frame. Pointer capture so the drag survives leaving the canvas.
+  let drag = null, raf = 0;
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.ov-node, .ov-controls, .ov-statbar, .ov-kill, a')) return;
+    drag = { px: e.clientX, py: e.clientY, x: viewport.x, y: viewport.y };
+    canvas.setPointerCapture(e.pointerId); canvas.classList.add('grabbing');
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    viewport.x = drag.x + (e.clientX - drag.px);
+    viewport.y = drag.y + (e.clientY - drag.py);
+    if (!raf) raf = requestAnimationFrame(() => { raf = 0; applyViewport(); });
+  });
+  const endDrag = (e) => { if (drag) { drag = null; canvas.classList.remove('grabbing'); try { canvas.releasePointerCapture(e.pointerId); } catch { /* */ } } };
+  canvas.addEventListener('pointerup', endDrag);
+  canvas.addEventListener('pointercancel', endDrag);
+  // Wheel zoom, anchored at the cursor.
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    zoomAt(e.clientX - rect.left, e.clientY - rect.top, e.deltaY < 0 ? 1.1 : 1 / 1.1);
+  }, { passive: false });
+
+  canvasBuilt = true;
+}
+
+function zoomAt(cx, cy, factor) {
+  const next = Math.min(2.2, Math.max(0.3, viewport.scale * factor));
+  const k = next / viewport.scale;
+  viewport.x = cx - (cx - viewport.x) * k;
+  viewport.y = cy - (cy - viewport.y) * k;
+  viewport.scale = next;
+  applyViewport();
+}
+
 function renderHome(data) {
-  const shown = selectedProjectId ? data.projects.filter((p) => p.id === selectedProjectId) : data.projects;
+  const shown = shownProjects(data);
   topbarTitle.textContent = selectedProjectId ? (data.projects.find((p) => p.id === selectedProjectId)?.name || '') : '';
   if (!shown.length) {
+    body.classList.remove('home-canvas');
+    canvasBuilt = false; canvasEls = null; lastLayoutSig = null; fitPending = true; stopRuntimeTicker();
     content.innerHTML = `<div class="ov-empty-wrap"><div class="ov-empty">
       ${icon('agent', { size: 26 })}
       <div class="ov-empty-title">No agents registered</div>
@@ -138,15 +346,44 @@ function renderHome(data) {
     </div></div>`;
     return;
   }
-  content.innerHTML = `<div class="ov-tree">${shown.map((p) => projectCard(p)).join('')}</div>`;
+  body.classList.add('home-canvas');
+  if (!canvasBuilt || !document.getElementById('ov-canvas')) { buildCanvas(); lastLayoutSig = null; fitPending = true; }
+  startRuntimeTicker();
+
+  // Stat cards: cheap, every render.
+  canvasEls.statbar.innerHTML = renderStats(shown);
+  // Live-links popover contents (kept in sync; visibility toggled by the button).
+  const previews = collectPreviews(shown);
+  canvasEls.links.innerHTML = previews.length ? previews.map(previewChip).join('') : '<span class="tiny muted">No live links yet.</span>';
+  canvasEls.links.hidden = !linksOpen;
+
+  // Re-layout only when the tree shape/state actually changes (revision + a
+  // signature over ids/states/armed) — a mere time tick must NOT relayout.
+  const forest = buildForest(shown);
+  const sig = JSON.stringify(forest.map((r) => [r.id, r.ui, r.children.map((c) => [c.id, c.ui, c.terminal])])) + '|' + [...armed].sort().join(',') + '|' + (data.revision ?? '');
+  if (sig !== lastLayoutSig) {
+    lastLayoutSig = sig;
+    const pos = layoutForest(forest);
+    lastPos = pos;
+    let maxX = 0, maxY = 0;
+    pos.forEach((pt) => { maxX = Math.max(maxX, pt.x + NODE_W); maxY = Math.max(maxY, pt.y + NODE_H); });
+    canvasEls.scene.style.width = `${maxX}px`;
+    canvasEls.scene.style.height = `${maxY}px`;
+    canvasEls.edges.setAttribute('width', maxX);
+    canvasEls.edges.setAttribute('height', maxY);
+    canvasEls.edges.setAttribute('viewBox', `0 0 ${maxX} ${maxY}`);
+    canvasEls.edges.querySelector('path').setAttribute('d', edgesPath(forest, pos));
+    // Nodes: replace only the node layer (keep the persistent <svg> edges child).
+    canvasEls.scene.querySelectorAll('.ov-node').forEach((n) => n.remove());
+    canvasEls.scene.insertAdjacentHTML('beforeend', forest.map((r) => {
+      const walk = (n) => nodeCard(n, pos.get(n.id)) + n.children.map(walk).join('');
+      return walk(r);
+    }).join(''));
+    if (fitPending) { fitPending = false; fitView(pos); }
+    tickRuntimes();
+  }
+  applyViewport();
 }
-// A project renders open by default; remember the operator's explicit collapses
-// so the 2s poll re-render preserves them (toggle doesn't bubble → capture).
-content.addEventListener('toggle', (e) => {
-  const d = e.target;
-  if (!(d instanceof HTMLDetailsElement) || !d.classList.contains('ov-project') || !d.dataset.pid) return;
-  if (d.open) collapsed.delete(d.dataset.pid); else collapsed.add(d.dataset.pid);
-}, true);
 
 // ================= Settings + Remote panels (ported verbatim from the old
 // experimental render-home-panels.js — EXACT markup/classes, all defined in
@@ -529,6 +766,10 @@ function renderOffline() {
 // ---- render dispatch ----
 function renderScreen() {
   content.removeAttribute('aria-busy');
+  // Leaving Home (or a full-screen takeover): drop the wide-canvas layout + the
+  // runtime ticker; renderHome re-establishes both when it rebuilds the canvas.
+  body.classList.remove('home-canvas');
+  stopRuntimeTicker();
   // Daemon unreachable: full-screen reconnect takeover (chrome hidden via body
   // class), takes precedence over everything else.
   body.classList.toggle('app-offline', offline && !accessBlocked);
@@ -706,14 +947,35 @@ content.addEventListener('click', async (e) => {
     return;
   }
 
-  const stop = e.target.closest('.ov-stop');
-  if (stop) {
+  // ---- canvas controls (zoom / fit / fullscreen / live links) ----
+  const ctrl = e.target.closest('[data-canvas]');
+  if (ctrl) {
     e.preventDefault();
-    const laneId = stop.dataset.lane;
-    if (!laneId) return;
-    if (!armed.has(laneId)) { armed.add(laneId); renderHome(lastData); setTimeout(() => { if (armed.delete(laneId)) renderHome(lastData); }, 30000); return; }
-    armed.delete(laneId); stop.disabled = true;
-    try { await fetch('/api/emergency-stop', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ laneId }) }); } catch { /* */ }
+    const k = ctrl.dataset.canvas;
+    const canvas = canvasEls && canvasEls.canvas;
+    if (k === 'zoom-in' || k === 'zoom-out') { const r = canvas.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, k === 'zoom-in' ? 1.15 : 1 / 1.15); }
+    else if (k === 'fit') { if (lastPos) fitView(lastPos); }
+    else if (k === 'fullscreen') { if (document.fullscreenElement) document.exitFullscreen(); else if (canvas && canvas.requestFullscreen) canvas.requestFullscreen(); }
+    else if (k === 'links') { linksOpen = !linksOpen; if (canvasEls) canvasEls.links.hidden = !linksOpen; ctrl.classList.toggle('is-on', linksOpen); }
+    return;
+  }
+
+  // ---- glass-red kill: per-lane (break-glass) or project-wide on an orchestrator ----
+  // Both are arm-then-confirm; the orchestrator-wide one stops every live lane
+  // under that agent and should be seldom used, so it stays a two-click action.
+  const kill = e.target.closest('[data-stop-lane], [data-stop-orch]');
+  if (kill) {
+    e.preventDefault();
+    const laneId = kill.dataset.stopLane;
+    const orchId = kill.dataset.stopOrch;
+    const id = laneId || orchId;
+    if (!id) return;
+    if (!armed.has(id)) { armed.add(id); renderHome(lastData); setTimeout(() => { if (armed.delete(id)) renderHome(lastData); }, 12000); return; }
+    armed.delete(id); kill.disabled = true;
+    try {
+      if (laneId) await fetch('/api/emergency-stop', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ laneId }) });
+      else await fetch(`/api/orchestrators/${encodeURIComponent(orchId)}/emergency-stop`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ actor: 'dashboard', approved: true }) });
+    } catch { /* */ }
     poll();
   }
 });
