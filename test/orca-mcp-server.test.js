@@ -105,8 +105,8 @@ test('Orca MCP server: initialize, tools/list, and a proxied tools/call', async 
       id: 3,
       method: 'tools/call',
       params: {
-        name: 'lane__heartbeat',
-        arguments: { body: { note: 'localhost:5173' } },
+        name: 'lane__submit',
+        arguments: { body: { summary: 'localhost:5173' } },
       },
     },
   ]);
@@ -123,7 +123,7 @@ test('Orca MCP server: initialize, tools/list, and a proxied tools/call', async 
   const tools = responses.get(2).result.tools;
   const names = tools.map((t) => t.name);
   assert.ok(names.includes('lane__submit'), 'submit tool exposed');
-  assert.ok(names.includes('lane__heartbeat'), 'heartbeat tool exposed');
+  assert.ok(names.includes('lane__get'), 'lane read tool exposed');
   assert.ok(!names.some((n) => n.includes('.')), 'no dotted MCP tool names');
   // executor role must NOT see dashboard-only tools like provider.configure
   assert.ok(!names.includes('provider__configure'), 'dashboard-only tool hidden from executor');
@@ -133,7 +133,7 @@ test('Orca MCP server: initialize, tools/list, and a proxied tools/call', async 
   assert.equal(callResult.isError, false);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].method, 'POST');
-  assert.equal(calls[0].url, '/api/lanes/lane-123/heartbeat'); // {laneId} from env
+  assert.equal(calls[0].url, '/api/lanes/lane-123/submit'); // {laneId} from env
   assert.equal(calls[0].lease, 'lease-abc');
   assert.match(calls[0].body, /localhost:5173/);
 });
@@ -150,8 +150,8 @@ test('Orca MCP server: initialize delivers role-specific operating rules', async
     );
     const orchInstr = orchResponses.get(1).result.instructions;
     assert.match(orchInstr, /ORCHESTRATOR/);
-    assert.match(orchInstr, /session__next_action FIRST/);
-    assert.match(orchInstr, /lane__create/);
+    assert.match(orchInstr, /orchestrator__status/);
+    assert.match(orchInstr, /executor__spawn/);
     assert.match(orchInstr, /evidence/);
     assert.match(orchInstr, /nextAction/);
 
@@ -178,7 +178,7 @@ test('Orca MCP server: refusal body (with nextAction envelope) is surfaced as is
     req.on('end', () => {
       calls.push(req.url);
       res.writeHead(409, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: 'out of order', nextAction: { nextRequiredTool: 'lane.heartbeat' } }));
+      res.end(JSON.stringify({ error: 'out of order', nextAction: { nextRequiredTool: 'lane.submit' } }));
     });
   });
   const port = await new Promise((r) => server.listen(0, '127.0.0.1', () => r(server.address().port)));
@@ -191,14 +191,14 @@ test('Orca MCP server: refusal body (with nextAction envelope) is surfaced as is
       ORCA_LANE_ID: 'lane-1',
       ORCA_SESSION_ID: 'sess-1',
     },
-    [{ jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'lane__heartbeat', arguments: {} } }],
+    [{ jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'lane__submit', arguments: {} } }],
   );
   server.close();
 
   const result = responses.get(7).result;
   assert.equal(result.isError, true);
   assert.match(result.content[0].text, /nextRequiredTool/);
-  assert.match(result.content[0].text, /lane\.heartbeat/);
+  assert.match(result.content[0].text, /lane\.submit/);
 });
 
 test('Orca MCP server: a JSON-RPC batch gets a single array response (notifications omitted)', async () => {

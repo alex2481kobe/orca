@@ -39,7 +39,6 @@ const statusTagForState = (state) => {
     case LANE_STATES.QUEUED:
     case LANE_STATES.STARTING:
     case LANE_STATES.RUNNING:
-    case LANE_STATES.NEEDS_CRITIQUE:
       return 'working';
     default:
       return String(state);

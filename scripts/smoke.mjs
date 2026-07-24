@@ -16,7 +16,7 @@
  *  10. private access states + setup plan (Funnel rejection), PWA static guards
  *
  * (v2 note: provider-config HTTP routes, browsing/evidence, app export/import,
- * and artifacts/cleanup were removed in the v2 refactor; their sections were
+ * artifacts/cleanup and the custom-MCP-tool CRUD were removed; their sections were
  * dropped here.)
  *
  * Usage:
@@ -311,7 +311,7 @@ const malformed = await req('POST', '/api/projects', '{ not json ', { headers: t
 if (malformed.status !== 400) fail('malformed JSON should be 400', JSON.stringify(malformed));
 log('neg/malformed-json', `${malformed.status} ok`);
 
-const malformedQuery = await req('GET', '/api/audit/events?status=%E0%A4');
+const malformedQuery = await req('GET', '/api/system/dirs?path=%E0%A4');
 if (malformedQuery.status !== 400) fail('malformed query should be 400', JSON.stringify(malformedQuery));
 log('neg/malformed-query', `${malformedQuery.status} ok`);
 
@@ -347,25 +347,12 @@ const laneState = laneDone.body.state;
 if (laneState !== 'done') fail('lane should reach done', laneState);
 log('laneState', laneState);
 
-// --- MCP CRUD + Codex lane attachment ---
-const tool = await req('POST', '/api/mcp/tools', {
-  name: `smoke-tool-${slugSuffix}`,
-  command: 'node',
-  args: ['--version'],
-  env: { SMOKE: '1' },
-  description: 'smoke',
-  scope: ['all'],
-  approved: true,
-});
-if (tool.status !== 201) fail('createMcpTool', JSON.stringify(tool));
-log('mcpTool', tool.body.id);
-
+// --- Codex lane spawn + stop (the custom-MCP-tool CRUD is gone) ---
 const codexLane = await req('POST', `/api/orchestrators/${orchestratorId}/executors`, {
   title: 'smoke codex lane',
   role: 'executor',
   executorType: 'codex',
   executorBinary: process.env.ORCA_CODEX_BINARY || 'codex',
-  mcpToolIds: [tool.body.id],
   approved: true,
   taskPrompt: 'Plan only',
   model: 'gpt-5',
@@ -379,27 +366,16 @@ const stopCodexLane = await req('POST', `/api/lanes/${codexLane.body.id}/stop`, 
   approved: true,
 });
 if (stopCodexLane.status !== 200 || stopCodexLane.body?.state !== 'stopped') fail('stopCodexLane', JSON.stringify(stopCodexLane));
-
-const deleteSmokeTool = await req('DELETE', `/api/mcp/tools/${tool.body.id}`, {
-  actor: 'dashboard',
-  approved: true,
-});
-if (deleteSmokeTool.status !== 200) fail('deleteSmokeMcpTool', JSON.stringify(deleteSmokeTool));
-log('mcpToolCleanup', tool.body.id);
+log('codexLaneStopped', stopCodexLane.body.state);
 
 const artifacts = await req('GET', `/api/lanes/${lane.body.id}/artifacts`);
 log('artifacts', `${(artifacts.body.files || []).length} files`);
 
-// --- audit queue + ack ---
+// --- audit queue (the audit-log read/ack routes were removed) ---
 const audit = await req('POST', `/api/lanes/${lane.body.id}/audit`, { actor: 'dashboard', approved: true });
 if (audit.status !== 201) fail('queueLaneAudit', JSON.stringify(audit));
 const auditId = audit.body.event?.id || audit.body.id || audit.body.queueId;
 log('audit', `id=${auditId}`);
-if (auditId) {
-  const ack = await req('POST', `/api/audit/events/${auditId}/ack`, { actor: 'dashboard' });
-  if (ack.status !== 200) fail('ackAudit', JSON.stringify(ack));
-  log('ackedAudit', ack.body.status);
-}
 
 // --- worktree discard (expected 422 because lane has no managed worktree) ---
 const wtRemove = await req('POST', `/api/lanes/${lane.body.id}/worktree/discard`, { actor: 'dashboard', approved: true });

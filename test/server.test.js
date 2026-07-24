@@ -298,7 +298,7 @@ test('lane terminal input and resize reach a PTY-backed interactive lane', async
   try {
     const orchestrator = await registerOrchestrator(server, token, { title: 'Lane Terminal Orchestrator' });
 
-    const created = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
+    const created = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/executors`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: {
@@ -482,11 +482,7 @@ test('an unpaired client with only the URL receives no workspace or host data', 
       '/api/mobile/manifest',
       '/api/private-access',
       '/api/private-access/tailnet',
-      '/api/agent-tools/discovery',
-      '/api/agent-tools/next-action',
       '/api/system/blockers',
-      '/api/audit/events',
-      '/api/mcp/tools',
       '/api/executors/profiles',
     ];
     for (const route of protectedReads) {
@@ -530,7 +526,7 @@ test('with no API token, the local host bootstraps but proxied tailnet requests 
 
   try {
     // Direct, non-proxied loopback request = the workstation itself = admin.
-    const local = await server.requestJson('/api/projects', { method: 'GET' });
+    const local = await server.requestJson('/api/overview', { method: 'GET' });
     assert.equal(local.status, 200);
 
     const created = await server.requestJson('/api/projects', {
@@ -601,7 +597,7 @@ test('anti-DNS-rebinding: a direct request with a foreign Host header is refused
   try {
     // A rebinding drive-by: browser connects to 127.0.0.1 over loopback but the
     // page's Host header is the attacker domain. Must be rejected before auth.
-    const rebind = await server.requestJson('/api/projects', {
+    const rebind = await server.requestJson('/api/overview', {
       method: 'GET',
       headers: { host: 'attacker.example' },
     });
@@ -609,7 +605,7 @@ test('anti-DNS-rebinding: a direct request with a foreign Host header is refused
 
     // Legit loopback Host names still pass through to the bootstrap-admin path.
     for (const host of ['127.0.0.1:3000', 'localhost', '[::1]:3000']) {
-      const ok = await server.requestJson('/api/projects', { method: 'GET', headers: { host } });
+      const ok = await server.requestJson('/api/overview', { method: 'GET', headers: { host } });
       assert.equal(ok.status, 200, `host ${host} should be allowed`);
     }
 
@@ -657,8 +653,8 @@ test('paired devices get operator access but are denied host administration', as
     });
     assert.equal(project.status, 201);
 
-    const tools = await server.requestJson('/api/mcp/tools', { method: 'GET', headers: { cookie } });
-    assert.equal(tools.status, 200);
+    const overview = await server.requestJson('/api/overview', { method: 'GET', headers: { cookie } });
+    assert.equal(overview.status, 200);
 
     // Host administration is refused (403) for a paired operator device.
     const adminAttempts = [
@@ -684,7 +680,7 @@ test('paired devices get operator access but are denied host administration', as
       body: { cwd: process.cwd(), actor: 'dashboard', title: 'Operator Worker Orchestrator' },
     });
     assert.equal(operatorOrchestrator.status, 200, JSON.stringify(operatorOrchestrator.body));
-    const operatorLane = await server.requestJson(`/api/orchestrators/${operatorOrchestrator.body.id}/lanes`, {
+    const operatorLane = await server.requestJson(`/api/orchestrators/${operatorOrchestrator.body.id}/executors`, {
       method: 'POST',
       headers: { cookie },
       body: { title: 'Operator Worker Lane', executorType: 'mock', approved: true },
@@ -794,7 +790,7 @@ test('project updates and lane creations require explicit approval', async () =>
     // session. The lane-creation approval gate is unchanged.
     const orchestrator = await registerOrchestrator(server, token, { title: 'Approval Baseline Orchestrator' });
 
-    const deniedLane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
+    const deniedLane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/executors`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: {
@@ -806,7 +802,7 @@ test('project updates and lane creations require explicit approval', async () =>
     assert.equal(deniedLane.status, 409);
     assert.equal(Boolean(deniedLane.body?.requiresApproval), true);
 
-    const allowedLane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
+    const allowedLane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/executors`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: {
@@ -928,13 +924,9 @@ test('server rejects malformed query strings on query-based endpoints', async ()
   const server = await startServer({ token });
 
   try {
-    const malformedAuditQuery = await server.requestJson('/api/audit/events?status=%E0%A4', { method: 'GET', headers: { 'x-orca-token': token } });
-    assert.equal(malformedAuditQuery.status, 400);
-    assert.equal(String(malformedAuditQuery.body?.error || '').includes('Invalid request query string.'), true);
-
-    const malformedMcpQuery = await server.requestJson('/api/mcp/tools?scope=%E0%A4', { method: 'GET', headers: { 'x-orca-token': token } });
-    assert.equal(malformedMcpQuery.status, 400);
-    assert.equal(String(malformedMcpQuery.body?.error || '').includes('Invalid request query string.'), true);
+    const malformedDirQuery = await server.requestJson('/api/system/dirs?path=%E0%A4', { method: 'GET', headers: { 'x-orca-token': token } });
+    assert.equal(malformedDirQuery.status, 400);
+    assert.equal(String(malformedDirQuery.body?.error || '').includes('Invalid request query string.'), true);
   } finally {
     await server.stop();
   }
@@ -952,75 +944,23 @@ test('executor CLI APIs reject unsupported executor types', async () => {
   }
 });
 
-test('API lane creation validates MCP tool IDs and executor constraints', async () => {
+test('API lane creation enforces the executor binary constraint', async () => {
   const token = 'route-token-03g';
   const server = await startServer({ token });
 
   try {
-    const orchestrator = await registerOrchestrator(server, token, { title: 'Lane MCP orchestrator' });
+    const orchestrator = await registerOrchestrator(server, token, { title: 'Lane constraint orchestrator' });
 
-    const codexTool = await server.requestJson('/api/mcp/tools', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        name: 'route-codex-tool',
-        command: 'node',
-        scope: ['codex'],
-        approved: true,
-      },
-    });
-    assert.equal(codexTool.status, 201);
-
-    const claudeTool = await server.requestJson('/api/mcp/tools', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        name: 'route-claude-tool',
-        command: 'node',
-        scope: ['claude'],
-        approved: true,
-      },
-    });
-    assert.equal(claudeTool.status, 201);
-
-    const badScopeLane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        title: 'Bad scope lane',
-        executorType: 'codex',
-        command: 'codex --version',
-        mcpToolIds: [codexTool.body.id, claudeTool.body.id],
-        owner: 'dashboard',
-        approved: true,
-      },
-    });
-    assert.equal(badScopeLane.status, 422);
-    assert.equal(String(badScopeLane.body?.error || '').includes('Unauthorized MCP tools'), true);
-
-    const badMissingLane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        title: 'Missing tool lane',
-        executorType: 'codex',
-        command: 'codex --version',
-        mcpToolIds: ['missing-tool'],
-        owner: 'dashboard',
-        approved: true,
-      },
-    });
-    assert.equal(badMissingLane.status, 422);
-    assert.equal(String(badMissingLane.body?.error || '').includes('Unknown MCP tools'), true);
-
-    const badCommand = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
+    // The custom-MCP-tool CRUD (and per-lane mcpToolIds) is gone; a lane's only
+    // MCP server is Orca's own. The surviving spawn-time constraint is that an
+    // explicit command must invoke the configured binary for its executor type.
+    const badCommand = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/executors`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: {
         title: 'Bad command lane',
         executorType: 'codex',
         command: 'echo hello',
-        mcpToolIds: [codexTool.body.id],
         owner: 'dashboard',
         approved: true,
       },
@@ -1028,21 +968,19 @@ test('API lane creation validates MCP tool IDs and executor constraints', async 
     assert.equal(badCommand.status, 422);
     assert.equal(String(badCommand.body?.error || '').includes('configured codex binary'), true);
 
-    const validLane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
+    const validLane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/executors`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: {
         title: 'Good codex lane',
         executorType: 'codex',
         command: 'codex --version',
-        mcpToolIds: [codexTool.body.id],
         owner: 'dashboard',
         approved: true,
       },
     });
     assert.equal(validLane.status, 201);
     assert.equal(validLane.body.executorType, 'codex');
-    assert.equal(validLane.body.mcpTools[0]?.id, codexTool.body.id);
   } finally {
     await server.stop();
   }
@@ -1071,7 +1009,7 @@ test('dashboard-scoped orchestrator leases enroll and gate cross-scope actions',
     });
     assert.ok(String(registered.body?.id || '').startsWith('orc_'));
 
-    const leaseLane = await server.requestJson(`/api/orchestrators/${registered.body.id}/lanes`, {
+    const leaseLane = await server.requestJson(`/api/orchestrators/${registered.body.id}/executors`, {
       method: 'POST',
       headers: { 'x-orca-tool-lease': lease.body.leaseToken },
       body: {
@@ -1126,7 +1064,7 @@ test('scoped orchestrator leases bind plan and task actors to the lease identity
     });
     const orchestratorId = registered.body.id;
 
-    const lane = await server.requestJson(`/api/orchestrators/${orchestratorId}/lanes`, {
+    const lane = await server.requestJson(`/api/orchestrators/${orchestratorId}/executors`, {
       method: 'POST',
       headers: leaseHeaders,
       body: {
@@ -1143,7 +1081,8 @@ test('scoped orchestrator leases bind plan and task actors to the lease identity
     assert.equal(completedLane.status, 200);
     assert.equal(['done', 'ready_for_audit'].includes(completedLane.body?.state), true);
 
-    const queuedAudit = await server.requestJson(`/api/orchestrators/${orchestratorId}/audit-done-lanes`, {
+    // Queue the audit through the surviving per-lane route, with a spoofed body actor.
+    const queuedAudit = await server.requestJson(`/api/lanes/${lane.body.id}/audit`, {
       method: 'POST',
       headers: leaseHeaders,
       body: {
@@ -1151,20 +1090,18 @@ test('scoped orchestrator leases bind plan and task actors to the lease identity
         approved: true,
       },
     });
-    assert.equal(queuedAudit.status, 200);
-    assert.equal(queuedAudit.body.enqueued >= 1, true);
+    assert.equal(queuedAudit.status, 201);
 
-    const audits = await server.requestJson('/api/audit/events', {
+    // The lease identity — not the body-supplied actor — is bound as the audit
+    // actor for a scoped-lease request, so the caller cannot spoof provenance.
+    const auditedLane = await server.requestJson(`/api/lanes/${lane.body.id}`, {
       method: 'GET',
       headers: { 'x-orca-token': token },
     });
-    assert.equal(audits.status, 200);
-    const actorFor = (type) => audits.body.find((event) =>
-      event.type === type && event.sessionId === orchestratorId)?.actor;
-    // The lease identity — not the body-supplied actor — is bound as the audit
-    // actor for a scoped-lease request, so the caller cannot spoof provenance.
-    assert.equal(actorFor('session_audit_batch_queued'), 'lease-bound-orchestrator');
-    assert.equal(JSON.stringify(audits.body).includes('body-spoofed'), false);
+    assert.equal(auditedLane.status, 200);
+    const laneLog = JSON.stringify(auditedLane.body?.logs || []);
+    assert.equal(laneLog.includes('Audit requested by lease-bound-orchestrator'), true, laneLog);
+    assert.equal(laneLog.includes('body-spoofed'), false);
   } finally {
     await server.stop();
   }
@@ -1193,229 +1130,9 @@ test('dashboard event routes use canonical consumer identity despite role actor 
     // The ack route likewise binds to the canonical consumer identity and never
     // trusts a spoofed body role/actor — it resolves acks for the dashboard
     // consumer, so a spoofed orchestrator/evil-dashboard identity is disregarded.
-    const ack = await server.requestJson(`/api/orchestrators/${session.body.id}/events/ack`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        role: 'orchestrator',
-        actor: 'evil-dashboard',
-        eventIds: ['nonexistent-event'],
-      },
-    });
-    assert.equal(ack.status, 404);
-  } finally {
-    await server.stop();
-  }
-});
+    // (There is no events/ack route: draining IS the ack, and drain resolves the
+    // consumer from the validated lease/auth identity, never from the body.)
 
-test('server MCP tooling routes require token and support CRUD workflow', async () => {
-  const token = 'route-token-04';
-  const server = await startServer({ token });
-
-  try {
-    const deniedCreate = await server.requestJson('/api/mcp/tools', {
-      method: 'POST',
-      body: {
-        name: 'route-tool',
-        command: 'node',
-        scope: ['all'],
-        args: ['--version'],
-        enabled: true,
-      },
-    });
-    assert.equal(deniedCreate.status, 401);
-
-    const created = await server.requestJson('/api/mcp/tools', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        name: 'route-tool',
-        command: 'node',
-        scope: ['all'],
-        args: ['--version'],
-        enabled: true,
-        approved: true,
-      },
-    });
-    assert.equal(created.status, 201);
-    assert.equal(created.body.name, 'route-tool');
-
-    const listed = await server.requestJson('/api/mcp/tools', { method: 'GET', headers: { 'x-orca-token': token } });
-    assert.equal(listed.status, 200);
-    assert.equal(Array.isArray(listed.body), true);
-    assert.equal(listed.body.length, 1);
-
-    const fetched = await server.requestJson(`/api/mcp/tools/${created.body.id}`, { method: 'GET', headers: { 'x-orca-token': token } });
-    assert.equal(fetched.status, 200);
-    assert.equal(fetched.body.id, created.body.id);
-
-    const updated = await server.requestJson(`/api/mcp/tools/${created.body.id}`, {
-      method: 'PATCH',
-      headers: { 'x-orca-token': token },
-      body: {
-        enabled: false,
-        approved: true,
-      },
-    });
-    assert.equal(updated.status, 200);
-    assert.equal(updated.body.enabled, false);
-
-    const deleted = await server.requestJson(`/api/mcp/tools/${created.body.id}`, {
-      method: 'DELETE',
-      headers: { 'x-orca-token': token },
-      body: {
-        approved: true,
-      },
-    });
-    assert.equal(deleted.status, 200);
-
-    const afterDelete = await server.requestJson(`/api/mcp/tools/${created.body.id}`, { method: 'GET', headers: { 'x-orca-token': token } });
-    assert.equal(afterDelete.status, 404);
-  } finally {
-    await server.stop();
-  }
-});
-
-test('server MCP tool env (secrets) is shown to admin but redacted for paired operators', async () => {
-  const token = 'route-token-mcp-env';
-  const server = await startServer({ token });
-  try {
-    const created = await server.requestJson('/api/mcp/tools', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        name: 'secretful', command: 'node', args: ['x.js'], scope: ['all'], approved: true,
-        env: { GITHUB_TOKEN: 'ghp_supersecret_value' },
-      },
-    });
-    assert.equal(created.status, 201);
-
-    // Admin (token) sees the real secret value.
-    const adminList = await server.requestJson('/api/mcp/tools', { method: 'GET', headers: { 'x-orca-token': token } });
-    assert.equal(adminList.body[0].env.GITHUB_TOKEN, 'ghp_supersecret_value');
-
-    // Pair an operator device.
-    const pairing = await server.requestJson('/api/auth/pairing-codes', {
-      method: 'POST', headers: { 'x-orca-token': token }, body: { actor: 'dashboard', label: 'phone' },
-    });
-    const paired = await server.requestJson('/api/auth/pair', { method: 'POST', body: { actor: 'dashboard', code: pairing.body.pairing.code } });
-    const cookie = paired.response.headers['set-cookie'];
-
-    // Operator sees the env KEY but never the secret VALUE (list + single-get).
-    const opList = await server.requestJson('/api/mcp/tools', { method: 'GET', headers: { cookie } });
-    assert.equal(opList.status, 200);
-    assert.ok('GITHUB_TOKEN' in opList.body[0].env, 'operator still sees which env keys exist');
-    assert.notEqual(opList.body[0].env.GITHUB_TOKEN, 'ghp_supersecret_value');
-    const opGet = await server.requestJson(`/api/mcp/tools/${created.body.id}`, { method: 'GET', headers: { cookie } });
-    assert.notEqual(opGet.body.env.GITHUB_TOKEN, 'ghp_supersecret_value');
-
-    const operatorCreate = await server.requestJson('/api/mcp/tools', {
-      method: 'POST',
-      headers: { cookie },
-      body: { name: 'phone-tool', command: 'node', args: ['--version'], scope: ['all'], approved: true },
-    });
-    assert.equal(operatorCreate.status, 403);
-
-    const operatorPatch = await server.requestJson(`/api/mcp/tools/${created.body.id}`, {
-      method: 'PATCH',
-      headers: { cookie },
-      body: { enabled: false, approved: true },
-    });
-    assert.equal(operatorPatch.status, 403);
-
-    const operatorDelete = await server.requestJson(`/api/mcp/tools/${created.body.id}`, {
-      method: 'DELETE',
-      headers: { cookie },
-      body: { approved: true },
-    });
-    assert.equal(operatorDelete.status, 403);
-  } finally {
-    await server.stop();
-  }
-});
-
-test('server MCP tooling sanitizes blocked argument tokens', async () => {
-  const token = 'route-token-04c';
-  const server = await startServer({ token });
-
-  try {
-    const blockedArg = await server.requestJson('/api/mcp/tools', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        name: 'blocked-arg-tool',
-        command: 'node',
-        args: [';rm -rf /'],
-        scope: ['all'],
-        approved: true,
-      },
-    });
-    assert.equal(blockedArg.status, 422);
-    assert.equal(String(blockedArg.body?.error || '').includes('contains blocked characters'), true);
-  } finally {
-    await server.stop();
-  }
-});
-
-test('server MCP tooling rejects unsupported scope values and blocked commands', async () => {
-  const token = 'route-token-04b';
-  const server = await startServer({
-    token,
-    env: {
-      ORCA_MCP_TOOL_COMMAND_ALLOWLIST: 'node,npx',
-    },
-  });
-
-  try {
-    const invalidScope = await server.requestJson('/api/mcp/tools', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        name: 'bad-scope-tool',
-        command: 'node',
-        scope: ['invalid'],
-        approved: true,
-      },
-    });
-    assert.equal(invalidScope.status, 422);
-    assert.equal(String(invalidScope.body?.error || '').includes('unsupported values'), true);
-
-    const blockedCommand = await server.requestJson('/api/mcp/tools', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        name: 'blocked-command-tool',
-        command: 'python',
-        scope: ['all'],
-        approved: true,
-      },
-    });
-    assert.equal(blockedCommand.status, 422);
-    assert.equal(String(blockedCommand.body?.error || '').includes('not in the allowlist'), true);
-
-    const created = await server.requestJson('/api/mcp/tools', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        name: 'all-tool',
-        command: 'node',
-        scope: ['all'],
-        args: ['--version'],
-        approved: true,
-      },
-    });
-    assert.equal(created.status, 201);
-
-    const codexScope = await server.requestJson('/api/mcp/tools?scope=codex', { method: 'GET', headers: { 'x-orca-token': token } });
-    assert.equal(codexScope.status, 200);
-    assert.equal(Array.isArray(codexScope.body), true);
-    assert.equal(codexScope.body.length, 0);
-
-    const allScope = await server.requestJson('/api/mcp/tools?scope=all', { method: 'GET', headers: { 'x-orca-token': token } });
-    assert.equal(allScope.status, 200);
-    assert.equal(Array.isArray(allScope.body), true);
-    assert.equal(allScope.body.length, 1);
-    assert.equal(allScope.body[0]?.id, 'all-tool');
   } finally {
     await server.stop();
   }
@@ -1450,98 +1167,30 @@ test('mobile manifest exposes project entries and workflow action URLs', async (
     assert.equal(Array.isArray(projectEntry.quickLinks), true);
     assert.equal(typeof manifest.body?.orchestratorsUrl, 'string');
 
-    assert.equal(typeof manifest.body?.artifactCleanupUrl, 'string');
-    assert.equal(typeof manifest.body?.artifactCleanupScheduleUrl, 'string');
-    assert.equal(typeof manifest.body?.artifactCleanupNowUrl, 'string');
-    assert.equal(typeof manifest.body?.executorProfilesUrl, 'string');
-    assert.equal(typeof manifest.body?.executorCliInfoUrl, 'string');
     assert.equal(manifest.body?.browserSessionSupported, true);
     assert.equal(typeof manifest.body?.authStatusUrl, 'string');
     assert.equal(typeof manifest.body?.authPairingCodeUrl, 'string');
     assert.equal(typeof manifest.body?.authPairUrl, 'string');
     assert.equal(typeof manifest.body?.authLogoutUrl, 'string');
     assert.equal(typeof manifest.body?.authSessionsUrl, 'string');
-    assert.equal(typeof manifest.body?.agentToolsDiscoveryUrl, 'string');
-    assert.equal(typeof manifest.body?.agentToolsNextActionUrl, 'string');
     assert.equal(typeof manifest.body?.agentToolsLeaseUrl, 'string');
   } finally {
     await server.stop();
   }
 });
 
-test('artifact cleanup routes: unauth denied, schedule patch persists, run reports what it reclaimed', async () => {
-  const token = 'route-token-artifact-gc';
-  const server = await startServer({ token });
-
-  try {
-    // Unauthenticated (no token) must never 2xx on any of the destructive routes.
-    const unauthRun = await server.requestJson('/api/artifacts/cleanup/run-now', { method: 'POST', body: {} });
-    assert.equal(unauthRun.status >= 200 && unauthRun.status < 300, false, 'unauth run-now must not 2xx');
-    const unauthCleanup = await server.requestJson('/api/artifacts/cleanup', { method: 'POST', body: {} });
-    assert.equal(unauthCleanup.status >= 200 && unauthCleanup.status < 300, false, 'unauth cleanup must not 2xx');
-    const unauthSchedGet = await server.requestJson('/api/artifacts/cleanup/schedule', { method: 'GET' });
-    assert.equal(unauthSchedGet.status >= 200 && unauthSchedGet.status < 300, false, 'unauth schedule read must not 2xx');
-    const unauthSchedPatch = await server.requestJson('/api/artifacts/cleanup/schedule', { method: 'PATCH', body: { enabled: true } });
-    assert.equal(unauthSchedPatch.status >= 200 && unauthSchedPatch.status < 300, false, 'unauth schedule patch must not 2xx');
-
-    const authed = { 'x-orca-token': token };
-
-    // A run with no approval is refused by the deny-by-default policy gate.
-    const refused = await server.requestJson('/api/artifacts/cleanup/run-now', {
-      method: 'POST', headers: authed, body: {},
-    });
-    assert.equal(refused.status, 409, 'authorized run without approval is policy-refused');
-
-    // Schedule PATCH persists (read it back).
-    const patched = await server.requestJson('/api/artifacts/cleanup/schedule', {
-      method: 'PATCH', headers: authed, body: { approved: true, enabled: true, intervalHours: 6, olderThanDays: 3 },
-    });
-    assert.equal(patched.status, 200);
-    assert.equal(patched.body?.schedule?.enabled, true);
-    assert.equal(patched.body?.schedule?.intervalHours, 6);
-    assert.equal(patched.body?.schedule?.olderThanDays, 3);
-
-    const readBack = await server.requestJson('/api/artifacts/cleanup/schedule', { method: 'GET', headers: authed });
-    assert.equal(readBack.status, 200);
-    assert.equal(readBack.body?.schedule?.enabled, true);
-    assert.equal(readBack.body?.schedule?.intervalHours, 6);
-    assert.equal(readBack.body?.schedule?.olderThanDays, 3);
-
-    // An approved + confirmed run returns 200 and reports the cleanup summary
-    // (nothing to reclaim in a fresh workspace, so removed = 0 but the shape is
-    // present and truthful).
-    const ran = await server.requestJson('/api/artifacts/cleanup/run-now', {
-      method: 'POST', headers: authed, body: { approved: true, confirmed: true },
-    });
-    assert.equal(ran.status, 200);
-    assert.equal(typeof ran.body?.cleanup, 'object');
-    assert.equal(ran.body.cleanup.removed, 0);
-    assert.equal(Array.isArray(ran.body.cleanup.removedLanes), true);
-    assert.equal(typeof ran.body.cleanup.removedBytes, 'number');
-  } finally {
-    await server.stop();
-  }
-});
-
-test('agent tool routes expose discovery, nextAction, and token-gated leases', async () => {
+test('agent tool lease routes are token-gated and mint a scoped, usable lease', async () => {
   const token = 'route-token-agent-tools';
   const server = await startServer({ token });
 
   try {
-    const discovery = await server.requestJson('/api/agent-tools/discovery', { method: 'GET', headers: { 'x-orca-token': token } });
-    assert.equal(discovery.status, 200);
-    assert.equal(discovery.body?.contractVersion, 'orca.agent-tools.v1');
-    assert.equal(discovery.body?.publicSafe, true);
-    assert.equal(discovery.body.tools.some((tool) => tool.id === 'session.next_action'), true);
-    assert.equal(discovery.body.tools.some((tool) => tool.id === 'executor.capabilities'), true);
-    assert.equal(discovery.body.executorCapabilities?.codex?.invocation?.canRunAsOrchestrator, true);
-
-    // v2: a fresh orchestrator's next required tool is register (there is no
-    // session/enroll step); the lease is unscoped.
-    const next = await server.requestJson('/api/agent-tools/next-action?role=orchestrator', { method: 'GET', headers: { 'x-orca-token': token } });
-    assert.equal(next.status, 200);
-    assert.equal(next.body?.nextRequiredTool, 'orchestrator.register');
-    assert.equal(next.body?.executorCapabilities?.claude?.invocation?.canRunAsExecutor, true);
+    // /api/agent-tools/discovery and /next-action are gone: the executor
+    // capability matrix was deleted, and orchestrator.status now carries the
+    // next-action envelope.
+    const goneDiscovery = await server.requestJson('/api/agent-tools/discovery', { method: 'GET', headers: { 'x-orca-token': token } });
+    assert.equal(goneDiscovery.status, 404);
+    const goneNextAction = await server.requestJson('/api/agent-tools/next-action?role=orchestrator', { method: 'GET', headers: { 'x-orca-token': token } });
+    assert.equal(goneNextAction.status, 404);
 
     const deniedLease = await server.requestJson('/api/agent-tools/leases', {
       method: 'POST',
@@ -1574,7 +1223,7 @@ test('agent tool routes expose discovery, nextAction, and token-gated leases', a
     });
     assert.equal(lease.status, 201);
     assert.equal(Boolean(lease.body?.leaseToken), true);
-    assert.equal(lease.body?.lease?.allowedTools.includes('lane.create'), true);
+    assert.equal(lease.body?.lease?.allowedTools.includes('executor.spawn'), true);
     assert.equal(JSON.stringify(lease.body?.lease || {}).includes(lease.body.leaseToken), false);
     assert.equal(lease.body?.nextAction?.nextRequiredTool, 'orchestrator.register');
 
@@ -1585,7 +1234,7 @@ test('agent tool routes expose discovery, nextAction, and token-gated leases', a
     });
     const orchestratorId = registered.body.id;
 
-    const createdByLease = await server.requestJson(`/api/orchestrators/${orchestratorId}/lanes`, {
+    const createdByLease = await server.requestJson(`/api/orchestrators/${orchestratorId}/executors`, {
       method: 'POST',
       headers: { 'x-orca-tool-lease': lease.body.leaseToken },
       body: {
@@ -1686,7 +1335,7 @@ test('projects can be patched to manage quick links from the dashboard', async (
   }
 });
 
-test('project live links are server-authoritative, SSRF-checked, health-checked, and removable', async () => {
+test('project live links are server-authoritative and SSRF-checked', async () => {
   const token = 'route-token-live-links';
   const target = await startDummyWebTarget();
   const server = await startServer({ token });
@@ -1765,40 +1414,15 @@ test('project live links are server-authoritative, SSRF-checked, health-checked,
     assert.equal(added.body?.link?.healthPath, '/readyz');
     assert.equal(added.body?.project?.quickLinks?.length, 1);
 
-    const checked = await server.requestJson(`/api/projects/${project.body.id}/quick-links/${added.body.link.id}/check`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        prefer: 'local',
-      },
-    });
-    assert.equal(checked.status, 200);
-    assert.equal(checked.body?.result?.status, 'reachable');
-    assert.equal(checked.body?.link?.healthStatus, 'reachable');
-    assert.equal(checked.body?.link?.lastStatusCode, 200);
-    assert.equal(target.requests.length >= 1, true);
-    assert.equal(target.requests.at(-1)?.url, '/readyz');
-    assert.match(checked.body?.result?.checkedUrl || '', /\/readyz$/);
-
-    const removed = await server.requestJson(`/api/projects/${project.body.id}/quick-links/${added.body.link.id}`, {
-      method: 'DELETE',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        approved: true,
-      },
-    });
-    assert.equal(removed.status, 200);
-    assert.equal(removed.body?.removed, true);
-    assert.equal(removed.body?.project?.quickLinks?.length, 0);
+    // (No /check and no DELETE: project.preview.set — one upsert — is the whole
+    // preview surface now.)
   } finally {
     await server.stop();
     await target.close();
   }
 });
 
-test('orchestrator tool leases can read private-access setup state while Serve stays admin-only', async () => {
+test('private-access state is operator-readable, Serve stays admin-only, and a tool lease opens neither', async () => {
   const token = 'route-token-agent-project-links';
   const server = await startServer({ token });
 
@@ -1825,16 +1449,24 @@ test('orchestrator tool leases can read private-access setup state while Serve s
     assert.equal(lease.status, 201);
     assert.ok(lease.body?.leaseToken);
 
-    const tailnet = await server.requestJson('/api/private-access/tailnet?fake=serve-http', {
+    // tailscale.status / orca.setup_guide were cut from the MCP surface, so a tool
+    // lease no longer opens these routes — they survive for the dashboard operator.
+    const tailnetByLease = await server.requestJson('/api/private-access/tailnet?fake=serve-http', {
       method: 'GET',
       headers: { 'x-orca-tool-lease': lease.body.leaseToken },
+    });
+    assert.equal(tailnetByLease.status, 401);
+
+    const tailnet = await server.requestJson('/api/private-access/tailnet?fake=serve-http', {
+      method: 'GET',
+      headers: { 'x-orca-token': token },
     });
     assert.equal(tailnet.status, 200);
     assert.equal(tailnet.body?.serveMode, 'tailnet-http');
 
     const setup = await server.requestJson('/api/private-access/setup-plan?localUrl=http%3A%2F%2F127.0.0.1%3A3000', {
       method: 'GET',
-      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
+      headers: { 'x-orca-token': token },
     });
     assert.equal(setup.status, 200);
     assert.equal(Array.isArray(setup.body?.commands), true);
@@ -1898,24 +1530,21 @@ test('project-scoped tool leases cannot cross into another project orchestrator 
     });
     assert.equal(lease.status, 201);
 
-    const scopedProjects = await server.requestJson('/api/projects', {
+    // orchestrator.status carries the next-action envelope now (the standalone
+    // /api/agent-tools/next-action route is gone), and it is scope-checked the
+    // same way: own container readable, foreign container refused.
+    const ownStatus = await server.requestJson(`/api/orchestrators/${orchestratorA.body.id}/status`, {
       headers: { 'x-orca-tool-lease': lease.body.leaseToken },
     });
-    assert.equal(scopedProjects.status, 200);
-    assert.deepEqual(scopedProjects.body.map((project) => project.id), [projectAId]);
+    assert.equal(ownStatus.status, 200);
+    assert.equal(ownStatus.body.orchestratorId, orchestratorA.body.id);
+    assert.equal(typeof ownStatus.body.nextRequiredTool, 'string');
 
-    const ownNextAction = await server.requestJson(`/api/agent-tools/next-action?role=orchestrator&projectId=${projectAId}&sessionId=${orchestratorA.body.id}`, {
+    const foreignStatus = await server.requestJson(`/api/orchestrators/${orchestratorB.body.id}/status`, {
       headers: { 'x-orca-tool-lease': lease.body.leaseToken },
     });
-    assert.equal(ownNextAction.status, 200);
-    assert.equal(ownNextAction.body.role, 'orchestrator');
-    assert.equal(ownNextAction.body.projectId, projectAId);
-
-    const foreignNextAction = await server.requestJson(`/api/agent-tools/next-action?role=orchestrator&projectId=${projectBId}&sessionId=${orchestratorB.body.id}`, {
-      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
-    });
-    assert.equal(foreignNextAction.status, 403);
-    assert.match(foreignNextAction.body?.error || '', /Tool lease project mismatch/);
+    assert.equal(foreignStatus.status, 403);
+    assert.match(foreignStatus.body?.error || '', /Tool lease project mismatch/);
 
     const ownLanes = await server.requestJson(`/api/orchestrators/${orchestratorA.body.id}/lanes`, {
       headers: { 'x-orca-tool-lease': lease.body.leaseToken },
@@ -1928,7 +1557,7 @@ test('project-scoped tool leases cannot cross into another project orchestrator 
     assert.equal(foreignLanes.status, 403);
     assert.match(foreignLanes.body?.error || '', /Tool lease project mismatch/);
 
-    const foreignLaneCreate = await server.requestJson(`/api/orchestrators/${orchestratorB.body.id}/lanes`, {
+    const foreignLaneCreate = await server.requestJson(`/api/orchestrators/${orchestratorB.body.id}/executors`, {
       method: 'POST',
       headers: { 'x-orca-tool-lease': lease.body.leaseToken },
       body: { title: 'Should stay outside scope', executorType: 'mock', approved: true },
@@ -1966,12 +1595,14 @@ test('project archive and restore HTTP routes toggle project state (operator-aut
     assert.equal(archived.status, 200);
     assert.equal(archived.body?.state, 'archived');
 
-    const hiddenFromList = await server.requestJson('/api/projects', {
+    // (GET /api/projects is gone with project.list; the archive response state is
+    // the authoritative signal, and /api/overview only shows active projects.)
+    const overview = await server.requestJson('/api/overview', {
       method: 'GET',
       headers: { 'x-orca-token': token },
     });
-    assert.equal(hiddenFromList.status, 200);
-    assert.equal(hiddenFromList.body.some((item) => item.id === project.body.id), false);
+    assert.equal(overview.status, 200);
+    assert.equal((overview.body.projects || []).some((item) => item.id === project.body.id), false);
 
     const restored = await server.requestJson(`/api/projects/${project.body.id}/restore`, {
       method: 'POST',
@@ -1999,13 +1630,13 @@ test('scoped orchestrator tool leases can read only their project/session/lane c
     const projectBId = orchestratorB.body.projectId;
     assert.notEqual(projectAId, projectBId);
 
-    const laneA = await server.requestJson(`/api/orchestrators/${orchestratorA.body.id}/lanes`, {
+    const laneA = await server.requestJson(`/api/orchestrators/${orchestratorA.body.id}/executors`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: { title: 'Scoped Read Lane A', executorType: 'mock', approved: true },
     });
     assert.equal(laneA.status, 201);
-    const laneB = await server.requestJson(`/api/orchestrators/${orchestratorB.body.id}/lanes`, {
+    const laneB = await server.requestJson(`/api/orchestrators/${orchestratorB.body.id}/executors`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: { title: 'Scoped Read Lane B', executorType: 'mock', approved: true },
@@ -2026,9 +1657,9 @@ test('scoped orchestrator tool leases can read only their project/session/lane c
     assert.equal(lease.status, 201);
     const leaseHeaders = { 'x-orca-tool-lease': lease.body.leaseToken };
 
-    const project = await server.requestJson(`/api/projects/${projectAId}`, { headers: leaseHeaders });
-    assert.equal(project.status, 200);
-    assert.equal(project.body.id, projectAId);
+    const status = await server.requestJson(`/api/orchestrators/${orchestratorA.body.id}/status`, { headers: leaseHeaders });
+    assert.equal(status.status, 200);
+    assert.equal(status.body.orchestratorId, orchestratorA.body.id);
 
     // GET /api/orchestrators/{id}/lanes is the scoped container read; a lease bound
     // to orchestrator A can list it. (v2 removed session.list / session.describe
@@ -2042,8 +1673,8 @@ test('scoped orchestrator tool leases can read only their project/session/lane c
     assert.equal(lane.body.id, laneA.body.id);
 
     // Cross-scope reads are refused for a lease bound to project/orchestrator A.
-    const deniedProject = await server.requestJson(`/api/projects/${projectBId}`, { headers: leaseHeaders });
-    assert.equal(deniedProject.status, 403);
+    const deniedContainer = await server.requestJson(`/api/orchestrators/${orchestratorB.body.id}/status`, { headers: leaseHeaders });
+    assert.equal(deniedContainer.status, 403);
     const deniedLane = await server.requestJson(`/api/lanes/${laneB.body.id}`, { headers: leaseHeaders });
     assert.equal(deniedLane.status, 403);
   } finally {
@@ -2058,7 +1689,7 @@ test('high-risk lane stop action requires explicit approval', async () => {
   try {
     const orchestrator = await registerOrchestrator(server, token, { title: 'Lane Stop Orchestrator' });
 
-    const lane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
+    const lane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/executors`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: {
@@ -2153,7 +1784,7 @@ test('artifact serving rejects traversal, absolute, encoded, and symlink paths',
     // id as the artifact scope segment.
     const orchestrator = await registerOrchestrator(server, token, { title: 'Artifact Path Orchestrator' });
     const session = orchestrator; // artifact path scope segment = orchestrator id
-    const lane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
+    const lane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/executors`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: { title: 'Artifact Lane', executorType: 'mock', owner: 'dashboard', approved: true },
@@ -2205,7 +1836,7 @@ test('auth status bridges token auth to a cookie session that authorizes artifac
     // v2: artifact scope segment = orchestrator id (the lane container).
     const orchestrator = await registerOrchestrator(server, token, { title: 'Bridge Orchestrator' });
     const session = orchestrator;
-    const lane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
+    const lane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/executors`, {
       method: 'POST', headers: { 'x-orca-token': token }, body: { title: 'Bridge Lane', executorType: 'mock', owner: 'dashboard', approved: true },
     });
     const laneDir = path.join(process.cwd(), 'artifacts', session.body.id, lane.body.id);
@@ -2228,76 +1859,6 @@ test('auth status bridges token auth to a cookie session that authorizes artifac
       method: 'GET', headers: { cookie: cookiePair },
     });
     assert.equal(viaCookie.status, 200);
-  } finally {
-    await server.stop();
-  }
-});
-
-test('lane heartbeat endpoint can be gated by ORCA_WORKER_TOKEN', async () => {
-  const token = 'route-token-13';
-  const workerToken = 'worker-token-aa';
-  const server = await startServer({ token, env: { ORCA_WORKER_TOKEN: workerToken } });
-
-  try {
-    const orchestrator = await registerOrchestrator(server, token, { title: 'Heartbeat Orchestrator' });
-    const lane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { title: 'Heartbeat Lane', executorType: 'mock', owner: 'dashboard', approved: true },
-    });
-    assert.equal(lane.status, 201);
-
-    const denied = await server.requestJson(`/api/lanes/${lane.body.id}/heartbeat`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {},
-    });
-    assert.equal(denied.status, 401);
-    assert.equal(String(denied.body?.error || '').toLowerCase().includes('worker token'), true);
-
-    const allowed = await server.requestJson(`/api/lanes/${lane.body.id}/heartbeat`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token, 'x-orca-worker-token': workerToken },
-      body: {},
-    });
-    assert.equal(allowed.status, 200);
-
-    const lease = await server.requestJson('/api/agent-tools/leases', {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: {
-        actor: 'dashboard',
-        role: 'executor',
-        projectId: orchestrator.body.projectId,
-        sessionId: orchestrator.body.id,
-        laneId: lane.body.id,
-        ttlMs: 60000,
-      },
-    });
-    assert.equal(lease.status, 201);
-    assert.equal(lease.body?.lease?.allowedTools.includes('lane.heartbeat'), true);
-
-    const otherLane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { title: 'Worker Token Sibling Lane', executorType: 'mock', approved: true },
-    });
-    assert.equal(otherLane.status, 201);
-    const deniedOtherLane = await server.requestJson(`/api/lanes/${otherLane.body.id}`, {
-      method: 'GET',
-      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
-    });
-    assert.equal(deniedOtherLane.status, 403);
-    assert.match(deniedOtherLane.body?.error || '', /lane mismatch/);
-
-    const leaseHeartbeat = await server.requestJson(`/api/lanes/${lane.body.id}/heartbeat`, {
-      method: 'POST',
-      headers: { 'x-orca-tool-lease': lease.body.leaseToken },
-      body: {
-        actor: 'executor',
-      },
-    });
-    assert.equal(leaseHeartbeat.status, 200);
   } finally {
     await server.stop();
   }
@@ -2525,7 +2086,7 @@ test('removed v2 routes fail closed as 404 (not 500) for an authenticated reques
     const orchestrator = await registerOrchestrator(server, token, { title: 'Removed Routes Orchestrator' });
     const sid = orchestrator.body.id;
 
-    const lane = await server.requestJson(`/api/orchestrators/${sid}/lanes`, {
+    const lane = await server.requestJson(`/api/orchestrators/${sid}/executors`, {
       method: 'POST',
       headers: auth,
       body: { title: 'Removed Routes Lane', executorType: 'mock', approved: true },
@@ -2587,7 +2148,7 @@ async function gitIn(dir, ...args) {
 }
 
 async function createAcceptedIsolatedLane(server, token, orchestratorId, { branch, worktreeContent = null }) {
-  const created = await server.requestJson(`/api/orchestrators/${orchestratorId}/lanes`, {
+  const created = await server.requestJson(`/api/orchestrators/${orchestratorId}/executors`, {
     method: 'POST',
     headers: { 'x-orca-token': token },
     body: {
@@ -2652,7 +2213,7 @@ test('POST /api/lanes/{id}/integrate merges an accepted isolated lane and reject
     assert.equal((await fs.stat(path.join(process.cwd(), 'feature.txt'))).isFile(), true);
 
     // A DIRECT (shared/in-place) lane has nothing to merge back -> 422.
-    const directLane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
+    const directLane = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/executors`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: { title: 'Direct lane', executorType: 'mock', worktreeMode: 'direct', autoCompleteMs: 40, approved: true },
@@ -2757,7 +2318,7 @@ test('integrate/discard refuse a tool lease that does not own the lane orchestra
     assert.notEqual(orchestratorA.body.projectId, orchestratorB.body.projectId);
 
     // A lane lives under orchestrator B.
-    const laneB = await server.requestJson(`/api/orchestrators/${orchestratorB.body.id}/lanes`, {
+    const laneB = await server.requestJson(`/api/orchestrators/${orchestratorB.body.id}/executors`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: { title: 'B lane', executorType: 'mock', autoCompleteMs: 40, approved: true },
@@ -2799,7 +2360,7 @@ test('DELETE /api/lanes/{id} refuses a running lane and succeeds on a terminal o
   try {
     const orchestrator = await registerOrchestrator(server, token, { title: 'Delete Orchestrator' });
     // Default mock runtime (12s) keeps the lane running deterministically.
-    const created = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
+    const created = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/executors`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: { title: 'Long lane', executorType: 'mock', approved: true },
@@ -2837,120 +2398,6 @@ test('DELETE /api/lanes/{id} refuses a running lane and succeeds on a terminal o
     assert.equal(deleted.body.deleted, true);
     const gone = await server.requestJson(`/api/lanes/${laneId}`, { method: 'GET', headers: { 'x-orca-token': token } });
     assert.equal(gone.status, 404);
-  } finally {
-    await server.stop();
-  }
-});
-
-test('GET /api/orchestrators/{id}/events/replay returns history without mutating drain ack state', async () => {
-  const token = 'route-token-events-replay';
-  // Auto-audit ON so a finished executor lane produces a durable audit_required
-  // wakeup event in the orchestrator queue (the only durable-event producer).
-  const server = await startServer({ token, env: { ORCA_AUTO_AUDIT: 'true' } });
-  try {
-    const orchestrator = await registerOrchestrator(server, token, { title: 'Replay Orchestrator' });
-    const orcId = orchestrator.body.id;
-
-    const created = await server.requestJson(`/api/orchestrators/${orcId}/lanes`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { title: 'Replay lane', executorType: 'mock', autoCompleteMs: 40, approved: true },
-    });
-    assert.equal(created.status, 201);
-    await waitForLaneState(server, created.body.id, token, (l) => l?.state === 'done');
-
-    // Explicitly queue the done lane for audit; the scheduler then nudges once.
-    const queued = await server.requestJson(`/api/orchestrators/${orcId}/audit-done-lanes`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { actor: 'dashboard', approved: true },
-    });
-    assert.equal(queued.status, 200, JSON.stringify(queued.body));
-
-    // Poll drain until the durable wakeup event materializes.
-    const drainUrl = `/api/orchestrators/${orcId}/events/drain`;
-    const replayUrl = `/api/orchestrators/${orcId}/events/replay`;
-    let drainA = null;
-    for (let i = 0; i < 100; i += 1) {
-      drainA = await server.requestJson(drainUrl, { method: 'GET', headers: { 'x-orca-token': token } });
-      if (drainA.status === 200 && (drainA.body?.events?.length || 0) >= 1) break;
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    assert.equal(drainA.status, 200);
-    assert.ok((drainA.body.events?.length || 0) >= 1, 'a durable agent event should be queued');
-    const drainAIds = drainA.body.events.map((e) => e.id).sort();
-
-    // Replay returns the same history and must NOT ack/consume anything.
-    const replay = await server.requestJson(replayUrl, { method: 'GET', headers: { 'x-orca-token': token } });
-    assert.equal(replay.status, 200);
-    const replayIds = replay.body.events.map((e) => e.id).sort();
-    for (const id of drainAIds) assert.ok(replayIds.includes(id), 'replay includes the drained event');
-
-    // Draining again shows the SAME events — replay did not mutate ack state.
-    const drainB = await server.requestJson(drainUrl, { method: 'GET', headers: { 'x-orca-token': token } });
-    assert.equal(drainB.status, 200);
-    const drainBIds = drainB.body.events.map((e) => e.id).sort();
-    assert.deepEqual(drainBIds, drainAIds, 'drain->replay->drain returns the same unacked events');
-
-    // Sanity: an explicit ack DOES remove it from drain while replay keeps history.
-    const ack = await server.requestJson(`/api/orchestrators/${orcId}/events/ack`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { eventIds: drainAIds },
-    });
-    assert.equal(ack.status, 200);
-    const drainC = await server.requestJson(drainUrl, { method: 'GET', headers: { 'x-orca-token': token } });
-    assert.equal(drainC.body.events.some((e) => drainAIds.includes(e.id)), false, 'acked events drop out of drain');
-    const replayAfter = await server.requestJson(replayUrl, { method: 'GET', headers: { 'x-orca-token': token } });
-    assert.ok(drainAIds.every((id) => replayAfter.body.events.map((e) => e.id).includes(id)), 'replay still returns acked history');
-  } finally {
-    await server.stop();
-  }
-});
-
-test('POST /api/orchestrators/{id}/audit-done-lanes queues eligible done lanes and skips others', async () => {
-  const token = 'route-token-audit-done-lanes';
-  const server = await startServer({ token });
-  try {
-    const orchestrator = await registerOrchestrator(server, token, { title: 'Bulk Audit Orchestrator' });
-    const orcId = orchestrator.body.id;
-
-    // One lane that finishes (eligible) and one that stays running (not eligible).
-    const doneLane = await server.requestJson(`/api/orchestrators/${orcId}/lanes`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { title: 'Done lane', executorType: 'mock', autoCompleteMs: 40, approved: true },
-    });
-    assert.equal(doneLane.status, 201);
-    const runningLane = await server.requestJson(`/api/orchestrators/${orcId}/lanes`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { title: 'Running lane', executorType: 'mock', approved: true },
-    });
-    assert.equal(runningLane.status, 201);
-    await waitForLaneState(server, doneLane.body.id, token, (l) => l?.state === 'done');
-    await waitForLaneState(server, runningLane.body.id, token, (l) => l?.state === 'running');
-
-    const first = await server.requestJson(`/api/orchestrators/${orcId}/audit-done-lanes`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { actor: 'dashboard', approved: true },
-    });
-    assert.equal(first.status, 200, JSON.stringify(first.body));
-    // Only the done lane is eligible; the running lane is skipped.
-    assert.equal(first.body.enqueued, 1, `expected exactly the one done lane queued: ${JSON.stringify(first.body)}`);
-    assert.equal(first.body.enqueuedNew, 1);
-    assert.equal(first.body.queueIds.length, 1);
-
-    // Idempotent: a second call re-uses the pending queue entry, enqueues nothing new.
-    const second = await server.requestJson(`/api/orchestrators/${orcId}/audit-done-lanes`, {
-      method: 'POST',
-      headers: { 'x-orca-token': token },
-      body: { actor: 'dashboard', approved: true },
-    });
-    assert.equal(second.status, 200);
-    assert.equal(second.body.enqueuedNew, 0);
-    assert.equal(second.body.alreadyQueued, 1);
   } finally {
     await server.stop();
   }
@@ -2998,7 +2445,7 @@ test('admin can revoke a paired device by sessionId; a non-admin cannot, and unk
     });
     assert.equal(operatorRevoke.status, 403);
     // Device 2 is still authenticated (not revoked by the failed attempt).
-    const device2StillLive = await server.requestJson('/api/mcp/tools', { method: 'GET', headers: { cookie: cookie2 } });
+    const device2StillLive = await server.requestJson('/api/overview', { method: 'GET', headers: { cookie: cookie2 } });
     assert.equal(device2StillLive.status, 200);
 
     // (a) An admin (API token) revokes device 2 by sessionId. Own cookie untouched.

@@ -53,6 +53,8 @@ process.chdir(realTemp);
 process.env.PORT = '0'; process.env.ORCA_HOST = '127.0.0.1';
 process.env.ORCA_CREDENTIAL_BACKEND = 'memory'; process.env.ORCA_RATE_LIMIT_DISABLED = 'true';
 process.env.ORCA_REPO_ROOTS = realTemp;
+// The forest needs 20 concurrent lanes; the default per-orchestrator cap is 4.
+process.env.ORCA_LANE_CONCURRENCY = '32';
 const sm = await import('../src/server.js');
 const s = await sm.startServer(0, '127.0.0.1');
 const port = s.address().port;
@@ -79,7 +81,7 @@ if (!orch || !orch.id) { console.error('[perf] FAILED to seed orchestrator'); pr
 await req('PATCH', `/api/orchestrators/${orch.id}`, { actor: 'perf', laneConcurrencyLimit: LANES + 5, approvedCapacity: LANES + 5 });
 let seeded = 0;
 for (let i = 0; i < LANES; i++) {
-  const r = await post(`/api/orchestrators/${orch.id}/lanes`, { actor: 'perf', approved: true, title: `Lane ${i + 1}`, executorType: 'mock' });
+  const r = await post(`/api/orchestrators/${orch.id}/executors`, { actor: 'perf', approved: true, title: `Lane ${i + 1}`, executorType: 'mock' });
   if (r && r.id) seeded++;
 }
 if (seeded !== LANES) { console.error(`[perf] FAILED to seed lanes: only ${seeded}/${LANES} created`); process.exit(1); }

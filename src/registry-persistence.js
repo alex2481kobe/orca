@@ -21,11 +21,9 @@ export const persistenceMethods = {
       tasks: [],
       loops: [],
       auditEvents: [],
-      mcpTools: [],
       toolLeases: [],
       agentQueue: [],
       policies: {},
-      cleanupSchedule: {},
     };
     const recovered = readJsonFileWithRecoverySync(this.stateFile, { fallback });
     this.stateLoadStatus = recovered.status;
@@ -53,11 +51,9 @@ export const persistenceMethods = {
             orchestrators: safeArray(parsed.orchestrators),
             lanes: safeArray(parsed.lanes).filter((lane) => lane && lane.orchestratorId),
             auditEvents: safeArray(parsed.auditEvents),
-            mcpTools: safeArray(parsed.mcpTools),
             toolLeases: safeArray(parsed.toolLeases),
             agentQueue: safeArray(parsed.agentQueue),
             policies: parsed.policies || {},
-            cleanupSchedule: parsed.cleanupSchedule || {},
           };
         } else {
           // v1 (or unknown legacy) -> fresh start. The v1 model (explicit
@@ -108,20 +104,11 @@ export const persistenceMethods = {
         }
         this.policies = mergedPolicies;
       }
-      if (Array.isArray(parsed.mcpTools)) {
-        this.mcpTools = parsed.mcpTools;
-      }
       if (Array.isArray(parsed.toolLeases)) {
         this.toolLeases = parsed.toolLeases.filter((lease) => lease && typeof lease.id === 'string').slice(0, 500);
       }
       if (Array.isArray(parsed.agentQueue)) {
         this.agentQueue = normalizeAgentQueueForRestore(parsed.agentQueue);
-      }
-      if (parsed.cleanupSchedule && typeof parsed.cleanupSchedule === 'object') {
-        this.cleanupSchedule = {
-          ...this.cleanupSchedule,
-          ...parsed.cleanupSchedule,
-        };
       }
       if (migratedFromV1 || migratedFromV2) {
         const from = migratedFromV2 ? 2 : 1;
@@ -232,8 +219,6 @@ export const persistenceMethods = {
       orchestrators: this.orchestrators,
       lanes: this.lanes,
       auditEvents: this.auditEvents,
-      cleanupSchedule: this.cleanupSchedule,
-      mcpTools: this.mcpTools,
       toolLeases: this.toolLeases,
       agentQueue: normalizeAgentQueueForRestore(this.agentQueue),
     };

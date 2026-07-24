@@ -4,7 +4,7 @@
 import { LANE_STATES, isRunningLaneState } from './worker-contract.js';
 import { nowIso } from './registry-utils.js';
 import { createExecutorAdapter } from './executor-factory.js';
-import { normalizeApprovedCapacity, normalizeSpawnPolicy, normalizeIdleShutdownMode } from './registry-lane-config.js';
+import { normalizeApprovedCapacity, normalizeSpawnPolicy } from './registry-lane-config.js';
 
 const {
   QUEUED: QUEUED_STATE,
@@ -182,7 +182,6 @@ export const schedulerMethods = {
 
   async advanceLanes() {
     await this.tickExecutors();
-    await this.runCleanupSchedulerTick().catch(() => {});
 
     // Launch queued lanes per v2 orchestrator container (the orchestrator record
     // IS the container; there are no session records). Capacity lives on the record.
@@ -192,10 +191,9 @@ export const schedulerMethods = {
       const queued = sessionLanes
         .filter((lane) => lane.state === QUEUED_STATE)
         .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-      // Measure live capacity by LANE STATE (running/starting), authoritative and
-      // consistent with dispatchPendingTasks — getRunningCountForSession (executor-
-      // reported active runtimes) could undercount a RUNNING lane and let the
-      // start loop exceed approvedCapacity.
+      // Measure live capacity by LANE STATE (running/starting): authoritative.
+      // getRunningCountForSession (executor-reported active runtimes) could
+      // undercount a RUNNING lane and let the start loop exceed approvedCapacity.
       const runningCount = sessionLanes.filter((lane) => isRunningLaneState(lane.state)).length;
       const approvedCapacity = normalizeApprovedCapacity(orchestrator.approvedCapacity, normalizeApprovedCapacity(orchestrator.laneConcurrencyLimit, 4));
       const capacityLimit = normalizeSpawnPolicy(orchestrator.spawnPolicy, 'auto') === 'never' ? 0 : approvedCapacity;
@@ -252,16 +250,6 @@ export const schedulerMethods = {
       }
     }
 
-    // Fan out the task backlog: for 'auto' sessions, create executor lanes from
-    // pending tasks up to capacity, refilling as tasks finish. Runs before audit
-    // dispatch so newly spawned lanes are picked up next tick.
-    if (typeof this.dispatchPendingTasks === 'function') {
-      if (typeof this.advanceLoops === 'function') {
-        await this.advanceLoops().catch(() => {});
-      }
-      await this.dispatchPendingTasks().catch(() => {});
-    }
-
     // Autonomously run audits for lanes whose work is queued for review.
     if (typeof this.dispatchPendingAudits === 'function') {
       await this.dispatchPendingAudits().catch(() => {});
@@ -279,22 +267,21 @@ export const schedulerMethods = {
   },
 
   // Stop RUNNING lanes that have produced no activity (output/heartbeat/state
-  // change) for longer than their idle window. The window scales with the lane's
-  // idleShutdownMode: 'immediate' = laneIdleTimeoutMs, 'short_keepalive' = 3x,
-  // 'policy' = never auto-reap (left to the orchestrator/human). Disabled entirely
-  // when laneIdleTimeoutMs <= 0. Distinct from the adapter heartbeat-timeout, which
-  // reaps a dead/hung PROCESS quickly; this reaps a lane that is alive but idle.
+  // change) for longer than laneIdleTimeoutMs. A lane can opt out entirely with
+  // idleShutdown:false (never auto-reap; left to the orchestrator/human) — the old
+  // three-way immediate/short_keepalive/policy knob was a dial nobody turned.
+  // Disabled entirely when laneIdleTimeoutMs <= 0. Distinct from the adapter
+  // heartbeat-timeout, which reaps a dead/hung PROCESS quickly; this reaps a lane
+  // that is alive but idle.
   async reapIdleLanes(now = Date.now()) {
     const baseMs = this.laneIdleTimeoutMs;
     if (!Number.isFinite(baseMs) || baseMs <= 0) return;
     for (const lane of (this.lanes || [])) {
       if (!isRunningLaneState(lane.state)) continue;
-      const mode = normalizeIdleShutdownMode(lane.idleShutdownMode);
-      if (mode === 'policy') continue;
-      const windowMs = mode === 'short_keepalive' ? baseMs * 3 : baseMs;
+      if (lane.idleShutdown === false) continue;
       const lastActivity = Date.parse(lane.lastActivityAt || lane.startedAt || lane.updatedAt || lane.createdAt) || 0;
-      if (!lastActivity || (now - lastActivity) <= windowMs) continue;
-      this.appendLaneLog?.(lane, `Idle shutdown: no activity for ${Math.round((now - lastActivity) / 1000)}s (mode ${mode})`, { persist: false });
+      if (!lastActivity || (now - lastActivity) <= baseMs) continue;
+      this.appendLaneLog?.(lane, `Idle shutdown: no activity for ${Math.round((now - lastActivity) / 1000)}s`, { persist: false });
       try {
         await this.stopLane(lane.id, { actor: 'idle-shutdown', approved: true });
       } catch { /* best effort — a racing state change is fine */ }

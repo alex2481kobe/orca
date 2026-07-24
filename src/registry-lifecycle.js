@@ -123,10 +123,6 @@ export const lifecycleMethods = {
       return { allowed: true, policy };
     }
 
-    if (action === 'cleanupArtifacts' && payload.skipApproval === true) {
-      return { allowed: true, policy };
-    }
-
     if (payload.approved === true) {
       return { allowed: true, policy };
     }

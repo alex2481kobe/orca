@@ -195,7 +195,7 @@ test('lane stream accepts scoped lane.get tool leases for live executor output',
     });
     assert.equal(otherOrchestrator.status, 200, otherOrchestrator.bodyText());
     const projectId = orchestrator.body.projectId;
-    const lane = await server.request(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
+    const lane = await server.request(`/api/orchestrators/${orchestrator.body.id}/executors`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: { title: 'Streaming executor', executorType: 'mock', approved: true },
@@ -290,7 +290,7 @@ test('lane terminal tail and live stream preserve large-output continuity', asyn
       body: { cwd: process.cwd(), actor: 'dashboard', title: 'Continuity Orchestrator' },
     });
     assert.equal(orchestrator.status, 200, orchestrator.bodyText());
-    const lane = await server.request(`/api/orchestrators/${orchestrator.body.id}/lanes`, {
+    const lane = await server.request(`/api/orchestrators/${orchestrator.body.id}/executors`, {
       method: 'POST',
       headers: { 'x-orca-token': token },
       body: { title: 'Continuity executor', executorType: 'mock', approved: true },

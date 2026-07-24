@@ -1,26 +1,50 @@
 # AGENTS
 
-Canonical project guide for coding agents and contributors working in this repo. `CLAUDE.md` is a pointer here.
+Operating rules for coding agents and contributors working **on this repo**.
+`CLAUDE.md` is a pointer here. `README.md` explains what Orca is for a user — read it
+first, then read this for how to change the code without breaking the contracts.
 
-## Project
+## What you are working in
 
-Orca is a local daemon — a loop and harness for the coding agents you already run. It
-does not ship its own agent. You bring an existing MCP-capable CLI or desktop agent
-(Claude Code, Codex, or similar), and Orca lets one agent reliably spawn and depend on
-subagents — from the same CLI or a different one — with full MCP, governed lanes,
-dynamically created isolated git worktrees, and an audit → integrate/discard loop. It
-also gives those agents a secure remote face: a read-only dashboard, served privately
-over Tailscale, that shows registered agents, their working trees, and the live
-preview URLs of the projects they are building.
+Read the source before changing behavior; this is a working daemon, not scaffolding.
 
-This repo contains the Node daemon, the read-only web/PWA dashboard, the stdio MCP
-bridge and tool contract, the tool-lease auth, PWA assets, public agent skill docs,
-tests, and smoke gates. Do not treat it as scaffold-only. Before changing behavior,
-inspect the current source and the relevant tests/smokes.
+- `src/` — the Node daemon: registry, scheduler, tool-lease auth, HTTP route groups
+  (`src/server-routes/`), the MCP tool contract (`src/agent-tools/`), and the
+  hand-rolled stdio MCP bridge (`src/mcp-server.js`).
+- `public/` — the dashboard: a static shell plus `public/ui/`. The Home screen is an
+  interactive node-graph canvas of projects, orchestrators, and executor lanes.
+- `test/`, `scripts/` — `node --test` suites and the `smoke:*` gates. Security-relevant
+  behavior is proven here, not asserted in prose.
+- `docs/` — public agent skill docs and operator runbooks.
 
-External desktop AI apps (Codex app, Claude Desktop) can drive Orca as the orchestrator
-over the local stdio MCP bridge (`src/mcp-server.js`) using a scoped orchestrator lease
-— see the `POST /api/mcp/orchestrator-bootstrap` route.
+Roles are exactly four: `orchestrator`, `executor`, `auditor`, `dashboard`
+(`src/agent-tools/contract.js`). Do not invent a fifth.
+
+## Things that are easy to get wrong
+
+- **The dashboard is not read-only, and it is not an agent console.** It is a
+  monitoring surface with deliberate break-glass controls: stop an executor, stop the
+  agents under an orchestrator, close (resign) an agent. There is no chat, no prompt
+  box, and no way to type into a running agent from the UI. Do not add one without
+  owner review.
+- **Worktree isolation is conditional.** `worktreeMode` defaults to `auto`: read-only
+  and sole-writer lanes run directly in the project checkout with no worktree, and only
+  overlapping writers get a dedicated isolated worktree. `lane.integrate` applies to
+  isolated lanes only. Never document or assume "every executor gets its own worktree".
+- **A paired remote device is an operator, not an admin.** Operators (API token,
+  loopback bootstrap, or a paired browser session) get workflow reads and writes,
+  including emergency-stop and resign. Admin (API token or loopback bootstrap only)
+  gates workstation actions: minting pairing codes, private-access changes, revoking
+  another device's session, host-level MCP credentials, fleet-wide stops, and
+  unsandboxed lane permissions. Keep that split intact.
+- **The server is authoritative.** Pairing, live links, tool leases, executor
+  lifecycle, cleanup, and route authorization are decided server-side. A client must
+  never be able to grant itself a tool the server did not lease it.
+
+External MCP clients drive Orca as the orchestrator over `src/mcp-server.js`; the bare
+`claude mcp add orca -- node "$PWD/src/mcp-server.js"` wiring defaults to the
+orchestrator role. A scoped off-origin orchestrator lease is minted by
+`POST /api/mcp/orchestrator-bootstrap`, which is admin-gated on purpose.
 
 ## Public / Private Boundary
 
@@ -37,16 +61,17 @@ personal workflow notes, launch chatter, or Codex/Claude coordination details he
 
 ## Security Posture
 
-Orca will eventually touch sensitive surfaces: local files, git repos, shells, browsers, agent sessions, logs, screenshots, videos, and private network access.
+Orca touches sensitive surfaces: local files, git repos, spawned CLI processes and their
+PTYs, agent tool leases, logs and artifacts, and private network access.
 
 - Bind local services privately by default.
 - Do not expose dashboard controls publicly by default.
 - Gate destructive or repo-mutating actions behind explicit policy and audit logs.
 - Avoid broad shell execution where a typed command or API can do the job.
 - Keep secrets, local databases, logs, and generated artifacts out of git.
-- Never store provider secrets in browser storage, app state, logs, artifacts, screenshots, exports, route inventory, service-worker cache, or MCP config. Persist only credential references or env-var names.
+- Never store provider secrets in browser storage, app state, logs, artifacts, screenshots, route inventory, service-worker cache, or MCP config. Persist only credential references or env-var names.
 - Never auto-install or auto-update CLIs, package managers, browser binaries, Tailscale, credential helpers, or native runtimes by default. Managed install/update behavior requires explicit opt-in, dry-run command preview, approval, and audit logging.
-- Keep Tailscale access private to the tailnet. Tailscale Funnel is forbidden for v1.
+- Keep Tailscale access private to the tailnet. Tailscale Funnel is not part of the security model.
 - Route changes must keep the unauthenticated-access guard (`scripts/unauth-sweep-smoke.mjs`) and the matching tests/smokes green in the same logical change: every new `/api/*` route stays deny-by-default (401/403) for unauthenticated callers except the two intentionally-public endpoints (`GET /api/health`, `GET /api/auth/status`).
 - Project live links are server-authoritative. Agents and the dashboard must manage them through the quick-link API/tool contract, not stale chat text.
 

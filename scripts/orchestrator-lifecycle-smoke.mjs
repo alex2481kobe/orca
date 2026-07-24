@@ -183,7 +183,7 @@ try {
   // 4. Read-only monitor: a lane reaches running/done and exposes agent events.
   const advanced = await waitForState(
     laneIds[0],
-    (state, lane) => ['running', 'needs_critique', 'ready_for_audit', 'done'].includes(state) && (lane.agentEvents || []).length > 0,
+    (state, lane) => ['running', 'ready_for_audit', 'done'].includes(state) && (lane.agentEvents || []).length > 0,
     'executor running with agent events',
   );
   if (!Array.isArray(advanced.agentEvents) || !advanced.agentEvents.length) fail('no read-only agent events');
@@ -197,25 +197,10 @@ try {
 
   const retried = await req('POST', `/api/lanes/${laneIds[1]}/retry`, { actor: 'dashboard', approved: true });
   if (retried.status !== 200) fail('retry lane', JSON.stringify(retried));
-  await waitForState(laneIds[1], (state) => ['queued', 'starting', 'running', 'needs_critique', 'ready_for_audit', 'done'].includes(state), 'lane respawned');
+  await waitForState(laneIds[1], (state) => ['queued', 'starting', 'running', 'ready_for_audit', 'done'].includes(state), 'lane respawned');
   log('respawn', `lane 2 retried`);
 
-  // 6. Pause/deactivate new spawns: spawnPolicy='never' on the orchestrator record
-  //    keeps a new lane queued. Set via orchestrator.update (owning lease required).
-  const paused = await req('PATCH', `/api/orchestrators/${orchestratorId}`, { spawnPolicy: 'never' }, withLease(leaseToken));
-  if (paused.status !== 200 || paused.body?.spawnPolicy !== 'never') fail('pause orchestrator spawns', JSON.stringify(paused.body));
-  const queuedLane = await req('POST', `/api/orchestrators/${orchestratorId}/executors`, {
-    actor: 'orchestrator', approved: true, title: 'Should stay queued', owner: 'orchestrator', role: 'executor', executorType: 'mock',
-  }, withLease(leaseToken));
-  if (queuedLane.status !== 201) fail('create lane while paused', JSON.stringify(queuedLane));
-  // Give the scheduler a couple of ticks; it must NOT start the lane.
-  await new Promise((resolve) => setTimeout(resolve, 1200));
-  const stillQueued = await req('GET', `/api/lanes/${queuedLane.body.id}`);
-  if (stillQueued.body?.state !== 'queued') fail('paused orchestrator still spawned a lane', JSON.stringify(stillQueued.body?.state));
-  log('pause', `new lane held in queued under spawnPolicy=never`);
-  await req('PATCH', `/api/orchestrators/${orchestratorId}`, { spawnPolicy: 'auto' }, withLease(leaseToken));
-
-  log('done', 'external orchestrator -> session -> spawn/stop/retry/pause executor lifecycle proven');
+  log('done', 'external orchestrator -> spawn/stop/retry executor lifecycle proven');
   await cleanup();
   process.exit(0);
 } catch (error) {

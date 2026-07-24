@@ -14,8 +14,6 @@ private Tailscale Serve. No public Funnel.
 
 ```bash
 export ORCA_API_TOKEN="$(openssl rand -hex 32)"
-# Optional: a separate worker token for heartbeat callers.
-export ORCA_WORKER_TOKEN="$(openssl rand -hex 32)"
 ```
 
 Keep the token in a password manager or in `~/.orca.env` (chmod 600).
@@ -36,10 +34,12 @@ For durable Mac operation after the current terminal exits, use
 [`macos-launchd-runbook.md`](macos-launchd-runbook.md). It keeps the API token
 in a local `chmod 600` env file and keeps the launchd plist secret-free.
 
-If you want stricter per-binary, per-workdir, or per-env settings, set
-`ORCA_CODEX_BINARY`, `ORCA_CODEX_WORKDIR_ROOTS`,
-`ORCA_REPO_ROOTS` (comma-separated absolute paths used to validate
-lane workdirs), etc. before `npm run dev`.
+Set `ORCA_REPO_ROOTS` (comma-separated absolute paths) to restrict which
+directories agents may register and work in. Without it the approved root
+defaults to your home directory, and the server warns about that at startup.
+Per-executor overrides follow the pattern `ORCA_<EXECUTOR>_BINARY` and
+`ORCA_<EXECUTOR>_WORKDIR_ROOTS` — for example `ORCA_CODEX_BINARY` or
+`ORCA_CLAUDE_BINARY`.
 
 ## 3. Smoke the API + UI from the Mac
 
@@ -49,12 +49,12 @@ npm run smoke
 
 This starts an isolated local test server and walks the core flow: token auth,
 browser pairing, orchestrator registration, executor lane spawn/monitor, audit
-accept/fix, private-access states, and the read-only dashboard. Exit code `0`
-means the app-side flow is ready for live Tailscale verification.
+accept/fix, private-access states, and the dashboard. Exit code `0` means the
+app-side flow is ready for live Tailscale verification.
 
 ## 4. Expose privately through Tailscale Serve
 
-Default recommendation for v1 is HTTP over the tailnet. It keeps the URL as a
+The default recommendation is HTTP over the tailnet. It keeps the URL as a
 MagicDNS/private tailnet name and avoids advertising a public `*.ts.net` HTTPS
 hostname, while still staying private to devices on the same tailnet.
 
@@ -102,8 +102,8 @@ Open the following in mobile Safari/Chrome:
 1. `http://<your-mac>/` or `https://<your-mac>.<tailnet>.ts.net/` — the
    dashboard loads but shows only the **pairing gate**: no projects, orchestrators,
    executor lanes, or settings until you pair. Generate a one-time pairing code on the
-   workstation (Settings → pairing, or `npm run operator:pair`) and enter it on
-   the phone. Do not put tokens or codes in URLs.
+   workstation — the **Remote devices** screen in the sidebar, or `npm run operator:pair`
+   — and enter it on the phone. Do not put tokens or codes in URLs.
 2. `<base-url>/api/health` — JSON `{ "status": "ok" }` (no counts; this is the
    only data-free public route besides `/api/auth/status`).
 3. Before pairing, confirm the URL leaks nothing: `<base-url>/api/projects` and
@@ -111,17 +111,39 @@ Open the following in mobile Safari/Chrome:
    orchestrator, or lane data. After pairing (browser session cookie), the same
    routes return your workspace.
 
-The connected phone is a **read-only viewer**: it can browse projects,
-orchestrators, executor lanes, and lane detail, but it cannot mutate the
-workflow or perform host administration (private-access settings, minting
-pairing codes). Those stay on the workstation. Orchestration
-itself is driven by agents over MCP, not from the phone UI.
+### What a paired phone can and cannot do
 
-## 6. Viewing from the phone
+A paired device is an **operator**, not a workstation admin. Be clear about this
+before you pair a phone:
 
-- Use the project list to navigate to orchestrators and their executor lanes.
-- Lane detail shows live logs, PID/exit metadata (for real lanes), the lane
-  contract, and status — read-only.
+- **It can** read the whole workspace — projects, orchestrators, executor lanes,
+  their status and live preview links.
+- **It can** use the dashboard's break-glass controls: stop an executor, stop the
+  agents under an orchestrator, and close (resign) an agent. These are real
+  writes. A paired phone can kill a running agent.
+- **It cannot** perform workstation admin: minting pairing codes, changing
+  private-access/Tailscale Serve settings, revoking another device's session,
+  minting host-level MCP credentials, running a fleet-wide stop, or granting a
+  lane unsandboxed permissions. Those stay on the workstation.
+
+There is no chat or prompt box on the phone. Orchestration itself is driven by
+agents over MCP, not from the UI.
+
+If you do not want a device to be able to stop your agents, do not pair it.
+
+## 6. Using the dashboard from the phone
+
+- **Home** is an interactive node canvas of your projects, orchestrators, and
+  executor lanes — pan, zoom, fit, and fullscreen. Three stat cards summarize
+  "Active agents", "Queued agents", and "Idle / complete"; the Live links button
+  opens a project's dev-server URLs over the tailnet.
+- A node's status reads as Running, Spawning, Queued, Waiting, Complete, Idle,
+  Failed, or Stopped.
+- A node's `⋯` menu holds the break-glass controls described above.
+- **Remote devices** on a phone shows this device's connection and an Unlink
+  button. Each workstation is its own Tailscale URL, so switching workstations
+  just means opening a different link.
+- **Settings** is appearance only.
 
 ## 7. Shutdown
 
@@ -149,6 +171,7 @@ tailscale serve reset
 - Public Tailscale Funnel.
 - Auto-seed of demo data (set `ORCA_SEED=1` only if you want a
   starter example project).
-- Sweep destructive commands. Cleanup defaults to dry-run; live deletion
-  requires `confirmed: true` plus approval.
+- Unconfirmed destructive cleanup. Artifact cleanup refuses to delete anything
+  without `confirmed: true` plus the approval policy check; use `dryRun: true`
+  to preview.
 - Hand-edited tokens in shell history; prefer `read -s`.

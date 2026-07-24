@@ -14,7 +14,6 @@ const {
   QUEUED: QUEUED_STATE,
   STARTING: STARTING_STATE,
   RUNNING: RUNNING_STATE,
-  NEEDS_CRITIQUE: NEEDS_CRITIQUE_STATE,
   READY_FOR_AUDIT: READY_FOR_AUDIT_STATE,
   FIX_REQUESTED: FIX_REQUESTED_STATE,
   ACCEPTED: ACCEPTED_STATE,
@@ -26,7 +25,7 @@ const {
 
 export const laneOpsMethods = {
   // Attach a machine-readable next step to a recoverable refusal so an agent can
-  // self-correct without an extra session.next_action round-trip. Overrides the
+  // self-correct without an extra orchestrator.status round-trip. Overrides the
   // computed nextRequiredTool with the corrective tool for this specific refusal.
   _laneNextAction(lane, nextRequiredTool) {
     try {
@@ -88,7 +87,7 @@ export const laneOpsMethods = {
   submitLane(laneLocator, { actor = 'executor', summary = '', changedFiles = [], handoff = '' } = {}) {
     const lane = this.getLane(laneLocator);
     if (!lane) throw { status: 404, message: 'Lane not found.' };
-    const submittable = new Set([STARTING_STATE, RUNNING_STATE, NEEDS_CRITIQUE_STATE]);
+    const submittable = new Set([STARTING_STATE, RUNNING_STATE]);
     if (!submittable.has(lane.state)) {
       throw {
         status: 409,
@@ -120,11 +119,9 @@ export const laneOpsMethods = {
       evidence: { summary: lane.summary || '', changedFiles: lane.changedFiles || [] },
     });
     this.persistState();
-    // `needsCritique` is retained in the return shape (always false) as a stable
-    // API field consumed by callers/tests; the critique flow itself was removed.
     // Guide the agent to the next step (audit.queue_one) so a successful submit
-    // doesn't force a separate session.next_action round-trip.
-    return { lane: clonePayload(lane), needsCritique: false, nextAction: this._laneNextAction(lane) };
+    // doesn't force a separate status round-trip.
+    return { lane: clonePayload(lane), nextAction: this._laneNextAction(lane) };
   },
 
   // --- Permission-approval relay (Codex-app-style approval loop) -----------
@@ -266,7 +263,6 @@ export const laneOpsMethods = {
     lane.intelligenceProfile = next.intelligenceProfile;
     lane.targetUrl = next.targetUrl;
     lane.verificationCommand = next.verificationCommand;
-    lane.executorCapabilities = this.getExecutorCapabilities(lane.executorType);
     lane.updatedAt = nowIso();
     this.appendLaneLog(
       lane,
@@ -407,7 +403,7 @@ export const laneOpsMethods = {
 
     // Blocked lanes are retryable too — a deliberate "reset & retry" after the
     // operator has addressed why the auditor blocked it (retryLane clears the
-    // audit/critique state below).
+    // audit state below).
     if (![FAILED_STATE, STOPPED_STATE, FIX_REQUESTED_STATE, BLOCKED_STATE].includes(lane.state)) {
       throw { status: 409, message: `Lane state "${lane.state}" is not retryable.` };
     }
@@ -427,20 +423,6 @@ export const laneOpsMethods = {
     lane.completedAt = null;
     lane.startedAt = null;
     lane.auditState = 'not_queued';
-    lane.critiqueState = 'not_required';
-    // If this lane came from a backlog task that was requeued to 'pending' when the
-    // lane failed, re-link it so the retry's eventual accept/fail syncs the task
-    // (otherwise markTask*FromLane finds no task) and dispatchPendingTasks won't
-    // also spawn a second lane for it. Only relink a still-pending, unlinked task —
-    // never steal one already running on another live lane.
-    if (lane.metadataTaskId && typeof this.getTask === 'function') {
-      const task = this.getTask(lane.metadataTaskId);
-      if (task && task.state === 'pending' && !task.laneId) {
-        task.state = 'in_lane';
-        task.laneId = String(lane.id);
-        task.updatedAt = nowIso();
-      }
-    }
     this.appendLaneLog(lane, `Retry requested by ${context.actor || 'dashboard'}`);
     this.recordAudit({
       type: 'lane_retried',
@@ -650,8 +632,8 @@ export const laneOpsMethods = {
     if (!lane.repoRoot || !lane.worktreePath) {
       throw { status: 422, message: 'Lane has no managed worktree to remove.' };
     }
-    if (lane.sharedWorktree || lane.worktreeMode === 'shared' || path.resolve(lane.worktreePath) === path.resolve(lane.repoRoot)) {
-      throw { status: 422, message: 'Lane uses a shared/non-managed worktree; Orca will not remove the session repository.' };
+    if (path.resolve(lane.worktreePath) === path.resolve(lane.repoRoot)) {
+      throw { status: 422, message: 'Lane runs directly in the repo checkout; Orca will not remove the session repository.' };
     }
     const policyCheck = this.evaluateActionPolicy('cleanupArtifacts', { actor, approved });
     if (!policyCheck.allowed) {
@@ -712,7 +694,7 @@ export const laneOpsMethods = {
     if (lane.worktreeMode !== 'isolated') {
       throw {
         status: 422,
-        message: `Only isolated lanes can be integrated. This lane's worktree mode is "${lane.worktreeMode || 'direct'}" — its work already lives in the repo checkout, so there is nothing to merge back.`,
+        message: `Only isolated lanes can be integrated. This lane runs directly in the repo checkout (worktree mode "${lane.worktreeMode || 'direct'}"), so its work is already there and there is nothing to merge back.`,
       };
     }
     // Terminal + audit-accepted only: never merge unreviewed or in-flight work.

@@ -8,7 +8,7 @@ import { OrcaRegistry } from '../src/registry.js';
 
 async function withRegistry(callback) {
   const previousCwd = process.cwd();
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-critique-audit-'));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-audit-state-'));
   process.chdir(tempDir);
   const registry = new OrcaRegistry({ autoCompleteMs: 60 * 60 * 1000 });
   registry.stopScheduler();
@@ -36,12 +36,12 @@ async function makeOrchestrator(registry, { actor = 'test', title = 'Orch' } = {
 }
 
 // The configurable agent-flow (template/fixRouting/maxAuditLoops/requireAuditPass)
-// now rides on the lane's settingsOverrides (the deleted session container used to
+// now rides on the lane's plain `flow` field (the deleted session container used to
 // carry it).
 async function createOrchestratorLane(registry, laneBody = {}) {
   const { orchestrator } = await makeOrchestrator(registry);
   const lane = registry.createLane(orchestrator.id, {
-    title: 'Critique Audit Lane',
+    title: 'Audit State Lane',
     executorType: 'mock',
     ...laneBody,
   }, { actor: 'test', approved: true });
@@ -63,7 +63,7 @@ test('agent-flow: audit mandatory + fix loop budget + routing per config', async
     const lane = registry.createLane(orchestrator.id, {
       title: 'Flow Lane',
       executorType: 'mock',
-      settingsOverrides: { flow: { template: 'orchestrator-executor-audit', fixRouting: 'new-agent', maxAuditLoops: 2, requireAuditPass: true } },
+      flow: { template: 'orchestrator-executor-audit', fixRouting: 'new-agent', maxAuditLoops: 2, requireAuditPass: true },
     }, { actor: 'test', approved: true });
     const laneObj = registry.getLane(lane.id);
     assert.equal(registry.auditRequiredForLane(laneObj), true);
@@ -77,9 +77,9 @@ test('agent-flow: audit mandatory + fix loop budget + routing per config', async
     assert.equal(fix1.audit.fixRouting, 'new-agent');
     assert.equal(fix1.audit.loopsRemaining, 1);
 
-    // nextAction reflects the flow: fix routed to a new agent => lane.create.
+    // nextAction reflects the flow: fix routed to a new agent => executor.spawn.
     const env = buildNextActionEnvelope(registry, { role: 'orchestrator', projectId: orchestrator.projectId, sessionId: orchestrator.id, laneId: lane.id });
-    assert.equal(env.nextRequiredTool, 'lane.create');
+    assert.equal(env.nextRequiredTool, 'executor.spawn');
     assert.equal(env.flow.template, 'orchestrator-executor-audit');
     assert.equal(env.flow.requireAuditPass, true);
     assert.equal(env.flow.returnToOrchestratorAllowed, false); // can't return to orch until audit passes

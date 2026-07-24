@@ -4,8 +4,8 @@ This runbook keeps Orca available after the terminal session that
 started it exits. It is optional, but recommended for phone-first operation
 when the Mac is expected to keep serving Orca over Tailscale.
 
-The app still binds to `127.0.0.1` by default. Tailscale Serve should proxy to
-that local port. Do not use public Funnel for v1.
+The daemon still binds to `127.0.0.1` by default. Tailscale Serve should proxy to
+that local port. Do not use public Funnel.
 
 ## Security model
 

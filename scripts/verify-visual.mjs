@@ -33,7 +33,7 @@ const shots = [];
 const projDir = path.join(realTemp, 'Demo Project');
 await fs.mkdir(projDir, { recursive: true });
 const orch = await post('/api/orchestrators', { actor: 'demo', cwd: await fs.realpath(projDir), title: 'Demo orchestrator' });
-await post(`/api/orchestrators/${orch.id}/lanes`, { actor: 'demo', approved: true, title: 'Build the thing', executorType: 'mock' });
+await post(`/api/orchestrators/${orch.id}/executors`, { actor: 'demo', approved: true, title: 'Build the thing', executorType: 'mock' });
 
 async function capture(label, { width, height, colorScheme, nav }) {
   const ctx = await b.newContext({ viewport: { width, height }, colorScheme });

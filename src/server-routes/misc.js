@@ -1,5 +1,5 @@
-// Miscellaneous singleton API routes (health, policy, system blockers,
-// audit events list/ack, mobile manifest) extracted from server.js.
+// Miscellaneous singleton API routes (health, emergency stop, overview, policy,
+// system blockers, mobile manifest) extracted from server.js.
 // ctx-threaded; each route self-guards on parts[1]. Returns FALL_THROUGH
 // when none matched so the caller continues to the global 404.
 
@@ -9,9 +9,7 @@ export async function handleMiscRoutes(ctx, req, res, method, parts) {
   const {
     registry,
     sendJson,
-    sendBodyError,
     parseJsonBody,
-    rejectSpoofedActor,
     getSearchParams,
     hasOperatorAuth,
     buildMobileManifest,
@@ -91,51 +89,12 @@ export async function handleMiscRoutes(ctx, req, res, method, parts) {
     }
   }
 
-  if (parts[1] === 'audit' && parts[2] === 'events' && method === 'GET') {
-    const searchParams = getSearchParams(req.url || '/');
-    if (!searchParams) {
-      return sendJson(res, 400, {
-        error: 'Invalid request query string.',
-      });
-    }
-    const status = searchParams.get('status');
-    return sendJson(res, 200, registry.listAuditEvents({ status }));
-  }
-
   if (parts[1] === 'mobile' && parts[2] === 'manifest' && method === 'GET') {
     return sendJson(res, 200, buildMobileManifest(req));
   }
 
-  if (parts[1] === 'audit' && parts[2] === 'events') {
-    if (parts.length === 5 && parts[4] === 'ack' && method === 'POST') {
-      const body = await parseJsonBody(req);
-      if (body === null) return sendBodyError(req, res);
-    if (rejectSpoofedActor(body, res)) return;
-      try {
-        const event = registry.acknowledgeAuditEvent(parts[3], {
-          actor: body.actor || 'dashboard',
-          notes: body.notes,
-        });
-        return sendJson(res, 200, event);
-      } catch (error) {
-        return sendJson(res, error.status || 500, {
-          error: error.message || 'Could not acknowledge audit event.',
-          requiresApproval: error.requiresApproval || false,
-          risk: error.risk || null,
-        });
-      }
-    }
-    if (parts.length === 3 && method === 'GET') {
-      const searchParams = getSearchParams(req.url || '/');
-      if (!searchParams) {
-        return sendJson(res, 400, {
-          error: 'Invalid request query string.',
-        });
-      }
-      const status = searchParams.get('status');
-      return sendJson(res, 200, registry.listAuditEvents({ status }));
-    }
-  }
+  // (No /api/audit/events read or ack routes: the durable audit log is still
+  // recorded for forensics, but no agent tool or dashboard view reads it.)
 
   return FALL_THROUGH;
 }

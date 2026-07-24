@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { spawnSync } from 'node:child_process';
 import { OrcaRegistry } from '../src/registry.js';
 
 // Portable MCP config path for command-arg assertions (no hardcoded /tmp).
@@ -63,64 +64,44 @@ function restoreEnv(previous) {
   };
 }
 
-test('cleanup schedule and cleanup artifacts use retention + approval', async () => {
+test('createProject/createLane accept and ignore a legacy settingsOverrides input', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
-
   try {
-    assert.equal(registry.getCleanupSchedule().enabled, false);
-    assert.throws(() => registry.updateCleanupSchedule({ enabled: true, intervalHours: 999 }, { approved: true }), (error) => error.status === 422);
+    const project = registry.createProject({
+      name: 'Legacy settings project',
+      settingsOverrides: { flow: { template: 'orchestrator-executor-audit' } },
+    }, { actor: 'test', approved: true });
+    assert.ok(project.id);
+    assert.equal(project.settingsOverrides, undefined, 'settingsOverrides is not stored');
 
-    const updated = registry.updateCleanupSchedule({
-      enabled: true,
-      intervalHours: 12,
-      olderThanDays: 7,
-      sessionId: null,
-      dryRun: true,
-    }, { approved: true });
-    assert.equal(updated.enabled, true);
-    assert.equal(updated.intervalHours, 12);
-    assert.equal(updated.olderThanDays, 7);
-
-    const { orchestrator: session } = await makeOrchestrator(registry);
-    const lane = registry.createLane(session.id, {
-      title: 'old lane',
+    const { orchestrator } = await makeOrchestrator(registry);
+    const lane = registry.createLane(orchestrator.id, {
+      title: 'Legacy settings lane',
       executorType: 'mock',
-    }, { approved: true, actor: 'test' });
+      settingsOverrides: { flow: { fixRouting: 'new-agent' } },
+    }, { actor: 'test', approved: true });
+    assert.ok(lane.id);
+    assert.equal(lane.settingsOverrides, undefined, 'settingsOverrides is not stored');
+    // ...and the legacy input does NOT leak into the flow config.
+    assert.equal(registry.getLaneFlowConfig(registry.getLane(lane.id)).fixRouting, 'same-agent');
 
-    const target = registry.getLane(lane.id);
-    target.state = 'done';
-    target.completedAt = new Date(Date.now() - (12 * 24 * 60 * 60 * 1000)).toISOString();
-    target.updatedAt = target.completedAt;
+    // The live seam: a validated `flow` field on the lane.
+    const flowLane = registry.createLane(orchestrator.id, {
+      title: 'Flow lane',
+      executorType: 'mock',
+      flow: { fixRouting: 'new-agent', maxAuditLoops: 4 },
+    }, { actor: 'test', approved: true });
+    const resolved = registry.getLaneFlowConfig(registry.getLane(flowLane.id));
+    assert.equal(resolved.fixRouting, 'new-agent');
+    assert.equal(resolved.maxAuditLoops, 4);
+    assert.equal(resolved.requireAuditPass, true, 'unset fields fall back to defaults');
 
-    const artifactDir = path.join(process.cwd(), 'artifacts', session.id, target.id);
-    await fs.mkdir(artifactDir, { recursive: true });
-    await fs.writeFile(path.join(artifactDir, 'evidence-test.log'), 'hello');
-
-    const dryRunSummary = await registry.cleanupArtifacts({
-      actor: 'test',
-      approved: true,
-      dryRun: true,
-      sessionId: session.id,
-      olderThanDays: 10,
-    });
-    assert.equal(dryRunSummary.dryRun, true);
-    assert.equal(dryRunSummary.candidates, 1);
-    assert.equal(dryRunSummary.removed, 0);
-
-    const deleteSummary = await registry.cleanupArtifacts({
-      actor: 'test',
-      approved: true,
-      sessionId: session.id,
-      olderThanDays: 10,
-      dryRun: false,
-      confirmed: true,
-    });
-    assert.equal(deleteSummary.removed, 1);
-
-    await assert.rejects(
-      fs.access(path.join(artifactDir, 'evidence-test.log')),
-      (error) => error.code === 'ENOENT',
-    );
+    // A bad flow value is refused rather than silently dropped.
+    assert.throws(() => registry.createLane(orchestrator.id, {
+      title: 'Bad flow lane',
+      executorType: 'mock',
+      flow: { fixRouting: 'telepathy' },
+    }, { actor: 'test', approved: true }), (error) => error.status === 422);
   } finally {
     await cleanup();
   }
@@ -190,663 +171,6 @@ test('project and lane mutations require policy approval', async () => {
     assert.equal(renamed.name, 'Renamed Project');
   } finally {
     await cleanup();
-  }
-});
-
-test('scheduled cleanup tick runs artifacts cleanup when run-at is due', async () => {
-  const { registry, cleanup } = await withIsolatedRegistry();
-
-  try {
-    const { orchestrator: session } = await makeOrchestrator(registry);
-    const lane = registry.createLane(session.id, {
-      title: 'stale lane',
-      executorType: 'mock',
-    }, { approved: true, actor: 'test' });
-
-    const target = registry.getLane(lane.id);
-    target.state = 'done';
-    target.completedAt = new Date(Date.now() - (10 * 24 * 60 * 60 * 1000)).toISOString();
-    target.updatedAt = target.completedAt;
-
-    const artifactDir = path.join(process.cwd(), 'artifacts', session.id, target.id);
-    await fs.mkdir(artifactDir, { recursive: true });
-    await fs.writeFile(path.join(artifactDir, 'evidence-test.log'), 'hello');
-
-    const schedule = registry.updateCleanupSchedule({
-      enabled: true,
-      intervalHours: 0.001,
-      olderThanDays: 1,
-      sessionId: session.id,
-      dryRun: false,
-    }, { actor: 'test', approved: true });
-    assert.equal(schedule.enabled, true);
-
-    registry.cleanupSchedule.nextRunAt = new Date(Date.now() - 1000).toISOString();
-
-    await registry.runCleanupSchedulerTick();
-
-    await assert.rejects(
-      fs.access(artifactDir),
-      (error) => error.code === 'ENOENT',
-    );
-
-    const updatedSchedule = registry.getCleanupSchedule();
-    assert.equal(updatedSchedule.lastRunAt !== null, true);
-    assert.equal(updatedSchedule.nextRunAt !== schedule.nextRunAt, true);
-  } finally {
-    await cleanup();
-  }
-});
-
-test('scheduled cleanup tick waits until next run time', async () => {
-  const { registry, cleanup } = await withIsolatedRegistry();
-
-  try {
-    const { orchestrator: session } = await makeOrchestrator(registry);
-    const lane = registry.createLane(session.id, {
-      title: 'stale lane',
-      executorType: 'mock',
-    }, { approved: true, actor: 'test' });
-
-    const target = registry.getLane(lane.id);
-    target.state = 'done';
-    target.completedAt = new Date(Date.now() - (10 * 24 * 60 * 60 * 1000)).toISOString();
-    target.updatedAt = target.completedAt;
-
-    const artifactDir = path.join(process.cwd(), 'artifacts', session.id, target.id);
-    await fs.mkdir(artifactDir, { recursive: true });
-    await fs.writeFile(path.join(artifactDir, 'evidence-test.log'), 'hello');
-
-    const schedule = registry.updateCleanupSchedule({
-      enabled: true,
-      intervalHours: 4,
-      olderThanDays: 1,
-      sessionId: session.id,
-      dryRun: false,
-    }, { actor: 'test', approved: true });
-
-    registry.cleanupSchedule.nextRunAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-
-    await registry.runCleanupSchedulerTick();
-
-    const stillThere = await fs.readdir(artifactDir);
-    assert.equal(stillThere.length, 1);
-    assert.equal(schedule.lastRunAt, null);
-  } finally {
-    await cleanup();
-  }
-});
-
-test('cleanup artifacts and cleanup schedule require approval for manual invocation', async () => {
-  const { registry, cleanup } = await withIsolatedRegistry();
-  try {
-    await assert.rejects(
-      () => registry.cleanupArtifacts({
-        actor: 'dashboard',
-        approved: false,
-        dryRun: true,
-        sessionId: null,
-      }),
-      (error) => error.status === 409,
-    );
-
-    assert.throws(
-      () => registry.updateCleanupSchedule({
-        enabled: true,
-        intervalHours: 24,
-        olderThanDays: 7,
-      }, { actor: 'dashboard', approved: false }),
-      (error) => error.status === 409,
-    );
-
-    const schedulerResult = await registry.cleanupArtifacts({
-      actor: 'scheduler',
-      skipApproval: true,
-      dryRun: true,
-      sessionId: null,
-      olderThanDays: 7,
-    });
-    assert.equal(schedulerResult.dryRun, true);
-    assert.equal(schedulerResult.removed, 0);
-  } finally {
-    await cleanup();
-  }
-});
-
-test('cleanup artifacts require explicit confirmation for destructive cleanup', async () => {
-  const { registry, cleanup } = await withIsolatedRegistry();
-
-  try {
-    const { orchestrator: session } = await makeOrchestrator(registry);
-
-    const lane = registry.createLane(session.id, {
-      title: 'old lane',
-      executorType: 'mock',
-    }, { approved: true, actor: 'test' });
-
-    const target = registry.getLane(lane.id);
-    target.state = 'done';
-    target.completedAt = new Date(Date.now() - (12 * 24 * 60 * 60 * 1000)).toISOString();
-    target.updatedAt = target.completedAt;
-
-    const artifactDir = path.join(process.cwd(), 'artifacts', session.id, target.id);
-    await fs.mkdir(artifactDir, { recursive: true });
-    await fs.writeFile(path.join(artifactDir, 'evidence-test.log'), 'hello');
-
-    await assert.rejects(
-      () => registry.cleanupArtifacts({
-        actor: 'test',
-        approved: true,
-        dryRun: false,
-        sessionId: session.id,
-        olderThanDays: 10,
-      }),
-      (error) => error.status === 409,
-    );
-
-    const dryRunSummary = await registry.cleanupArtifacts({
-      actor: 'test',
-      approved: true,
-      dryRun: true,
-      sessionId: session.id,
-      olderThanDays: 10,
-    });
-    assert.equal(dryRunSummary.removed, 0);
-
-    const deleteSummary = await registry.cleanupArtifacts({
-      actor: 'test',
-      approved: true,
-      dryRun: false,
-      confirmed: true,
-      sessionId: session.id,
-      olderThanDays: 10,
-    });
-    assert.equal(deleteSummary.removed, 1);
-    await assert.rejects(
-      fs.access(path.join(artifactDir, 'evidence-test.log')),
-      (error) => error.code === 'ENOENT',
-    );
-  } finally {
-    await cleanup();
-  }
-});
-
-// PORTED from 'cleanup default retention comes from session policy when
-// olderThanDays is omitted'. v3 has no session container and no session-level
-// artifactRetentionDays (the orchestrator container seam returns null), so the
-// port asserts the DEFAULT retention fallback (14 days) the cleanup uses when no
-// per-container retention and no explicit olderThanDays are supplied: a lane older
-// than 14 days is swept, a recent lane is kept, and an explicit wider window keeps
-// everything.
-test('cleanup default retention falls back to the 14-day default when olderThanDays is omitted', async () => {
-  const { registry, cleanup } = await withIsolatedRegistry();
-
-  try {
-    const { orchestrator: session } = await makeOrchestrator(registry);
-
-    const lane = registry.createLane(session.id, {
-      title: 'old lane',
-      executorType: 'mock',
-    }, { approved: true, actor: 'test' });
-
-    const target = registry.getLane(lane.id);
-    target.state = 'done';
-    // Older than the 14-day default retention window.
-    target.completedAt = new Date(Date.now() - (20 * 24 * 60 * 60 * 1000)).toISOString();
-    target.updatedAt = target.completedAt;
-
-    const artifactDir = path.join(process.cwd(), 'artifacts', session.id, target.id);
-    await fs.mkdir(artifactDir, { recursive: true });
-    await fs.writeFile(path.join(artifactDir, 'old.txt'), 'retention-check');
-
-    const summaryDefaultRetention = await registry.cleanupArtifacts({
-      actor: 'test',
-      approved: true,
-      sessionId: session.id,
-      confirmed: true,
-    });
-    assert.equal(summaryDefaultRetention.removed, 1);
-    await assert.rejects(
-      fs.access(path.join(artifactDir, 'old.txt')),
-      (error) => error.code === 'ENOENT',
-    );
-
-    const keptLane = registry.createLane(session.id, {
-      title: 'newer lane',
-      executorType: 'mock',
-    }, { approved: true, actor: 'test' });
-    const keptTarget = registry.getLane(keptLane.id);
-    keptTarget.state = 'done';
-    keptTarget.completedAt = new Date().toISOString();
-    keptTarget.updatedAt = keptTarget.completedAt;
-    const keptDir = path.join(process.cwd(), 'artifacts', session.id, keptTarget.id);
-    await fs.mkdir(keptDir, { recursive: true });
-    await fs.writeFile(path.join(keptDir, 'recent.txt'), 'recent');
-
-    const summaryOverride = await registry.cleanupArtifacts({
-      actor: 'test',
-      approved: true,
-      sessionId: session.id,
-      olderThanDays: 30,
-      confirmed: true,
-    });
-    assert.equal(summaryOverride.removed, 0);
-    const keptFileText = await fs.readFile(path.join(keptDir, 'recent.txt'), 'utf8');
-    assert.equal(keptFileText, 'recent');
-  } finally {
-    await cleanup();
-  }
-});
-
-test('MCP tools are scoped by executor type', async () => {
-  const { registry, cleanup } = await withIsolatedRegistry();
-
-  try {
-    const { orchestrator: session } = await makeOrchestrator(registry);
-
-    await registry.createMcpTool({
-      name: 'all-tool',
-      command: 'node',
-      args: ['--version'],
-      scope: ['all'],
-      enabled: true,
-    }, { actor: 'test', approved: true });
-
-    await registry.createMcpTool({
-      name: 'codex-tool',
-      command: 'node',
-      args: ['--version'],
-      scope: ['codex'],
-      enabled: true,
-    }, { actor: 'test', approved: true });
-
-    await registry.createMcpTool({
-      name: 'claude-tool',
-      command: 'node',
-      args: ['--version'],
-      scope: ['claude'],
-      enabled: true,
-    }, { actor: 'test', approved: true });
-
-    assert.throws(() => registry.createLane(session.id, {
-      title: 'Codex Lane',
-      executorType: 'codex',
-      mcpToolIds: ['all-tool', 'codex-tool', 'claude-tool'],
-    }, { actor: 'test', approved: true }), (error) => error.status === 422);
-
-    assert.throws(() => registry.createLane(session.id, {
-      title: 'Claude Lane',
-      executorType: 'claude',
-      mcpToolIds: ['all-tool', 'codex-tool', 'claude-tool'],
-    }, { actor: 'test', approved: true }), (error) => error.status === 422);
-
-    const codexLane = registry.createLane(session.id, {
-      title: 'Codex Lane',
-      executorType: 'codex',
-      mcpToolIds: ['all-tool', 'codex-tool'],
-    }, { actor: 'test', approved: true });
-
-    const claudeLane = registry.createLane(session.id, {
-      title: 'Claude Lane',
-      executorType: 'claude',
-      mcpToolIds: ['all-tool', 'claude-tool'],
-    }, { actor: 'test', approved: true });
-
-    const mockLane = registry.createLane(session.id, {
-      title: 'Mock Lane',
-      executorType: 'mock',
-      mcpToolIds: ['all-tool'],
-    }, { actor: 'test', approved: true });
-
-    const codexToolNames = new Set((codexLane.mcpTools || []).map((item) => item.name));
-    const claudeToolNames = new Set((claudeLane.mcpTools || []).map((item) => item.name));
-    const mockToolNames = new Set((mockLane.mcpTools || []).map((item) => item.name));
-
-    assert.ok(codexToolNames.has('all-tool'));
-    assert.ok(codexToolNames.has('codex-tool'));
-    assert.ok(!codexToolNames.has('claude-tool'));
-
-    assert.ok(claudeToolNames.has('all-tool'));
-    assert.ok(claudeToolNames.has('claude-tool'));
-    assert.ok(!claudeToolNames.has('codex-tool'));
-
-    assert.deepEqual([...mockToolNames], ['all-tool']);
-  } finally {
-    await cleanup();
-  }
-});
-
-test('MCP tools can be queried by scope', async () => {
-  const { registry, cleanup } = await withIsolatedRegistry();
-
-  try {
-    await registry.createMcpTool({
-      name: 'all-tool',
-      command: 'node',
-      args: ['--version'],
-      scope: ['all'],
-      enabled: true,
-    }, { actor: 'test', approved: true });
-
-    await registry.createMcpTool({
-      name: 'codex-tool',
-      command: 'node',
-      args: ['--version'],
-      scope: ['codex'],
-      enabled: true,
-    }, { actor: 'test', approved: true });
-
-    await registry.createMcpTool({
-      name: 'claude-tool',
-      command: 'node',
-      args: ['--version'],
-      scope: ['claude'],
-      enabled: true,
-    }, { actor: 'test', approved: true });
-
-    const allTools = registry.getMcpTools();
-    const codexTools = registry.getMcpTools('codex');
-    const claudeTools = registry.getMcpTools('claude');
-
-    assert.equal(allTools.length, 3);
-    assert.equal(codexTools.length, 2);
-    assert.equal(claudeTools.length, 2);
-    assert.ok(codexTools.every((tool) => tool.scope.includes('all') || tool.scope.includes('codex')));
-    assert.ok(claudeTools.every((tool) => tool.scope.includes('all') || tool.scope.includes('claude')));
-  } finally {
-    await cleanup();
-  }
-});
-
-test('Deleting an MCP tool detaches it from existing lane snapshots', async () => {
-  const { registry, cleanup } = await withIsolatedRegistry();
-
-  try {
-    const { orchestrator: session } = await makeOrchestrator(registry);
-
-    await registry.createMcpTool({
-      name: 'transient-tool',
-      command: 'node',
-      args: ['--version'],
-      scope: ['all'],
-      enabled: true,
-    }, { actor: 'test', approved: true });
-
-    const transientLane = await registry.createLane(session.id, {
-      title: 'Transient Lane',
-      executorType: 'mock',
-      mcpToolIds: ['transient-tool'],
-    }, { actor: 'test', approved: true });
-
-    assert.equal(transientLane.mcpTools.length, 1);
-
-    await registry.deleteMcpTool('transient-tool', { actor: 'test', approved: true });
-    const refreshedLane = registry.getLane(transientLane.id);
-    assert.equal(refreshedLane.mcpTools.length, 0);
-  } finally {
-    await cleanup();
-  }
-});
-
-test('MCP tools can be updated when approved and require approval otherwise', async () => {
-  const { registry, cleanup } = await withIsolatedRegistry();
-
-  try {
-    await registry.createMcpTool({
-      name: 'editable-tool',
-      command: 'node',
-      args: ['--version'],
-      scope: ['all'],
-      enabled: true,
-    }, { actor: 'test', approved: true });
-
-    const updated = await registry.updateMcpTool('editable-tool', {
-      command: 'npx',
-      args: ['foo'],
-      scope: ['codex'],
-      notes: 'updated via test',
-      enabled: false,
-    }, { actor: 'test', approved: true });
-
-    assert.equal(updated.command, 'npx');
-    assert.deepEqual(updated.args, ['foo']);
-    assert.deepEqual(updated.scope, ['codex']);
-    assert.equal(updated.notes, 'updated via test');
-    assert.equal(updated.enabled, false);
-
-    assert.throws(() => registry.updateMcpTool('editable-tool', {
-      command: 'npm',
-    }, { actor: 'test', approved: false }), (error) => error.status === 409);
-  } finally {
-    await cleanup();
-  }
-});
-
-test('MCP tool validation rejects invalid names and command payloads', async () => {
-  const { registry, cleanup } = await withIsolatedRegistry();
-
-  try {
-    assert.throws(() => registry.createMcpTool({
-        name: 'invalid name',
-        command: 'node',
-        scope: ['all'],
-        enabled: true,
-      }, {
-        actor: 'test',
-        approved: true,
-      }), (error) => error.status === 422);
-
-    await registry.createMcpTool({
-      name: 'valid-tool',
-      command: 'node',
-      args: ['--version'],
-      scope: ['all'],
-      enabled: true,
-    }, {
-      actor: 'test',
-      approved: true,
-    });
-
-    assert.throws(() => registry.updateMcpTool('valid-tool', {
-        command: 'node || echo boom',
-      }, {
-        actor: 'test',
-        approved: true,
-      }), (error) => error.status === 422);
-
-    assert.throws(() => registry.updateMcpTool('valid-tool', {
-      scope: ['not-real'],
-    }, {
-      actor: 'test',
-      approved: true,
-    }), (error) => error.status === 422);
-  } finally {
-    await cleanup();
-  }
-});
-
-test('MCP tool arguments are validated for command safety and length', async () => {
-  const { registry, cleanup } = await withIsolatedRegistry();
-  const longArg = 'x'.repeat(300);
-
-  try {
-    assert.throws(() => registry.createMcpTool({
-      name: 'bad-arg-tool',
-      command: 'node',
-      args: ['--version', 'foo|bar'],
-      scope: ['all'],
-      enabled: true,
-    }, {
-      actor: 'test',
-      approved: true,
-    }), (error) => error.status === 422);
-
-    await registry.createMcpTool({
-      name: 'valid-arg-tool',
-      command: 'node',
-      args: ['--version'],
-      scope: ['all'],
-      enabled: true,
-    }, {
-      actor: 'test',
-      approved: true,
-    });
-
-    assert.throws(() => registry.updateMcpTool('valid-arg-tool', {
-      args: [longArg],
-    }, {
-      actor: 'test',
-      approved: true,
-    }), (error) => error.status === 422);
-  } finally {
-    await cleanup();
-  }
-});
-
-test('MCP tool validation enforces scope allowlist and single-token command', async () => {
-  const { registry, cleanup } = await withIsolatedRegistry();
-
-  try {
-    assert.throws(() => registry.createMcpTool({
-      name: 'space-command-tool',
-      command: 'node script.js',
-      scope: ['codex'],
-      enabled: true,
-    }, {
-      actor: 'test',
-      approved: true,
-    }), (error) => error.status === 422);
-
-    assert.throws(() => registry.createMcpTool({
-      name: 'invalid-scope-tool',
-      command: 'node',
-      scope: ['not-real'],
-      enabled: true,
-    }, {
-      actor: 'test',
-      approved: true,
-    }), (error) => error.status === 422);
-
-    const created = await registry.createMcpTool({
-      name: 'scoped-tool',
-      command: 'node',
-      scope: ['codex', 'all'],
-      enabled: true,
-    }, {
-      actor: 'test',
-      approved: true,
-    });
-    assert.deepEqual(created.scope.sort(), ['all', 'codex']);
-  } finally {
-    await cleanup();
-  }
-});
-
-test('Creating lanes rejects unknown or unauthorized MCP tool IDs', async () => {
-  const { registry, cleanup } = await withIsolatedRegistry();
-
-  try {
-    const { orchestrator: session } = await makeOrchestrator(registry);
-
-    await registry.createMcpTool({
-      name: 'scoped-codex-tool',
-      command: 'node',
-      scope: ['codex'],
-      enabled: true,
-      args: ['-v'],
-    }, { actor: 'test', approved: true });
-
-    await registry.createMcpTool({
-      name: 'scoped-claude-tool',
-      command: 'node',
-      scope: ['claude'],
-      enabled: true,
-      args: ['-v'],
-    }, { actor: 'test', approved: true });
-
-    await registry.createMcpTool({
-      name: 'disabled-claude-tool',
-      command: 'node',
-      scope: ['claude'],
-      enabled: false,
-      args: ['-v'],
-    }, { actor: 'test', approved: true });
-
-    assert.throws(() => registry.createLane(session.id, {
-      title: 'Unknown MCP tool',
-      executorType: 'codex',
-      executorBinary: 'codex',
-      mcpToolIds: ['ghost-tool'],
-    }, { approved: true, actor: 'test' }), (error) => error.status === 422);
-
-    assert.throws(() => registry.createLane(session.id, {
-      title: 'Disallowed MCP tool',
-      executorType: 'codex',
-      executorBinary: 'codex',
-      mcpToolIds: ['scoped-claude-tool'],
-    }, { approved: true, actor: 'test' }), (error) => error.status === 422);
-
-    assert.throws(() => registry.createLane(session.id, {
-      title: 'Disabled MCP tool',
-      executorType: 'codex',
-      executorBinary: 'codex',
-      mcpToolIds: ['disabled-claude-tool'],
-    }, { approved: true, actor: 'test' }), (error) => error.status === 422);
-
-    assert.throws(() => registry.createLane(session.id, {
-      title: 'Scope mismatch MCP tool',
-      executorType: 'codex',
-      executorBinary: 'codex',
-      mcpToolIds: ['scoped-claude-tool'],
-    }, { approved: true, actor: 'test' }), (error) => error.status === 422);
-
-    const codexLane = await registry.createLane(session.id, {
-      title: 'Valid codex with scoped tool',
-      executorType: 'codex',
-      executorBinary: 'codex',
-      mcpToolIds: ['scoped-codex-tool'],
-    }, { approved: true, actor: 'test' });
-    assert.equal(codexLane.mcpTools.length, 1);
-    assert.equal(codexLane.mcpTools[0].id, 'scoped-codex-tool');
-  } finally {
-    await cleanup();
-  }
-});
-
-test('MCP tool command allowlist can be enforced via env override', async () => {
-  const restore = restoreEnv({
-    ORCA_MCP_TOOL_COMMAND_ALLOWLIST: process.env.ORCA_MCP_TOOL_COMMAND_ALLOWLIST,
-  });
-
-  try {
-    process.env.ORCA_MCP_TOOL_COMMAND_ALLOWLIST = 'node,python';
-    const { registry, cleanup } = await withIsolatedRegistry();
-    try {
-      assert.throws(() => registry.createMcpTool({
-        name: 'blocked-tool',
-        command: 'bun',
-        scope: ['all'],
-        enabled: true,
-      }, {
-        actor: 'test',
-        approved: true,
-      }), (error) => error.status === 422);
-
-      const allowed = await registry.createMcpTool({
-        name: 'allowed-tool',
-        command: 'python',
-        scope: ['all'],
-        enabled: true,
-      }, {
-        actor: 'test',
-        approved: true,
-      });
-      assert.equal(allowed.command, 'python');
-    } finally {
-      await cleanup();
-    }
-  } finally {
-    restore();
   }
 });
 
@@ -1156,71 +480,6 @@ test('Unknown executor adapters report unsupported errors', async () => {
   }
 });
 
-test('executor CLI info exposes profile + binary details per executor type', async () => {
-  const restore = restoreEnv({
-    ORCA_CODEX_BINARY: process.env.ORCA_CODEX_BINARY,
-    ORCA_CLAUDE_BINARY: process.env.ORCA_CLAUDE_BINARY,
-  });
-
-  try {
-    process.env.ORCA_CODEX_BINARY = '/usr/bin/codex';
-    process.env.ORCA_CLAUDE_BINARY = '/usr/bin/claude';
-
-    const { registry, cleanup } = await withIsolatedRegistry();
-    try {
-      const profiles = registry.getExecutorProfiles();
-      assert.equal(profiles.codex.defaultBinary, '/usr/bin/codex');
-      assert.equal(profiles.claude.defaultBinary, '/usr/bin/claude');
-      assert.equal(profiles['gemini-cli'].defaultBinary, 'gemini');
-      assert.equal(profiles['composer-cli'].defaultBinary, 'cursor-agent');
-
-      const codexInfo = registry.getExecutorCliInfo('codex');
-      assert.equal(codexInfo.type, 'codex');
-      assert.equal(codexInfo.binary, '/usr/bin/codex');
-      // Orca no longer installs/updates CLIs, so no reinstall surface is exposed.
-      assert.equal('reinstall' in codexInfo, false);
-
-      const geminiInfo = registry.getExecutorCliInfo('gemini-cli');
-      assert.equal(geminiInfo.type, 'gemini-cli');
-      assert.equal(geminiInfo.binary, 'gemini');
-    } finally {
-    await cleanup();
-    }
-  } finally {
-    restore();
-  }
-});
-
-test('executor capabilities are available for every supported executor and snapshotted on lanes', async () => {
-  const { registry, cleanup } = await withIsolatedRegistry();
-
-  try {
-    const matrix = registry.getExecutorCapabilitiesMatrix();
-    assert.equal(matrix.mock.invocation.canRunAsOrchestrator, true);
-    assert.equal(matrix.codex.invocation.canRunAsExecutor, true);
-    assert.equal(matrix.claude.controls.permissions.supported, true);
-    assert.equal(Array.isArray(matrix.claude.controls.intelligence.values), true);
-    assert.equal(matrix['gemini-cli']?.invocation.canRunAsOrchestrator, true);
-
-    const { orchestrator: session } = await makeOrchestrator(registry);
-    const lane = registry.createLane(session.id, {
-      title: 'Capability lane',
-      executorType: 'claude',
-      taskPrompt: 'Inspect detected capabilities.',
-      permissionsProfile: 'plan',
-      intelligenceProfile: 'high',
-      sharedWorktree: true,
-    }, { actor: 'test', approved: true });
-
-    assert.equal(lane.executorCapabilities.type, 'claude');
-    assert.equal(lane.executorCapabilities.invocation.canRunAsOrchestrator, true);
-    assert.equal(lane.executorCapabilities.invocation.canRunAsExecutor, true);
-    assert.equal(Array.isArray(lane.executorCapabilities.controls.permissions.values), true);
-  } finally {
-    await cleanup();
-  }
-});
-
 test('lane controls update model, mode, intelligence, and audit event', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
 
@@ -1363,7 +622,7 @@ test('lane-scoped tool leases are revoked when Orca-authored lanes stop being li
   }
 });
 
-test('MCP config is generated per-lane with safe path and executor-specific shape', async () => {
+test('MCP config is generated per-lane with a safe path and only Orca\'s own server', async () => {
   const previousEnv = { ...process.env };
   const restore = restoreEnv(previousEnv);
   process.env.ORCA_CODEX_ALLOWED_BINARIES = 'codex';
@@ -1372,20 +631,19 @@ test('MCP config is generated per-lane with safe path and executor-specific shap
   try {
     const { orchestrator: session } = await makeOrchestrator(registry);
 
-    await registry.createMcpTool({
-      name: 'demo-tool',
-      command: 'node',
-      args: ['-v'],
-      scope: ['all'],
-      enabled: true,
-    }, { actor: 'test', approved: true });
-
     const lane = registry.createLane(session.id, {
       title: 'MCP lane',
       executorType: 'codex',
       command: 'codex --version',
-      mcpToolIds: ['demo-tool'],
     }, { actor: 'test', approved: true });
+
+    // A lane only gets an MCP config once it has a lease: the custom-tool CRUD is
+    // gone, so Orca's own workflow server is the ONLY server a lane ever sees.
+    registry.laneRuntimeEnv.set(String(lane.id), {
+      ORCA_TOOL_LEASE_TOKEN: 'test-lease-token',
+      ORCA_AGENT_TOOLS_BASE_URL: 'http://127.0.0.1:3000',
+      ORCA_ROLE: 'executor',
+    });
 
     const adapter = registry.getExecutorForType('codex');
     const runtimeDir = path.join(process.cwd(), 'artifacts', session.id, lane.id);
@@ -1394,41 +652,22 @@ test('MCP config is generated per-lane with safe path and executor-specific shap
     assert.equal(typeof configPath, 'string');
     assert.equal(configPath.startsWith(runtimeDir), true);
     assert.equal(typeof servers, 'object');
-    const raw = await fs.readFile(configPath, 'utf8');
-    const parsed = JSON.parse(raw);
+    const parsed = JSON.parse(await fs.readFile(configPath, 'utf8'));
     assert.equal(parsed.laneId, lane.id);
     assert.equal(parsed.executorType, 'codex');
-    assert.equal(Object.prototype.hasOwnProperty.call(parsed.mcpServers, 'demo-tool'), true);
-    assert.equal(parsed.mcpServers['demo-tool'].command, 'node');
-    assert.deepEqual(parsed.mcpServers['demo-tool'].args, ['-v']);
-    assert.equal(parsed.tools.length, 1);
-    assert.equal(Object.keys(parsed.mcpServers).length, 1);
+    assert.deepEqual(Object.keys(parsed.mcpServers), ['orca']);
+    assert.equal(parsed.mcpServers.orca.env.ORCA_LANE_ID, lane.id);
+    assert.equal(parsed.mcpServers.orca.env.ORCA_TOOL_LEASE_TOKEN, 'test-lease-token');
 
-    const claudeLane = registry.createLane(session.id, {
-      title: 'Claude MCP lane',
-      executorType: 'claude',
-      command: 'claude --version',
-      mcpToolIds: ['demo-tool'],
-    }, { actor: 'test', approved: true });
-    const claudeAdapter = registry.getExecutorForType('claude');
-    const claudeRuntimeDir = path.join(process.cwd(), 'artifacts', session.id, claudeLane.id);
-    await fs.mkdir(claudeRuntimeDir, { recursive: true });
-    const { configPath: claudeConfigPath } = await claudeAdapter._buildMcpConfig(claudeRuntimeDir, registry.getLane(claudeLane.id));
-    const claudeParsed = JSON.parse(await fs.readFile(claudeConfigPath, 'utf8'));
-    assert.equal(claudeParsed.executorType, 'claude');
-    assert.equal(claudeParsed.tools.length, 1);
-    assert.equal(Object.keys(claudeParsed.mcpServers).length, 1);
-    assert.deepEqual(claudeParsed.mcpServers['demo-tool'].args, ['-v']);
-
-    const noToolLane = registry.createLane(session.id, {
-      title: 'No tool lane',
+    // A lane with no lease gets no config file at all.
+    const noLeaseLane = registry.createLane(session.id, {
+      title: 'No lease lane',
       executorType: 'codex',
       command: 'codex --version',
     }, { actor: 'test', approved: true });
-    const adapter2 = registry.getExecutorForType('codex');
-    const runtimeDir2 = path.join(process.cwd(), 'artifacts', session.id, noToolLane.id);
+    const runtimeDir2 = path.join(process.cwd(), 'artifacts', session.id, noLeaseLane.id);
     await fs.mkdir(runtimeDir2, { recursive: true });
-    const noConfig = await adapter2._buildMcpConfig(runtimeDir2, registry.getLane(noToolLane.id));
+    const noConfig = await adapter._buildMcpConfig(runtimeDir2, registry.getLane(noLeaseLane.id));
     assert.equal(noConfig.configPath, null);
   } finally {
     await cleanup();
@@ -1521,119 +760,6 @@ test('manual executor stop records a structured agent.stopped event', async () =
   }
 });
 
-test('buildExecutorCommandArgs derives safe argv from lane task prompt', async () => {
-  const { buildExecutorCommandArgs } = await import('../src/executor-factory.js');
-  const codexArgs = buildExecutorCommandArgs('codex', {
-    taskPrompt: 'Ship the dashboard',
-    model: 'gpt-5',
-    permissionsProfile: 'auto-edit',
-    targetUrl: 'http://localhost:5173',
-    mcpConfigPath: MCP_CONFIG_PATH,
-  }, { mcpServers: { orca: { command: '/usr/bin/node', args: ['/abs/mcp-server.js'], env: { ORCA_ROLE: 'orchestrator' } } } });
-  const count = (args, value) => args.filter((item) => item === value).length;
-  assert.deepEqual(codexArgs.slice(0, 2), ['exec', '--json']);
-  assert.ok(codexArgs.includes('--model'));
-  assert.ok(codexArgs.includes('gpt-5'));
-  // --full-auto is deprecated; force/auto-edit maps to --sandbox workspace-write.
-  assert.ok(!codexArgs.includes('--full-auto'), 'codex must not use the deprecated --full-auto flag');
-  assert.ok(codexArgs.includes('--sandbox'));
-  assert.ok(codexArgs.includes('workspace-write'));
-  assert.ok(codexArgs.includes('--skip-git-repo-check'));
-  // codex has NO --mcp-config flag (Claude-only); MCP is wired via -c overrides.
-  assert.ok(!codexArgs.includes('--mcp-config'), 'codex must not use the invalid --mcp-config flag');
-  assert.ok(codexArgs.includes('-c'));
-  assert.ok(codexArgs.some((a) => a === 'mcp_servers.orca.command="/usr/bin/node"'));
-  assert.ok(codexArgs.some((a) => a === 'mcp_servers.orca.env.ORCA_ROLE="orchestrator"'));
-  assert.ok(codexArgs.includes('Target: http://localhost:5173\nShip the dashboard'));
-  assert.equal(count(codexArgs, '--json'), 1);
-
-  const claudeArgs = buildExecutorCommandArgs('claude', {
-    taskPrompt: 'Audit the auth flow',
-    model: 'claude-opus-4-7',
-    permissionsProfile: 'bypass-permissions',
-    intelligenceProfile: 'max',
-    targetUrl: 'http://localhost:5173',
-    mcpConfigPath: MCP_CONFIG_PATH,
-  });
-  assert.ok(claudeArgs.includes('--model'));
-  assert.ok(claudeArgs.includes('claude-opus-4-7'));
-  assert.ok(claudeArgs.includes('--effort'));
-  assert.ok(claudeArgs.includes('max'));
-  assert.ok(claudeArgs.includes('--permission-mode'));
-  assert.ok(claudeArgs.includes('bypassPermissions'));
-  assert.ok(claudeArgs.includes('--mcp-config'));
-  assert.ok(claudeArgs.includes(MCP_CONFIG_PATH));
-  assert.equal(claudeArgs[0], '--print');
-  assert.ok(claudeArgs.includes('--output-format'));
-  assert.ok(claudeArgs.includes('stream-json'));
-  assert.ok(claudeArgs.includes('--verbose'));
-  assert.ok(claudeArgs.includes('--include-partial-messages'));
-  assert.ok(claudeArgs.includes('Target: http://localhost:5173\nAudit the auth flow'));
-  assert.equal(count(claudeArgs, '--mcp-config'), 1);
-  assert.equal(count(claudeArgs, '--print'), 1);
-
-  const geminiArgs = buildExecutorCommandArgs('gemini-cli', {
-    taskPrompt: 'Run tests',
-    model: 'gemini-2.5-pro',
-    permissionsProfile: 'auto-edit',
-    targetUrl: 'http://localhost:5173',
-    mcpConfigPath: MCP_CONFIG_PATH,
-  });
-  assert.deepEqual(geminiArgs, [
-    '--model',
-    'gemini-2.5-pro',
-    '--approval-mode',
-    'auto_edit',
-    '--output-format',
-    'json',
-    '--prompt',
-    'Target: http://localhost:5173\nRun tests',
-  ]);
-
-  const composerArgs = buildExecutorCommandArgs('composer-cli', {
-    taskPrompt: 'Refactor view',
-    model: 'gpt-5',
-    permissionsProfile: 'bypass-permissions',
-    targetUrl: 'http://localhost:5173',
-  });
-  assert.deepEqual(composerArgs, [
-    '--model',
-    'gpt-5',
-    '--force',
-    '--output-format',
-    'stream-json',
-    '-p',
-    'Target: http://localhost:5173\nRefactor view',
-  ]);
-  // Refuse control characters in derived prompt.
-  const stripped = buildExecutorCommandArgs('codex', { taskPrompt: 'safe\nprompt' });
-  const text = stripped.join('\n');
-  assert.equal(/\x01/.test(text), false);
-
-  const codexPlanArgs = buildExecutorCommandArgs('codex', {
-    taskPrompt: 'Plan only',
-    permissionsProfile: 'plan',
-  });
-  assert.deepEqual(codexPlanArgs.slice(0, 4), ['exec', '--json', '--sandbox', 'read-only']);
-
-  const codexTerminalArgs = buildExecutorCommandArgs('codex', {
-    taskPrompt: 'Run in terminal mode',
-    permissionsProfile: 'plan',
-    presentationMode: 'terminal',
-  });
-  assert.deepEqual(codexTerminalArgs.slice(0, 2), ['--sandbox', 'read-only']);
-  assert.equal(codexTerminalArgs.includes('exec'), false);
-  assert.equal(codexTerminalArgs.includes('--json'), false);
-
-  const claudeTerminalArgs = buildExecutorCommandArgs('claude', {
-    taskPrompt: 'Run in terminal mode',
-    permissionsProfile: 'plan',
-    presentationMode: 'terminal',
-  });
-  assert.equal(claudeTerminalArgs.includes('--output-format'), false);
-  assert.equal(claudeTerminalArgs.includes('stream-json'), false);
-});
-
 test('Recovery flips orphaned running lanes to failed with explicit reason', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
@@ -1647,78 +773,6 @@ test('Recovery flips orphaned running lanes to failed with explicit reason', asy
     registry.recoverInterruptedLanes();
     assert.equal(registry.getLane(stuckLane.id).state, 'failed');
     assert.equal(typeof registry.getLane(stuckLane.id).exitReason, 'string');
-  } finally {
-    await cleanup();
-  }
-});
-
-test('MCP tool schema accepts env/workdir/description/owner/notes with bounds', async () => {
-  const { registry, cleanup } = await withIsolatedRegistry();
-  try {
-    const tool = await registry.createMcpTool({
-      name: 'extended-tool',
-      command: 'node',
-      args: ['-v'],
-      scope: ['all'],
-      env: { FOO: 'bar', PORT: 1234 },
-      workdir: 'relative/path',
-      description: 'demo description',
-      notes: 'some operator notes',
-      owner: 'alex',
-    }, { actor: 'alex', approved: true });
-    assert.equal(tool.env.FOO, 'bar');
-    assert.equal(tool.env.PORT, '1234');
-    assert.equal(tool.workdir, 'relative/path');
-    assert.equal(tool.description, 'demo description');
-    assert.equal(tool.notes, 'some operator notes');
-    assert.equal(tool.owner, 'alex');
-
-    assert.throws(() => registry.createMcpTool({
-      name: 'bad-env-tool',
-      command: 'node',
-      scope: ['all'],
-      env: { 'bad-key!': 'x' },
-    }, { actor: 'test', approved: true }), (error) => error.status === 422);
-
-    assert.throws(() => registry.createMcpTool({
-      name: 'huge-notes',
-      command: 'node',
-      scope: ['all'],
-      notes: 'x'.repeat(2000),
-    }, { actor: 'test', approved: true }), (error) => error.status === 422);
-
-    for (const [name, workdir] of [
-      ['bad-workdir-newline', 'relative\npath'],
-      ['bad-workdir-tab', 'relative\tpath'],
-      ['bad-workdir-cr', 'relative\rpath'],
-    ]) {
-      assert.throws(() => registry.createMcpTool({
-        name,
-        command: 'node',
-        scope: ['all'],
-        workdir,
-      }, { actor: 'test', approved: true }), (error) => error.status === 422);
-    }
-  } finally {
-    await cleanup();
-  }
-});
-
-test('Shared-worktree lane creation emits a pending audit and stores a warning', async () => {
-  const { registry, cleanup } = await withIsolatedRegistry();
-  try {
-    const { orchestrator: session } = await makeOrchestrator(registry);
-    const lane = registry.createLane(session.id, {
-      title: 'shared lane',
-      executorType: 'mock',
-      sharedWorktree: true,
-    }, { actor: 'test', approved: true });
-    assert.equal(lane.sharedWorktree, true);
-    assert.equal(Array.isArray(lane.warnings), true);
-    assert.equal(lane.warnings.some((w) => w.kind === 'shared_worktree'), true);
-    const sharedAudit = registry.listAuditEvents({ status: 'pending' })
-      .find((event) => event.type === 'lane_shared_worktree' && event.laneId === lane.id);
-    assert.ok(sharedAudit, 'expected lane_shared_worktree audit event');
   } finally {
     await cleanup();
   }
@@ -2248,22 +1302,23 @@ test('createLane raises the taskPrompt cap and records a visible warning on trun
   }
 });
 
-test('reapIdleLanes stops an idle running lane per idleShutdownMode', async () => {
+test('reapIdleLanes stops an idle running lane unless it opted out', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
     const { orchestrator } = await makeOrchestrator(registry);
     const past = new Date(Date.now() - 20 * 60 * 1000).toISOString(); // 20 min idle (> 15m window)
 
-    // Default mode 'immediate': idle past the window → reaped.
+    // Default (idleShutdown true): idle past the window → reaped.
     const idle = registry.createLane(orchestrator.id, { title: 'idle', executorType: 'mock' }, { actor: 'test', approved: true });
     const idleLane = registry.getLane(idle.id);
     idleLane.state = 'running'; idleLane.lastActivityAt = past;
-    assert.equal(idleLane.idleShutdownMode, 'immediate');
+    assert.equal(idleLane.idleShutdown, true);
 
-    // 'policy': never auto-reaped, even when idle.
-    const policy = registry.createLane(orchestrator.id, { title: 'policy', executorType: 'mock', idleShutdownMode: 'policy' }, { actor: 'test', approved: true });
+    // idleShutdown:false — never auto-reaped, even when idle.
+    const policy = registry.createLane(orchestrator.id, { title: 'opted out', executorType: 'mock', idleShutdown: false }, { actor: 'test', approved: true });
     const policyLane = registry.getLane(policy.id);
     policyLane.state = 'running'; policyLane.lastActivityAt = past;
+    assert.equal(policyLane.idleShutdown, false);
 
     // Recently active: not reaped.
     const fresh = registry.createLane(orchestrator.id, { title: 'fresh', executorType: 'mock' }, { actor: 'test', approved: true });
@@ -2272,8 +1327,8 @@ test('reapIdleLanes stops an idle running lane per idleShutdownMode', async () =
 
     await registry.reapIdleLanes(Date.now());
 
-    assert.equal(registry.getLane(idle.id).state, 'stopped', 'idle immediate lane should be reaped');
-    assert.equal(registry.getLane(policy.id).state, 'running', 'policy lane must never be idle-reaped');
+    assert.equal(registry.getLane(idle.id).state, 'stopped', 'idle lane should be reaped');
+    assert.equal(registry.getLane(policy.id).state, 'running', 'an idleShutdown:false lane must never be idle-reaped');
     assert.equal(registry.getLane(fresh.id).state, 'running', 'recently-active lane must not be reaped');
 
     // Disabled entirely when the window is 0.
@@ -2290,10 +1345,10 @@ test('reapIdleLanes stops an idle running lane per idleShutdownMode', async () =
   }
 });
 
-test('Session shared worktree mode runs lanes in the session repoRoot without per-lane worktrees', async () => {
+test('a direct lane runs in the repo checkout and its checkout is never removable', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
-    const repoDir = path.join(process.cwd(), 'shared-mode-repo');
+    const repoDir = path.join(process.cwd(), 'direct-mode-repo');
     await fs.mkdir(repoDir, { recursive: true });
     const { spawnSync } = await import('node:child_process');
     const g = (...args) => spawnSync('git', args, { cwd: repoDir, encoding: 'utf8' });
@@ -2304,39 +1359,30 @@ test('Session shared worktree mode runs lanes in the session repoRoot without pe
     g('add', 'README.md');
     g('commit', '-qm', 'init');
 
-    // v2: worktree mode is chosen per-lane (the container seam is always 'off'),
-    // so shared mode is requested via sharedWorktree:true on the lane. The container
-    // repo root is the orchestrator's cwd (the git repo).
+    // 'shared' and 'direct' are no longer modes a caller may request. A lone
+    // writer under the default 'auto' resolves to direct: it runs in the
+    // container's checkout with no managed worktree.
     const { orchestrator: session } = await makeOrchestrator(registry, { cwd: repoDir });
     const lane = registry.createLane(session.id, {
-      title: 'shared mode lane',
+      title: 'direct mode lane',
       executorType: 'mock',
-      sharedWorktree: true,
     }, { actor: 'test', approved: true });
 
-    assert.equal(lane.sharedWorktree, true);
-    assert.equal(lane.worktreeMode, 'shared');
+    assert.equal(lane.worktreeMode, 'direct');
     assert.equal(lane.workdir, repoDir);
     assert.equal(lane.worktreePath, repoDir);
-    assert.ok(!lane.worktreePath.includes('worktrees'), 'shared mode should not create a managed worktree');
-    assert.ok(lane.warnings.some((w) => w.kind === 'shared_worktree'), 'shared mode should surface conflict warning');
+    assert.ok(!lane.worktreePath.includes('worktrees'), 'a direct lane must not create a managed worktree');
+
+    // The guard that matters: Orca must never delete the user's repo checkout.
     registry.getLane(lane.id).state = 'done';
     await assert.rejects(
       registry.removeLaneWorktree(lane.id, { actor: 'test', approved: true }),
-      (error) => error.status === 422 && /shared\/non-managed/.test(error.message),
+      (error) => error.status === 422 && /repo checkout/.test(error.message),
     );
   } finally {
     await cleanup();
   }
 });
-
-// DELETED: 'getSessionGitInfo reports branches/worktrees for git repos and
-// isGit:false otherwise' — getSessionGitInfo was a Model-A session-container
-// method and has no orchestrator-native replacement on the registry. The remaining
-// meaningful behavior it exercised (origin/* base-ref → managed lane worktree) is
-// still covered by 'Worktree manager creates per-lane worktree...' below, which
-// now runs against a git-rooted orchestrator container.
-
 test('Orchestrator container refuses an out-of-bounds cwd but accepts non-git dirs', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
@@ -2477,18 +1523,23 @@ test('CLI executor receives transient runtime env without storing it on the lane
   }
 });
 
-test('Real Claude CLI launches through the executor adapter and reports PID + exit', async () => {
-  const claudeBinary = process.env.ORCA_CLAUDE_BINARY || '/opt/homebrew/bin/claude';
-  let canExec = false;
+// Resolved once at load so the skip decision is honest: without a runnable claude
+// this test REPORTS AS SKIPPED, instead of the old `console.warn(); return;` that
+// reported a green pass while asserting nothing.
+const CLAUDE_BINARY = process.env.ORCA_CLAUDE_BINARY || '/opt/homebrew/bin/claude';
+const claudeIsRunnable = (() => {
   try {
-    const { spawnSync } = await import('node:child_process');
-    const probe = spawnSync(claudeBinary, ['--version'], { encoding: 'utf8', timeout: 4000 });
-    canExec = probe.status === 0 && /\d+\.\d+/.test(probe.stdout || '');
-  } catch { canExec = false; }
-  if (!canExec) {
-    console.warn(`skipping real claude exec test (${claudeBinary} not available)`);
-    return;
+    const probe = spawnSync(CLAUDE_BINARY, ['--version'], { encoding: 'utf8', timeout: 4000 });
+    return probe.status === 0 && /\d+\.\d+/.test(probe.stdout || '');
+  } catch {
+    return false;
   }
+})();
+
+test('Real Claude CLI launches through the executor adapter and reports PID + exit', {
+  skip: claudeIsRunnable ? false : `${CLAUDE_BINARY} is not runnable on this machine`,
+}, async () => {
+  const claudeBinary = CLAUDE_BINARY;
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
     const { createExecutorAdapter } = await import('../src/executor-factory.js');
@@ -2552,7 +1603,6 @@ test('submitLane records summary + changed files and marks the lane ready for au
       summary: 'Implemented the feature',
       changedFiles: ['src/a.js', 'src/b.js'],
     });
-    assert.equal(result.needsCritique, false);
     assert.equal(result.lane.state, 'ready_for_audit');
     assert.equal(result.lane.summary, 'Implemented the feature');
     assert.deepEqual(result.lane.changedFiles, ['src/a.js', 'src/b.js']);

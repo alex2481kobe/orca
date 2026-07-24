@@ -14,14 +14,19 @@ import { normalizeApprovedCapacity, normalizeSpawnPolicy } from './registry-lane
 const ORCHESTRATOR_STALE_MS = 15 * 60 * 1000;
 // v2: the orchestrator RECORD is the only container. Capacity the legacy
 // session-container bridge used to fabricate now lives on the record itself.
-const DEFAULT_ORCHESTRATOR_CAPACITY = 4;
+//
+// How many executor lanes one orchestrator may run at once. Env-tunable because
+// the orchestrator.update tool + its PATCH route are gone, and a hardcoded cap an
+// operator cannot raise would be a wall, not a default.
+const DEFAULT_ORCHESTRATOR_CAPACITY = Number.parseInt(process.env.ORCA_LANE_CONCURRENCY ?? '', 10) > 0
+  ? Math.min(64, Number.parseInt(process.env.ORCA_LANE_CONCURRENCY, 10))
+  : 4;
 // Mutating orchestrator tools that stay callable regardless of ownership: you
 // register/update/resign to change ownership, and spawn executors under the
 // orchestrator you own.
 const OWNERSHIP_EXEMPT_TOOLS = new Set([
   'orchestrator.resign',
   'orchestrator.register',
-  'orchestrator.update',
   'executor.spawn',
 ]);
 
@@ -92,6 +97,27 @@ export const agentMethods = {
       return orchestrator;
     }
 
+    // Folded-in orchestrator.update: re-registering with the same cwd on a lease
+    // that ALREADY owns a live orchestrator here is an idempotent refresh of the
+    // self-authored title/focus line, not a second container. (The standalone
+    // orchestrator.update tool and its PATCH route are gone.)
+    //
+    // 'dashboard' is NOT a real lease — it is the shared pseudo-id every
+    // token/operator-authed caller gets — so it must never collapse two distinct
+    // dashboard registrations into one container.
+    const owned = leaseId === 'dashboard' ? null : this.orchestrators.find((item) => item.projectId === project.id
+      && item.leaseId === leaseId
+      && !item.resignedAt);
+    if (owned) {
+      const now = nowIso();
+      if (title !== null && owned.title !== title) owned.titleUpdatedAt = now;
+      if (title !== null) owned.title = title;
+      if (focus !== null) owned.focus = focus;
+      owned.lastSeenAt = now;
+      project.lastActivityAt = now;
+      return owned;
+    }
+
     const reusable = this.orchestrators
       .map((orchestrator, index) => ({ orchestrator, index }))
       .filter(({ orchestrator }) => orchestrator.projectId === project.id
@@ -131,7 +157,7 @@ export const agentMethods = {
       titleUpdatedAt: title !== null ? now : null,
       resignedAt: null,
       // Container capacity lives on the record now (was fabricated by the old
-      // session bridge). Settable via orchestrator.update.
+      // session bridge).
       approvedCapacity: DEFAULT_ORCHESTRATOR_CAPACITY,
       laneConcurrencyLimit: DEFAULT_ORCHESTRATOR_CAPACITY,
       spawnPolicy: 'auto',
@@ -220,7 +246,7 @@ export const agentMethods = {
     const idleTooLong = Date.now() - Date.parse(orchestrator.lastSeenAt) > ORCHESTRATOR_STALE_MS;
     if (!idleTooLong) return false;
     const hasLiveLane = (this.lanes || []).some((lane) => lane.orchestratorId === orchestrator.id
-      && ['queued', 'starting', 'running', 'needs_critique', 'ready_for_audit', 'auditing', 'fix_requested'].includes(lane.state));
+      && ['queued', 'starting', 'running', 'ready_for_audit', 'auditing', 'fix_requested'].includes(lane.state));
     return !hasLiveLane;
   },
 
@@ -240,7 +266,6 @@ export const agentMethods = {
       orchestratorId: orch.id,
       name: orch.title || orch.actor || orch.id,
       repoRoot: project?.cwd || '',
-      critiqueMode: 'none',
       // No forced worktree mode: omit it (undefined) so createLane's default
       // per-lane isolation for git repos stays in effect and the effective-settings
       // resolver treats it as "no override" rather than a fake mode.
@@ -291,10 +316,18 @@ export const agentMethods = {
   },
 
   // The canonical "what is happening" view for an orchestrator container:
-  // ownership + the lane tree + flow + next required tool. Read-only.
-  orchestratorStatus(orchestratorLocator) {
+  // ownership + the lane tree + flow + next required tool.
+  //
+  // Also absorbs the deleted orchestrator.heartbeat tool: when the CALLER's lease
+  // owns this orchestrator, reading status refreshes lastSeenAt. Without that, a
+  // read-only monitoring loop would let its own ownership go stale in ~15 min and
+  // the container would be handed to a takeover.
+  orchestratorStatus(orchestratorLocator, { leaseId = null } = {}) {
     const orch = (this.orchestrators || []).find((item) => item.id === orchestratorLocator);
     if (!orch) throw { status: 404, message: 'Orchestrator not found.' };
+    if (leaseId && orch.leaseId === leaseId && !orch.resignedAt) {
+      this.touchOrchestrator(orch.id, { leaseId });
+    }
     const lanes = this.listLanesCompact(orch.id);
     const envelope = buildNextActionEnvelope(this, {
       role: 'orchestrator',

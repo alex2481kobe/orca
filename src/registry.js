@@ -2,12 +2,10 @@ import fsSync from 'node:fs';
 import path from 'node:path';
 import { toolLeaseMethods } from './registry-tool-leases.js';
 import { agentQueueMethods } from './registry-agent-queue.js';
-import { defaultPolicy } from './registry-policy.js';
-import { executorCapabilityMethods } from './registry-executor-caps.js';
-import { settingsMethods } from './registry-settings.js';
+import { defaultPolicy, policyMethods } from './registry-policy.js';
+import { executorMethods } from './registry-executors.js';
 import { auditMethods } from './registry-audit.js';
 import { projectMethods } from './registry-projects.js';
-import { mcpToolMethods } from './registry-mcp-tools.js';
 import { cleanupMethods } from './registry-cleanup.js';
 import { laneOpsMethods } from './registry-lane-ops.js';
 import { laneTerminalMethods } from './registry-lane-terminal.js';
@@ -35,9 +33,9 @@ export class OrcaRegistry {
     autoCompleteMs = 12000,
     heartbeatTimeoutMs = 15000,
     // Idle-shutdown window: a RUNNING lane that produces no activity for this long
-    // is reaped per its idleShutdownMode (immediate = this window, short_keepalive =
-    // 3x, policy = never). Distinct from heartbeatTimeoutMs, which reaps a dead/hung
-    // PROCESS fast; this reaps a lane that is alive but idle. 0 disables. 15min default.
+    // is reaped, unless it was spawned with idleShutdown:false. Distinct from
+    // heartbeatTimeoutMs, which reaps a dead/hung PROCESS fast; this reaps a lane
+    // that is alive but idle. 0 disables. 15min default.
     laneIdleTimeoutMs = Number(process.env.ORCA_LANE_IDLE_TIMEOUT_MS ?? '') || 900000,
     autoAudit,
   } = {}) {
@@ -45,7 +43,6 @@ export class OrcaRegistry {
     this.orchestrators = [];
     this.lanes = [];
     this.auditEvents = [];
-    this.mcpTools = [];
     this.toolLeases = [];
     this.agentQueue = [];
     this.artifactRoot = path.join(process.cwd(), 'artifacts');
@@ -64,15 +61,6 @@ export class OrcaRegistry {
     // disables it. Tests run with it off so they drive lanes deterministically.
     this.autoAuditEnabled = autoAudit ?? (process.env.ORCA_AUTO_AUDIT !== 'false');
     this.policies = { ...defaultPolicy };
-    this.cleanupSchedule = {
-      enabled: false,
-      intervalHours: 24,
-      olderThanDays: null,
-      sessionId: null,
-      dryRun: false,
-      lastRunAt: null,
-      nextRunAt: null,
-    };
 
     this._persistTimer = null;
     this._writeChain = null;
@@ -167,11 +155,10 @@ export class OrcaRegistry {
 // ToolLease(...), registry.validateToolLease(...), etc.).
 Object.assign(OrcaRegistry.prototype, toolLeaseMethods);
 Object.assign(OrcaRegistry.prototype, agentQueueMethods);
-Object.assign(OrcaRegistry.prototype, executorCapabilityMethods);
-Object.assign(OrcaRegistry.prototype, settingsMethods);
+Object.assign(OrcaRegistry.prototype, executorMethods);
+Object.assign(OrcaRegistry.prototype, policyMethods);
 Object.assign(OrcaRegistry.prototype, auditMethods);
 Object.assign(OrcaRegistry.prototype, projectMethods);
-Object.assign(OrcaRegistry.prototype, mcpToolMethods);
 // v2: the orchestrator RECORD is the only container. agentMethods owns the
 // orchestrator lifecycle + the getSession() container seam + ownership; there is
 // no session/orchestrator-marker module anymore.

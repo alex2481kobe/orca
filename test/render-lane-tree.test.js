@@ -4,7 +4,7 @@ import { renderLaneTree } from '../src/render-lane-tree.js';
 
 test('render-lane-tree: draws a tree with connectors, states, and nested auditor', () => {
   const lanes = [
-    { id: 'l1', title: 'Refactor cart totals', state: 'running', owner: 'executor', executorType: 'claude', model: 'sonnet', taskDescription: 'Extract tax calc', auditState: 'not_queued', critiqueState: 'needed', branch: 'orca/lane-abc' },
+    { id: 'l1', title: 'Refactor cart totals', state: 'running', owner: 'executor', executorType: 'claude', model: 'sonnet', taskDescription: 'Extract tax calc', auditState: 'not_queued', branch: 'orca/lane-abc' },
     { id: 'l2', title: 'Wire payment webhook', state: 'ready_for_audit', owner: 'executor', executorType: 'codex', taskDescription: 'Stripe webhook', auditState: 'queued' },
     { id: 'a1', title: 'Audit · Wire payment webhook', state: 'auditing', owner: 'auditor', executorType: 'claude', auditTargetLaneId: 'l2' },
   ];
@@ -29,9 +29,3 @@ test('render-lane-tree: handles empty, long, and emoji content without throwing'
   assert.ok(out.split('\n').every((line) => Array.from(line).length < 120));
 });
 
-test('render-lane-tree: includes a backlog line when provided', () => {
-  const out = renderLaneTree({ name: 'S' }, [{ id: 'l', title: 't', state: 'running', owner: 'executor', executorType: 'mock' }], {
-    backlog: { counts: { total: 5, accepted: 2, in_lane: 1, pending: 2, failed: 0, blocked: 0 } },
-  });
-  assert.match(out, /backlog: 5 tasks — 2 accepted · 1 running · 2 pending/);
-});

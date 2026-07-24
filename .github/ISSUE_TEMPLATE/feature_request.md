@@ -21,10 +21,13 @@ What workarounds or alternatives have you tried or ruled out?
 
 ## Scope and safety
 
-- Does this touch privileged surfaces (worker spawning, shell execution,
+- Does this touch privileged surfaces (executor spawning, shell execution,
   remote/Tailscale access, secrets, file mutation)? If so, describe the policy,
   approval, and audit expectations.
-- Is this primarily web/PWA, Tauri desktop, or both?
+- Which surface: the MCP tool contract, the daemon/API, or the dashboard?
+- Orca is deliberately a small harness for the CLI agents you already run — it
+  ships no agent, no model, no keys, and no chat UI. Say how the proposal fits
+  that scope.
 
 ## Additional context
 

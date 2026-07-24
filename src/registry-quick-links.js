@@ -1,10 +1,10 @@
 // Project quick-link (live dev-server link) normalization + health checks.
-// Extracted from registry.js. Pure helpers plus one bounded outbound health
-// probe (loopback/tailnet only, 2.5s timeout, redirect: manual).
+// Extracted from registry.js. Pure helpers only — the outbound health probe went
+// with the deleted project.quick_link.health tool.
 
 import { randomUUID } from 'node:crypto';
 import { nowIso } from './registry-utils.js';
-import { validateNetworkUrl, publicHostResolvesSafely } from './url-policy.js';
+import { validateNetworkUrl } from './url-policy.js';
 
 export const MAX_PROJECT_QUICK_LINKS = 50;
 const QUICK_LINK_KINDS = new Set(['dev-server', 'vite', 'preview', 'dashboard', 'artifact', 'docs', 'other']);
@@ -28,13 +28,6 @@ function normalizeQuickLinkHealthPath(raw, fallback = '/') {
     throw { status: 422, message: 'healthPath must use URL path separators.' };
   }
   return text.startsWith('/') ? text : `/${text}`;
-}
-
-function quickLinkHealthCheckUrl(baseUrl, healthPath = '/') {
-  const path = normalizeQuickLinkHealthPath(healthPath);
-  if (path === '/') return baseUrl;
-  const origin = new URL(baseUrl).origin;
-  return new URL(path, origin).toString();
 }
 
 function normalizeQuickLinkUrl(raw, field, { allowBlank = false } = {}) {
@@ -126,78 +119,4 @@ export function effectiveQuickLinkUrl(link, { prefer = 'auto' } = {}) {
   if (prefer === 'https') return link.httpsServeUrl || link.tailnetHttpUrl || link.localUrl || link.url || '';
   if (prefer === 'tailnet') return link.tailnetHttpUrl || link.httpsServeUrl || link.localUrl || link.url || '';
   return link.url || link.tailnetHttpUrl || link.httpsServeUrl || link.localUrl || '';
-}
-
-export async function boundedQuickLinkHealthCheck(link, { prefer = 'auto' } = {}) {
-  const candidate = effectiveQuickLinkUrl(link, { prefer });
-  if (!candidate || candidate.startsWith('/')) {
-    return {
-      status: 'not_checkable',
-      httpStatus: null,
-      detail: 'Relative dashboard links do not have an external health check.',
-      checkedUrl: candidate || '',
-    };
-  }
-  let policy;
-  try {
-    policy = validateNetworkUrl(candidate, {
-      field: 'quick link health URL',
-      allowedHosts: ['loopback', 'tailnet'],
-      allowPublic: true,
-      allowSensitive: false,
-    });
-    policy = {
-      ...policy,
-      url: quickLinkHealthCheckUrl(policy.url, link.healthPath || '/'),
-    };
-  } catch (error) {
-    return {
-      status: 'unreachable',
-      httpStatus: null,
-      detail: error.message || 'Quick link URL failed validation.',
-      checkedUrl: candidate,
-    };
-  }
-  // SSRF / DNS-rebinding guard: validateNetworkUrl trusts the hostname string, so
-  // a public name that resolves to an internal IP would pass. Re-check the resolved
-  // address(es) before fetching.
-  try {
-    const safe = await publicHostResolvesSafely(new URL(policy.url).hostname);
-    if (!safe) {
-      return {
-        status: 'unreachable',
-        httpStatus: null,
-        detail: 'Quick link host resolves to a non-public address.',
-        checkedUrl: policy.url,
-      };
-    }
-  } catch {
-    return { status: 'unreachable', httpStatus: null, detail: 'Quick link host could not be resolved.', checkedUrl: policy.url };
-  }
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 2500);
-  try {
-    const response = await fetch(policy.url, {
-      method: 'GET',
-      redirect: 'manual',
-      signal: controller.signal,
-    });
-    return {
-      status: response.status >= 200 && response.status < 500 ? 'reachable' : 'unreachable',
-      httpStatus: response.status,
-      detail: response.status >= 200 && response.status < 500
-        ? `Responded with HTTP ${response.status}.`
-        : `Unexpected HTTP ${response.status}.`,
-      checkedUrl: policy.url,
-    };
-  } catch (error) {
-    return {
-      status: 'unreachable',
-      httpStatus: null,
-      detail: error?.name === 'AbortError' ? 'Health check timed out.' : 'Health check failed.',
-      checkedUrl: policy.url,
-    };
-  } finally {
-    clearTimeout(timeout);
-  }
 }

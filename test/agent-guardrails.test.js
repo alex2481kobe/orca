@@ -246,25 +246,17 @@ test('fleet.emergency_stop stops every live lane under the orchestrator', async 
   });
 });
 
-test('audit.log.read + audit.log.ack read the event history and acknowledge one', async () => {
+test('the durable audit log records lane lifecycle events', async () => {
   await withRegistry(async (registry) => {
     const { orchestrator } = await makeOrchestrator(registry);
     const lane = registry.createLane(orchestrator.id, { title: 'a', executorType: 'mock' }, { actor: 'test', approved: true });
     registry.markLaneCompleted(registry.getLane(lane.id));
 
+    // The log is still written for forensics even though no agent tool reads it
+    // (audit.log.read / audit.log.ack and their routes are gone).
     const events = registry.listAuditEvents({});
     assert.ok(Array.isArray(events) && events.length > 0, 'audit log has events');
-
-    // Record a pending event and acknowledge it.
-    const pendingId = registry.recordAudit({
-      type: 'test_pending', actor: 'test', projectId: lane.projectId, sessionId: lane.sessionId,
-      laneId: lane.id, summary: 'needs review', status: 'pending',
-    });
-    const acked = registry.acknowledgeAuditEvent(pendingId, { actor: 'orchestrator', notes: 'looked at it' });
-    assert.equal(acked.status, 'passed');
-    assert.equal(acked.reviewedBy, 'orchestrator');
-    // Only pending events can be acked.
-    await assert.rejects(async () => registry.acknowledgeAuditEvent(pendingId, { actor: 'orchestrator' }), (e) => e.status === 409);
+    assert.ok(events.some((event) => event.laneId === lane.id), 'lane lifecycle is recorded');
   });
 });
 
@@ -307,8 +299,10 @@ test('accepting an isolated lane points nextAction at lane.integrate', async () 
 
 // --- Group 3c: nextAction hygiene (dead flags removed) -------------------------
 
-test('a blocked lane escalates (approval.request), it does not loop on lane.retry', async () => {
-  assert.equal(chooseNextTool({ role: 'orchestrator', project: { id: 'p' }, session: { id: 's' }, lane: { id: 'l', state: 'blocked' } }), 'approval.request');
+test('a blocked lane escalates to the status view, it does not loop on lane.retry', async () => {
+  const blocked = chooseNextTool({ role: 'orchestrator', project: { id: 'p' }, session: { id: 's' }, lane: { id: 'l', state: 'blocked' } });
+  assert.equal(blocked, 'orchestrator.status');
+  assert.notEqual(blocked, 'lane.retry');
   // The dead needs_critique -> lane.get path is gone (falls through to a poll).
   assert.notEqual(chooseNextTool({ role: 'orchestrator', project: { id: 'p' }, session: { id: 's' }, lane: { id: 'l', state: 'needs_critique' } }), 'lane.get');
 });

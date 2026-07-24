@@ -194,7 +194,7 @@ test('real orchestrator MCP takeover attaches to existing state without duplicat
       assert.equal(String(registered.id).startsWith('orc_'), true);
       const orchestratorId = registered.id;
 
-      const lane = parseMcpJson(await mcpA.callTool('lane__create', {
+      const lane = parseMcpJson(await mcpA.callTool('executor__spawn', {
         orchestratorId,
         body: { title: 'Existing takeover lane', executorType: 'mock', approved: true, taskPrompt: 'pre-takeover work' },
       }));
@@ -202,11 +202,13 @@ test('real orchestrator MCP takeover attaches to existing state without duplicat
 
       // Count durable records: projects + lanes under the orchestrator container.
       const counts = async () => {
-        const projects = await requestJson('/api/projects');
+        // GET /api/projects went with project.list; /api/overview is the surviving
+        // projects-by-cwd view.
+        const overview = await requestJson('/api/overview');
         const lanes = await requestJson(`/api/orchestrators/${orchestratorId}/lanes`);
-        assert.equal(projects.status, 200);
+        assert.equal(overview.status, 200);
         assert.equal(lanes.status, 200);
-        return { projects: projects.body.length, lanes: lanes.body.length };
+        return { projects: (overview.body.projects || []).length, lanes: lanes.body.length };
       };
       const before = await counts();
 
@@ -228,12 +230,14 @@ test('real orchestrator MCP takeover attaches to existing state without duplicat
       assert.deepEqual(await counts(), before);
 
       // The resigned former owner may no longer mutate the container.
-      const staleA = await mcpA.callTool('lane__create', {
+      const staleA = await mcpA.callTool('executor__spawn', {
         orchestratorId,
         body: { title: 'Former owner must not spawn', executorType: 'mock', approved: true },
       });
       assert.equal(staleA.result.isError, true);
-      assert.match(mcpText(staleA), /not the active orchestrator/i);
+      // executor.spawn is ownership-exempt at the workflow gate; its route does the
+      // explicit owner check instead, so the refusal wording differs.
+      assert.match(mcpText(staleA), /does not own this orchestrator/i);
       assert.deepEqual(await counts(), before);
 
       // Status shows B as the active owner and still surfaces A's existing lane.
@@ -278,7 +282,7 @@ test('real MCP orchestrator registers a repo by cwd and spawns isolated worktree
         assert.equal(toolNames.includes('session__create'), false);
         assert.equal(toolNames.includes('session__worktree_policy__update'), false);
         assert.ok(toolNames.includes('orchestrator__register'));
-        assert.ok(toolNames.includes('lane__create'));
+        assert.ok(toolNames.includes('executor__spawn'));
 
         // registerOrchestrator enforces cwd ∈ approved roots (the repoRoot guard).
         const unsafe = await mcp.callTool('orchestrator__register', { cwd: unsafeRoot });
@@ -291,11 +295,11 @@ test('real MCP orchestrator registers a repo by cwd and spawns isolated worktree
         }));
         assert.equal(String(registered.id).startsWith('orc_'), true);
         const orchestratorId = registered.id;
-        assert.equal(await realPath((await requestJson('/api/projects')).body
+        assert.equal(await realPath((await requestJson('/api/overview')).body.projects
           .find((p) => p.id === registered.projectId).cwd), repoReal);
 
         // Spawn an executor lane that isolates in its own managed git worktree.
-        const isolatedLane = parseMcpJson(await mcp.callTool('lane__create', {
+        const isolatedLane = parseMcpJson(await mcp.callTool('executor__spawn', {
           orchestratorId,
           body: {
             title: 'MCP isolated worktree lane',

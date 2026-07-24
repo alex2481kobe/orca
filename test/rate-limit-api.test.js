@@ -164,14 +164,14 @@ test('rate limiter keys authenticated requests without echoing raw token values'
     // Any token-authenticated, rate-limited read works as the vehicle: the point
     // of this test is that the limiter keys off a HASH of the token and never
     // echoes the raw token in the 429 body/headers.
-    const first = await server.requestJson('/api/mcp/tools', {
+    const first = await server.requestJson('/api/overview', {
       method: 'GET',
       headers: { 'x-orca-token': token },
     });
     assert.equal(first.status, 200);
     assert.equal(first.headers['x-ratelimit-policy'], 'defaultRead');
 
-    const second = await server.requestJson('/api/mcp/tools', {
+    const second = await server.requestJson('/api/overview', {
       method: 'GET',
       headers: { 'x-orca-token': token },
     });

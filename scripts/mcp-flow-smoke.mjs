@@ -6,7 +6,7 @@
  *
  * Covers, for both orchestrator and executor roles:
  *  - MCP initialize + role-filtered tools/list
- *  - Orchestrator spawning executor agents via lane.create (mock + real Codex + real Claude)
+ *  - Orchestrator spawning executor agents via executor.spawn (mock + real Codex + real Claude)
  *  - Stopping/deactivating a running agent via lane.shutdown
  *  - Executor heartbeat + submit (summary/diff handoff)
  *  - Authoritative state-gate refusal surfaced through MCP (isError + nextAction)
@@ -186,12 +186,12 @@ try {
   });
   await orch.initialize();
   const orchTools = await orch.listToolNames();
-  for (const need of ['orchestrator__register', 'lane__create', 'lane__shutdown', 'audit__queue_one', 'project__list',
-    'lane__integrate', 'lane__worktree__discard', 'orchestrator__heartbeat']) {
+  for (const need of ['orchestrator__register', 'executor__spawn', 'lane__shutdown', 'audit__queue_one',
+    'orchestrator__status', 'lane__integrate', 'lane__worktree__discard', 'project__preview__set']) {
     if (!orchTools.includes(need)) fail('orchestrator tools/list missing', need);
   }
   if (orchTools.includes('orchestrator__enroll')) fail('orchestrator tools/list still exposes removed enroll tool');
-  log('orchestrator tools', `${orchTools.length} tools incl. lane__create/shutdown/audit`);
+  log('orchestrator tools', `${orchTools.length} tools incl. executor__spawn/shutdown/audit`);
 
   // Register as the orchestrator for the working dir (creates project-by-cwd).
   const reg = await orch.call('orchestrator__register', { cwd: realTempDir, actor: 'orchestrator-mcp-flow', title: 'MCP Flow' });
@@ -200,32 +200,28 @@ try {
   const projectId = reg.data.projectId;
   log('workspace', `project=${projectId} orchestrator=${orchestratorId}`);
 
-  // Heartbeat refreshes the lease owner's lastSeenAt (keeps ownership from going
-  // stale during read-only monitoring).
-  const beat = await orch.call('orchestrator__heartbeat', { orchestratorId, body: { actor: 'orchestrator-mcp-flow' } });
-  if (beat.isError || !beat.data?.lastSeenAt) fail('orchestrator orchestrator__heartbeat', beat.text);
-  log('orchestrator heartbeat', 'lastSeenAt refreshed');
-
-  // project.list via MCP returns our (implicitly created) project.
-  const projList = await orch.call('project__list', {});
-  if (projList.isError) fail('orchestrator project__list', projList.text);
-  log('orchestrator project__list', 'ok');
+  // orchestrator.status is the canonical read AND the ownership heartbeat: it
+  // refreshes the lease owner's lastSeenAt (the standalone heartbeat tool is gone).
+  const status = await orch.call('orchestrator__status', { orchestratorId });
+  if (status.isError || !status.data?.activeOrchestrator?.lastSeenAt) fail('orchestrator orchestrator__status', status.text);
+  if (status.data.activeOrchestrator.active !== true) fail('orchestrator__status ownership', status.text);
+  log('orchestrator status', 'lane tree + nextRequiredTool + lastSeenAt refreshed');
 
   // Spawn an executor agent (mock) via the MCP tool, run to completion.
-  const spawn1 = await orch.call('lane__create', {
+  const spawn1 = await orch.call('executor__spawn', {
     orchestratorId,
     body: { actor: 'orchestrator', approved: true, title: 'MCP-spawned mock lane', owner: 'orchestrator', role: 'executor', executorType: 'mock', taskPrompt: 'spawned via MCP', runProfile: { autoCompleteMs: 800 } },
   });
-  if (spawn1.isError || !spawn1.data?.id) fail('orchestrator lane__create (mock)', spawn1.text);
+  if (spawn1.isError || !spawn1.data?.id) fail('orchestrator executor__spawn (mock)', spawn1.text);
   await waitForLaneState(spawn1.data.id, (s) => s === 'done', 'MCP-spawned mock lane');
   log('orchestrator spawn+complete', `${spawn1.data.id} done`);
 
   // Spawn a long-running agent and STOP it in progress (deactivate).
-  const spawn2 = await orch.call('lane__create', {
+  const spawn2 = await orch.call('executor__spawn', {
     orchestratorId,
     body: { actor: 'orchestrator', approved: true, title: 'MCP long-running lane', owner: 'orchestrator', role: 'executor', executorType: 'mock', taskPrompt: 'long', runProfile: { autoCompleteMs: 60000 } },
   });
-  if (spawn2.isError || !spawn2.data?.id) fail('orchestrator lane__create (long)', spawn2.text);
+  if (spawn2.isError || !spawn2.data?.id) fail('orchestrator executor__spawn (long)', spawn2.text);
   await waitForLaneState(spawn2.data.id, (s) => s === 'running', 'long lane running');
   const stopRes = await orch.call('lane__shutdown', { laneId: spawn2.data.id, body: { actor: 'orchestrator', approved: true } });
   if (stopRes.isError) fail('orchestrator lane__shutdown', stopRes.text);
@@ -235,11 +231,11 @@ try {
   // Spawn real Codex + Claude executor lanes via MCP (version command).
   for (const [bin, type] of [[codexBinary, 'codex'], [claudeBinary, 'claude']]) {
     if (!bin) { log(`orchestrator spawn ${type}`, 'skipped: CLI not available'); continue; }
-    const laneRes = await orch.call('lane__create', {
+    const laneRes = await orch.call('executor__spawn', {
       orchestratorId,
       body: { actor: 'orchestrator', approved: true, title: `MCP ${type} lane`, owner: 'orchestrator', role: 'executor', executorType: type, commandArgs: ['--version'] },
     });
-    if (laneRes.isError || !laneRes.data?.id) fail(`orchestrator lane__create (${type})`, laneRes.text);
+    if (laneRes.isError || !laneRes.data?.id) fail(`orchestrator executor__spawn (${type})`, laneRes.text);
     const done = await waitForLaneState(laneRes.data.id, (s) => ['done', 'failed', 'stopped'].includes(s), `${type} lane`);
     if (done.state !== 'done' || done.processMeta?.exitCode !== 0) fail(`${type} lane exit`, JSON.stringify(done.processMeta || done.state));
     log(`orchestrator spawn ${type}`, `${laneRes.data.id} done exit=0 (real ${type})`);
@@ -247,7 +243,7 @@ try {
 
   // ---- EXECUTOR ROLE -----------------------------------------------------
   // Create a running lane (under the orchestrator container) the executor operates on.
-  const execLane = await req('POST', `/api/orchestrators/${orchestratorId}/lanes`, {
+  const execLane = await req('POST', `/api/orchestrators/${orchestratorId}/executors`, {
     actor: 'dashboard', approved: true, title: 'Executor MCP lane', owner: 'executor', role: 'executor',
     executorType: 'mock', taskPrompt: 'executor work', runProfile: { autoCompleteMs: 60000 },
   });
@@ -269,17 +265,17 @@ try {
   });
   await exec.initialize();
   const execTools = await exec.listToolNames();
-  for (const need of ['lane__submit', 'lane__heartbeat']) {
+  for (const need of ['lane__submit', 'lane__get']) {
     if (!execTools.includes(need)) fail('executor tools/list missing', need);
   }
   if (execTools.includes('provider__configure')) fail('executor tools/list leaks dashboard tool', 'provider__configure');
   if (execTools.includes('audit__accept')) fail('executor tools/list leaks auditor tool', 'audit__accept');
   log('executor tools', `${execTools.length} tools; dashboard/auditor tools hidden`);
 
-  // heartbeat
-  const hb = await exec.call('lane__heartbeat', { laneId: execLane.body.id, body: { actor: 'executor' } });
-  if (hb.isError) fail('executor lane__heartbeat', hb.text);
-  log('executor heartbeat', 'ok');
+  // the executor can read its own lane contract
+  const own = await exec.call('lane__get', { laneId: execLane.body.id });
+  if (own.isError || own.data?.id !== execLane.body.id) fail('executor lane__get', own.text);
+  log('executor lane read', 'ok');
 
   // Permission-approval loop via MCP: executor requests, orchestrator approves.
   const reqApproval = await exec.call('approval__request', {

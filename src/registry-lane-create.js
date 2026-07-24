@@ -14,12 +14,10 @@ import {
 import { buildNextActionEnvelope } from './agent-tools/next-action.js';
 import { FIRST_CLASS_CLI_EXECUTOR_TYPES, getExecutorProfile } from './executor-factory.js';
 import { createLaneWorktree, describeRepoRoot } from './worktree-manager.js';
-import { sanitizeSettingsOverrides } from './effective-settings/schema.js';
+import { sanitizeFlowConfig } from './registry-audit.js';
 import { validateNetworkUrl } from './url-policy.js';
 import {
-  normalizeCritiqueMode,
   resolveWorktreeMode,
-  normalizeIdleShutdownMode,
   commandTargetsExecutorFirstToken,
   normalizeApprovedCapacity,
   normalizeSpawnPolicy,
@@ -78,7 +76,6 @@ export const laneCreateMethods = {
     policyProfile = 'default',
     autoCompleteMs,
     heartbeatMs,
-    mcpToolIds = [],
     taskPrompt,
     model,
     permissionsProfile,
@@ -87,15 +84,14 @@ export const laneCreateMethods = {
     verificationCommand,
     expectedArtifacts,
     targetUrl,
-    critiqueMode,
+    flow,
+    // Accepted and ignored: the effective-settings cascade is gone.
     settingsOverrides,
     repoRoot,
     branch,
-    sharedWorktree,
     worktreeMode,
-    idleShutdownMode,
+    idleShutdown,
     auditTargetLaneId,
-    metadataTaskId,
     metadataLoopId,
     presentationMode,
   }, context = {}) {
@@ -141,7 +137,7 @@ export const laneCreateMethods = {
       if (activeAgents >= effectiveLimit) {
         throw {
           status: 409,
-          message: `Orchestrator is at capacity: ${activeAgents}/${effectiveLimit} lanes are live (spawnPolicy ${spawnPolicy}). Wait for a lane to finish (or accept/stop one) before spawning another, or raise the limit (orchestrator.update).`,
+          message: `Orchestrator is at capacity: ${activeAgents}/${effectiveLimit} lanes are live (spawnPolicy ${spawnPolicy}). Wait for a lane to finish (or accept/stop one) before spawning another.`,
           nextAction: (() => {
             try {
               return buildNextActionEnvelope(this, {
@@ -167,13 +163,11 @@ export const laneCreateMethods = {
     // directory (no isolation), which is how Codex behaves in any folder.
     const repoIsGit = sessionRepoRoot ? describeRepoRoot(sessionRepoRoot).ok : false;
 
-    // Decide isolation for this lane. An explicit worktreeMode wins; the legacy
-    // sharedWorktree boolean maps onto it; otherwise 'auto' decides from the
-    // situation — read-only or sole-writer work runs directly in the checkout
-    // (no worktree), and only overlapping writers get an isolated worktree.
-    const requestedWorktreeMode = worktreeMode !== undefined
-      ? worktreeMode
-      : (sharedWorktree === true ? 'shared' : 'auto');
+    // Decide isolation for this lane: an explicit worktreeMode:'isolated' wins,
+    // otherwise 'auto' decides from the situation — read-only or sole-writer work
+    // runs directly in the checkout (no worktree), and only overlapping writers
+    // get an isolated worktree.
+    const requestedWorktreeMode = worktreeMode !== undefined ? worktreeMode : 'auto';
     const isReadOnlyLane = String(permissionsProfile || '').trim() === 'read-only';
     const activeWriterLanes = (this.lanes || []).filter((lane) => (
       lane.sessionId === session.id
@@ -207,9 +201,8 @@ export const laneCreateMethods = {
         derivedRepoRoot = result.repoRoot;
         reservedLaneId = laneId;
       } else {
-        // direct or shared: run in the repo checkout itself (no worktree). For
-        // 'shared' the conflict-risk warning below is the guardrail; 'direct' is
-        // a sole writer or read-only lane, so in-place editing is safe.
+        // direct: run in the repo checkout itself (no worktree). A direct lane is
+        // a sole writer or read-only, so in-place editing is safe.
         workdirOverride = sessionRepoRoot;
         derivedRepoRoot = sessionRepoRoot;
       }
@@ -244,48 +237,6 @@ export const laneCreateMethods = {
 
     const now = nowIso();
     const laneId = reservedLaneId || randomUUID();
-    const scopedToolIds = new Set(this.listToolsForExecutor(normalizedExecutorType).map((tool) => tool.id));
-    const resolvedToolIds = safeArray(mcpToolIds)
-      .map((item) => String(item || '').trim())
-      .filter(Boolean)
-      .filter((value, index, all) => all.indexOf(value) === index);
-    const unknownToolIds = [];
-    const disallowedToolIds = [];
-    resolvedToolIds.forEach((toolId) => {
-      const tool = this.getMcpTool(toolId);
-      if (!tool) {
-        unknownToolIds.push(toolId);
-        return;
-      }
-      if (!scopedToolIds.has(tool.id) || !tool.enabled) {
-        disallowedToolIds.push(tool.id);
-      }
-    });
-    if (unknownToolIds.length || disallowedToolIds.length) {
-      const details = [];
-      if (unknownToolIds.length) {
-        details.push(`Unknown MCP tools: ${unknownToolIds.join(', ')}`);
-      }
-      if (disallowedToolIds.length) {
-        details.push(`Unauthorized MCP tools: ${disallowedToolIds.join(', ')}`);
-      }
-      throw {
-        status: 422,
-        message: `Cannot create lane: ${details.join('; ')}`,
-      };
-    }
-    const mcpTools = resolvedToolIds
-      .map((id) => this.getMcpTool(id))
-      .filter((tool) => tool && scopedToolIds.has(tool.id))
-      .filter((tool) => tool && tool.enabled)
-      .map((tool) => ({
-        id: tool.id,
-        name: tool.name,
-        command: tool.command,
-        args: tool.args,
-        scope: tool.scope,
-      }));
-
     // taskPrompt is the executor's whole assignment; the command builder handles
     // very large prompts, so cap generously (was 8000 — small enough to silently
     // drop real scope). If truncation still happens, we do NOT swallow it: a
@@ -301,16 +252,11 @@ export const laneCreateMethods = {
     const sanitizedSpeed = typeof speed === 'string' ? speed.trim().slice(0, 24) : '';
     const rawPresentationMode = String(presentationMode || '').trim().toLowerCase();
     const sanitizedPresentationMode = rawPresentationMode === 'terminal' ? 'terminal' : 'chat';
-    const executorCapabilities = this.getExecutorCapabilities(normalizedExecutorType);
     const sanitizedVerificationCommand = typeof verificationCommand === 'string'
       ? verificationCommand.trim().slice(0, 1000) : '';
     const sanitizedTargetUrl = typeof targetUrl === 'string' && targetUrl.trim()
       ? validateNetworkUrl(targetUrl, { field: 'targetUrl', allowSensitive: false }).url
       : '';
-    const normalizedCritiqueMode = normalizeCritiqueMode(
-      critiqueMode,
-      sanitizedTargetUrl ? 'visual-required' : normalizeCritiqueMode(session.critiqueMode, 'suggested'),
-    );
     const sanitizedRepoRoot = (derivedRepoRoot || (typeof repoRoot === 'string' ? repoRoot.trim() : '')).slice(0, MAX_WORKDIR_BYTES);
     const sanitizedBranch = (derivedBranch || (typeof branch === 'string' ? branch.trim() : ''))
       .replace(/[^A-Za-z0-9._\-/]/g, '')
@@ -335,28 +281,25 @@ export const laneCreateMethods = {
       executorBinary,
       workdir: resolvedWorkdir,
       policyProfile,
-      settingsOverrides: sanitizeSettingsOverrides(settingsOverrides || {}),
-      mcpTools,
-      mcpToolIds: mcpTools.map((tool) => tool.id),
+      flow: sanitizeFlowConfig(flow || {}),
       taskPrompt: sanitizedTaskPrompt,
       model: sanitizedModel,
       permissionsProfile: sanitizedPermissionsProfile,
       intelligenceProfile: sanitizedIntelligenceProfile,
       speed: sanitizedSpeed,
       presentationMode: sanitizedPresentationMode,
-      executorCapabilities,
       verificationCommand: sanitizedVerificationCommand,
       expectedArtifacts: expectedArtifactsList,
       targetUrl: sanitizedTargetUrl,
       repoRoot: sanitizedRepoRoot,
       branch: sanitizedBranch,
-      sharedWorktree: resolvedWorktreeMode === 'shared',
       worktreeMode: resolvedWorktreeMode,
       worktreePath: derivedWorktree || resolvedWorkdir,
       // Idle-shutdown policy for this lane + the last time it showed activity
       // (output/heartbeat/state change). The scheduler reaps a running lane idle
       // past its window per this mode. Default 'immediate'; 'policy' never reaps.
-      idleShutdownMode: normalizeIdleShutdownMode(idleShutdownMode),
+      // Opt-out only: anything other than an explicit false means auto-reap.
+      idleShutdown: idleShutdown !== false,
       lastActivityAt: now,
       state: QUEUED_STATE,
       owner,
@@ -370,15 +313,12 @@ export const laneCreateMethods = {
       changedFiles: [],
       lastEvidenceCaptureAt: null,
       lastEvidence: null,
-      critiqueMode: normalizedCritiqueMode,
-      critiqueState: ['required', 'visual-required'].includes(normalizedCritiqueMode) ? 'needed' : 'not_required',
       auditState: 'not_queued',
       auditFindings: [],
       // Set on a dedicated auditor lane (owner='auditor') — points at the
       // executor lane it was spawned to review.
       auditTargetLaneId: auditTargetLaneId ? String(auditTargetLaneId).slice(0, 80) : null,
       // Inert lane metadata (nullable passthrough).
-      metadataTaskId: metadataTaskId ? String(metadataTaskId).slice(0, 80) : null,
       // Set when a durable loop queues the task that spawned this lane.
       metadataLoopId: metadataLoopId ? String(metadataLoopId).slice(0, 80) : null,
       route: buildLaneRoute(project.slug, session.id, laneId),
@@ -433,29 +373,9 @@ export const laneCreateMethods = {
         message: `taskPrompt truncated from ${rawTaskPrompt.length} to ${MAX_TASK_PROMPT_CHARS} chars.`,
       });
     }
-    if (lane.sharedWorktree) {
-      // Shared-working-tree is a named exception: stronger conflict risk, so
-      // an explicit audit event is queued for review and the lane stores a
-      // visible warning the dashboard can surface.
-      lane.warnings = [...(lane.warnings || []), {
-        kind: 'shared_worktree',
-        message: 'Lane is configured to share the session worktree. Concurrent edits may conflict.',
-      }];
-      this.recordAudit({
-        type: 'lane_shared_worktree',
-        actor: owner,
-        projectId: session.projectId,
-        sessionId: session.id,
-        laneId: lane.id,
-        summary: `Lane "${lane.title}" is shared-worktree; concurrent edits may conflict.`,
-        evidence: { laneId: lane.id, workdir: lane.workdir, branch: lane.branch || null },
-        status: 'pending',
-        followUpQueued: true,
-      });
-    }
     this.persistState();
     // Guide the spawning orchestrator to observe the new lane (and, once it
-    // finishes, audit it) without a separate session.next_action round-trip.
+    // finishes, audit it) without a separate status round-trip.
     const result = clonePayload(lane);
     try {
       const env = buildNextActionEnvelope(this, {

@@ -4,7 +4,6 @@ import { CONTRACT_VERSION } from './contract.js';
 import { isLiveLaneState } from '../worker-contract.js';
 import { findTool } from './tool-definitions.js';
 import { normalizeRole, availableToolIdsForRole } from './roles.js';
-import { buildMcpToolsByExecutor } from './registry-views.js';
 
 function latestPendingAudit(registry, laneId) {
   const events = Array.isArray(registry?.auditEvents) ? registry.auditEvents : [];
@@ -20,7 +19,6 @@ function laneLoopState(lane) {
   if (!lane) return 'session_planning';
   if (lane.state === 'queued') return 'lane_queued';
   if (lane.state === 'starting' || lane.state === 'running') return 'lane_active';
-  if (lane.state === 'needs_critique') return 'needs_self_verification';
   if (lane.state === 'ready_for_audit') return 'ready_for_audit';
   if (lane.state === 'auditing') return 'audit_in_progress';
   if (lane.state === 'fix_requested') return 'fix_requested';
@@ -32,41 +30,49 @@ function laneLoopState(lane) {
   return `lane_${lane.state || 'unknown'}`;
 }
 
+// The standalone session.next_action TOOL is gone — orchestrator.status returns
+// this envelope now — so "nothing to do but look" resolves to orchestrator.status
+// for every role. Only ids that still exist in tool-definitions.js may appear
+// here; test/agent-tools.test.js fails the build on a dead id.
+const OBSERVE = 'orchestrator.status';
+
 export function chooseNextTool({ registry, role, project, session, lane, auditQueued, flow }) {
   const normalizedRole = normalizeRole(role);
   // Non-orchestrator roles (executor/auditor) fall through to the read-only path
   // below and never get an orchestrator-only tool.
   if (!project) return normalizedRole === 'orchestrator' || normalizedRole === 'dashboard'
     ? 'orchestrator.register'
-    : 'project.list';
+    : OBSERVE;
   // v2: the orchestrator RECORD is the container. With no container yet, an
   // orchestrator registers to obtain one (there is no session/enroll step).
   if (!session) return normalizedRole === 'orchestrator' || normalizedRole === 'dashboard'
     ? 'orchestrator.register'
-    : 'project.describe';
+    : OBSERVE;
   if (!lane) {
     // orchestrator-only flow: the orchestrator does the work itself — don't push
     // toward spawning executor lanes.
-    if (flow?.template === 'orchestrator-only') return 'session.next_action';
+    if (flow?.template === 'orchestrator-only') return OBSERVE;
     return normalizedRole === 'orchestrator' || normalizedRole === 'dashboard'
-      ? 'lane.create'
-      : 'session.next_action';
+      ? 'executor.spawn'
+      : OBSERVE;
   }
-  if (lane.state === 'queued') return 'session.next_action';
-  if (lane.state === 'starting' || lane.state === 'running') return normalizedRole === 'executor' ? 'lane.heartbeat' : 'session.next_action';
+  if (lane.state === 'queued') return OBSERVE;
+  // A live lane: the executor's job is to finish and hand off; everyone else watches.
+  if (lane.state === 'starting' || lane.state === 'running') return normalizedRole === 'executor' ? 'lane.submit' : OBSERVE;
   if (lane.state === 'done' || lane.state === 'ready_for_audit') return auditQueued ? 'audit.findings.record' : 'audit.queue_one';
   if (lane.state === 'fix_requested') {
     // Route the fix per the configurable flow: a fresh agent (new lane) or the
     // same agent (retry this lane).
-    return flow?.fixRouting === 'new-agent' ? 'lane.create' : 'lane.retry';
+    return flow?.fixRouting === 'new-agent' ? 'executor.spawn' : 'lane.retry';
   }
   if (lane.state === 'failed') return 'lane.retry';
   if (lane.state === 'stopped') return 'lane.retry';
   // A blocked lane was stopped by the auditor for a reason (out of scope / needs
   // human direction). Don't point at lane.retry — that just re-runs the same work
-  // and can loop a policy-blocked lane. Escalate for a human/orchestrator decision.
-  if (lane.state === 'blocked') return 'approval.request';
-  return 'session.next_action';
+  // and can loop a policy-blocked lane. Send the caller to the status view so a
+  // human/orchestrator decides (retry, respawn, or delete).
+  if (lane.state === 'blocked') return OBSERVE;
+  return OBSERVE;
 }
 
 function flowConfigForLane(registry, lane) {
@@ -97,10 +103,10 @@ const SESSION_LANE_ACTION_PRIORITY = {
   'audit.queue_one': 30,
   'audit.findings.record': 30,
   'lane.retry': 40,
-  'lane.create': 45,
+  'executor.spawn': 45,
   'lane.get': 50,
-  'lane.heartbeat': 80,
-  'session.next_action': 90,
+  'lane.submit': 80,
+  'orchestrator.status': 90,
 };
 
 function chooseSessionLane(registry, { role, project, session }) {
@@ -154,8 +160,6 @@ function buildLinks({ project, session, lane }) {
     session: project && session ? `/projects/${project.slug || project.id}/sessions/${session.id}` : null,
     lane: lane?.route || null,
     api: {
-      discovery: '/api/agent-tools/discovery',
-      nextAction: '/api/agent-tools/next-action',
       lease: '/api/agent-tools/leases',
     },
   };
@@ -166,10 +170,10 @@ export function buildNextActionEnvelope(registry, {
   projectId = null,
   sessionId = null,
   laneId = null,
-  // lean omits the heavy discovery fields (executor capability matrix +
-  // mcpToolsByExecutor) — those can shell out to CLIs on a cold cache. Callers
-  // that only need flow/nextRequiredTool (e.g. orchestrator.status, often polled)
-  // pass lean:true. The flow/state fields are identical either way.
+  // lean omits the executor capability matrix, which can shell out to CLIs on a
+  // cold cache. Callers that only need flow/nextRequiredTool (e.g.
+  // orchestrator.status, often polled) pass lean:true. The flow/state fields are
+  // identical either way.
   lean = false,
   allowedTools = null,
 } = {}) {
@@ -207,12 +211,11 @@ export function buildNextActionEnvelope(registry, {
     lane,
   });
   const nextTool = findTool(nextRequiredTool);
-  // Live audit-evidence gate: UI/browser work (a targetUrl, or visual-required
-  // mode) must produce captured evidence before an auditor accepts it (enforced
-  // in acceptLaneAudit). The dead critique-role signals (critiqueRequired/
-  // critiqueSatisfied/evidenceFresh) were removed — they referenced a flow that no
-  // longer exists, and an agent could act on them.
-  const evidenceRequired = Boolean(lane?.targetUrl || lane?.critiqueMode === 'visual-required');
+  // Live audit-evidence gate: UI/browser work (a lane with a targetUrl) must
+  // produce captured evidence before an auditor accepts it (enforced in
+  // acceptLaneAudit). targetUrl is the whole signal now — the critique fields that
+  // also fed this were never assigned anywhere and are gone.
+  const evidenceRequired = Boolean(lane?.targetUrl);
   // 'auditing' and 'fix_requested' are post-submission states where the audit is
   // demonstrably not yet accepted; include them so auditSatisfied below reflects
   // reality (was reporting satisfied=true for them).
@@ -260,10 +263,6 @@ export function buildNextActionEnvelope(registry, {
     auditSatisfied: auditRequired ? auditSatisfied : true,
     flow,
     capacity: buildCapacity(registry, session),
-    executorCapabilities: (!lean && typeof registry?.getExecutorCapabilitiesMatrix === 'function')
-      ? registry.getExecutorCapabilitiesMatrix()
-      : {},
-    mcpToolsByExecutor: lean ? {} : buildMcpToolsByExecutor(registry),
     links: buildLinks({ project, session, lane }),
   };
 }

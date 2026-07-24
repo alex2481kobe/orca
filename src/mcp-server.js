@@ -28,15 +28,26 @@ const require = createRequire(import.meta.url);
 const PACKAGE_VERSION = require('../package.json').version || '0.0.0';
 const BASE_URL = String(process.env.ORCA_AGENT_TOOLS_BASE_URL || 'http://127.0.0.1:3000').replace(/\/$/, '');
 const LEASE_TOKEN = String(process.env.ORCA_TOOL_LEASE_TOKEN || '');
-// normalizeRole silently falls back to 'orchestrator' for an unknown role, which
-// would let a stale ORCA_ROLE (e.g. a now-removed 'supervisor') read as the top
-// role. Warn loudly on stderr (never stdout — that carries JSON-RPC) so a
-// misconfigured lease env is visible instead of silently escalating.
-const RAW_ROLE = String(process.env.ORCA_ROLE || 'executor').trim().toLowerCase();
+// ORCA_ROLE decides which tools this bridge ADVERTISES. It is not an authorization
+// boundary: the server binds every tool lease to its role's tool set
+// (registry-tool-leases.js createToolLease -> availableToolIdsForRole) and checks
+// each call against that lease, so advertising a tool never grants it.
+//
+// Default = orchestrator, because the only caller that gets here WITHOUT an explicit
+// ORCA_ROLE is a human wiring `claude mcp add orca` / `codex mcp add orca` by hand —
+// and that human is the orchestrator. Spawned executors always have ORCA_ROLE
+// injected for them (the lease runtime env + cli-adapter's own 'executor' fallback),
+// so they are unaffected. Defaulting to 'executor' here used to hide
+// orchestrator.register/executor.spawn from the documented quickstart, which made
+// the first thing a new user tries impossible.
+//
+// normalizeRole falls back to 'orchestrator' for an UNKNOWN role, so warn loudly on
+// stderr (never stdout — that carries JSON-RPC) when a stale value is supplied.
+const RAW_ROLE = String(process.env.ORCA_ROLE || 'orchestrator').trim().toLowerCase();
 if (RAW_ROLE && !ROLES.has(RAW_ROLE)) {
   process.stderr.write(`[orca-mcp] ORCA_ROLE="${RAW_ROLE}" is not a known role; defaulting to orchestrator. Valid roles: ${[...ROLES].join(', ')}.\n`);
 }
-const ROLE = normalizeRole(process.env.ORCA_ROLE || 'executor');
+const ROLE = normalizeRole(process.env.ORCA_ROLE || 'orchestrator');
 const DEFAULT_PARAMS = {
   sessionId: process.env.ORCA_SESSION_ID || '',
   laneId: process.env.ORCA_LANE_ID || '',
@@ -49,11 +60,8 @@ const SERVER_PROTOCOL_VERSION = '2024-11-05';
 const toMcpName = (id) => id.replace(/\./g, '__');
 const fromMcpName = (name) => name.replace(/__/g, '.');
 const TOOL_QUERY_PARAMS = {
-  'session.next_action': ['role', 'projectId', 'sessionId', 'laneId'],
   'lane.terminal.tail': ['offset', 'maxBytes'],
-  'audit.log.read': ['status'],
-  'tailscale.status': ['fake'],
-  'orca.setup_guide': ['localUrl', 'httpPort', 'httpsPort'],
+  'event.drain': ['limit', 'type', 'afterSeq'],
 };
 
 function callableTools() {
@@ -75,7 +83,7 @@ function instructionsForRole() {
   }
   return (
     `${rules}\n\n`
-    + 'Tool names use "__" where the contract uses "." (e.g. session.next_action -> session__next_action). '
+    + 'Tool names use "__" where the contract uses "." (e.g. orchestrator.status -> orchestrator__status). '
     + 'Path params (sessionId/laneId/projectId) default from this connection when omitted. '
     + 'Mutating tools take a "body" object. The server is authoritative: it enforces ordering and policy and '
     + 'returns a nextAction envelope you must follow.'

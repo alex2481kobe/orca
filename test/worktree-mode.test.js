@@ -50,27 +50,38 @@ test('resolveWorktreeMode: auto with an overlapping writer -> isolated', () => {
   );
 });
 
-test('resolveWorktreeMode: explicit modes are honored (isolated degrades on non-git)', () => {
+test('resolveWorktreeMode: explicit isolated is honored (and degrades on non-git)', () => {
   // Explicit 'isolated' truly needs a git working tree; on a non-git folder it
   // degrades to direct (there is nothing to branch a worktree from).
   assert.equal(
     resolveWorktreeMode({ requested: 'isolated', repoIsGit: false }),
     'direct',
   );
-  // Explicit 'shared' just runs in the folder, so it applies even on non-git.
-  assert.equal(
-    resolveWorktreeMode({ requested: 'shared', repoIsGit: false }),
-    'shared',
-  );
-  // Explicit 'direct' is always honored.
-  assert.equal(
-    resolveWorktreeMode({ requested: 'direct', repoIsGit: true, activeWriterLanes: 5 }),
-    'direct',
-  );
   // Explicit 'isolated' on a git repo is honored (not degraded).
   assert.equal(
     resolveWorktreeMode({ requested: 'isolated', repoIsGit: true }),
     'isolated',
+  );
+});
+
+test('resolveWorktreeMode: only auto and isolated are accepted as REQUESTS', () => {
+  // The retired 'shared' and 'direct' requests are not modes a caller may ask
+  // for any more — an unknown request falls back to 'auto' and is resolved from
+  // the situation. ('direct' remains the resolved OUTCOME, just not an input.)
+  assert.equal(
+    resolveWorktreeMode({ requested: 'shared', repoIsGit: true, activeWriterLanes: 5 }),
+    'isolated',
+    'a retired "shared" request must not keep several writers in one checkout',
+  );
+  assert.equal(
+    resolveWorktreeMode({ requested: 'direct', repoIsGit: true, activeWriterLanes: 5 }),
+    'isolated',
+    'a retired "direct" request falls back to auto, which isolates overlapping writers',
+  );
+  assert.equal(
+    resolveWorktreeMode({ requested: 'nonsense', repoIsGit: true, activeWriterLanes: 0 }),
+    'direct',
+    'unknown requests fall back to auto',
   );
 });
 

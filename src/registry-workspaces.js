@@ -16,8 +16,6 @@ import {
   DEFAULT_APPROVED_CAPACITY,
   normalizeApprovedCapacity,
   normalizeSpawnPolicy,
-  normalizeIdleShutdownMode,
-  normalizeCritiqueMode,
   normalizeWorktreeMode,
 } from './registry-lane-config.js';
 
@@ -56,7 +54,9 @@ export const workspaceMethods = {
   // capacity defaults onto records restored from an older store.
   ensureSessionWorkspaces() {
     let migrated = false;
-    const DEFAULT_ORCHESTRATOR_CAPACITY = 4;
+    const DEFAULT_ORCHESTRATOR_CAPACITY = Number.parseInt(process.env.ORCA_LANE_CONCURRENCY ?? '', 10) > 0
+      ? Math.min(64, Number.parseInt(process.env.ORCA_LANE_CONCURRENCY, 10))
+      : 4;
     for (const orchestrator of (this.orchestrators || [])) {
       if (!orchestrator || !orchestrator.id) continue;
       if (!Number.isFinite(Number.parseInt(orchestrator.approvedCapacity, 10))) {

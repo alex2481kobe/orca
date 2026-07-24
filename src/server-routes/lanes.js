@@ -77,7 +77,6 @@ export async function handleLaneRoutes(ctx, req, res, method, parts) {
     getSearchParams,
     constantTimeEqual,
     hasSpecificToolLeaseAuth,
-    WORKER_TOKEN,
   } = ctx;
     const lane = registry.getLane(parts[2]);
     if (!lane) {
@@ -114,7 +113,7 @@ export async function handleLaneRoutes(ctx, req, res, method, parts) {
         const result = registry.writeLaneTerminalInput(lane.id, {
           input: body.input,
           raw: Boolean(body.raw),
-          actor: body.actor || 'dashboard',
+          actor: req._toolLease?.actor || body.actor || 'dashboard',
         });
         return sendJson(res, 200, result);
       } catch (error) {
@@ -130,7 +129,7 @@ export async function handleLaneRoutes(ctx, req, res, method, parts) {
         const result = registry.resizeLaneTerminal(lane.id, {
           cols: body.cols,
           rows: body.rows,
-          actor: body.actor || 'dashboard',
+          actor: req._toolLease?.actor || body.actor || 'dashboard',
         });
         return sendJson(res, 200, result);
       } catch (error) {
@@ -155,7 +154,7 @@ export async function handleLaneRoutes(ctx, req, res, method, parts) {
       if (rejectSpoofedActor(body, res)) return;
       try {
         const updated = registry.updateLaneControls(lane.id, body, {
-          actor: body.actor || 'dashboard',
+          actor: req._toolLease?.actor || body.actor || 'dashboard',
           approved: body.approved,
         });
         return sendJson(res, 200, updated);
@@ -201,7 +200,10 @@ export async function handleLaneRoutes(ctx, req, res, method, parts) {
       if (body === null) return sendBodyError(req, res);
     if (rejectSpoofedActor(body, res)) return;
       try {
-        const audit = registry.queueLaneAudit(lane.id, { ...body, actor: body.actor || 'dashboard' });
+        // Lease actor wins over a body-supplied one: a scoped lease must not be
+        // able to spoof audit provenance. (Carried over from the deleted
+        // audit-done-lanes route, which was the only place this was enforced.)
+        const audit = registry.queueLaneAudit(lane.id, { ...body, actor: req._toolLease?.actor || body.actor || 'dashboard' });
         return sendJson(res, 201, audit);
       } catch (error) {
         return sendJson(res, error.status || 500, {
@@ -222,18 +224,18 @@ export async function handleLaneRoutes(ctx, req, res, method, parts) {
         if (parts[4] === 'accept' || (parts[4] === 'findings' && ['accept', 'accepted', 'pass', 'passed'].includes(verdict))) {
           result = registry.acceptLaneAudit(lane.id, {
             ...body,
-            actor: body.actor || 'dashboard',
+            actor: req._toolLease?.actor || body.actor || 'dashboard',
             verdict: body.verdict || 'accepted',
           });
         } else if (parts[4] === 'request-fix' || (parts[4] === 'findings' && ['fix', 'request_fix', 'fix_requested', 'needs_fix'].includes(verdict))) {
           result = registry.requestLaneFix(lane.id, {
             ...body,
-            actor: body.actor || 'dashboard',
+            actor: req._toolLease?.actor || body.actor || 'dashboard',
           });
         } else if (parts[4] === 'block' || (parts[4] === 'findings' && ['block', 'blocked'].includes(verdict))) {
           result = registry.blockLaneAudit(lane.id, {
             ...body,
-            actor: body.actor || 'dashboard',
+            actor: req._toolLease?.actor || body.actor || 'dashboard',
           });
         } else {
           return sendJson(res, 422, {
@@ -246,29 +248,6 @@ export async function handleLaneRoutes(ctx, req, res, method, parts) {
           error: error.message || 'Could not record audit outcome.',
           nextAction: error.nextAction || null,
         });
-      }
-    }
-
-    if (parts.length === 4 && parts[3] === 'heartbeat' && method === 'POST') {
-      const heartbeatLease = hasSpecificToolLeaseAuth(req, { toolId: 'lane.heartbeat', laneId: lane.id });
-      if (WORKER_TOKEN && !heartbeatLease) {
-        const workerToken = req.headers['x-orca-worker-token'];
-        if (!workerToken || !constantTimeEqual(workerToken, WORKER_TOKEN)) {
-          return sendJson(res, 401, {
-            error: 'Heartbeat requires the worker token (set ORCA_WORKER_TOKEN and pass x-orca-worker-token).',
-          });
-        }
-      }
-      const body = await parseJsonBody(req);
-      if (body === null) return sendBodyError(req, res);
-      if (rejectSpoofedActor(body, res)) return;
-      const actor = String(body.actor || 'worker').trim() || 'worker';
-      // Heartbeat is worker-scoped; the dashboard cannot impersonate other actors here.
-      try {
-        const updated = await registry.touchHeartbeat(lane.id, { ...body, actor });
-        return sendJson(res, 200, updated);
-      } catch (error) {
-        return sendJson(res, error.status || 500, { error: error.message || 'Could not touch heartbeat.' });
       }
     }
 
@@ -362,7 +341,7 @@ export async function handleLaneRoutes(ctx, req, res, method, parts) {
       if (rejectSpoofedActor(body, res)) return;
       try {
         const result = await registry.removeLaneWorktree(lane.id, {
-          actor: body.actor || 'dashboard',
+          actor: req._toolLease?.actor || body.actor || 'dashboard',
           approved: body.approved,
           removeBranch: Boolean(body.removeBranch),
           force: Boolean(body.force),
@@ -387,7 +366,7 @@ export async function handleLaneRoutes(ctx, req, res, method, parts) {
       if (rejectSpoofedActor(body, res)) return;
       try {
         const result = await registry.integrateLane(lane.id, {
-          actor: body.actor || 'dashboard',
+          actor: req._toolLease?.actor || body.actor || 'dashboard',
           push: Boolean(body.push),
         });
         return sendJson(res, 200, result);

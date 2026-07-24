@@ -12,10 +12,11 @@ What happened?
 
 ## Environment
 
-- Orca version or commit:
+- Orca commit SHA:
 - OS and architecture:
-- Mode: web/PWA or Tauri desktop:
 - Node version:
+- Accessed from: workstation browser, or a paired remote device over Tailscale:
+- CLI agent involved (Claude Code, Codex, …), if any:
 
 ## Steps to reproduce
 
@@ -42,5 +43,5 @@ Commands run:
 ## Logs or screenshots
 
 Paste only redacted output. Do not include API tokens, provider secrets,
-pairing codes, cookies, private hostnames, Apple credentials, updater keys, or
-screenshots containing sensitive data.
+pairing codes, cookies, private hostnames, or screenshots containing sensitive
+data.

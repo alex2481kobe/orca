@@ -110,23 +110,10 @@ try {
   base = `http://127.0.0.1:${address.port}`;
   log('server', base);
 
-  const discovery = await req('GET', '/api/agent-tools/discovery');
-  if (discovery.status !== 200) fail('tool discovery', JSON.stringify(discovery));
-  const tools = new Map((discovery.body?.tools || []).map((tool) => [tool.id, tool]));
-  for (const id of ['session.next_action', 'lane.create', 'lane.heartbeat']) {
-    if (!tools.get(id)?.implemented) fail('missing implemented tool', id);
-  }
-  log('discovery', `${tools.size} tool(s)`);
-
   // v2: no session container. An orchestrator lease registers by cwd (implicitly
   // creating the project) and spawns executor lanes under the orchestrator record.
-
-  // Before registering, next-action for a fresh orchestrator points at register.
-  const nextAction = await req('GET', '/api/agent-tools/next-action?role=orchestrator');
-  if (nextAction.status !== 200) fail('next action', JSON.stringify(nextAction));
-  if (nextAction.body?.nextRequiredTool !== 'orchestrator.register') {
-    fail('orchestrator next required tool', JSON.stringify(nextAction.body));
-  }
+  // (/api/agent-tools/discovery and /next-action are gone — the lease-mint
+  // response below carries the nextAction envelope.)
 
   // Mint an (unscoped) orchestrator lease — the orchestrator identity.
   const lease = await req('POST', '/api/agent-tools/leases', {
@@ -135,11 +122,15 @@ try {
     ttlMs: 60_000,
   });
   if (lease.status !== 201) fail('tool lease', JSON.stringify(lease));
-  if (!lease.body?.leaseToken || lease.body?.lease?.allowedTools?.includes('lane.create') !== true) {
+  if (!lease.body?.leaseToken || lease.body?.lease?.allowedTools?.includes('executor.spawn') !== true) {
     fail('tool lease grants', JSON.stringify(lease.body));
   }
+  // A fresh orchestrator's next required tool is register.
+  if (lease.body?.nextAction?.nextRequiredTool !== 'orchestrator.register') {
+    fail('orchestrator next required tool', JSON.stringify(lease.body?.nextAction));
+  }
   const leaseToken = lease.body.leaseToken;
-  log('lease', `${lease.body.lease.id} grants lane.create`);
+  log('lease', `${lease.body.lease.id} grants executor.spawn`);
 
   // Register as the orchestrator for the working dir (creates project-by-cwd).
   const register = await req('POST', '/api/orchestrators', {
@@ -186,14 +177,8 @@ try {
     log('claude executor', 'skipped: Claude CLI not executable on this host');
   }
 
-  const audit = await req('GET', '/api/audit/events');
-  if (audit.status !== 200) fail('audit events', JSON.stringify(audit));
-  const auditEvents = Array.isArray(audit.body) ? audit.body : (audit.body?.events || []);
-  const auditTypes = new Set(auditEvents.map((event) => event.type));
-  for (const type of ['agent_tool_lease_created', 'lane_created', 'lane_started']) {
-    if (!auditTypes.has(type)) fail('missing audit type', type);
-  }
-  log('audit', 'lease, lane_created, lane_started recorded');
+  // (GET /api/audit/events is gone with the audit.log.read tool; the durable log
+  // is still written, it just has no agent-facing reader.)
   log('done');
 } finally {
   await cleanup();

@@ -30,7 +30,7 @@ const base = `http://127.0.0.1:${s.address().port}`;
 // lane's sessionId === orchestratorId, which is the artifacts/ path segment.
 const register = await fetch(base + '/api/orchestrators', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cwd: realStateDir, actor: 'test', title: 'Stream Orchestrator' }) }).then((r) => r.json());
 const orchestratorId = register.id;
-const lane = await fetch(`${base}/api/orchestrators/${orchestratorId}/lanes`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: 'Stream Lane', executorType: 'mock', actor: 'test', approved: true }) }).then((r) => r.json());
+const lane = await fetch(`${base}/api/orchestrators/${orchestratorId}/executors`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: 'Stream Lane', executorType: 'mock', actor: 'test', approved: true }) }).then((r) => r.json());
 
 const logPath = path.join(realStateDir, 'artifacts', orchestratorId, lane.id, 'terminal.log');
 await fsp.mkdir(path.dirname(logPath), { recursive: true });

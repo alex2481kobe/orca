@@ -278,18 +278,6 @@ export class CliExecutorAdapter {
       };
     }
 
-    for (const tool of (Array.isArray(lane.mcpTools) ? lane.mcpTools : [])) {
-      const id = String(tool?.id || tool?.name || '').trim();
-      if (!id || id === 'orca') continue;
-      servers[id] = {
-        command: tool.command,
-        args: Array.isArray(tool.args) ? tool.args : [],
-        env: tool.env && typeof tool.env === 'object' ? tool.env : {},
-        scope: Array.isArray(tool.scope) ? tool.scope : [],
-        description: tool.description || '',
-      };
-    }
-
     if (!Object.keys(servers).length) {
       return { configPath: null, servers: {} };
     }
@@ -298,7 +286,6 @@ export class CliExecutorAdapter {
       createdAt: new Date().toISOString(),
       laneId: lane.id,
       executorType: label,
-      tools: Array.isArray(lane.mcpTools) ? lane.mcpTools : [],
       mcpServers: servers,
     };
     const configPath = path.join(runtimeDir, 'mcp-tools.json');

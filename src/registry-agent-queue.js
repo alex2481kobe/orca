@@ -229,12 +229,20 @@ export const agentQueueMethods = {
     };
   },
 
+  // Draining CONSUMES. The separate event.ack / event.replay tools are gone, so
+  // if drain did not acknowledge what it hands back, every drain would return the
+  // same backlog forever. Ack AFTER building the payload so the caller still sees
+  // the events it just received.
   drainAgentEvents(sessionLocator, options = {}) {
-    return this.listAgentEvents(sessionLocator, { ...options, unackedOnly: true });
-  },
-
-  replayAgentEvents(sessionLocator, options = {}) {
-    return this.listAgentEvents(sessionLocator, { ...options, unackedOnly: false });
+    const result = this.listAgentEvents(sessionLocator, { ...options, unackedOnly: true });
+    const role = options.role || 'dashboard';
+    const actor = options.actor || 'dashboard';
+    for (const event of result.events) {
+      try {
+        this.ackAgentEvent(event.id, { role, actor, sessionId: result.sessionId });
+      } catch { /* an event that vanished, or that this role cannot see, is not drainable */ }
+    }
+    return { ...result, unackedCount: Math.max(0, result.unackedCount - result.events.length) };
   },
 
   ackAgentEvent(eventLocator, {
@@ -280,23 +288,6 @@ export const agentQueueMethods = {
     return publicEventForConsumer(event, key);
   },
 
-  ackAgentEvents(sessionLocator, {
-    eventIds = [],
-    actor = 'dashboard',
-    role = 'dashboard',
-  } = {}) {
-    const session = this.getSession(sessionLocator);
-    if (!session) throw { status: 404, message: 'Session not found.' };
-    const ids = safeArray(eventIds).map((id) => String(id || '').trim()).filter(Boolean).slice(0, 200);
-    if (!ids.length) throw { status: 422, message: 'Provide at least one event id to acknowledge.' };
-    const events = [];
-    for (const id of ids) {
-      events.push(this.ackAgentEvent(id, { actor, role, sessionId: session.id }));
-    }
-    return {
-      sessionId: session.id,
-      acked: events.length,
-      events,
-    };
-  },
+  // (No bulk ackAgentEvents / replayAgentEvents: drainAgentEvents acks what it
+  // returns, which is the only ack path an agent has.)
 };

@@ -153,12 +153,12 @@ test('registry mints an orchestrator lease whose token validates for orchestrato
     const result = registry.createOrchestratorMcpBootstrap({ actor: 'desktop-app' });
     assert.ok(result.leaseToken, 'returns the plaintext lease token once');
     assert.equal(result.lease.role, 'orchestrator');
-    assert.ok(result.lease.allowedTools.length >= 30, 'grants the full orchestrator toolset');
+    assert.ok(result.lease.allowedTools.length >= 20, 'grants the full orchestrator toolset');
     assert.equal(result.lease.projectId, null, 'unscoped lease works session/project-wide');
 
-    // The minted token must validate for an orchestrator tool (e.g. lane.create).
+    // The minted token must validate for an orchestrator tool (e.g. executor.spawn).
     const validated = registry.validateToolLease(result.leaseToken, {
-      toolId: 'lane.create',
+      toolId: 'executor.spawn',
       role: 'orchestrator',
     });
     assert.equal(validated.active, true);
@@ -261,7 +261,7 @@ test('registry replaces duplicate external MCP bootstrap leases for the same cha
     assert.throws(
       () => registry.validateToolLease(sessionOnly.leaseToken, {
         role: 'orchestrator',
-        toolId: 'session.next_action',
+        toolId: 'orchestrator.status',
         projectId: project.id,
         sessionId: session.id,
       }),

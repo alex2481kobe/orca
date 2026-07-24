@@ -7,67 +7,11 @@ import { ROLES } from '../agent-tools/contract.js';
 const TOOL_LEASE_ROLE_MESSAGE = 'Tool lease role must be orchestrator, executor, auditor, or dashboard.';
 
 export async function handleAgentToolRoutes(ctx, req, res, method, parts) {
-  const { registry, sendJson, sendBodyError, parseJsonBody, rejectSpoofedActor, getSearchParams, buildAgentToolDiscovery, buildNextActionEnvelope, requireAdminAuth } = ctx;
+  const { registry, sendJson, sendBodyError, parseJsonBody, rejectSpoofedActor, getSearchParams, buildNextActionEnvelope, requireAdminAuth } = ctx;
   if (parts[1] === 'agent-tools') {
-    if (parts[2] === 'discovery' && method === 'GET') {
-      return sendJson(res, 200, buildAgentToolDiscovery(registry));
-    }
-    if (parts[2] === 'next-action' && method === 'GET') {
-      const searchParams = getSearchParams(req.url || '/');
-      if (!searchParams) {
-        return sendJson(res, 400, { error: 'Invalid request query string.' });
-      }
-      const lease = req._toolLease || null;
-      if (lease) {
-        const requestedLaneId = searchParams.get('laneId') || null;
-        const requestedSessionId = searchParams.get('sessionId') || null;
-        const requestedProjectId = searchParams.get('projectId') || null;
-        const leaseLane = lease.laneId ? registry.getLane(lease.laneId) : null;
-        const leaseSession = lease.sessionId ? registry.getSession(lease.sessionId) : (leaseLane?.sessionId ? registry.getSession(leaseLane.sessionId) : null);
-        const leaseProjectId = lease.projectId || leaseSession?.projectId || leaseLane?.projectId || null;
-        if (requestedLaneId) {
-          const requestedLane = registry.getLane(requestedLaneId);
-          if (!requestedLane) return sendJson(res, 404, { error: 'Lane not found.' });
-          if ((lease.laneId && requestedLane.id !== lease.laneId)
-            || (lease.sessionId && requestedLane.sessionId !== lease.sessionId)) {
-            return sendJson(res, 403, { error: 'Tool lease lane mismatch.' });
-          }
-          if (leaseProjectId && requestedLane.projectId !== leaseProjectId) {
-            return sendJson(res, 403, { error: 'Tool lease project mismatch.' });
-          }
-        }
-        if (requestedSessionId) {
-          const requestedSession = registry.getSession(requestedSessionId);
-          if (!requestedSession) return sendJson(res, 404, { error: 'Session not found.' });
-          if (lease.sessionId && requestedSession.id !== lease.sessionId) {
-            return sendJson(res, 403, { error: 'Tool lease session mismatch.' });
-          }
-          if (leaseProjectId && requestedSession.projectId !== leaseProjectId) {
-            return sendJson(res, 403, { error: 'Tool lease project mismatch.' });
-          }
-        }
-        if (requestedProjectId) {
-          const requestedProject = registry.getProject(requestedProjectId);
-          if (!requestedProject) return sendJson(res, 404, { error: 'Project not found.' });
-          if (leaseProjectId && requestedProject.id !== leaseProjectId) {
-            return sendJson(res, 403, { error: 'Tool lease project mismatch.' });
-          }
-        }
-        return sendJson(res, 200, buildNextActionEnvelope(registry, {
-          role: lease.role,
-          projectId: requestedProjectId || leaseProjectId,
-          sessionId: requestedSessionId || lease.sessionId || leaseLane?.sessionId || null,
-          laneId: requestedLaneId || lease.laneId || null,
-          allowedTools: lease.allowedTools || [],
-        }));
-      }
-      return sendJson(res, 200, buildNextActionEnvelope(registry, {
-        role: searchParams.get('role'),
-        projectId: searchParams.get('projectId'),
-        sessionId: searchParams.get('sessionId'),
-        laneId: searchParams.get('laneId'),
-      }));
-    }
+    // No /discovery or /next-action routes any more: the executor capability
+    // matrix is gone, and the next-action envelope is served by
+    // orchestrator.status (and inline on the lease-mint response below).
     if (parts[2] === 'leases' && parts.length === 3 && method === 'GET') {
       if (!requireAdminAuth(req, res)) return;
       const searchParams = getSearchParams(req.url || '/');

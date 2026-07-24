@@ -1,6 +1,3 @@
-<!-- Maintainer: to use a dedicated reporting email instead of the GitHub
-     contact below, replace the "How to report" line. -->
-
 # Code of Conduct
 
 ## Our standard

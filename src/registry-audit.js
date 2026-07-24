@@ -24,25 +24,70 @@ const {
   DONE: DONE_STATE,
 } = LANE_STATES;
 
+// The agent-flow config. This used to be a 3-tier override cascade with
+// provenance tracking (effective-settings/, 257 lines) whose only runtime reader
+// was getLaneFlowConfig below and which no route or UI ever wrote to. It is now a
+// plain optional field on the lane: `lane.flow`, validated on spawn.
 const FLOW_DEFAULTS = {
+  // orchestrator-only            : orchestrator does the work itself, no executor lanes
+  // orchestrator-executor        : orchestrator spawns executors; results return to it
+  // orchestrator-executor-audit  : executor work is audited before returning
   template: 'orchestrator-executor',
+  // After an executor submits, who audits: the orchestrator, or a separate auditor lane.
   auditTier: 'orchestrator',
+  // When an audit requests fixes: back to the same executor, or a fresh one.
   fixRouting: 'same-agent',
+  // How many audit -> fix -> re-audit loops before escalating to the user.
   maxAuditLoops: 2,
+  // A lane cannot be returned to the orchestrator until an audit accepts it.
   requireAuditPass: true,
 };
 
+const FLOW_FIELDS = {
+  template: ['orchestrator-only', 'orchestrator-executor', 'orchestrator-executor-audit'],
+  auditTier: ['orchestrator', 'separate-auditor'],
+  fixRouting: ['same-agent', 'new-agent'],
+};
+
+// Validate a caller-supplied flow override. Unknown keys and bad values are
+// rejected (422) rather than silently dropped, so a typo is visible.
+export function sanitizeFlowConfig(raw = {}) {
+  if (raw === null || raw === undefined) return {};
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw { status: 422, message: 'flow must be an object.' };
+  }
+  const out = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (value === undefined) continue;
+    if (FLOW_FIELDS[key]) {
+      if (!FLOW_FIELDS[key].includes(value)) {
+        throw { status: 422, message: `flow.${key} must be one of: ${FLOW_FIELDS[key].join(', ')}.` };
+      }
+      out[key] = value;
+    } else if (key === 'maxAuditLoops') {
+      const parsed = Number.parseInt(value, 10);
+      if (!Number.isInteger(parsed) || parsed < 0 || parsed > 10) {
+        throw { status: 422, message: 'flow.maxAuditLoops must be an integer between 0 and 10.' };
+      }
+      out[key] = parsed;
+    } else if (key === 'requireAuditPass') {
+      if (typeof value !== 'boolean') {
+        throw { status: 422, message: 'flow.requireAuditPass must be a boolean.' };
+      }
+      out[key] = value;
+    } else {
+      throw { status: 422, message: `Unknown flow setting "${key}".` };
+    }
+  }
+  return out;
+}
+
 export const auditMethods = {
-  // Resolve the layered agent-flow config (defaults -> project -> session -> lane)
-  // for a lane. Falls back to safe defaults if settings can't be resolved.
+  // The agent-flow config for a lane: defaults, with the lane's own validated
+  // overrides on top.
   getLaneFlowConfig(lane) {
     if (!lane) return { ...FLOW_DEFAULTS };
-    try {
-      const effective = this.getEffectiveSettings({ laneId: lane.id });
-      return { ...FLOW_DEFAULTS, ...(effective?.settings?.flow || {}) };
-    } catch {
-      return { ...FLOW_DEFAULTS };
-    }
+    return { ...FLOW_DEFAULTS, ...(lane.flow || {}) };
   },
 
   // Whether an executor lane's work MUST be audited before it can be reported
@@ -216,72 +261,6 @@ export const auditMethods = {
     return { id: queueId, queueId, event: event ? clonePayload(event) : null, lane: clonePayload(lane) };
   },
 
-  async queueDoneLanesAudit(sessionLocator, context = {}) {
-    const session = this.getSession(sessionLocator);
-    if (!session) {
-      throw { status: 404, message: 'Session not found.' };
-    }
-
-    const doneLanes = this.lanes.filter((lane) =>
-      lane.sessionId === session.id &&
-      [DONE_STATE, READY_FOR_AUDIT_STATE].includes(lane.state)
-    );
-    if (!doneLanes.length) {
-      return { enqueued: 0, queueIds: [] };
-    }
-
-    const policyCheck = this.evaluateActionPolicy('auditDoneLanes', context);
-    if (!policyCheck.allowed) {
-      throw {
-        status: 409,
-        message: policyCheck.message,
-        requiresApproval: true,
-        risk: policyCheck.policy.risk,
-      };
-    }
-
-    const queueIds = [];
-    let enqueuedNew = 0;
-    for (const lane of doneLanes) {
-      const existing = this.auditEvents.find((event) =>
-        AUDIT_QUEUE_TYPES.includes(event.type) &&
-        event.laneId === lane.id &&
-        event.status === 'pending' &&
-        event.followUpQueued
-      );
-      if (existing) {
-        queueIds.push(existing.id);
-        continue;
-      }
-      this.appendLaneLog(lane, `Session-level audit queued by ${context.actor || 'dashboard'}`);
-      lane.auditState = 'queued';
-      const queueId = this.recordAudit({
-        type: 'session_audit_batch_queued',
-        actor: context.actor || 'dashboard',
-        projectId: lane.projectId,
-        sessionId: session.id,
-        laneId: lane.id,
-        summary: `Session audit queued for lane ${lane.title}`,
-        evidence: { laneSnapshot: { id: lane.id, state: lane.state } },
-        status: 'pending',
-        followUpQueued: true,
-      });
-      queueIds.push(queueId);
-      enqueuedNew += 1;
-    }
-
-    this.persistState();
-    return {
-      enqueued: doneLanes.length,
-      enqueuedNew,
-      queueIds,
-      alreadyQueued: doneLanes.length - enqueuedNew,
-    };
-  },
-
-  // Does a lane have fresh captured evidence (a screenshot/artifact)? True when a
-  // capture was recorded on the lane, or an image/video/pdf artifact exists under
-  // the lane's artifact dir. Used to gate accepting UI/browser (targetUrl) work.
   laneHasCapturedEvidence(lane) {
     if (!lane) return false;
     if (lane.lastEvidence && lane.lastEvidenceCaptureAt) return true;
@@ -326,7 +305,7 @@ export const auditMethods = {
     if (!lane) throw { status: 404, message: 'Lane not found.' };
     // Don't accept a lane with a live/launching process (the dashboard path isn't
     // behind the workflow state gate). starting/running have an active child;
-    // escalated/fix_requested/done/ready_for_audit/auditing/needs_critique remain
+    // escalated/fix_requested/done/ready_for_audit/auditing remain
     // acceptable (the operator override path). 'queued' (no process yet) is gated
     // on the MCP path and harmless here.
     if (isRunningLaneState(lane.state)) {
@@ -437,8 +416,8 @@ export const auditMethods = {
     // Route the agent to the fix per the flow (new lane vs retry this one), or to
     // escalation when the loop budget is spent.
     const nextTool = escalated
-      ? 'session.next_action'
-      : (record.fixRouting === 'new-agent' ? 'lane.create' : 'lane.retry');
+      ? 'orchestrator.status'
+      : (record.fixRouting === 'new-agent' ? 'executor.spawn' : 'lane.retry');
     return { lane: clonePayload(lane), audit: clonePayload(record), nextAction: this._auditNextAction(lane, nextTool) };
   },
 

@@ -1,107 +1,104 @@
 # Orchestrator agent skill
 
 Use this document when an agent is acting as an Orca **orchestrator** over MCP.
-Keep it public-safe and editable inside an installed app.
+Keep it public-safe.
 
-## What Orca is (v2)
+## What Orca is
 
 Orca is a local daemon. Agents connect to it over MCP. An **orchestrator**
 registers itself for a project working directory, spawns **executor** agents into
-isolated lanes under a hard contract, monitors them, and audits their work before
-accepting it. A read-only dashboard shows projects → orchestrators → executors and
-is viewed on a phone over Tailscale. The orchestrator never edits code directly;
-it decomposes work, spawns executors, and gates their output.
+scoped lanes under a hard contract, monitors them, and audits their work before
+accepting it. The orchestrator never edits code directly: it decomposes work,
+spawns executors, and gates their output.
+
+Orca ships no agent, no model, and no API keys of its own — it drives the CLI
+agent you already run.
+
+The dashboard shows the live state of every project, orchestrator, and executor
+lane as an interactive node canvas, reachable from a phone over private Tailscale.
+It is a **monitoring surface with break-glass controls**, not an agent console:
+a human can stop an executor, stop the agents under an orchestrator, or close
+(resign) an agent from it, but there is no chat and no way to type into a running
+agent. Real orchestration happens over MCP — through you.
 
 ## Role
 
 The orchestrator owns lane decomposition, executor selection, progress review, and
-audit quality. It does not bypass Orca's contracts, approval gates, or worktree
+audit quality. It does not bypass Orca's contracts, approval gates, or lane
 isolation.
 
 ## Lifecycle (the loop)
 
 1. **Register.** Call `orchestrator.register` with the project working directory
-   (`cwd`). Orca binds you to that project and lists you in the dashboard. Registered
-   orchestrators are the only actors allowed to spawn and audit; unregistered
-   mutating calls are refused.
-2. **Update.** Use `orchestrator.update` to publish your current plan/status, and
-   `orchestrator.status` to read back the live lane tree for your project.
-3. **Spawn.** Read `executor.capabilities` first to see which executor types, models,
-   permission modes, and effort levels are available. Then call `executor.spawn` to
-   create a scoped lane under contract — one owner, one reviewable unit of work,
-   within capacity. Each lane runs in its own isolated git worktree.
-4. **Monitor.** Watch executors read-only:
+   (`cwd`). Orca binds you to that project and shows you on the dashboard.
+   Registered orchestrators are the only actors allowed to spawn and audit;
+   unregistered mutating calls are refused.
+2. **Publish status.** Push your current plan/status so a human watching the
+   dashboard knows what you are doing, and read `orchestrator.status` to get the
+   live state of your project's lanes back.
+3. **Spawn.** Check the available executor types, models, permission modes, and
+   effort levels first, then call `executor.spawn` to create a scoped lane under
+   contract — one owner, one reviewable unit of work, within capacity.
+4. **Monitor.** Watch executors without touching them:
    - `lane.list` — all lanes for the project and their state.
    - `lane.get` — full detail for one lane (contract, status, submission).
    - `lane.terminal.tail` — raw terminal output for a running lane.
    You steer executors through spawn/shutdown/retry/audit — you do not type into a
    running executor.
-5. **Audit.** When an executor submits, review before accepting:
-   - `audit.queue_one` / `audit.queue_all_ready` — pull submitted lanes into the
-     audit queue.
+5. **Audit.** When an executor calls `lane.submit`, review before accepting:
+   - `audit.queue_one` — pull a submitted lane into the audit queue.
+   - `audit.findings.record` — record structured audit findings.
    - `audit.accept` — accept the work (lane is done).
    - `audit.request_fix` — send it back with required changes.
    - `audit.block` — block a lane that must not proceed.
-   - `audit.findings.record` — record structured audit findings.
    Do not treat an executor's own summary as final; audit it.
-6. **Resign.** When the work is done, call `orchestrator.resign` so Orca stops
+6. **Land isolated work.** A lane that ran in its own worktree is not in the
+   project checkout yet: after accepting, call `lane.integrate` to merge it, or
+   `lane.worktree.discard` to throw it away. Lanes that ran directly in the
+   checkout have nothing to merge — `lane.integrate` refuses them by design.
+7. **Resign.** When the work is done, call `orchestrator.resign` so Orca stops
    listing you as an active orchestrator for the project.
 
-## Lane controls
+## Worktree isolation is conditional
 
-- `lane.controls.update` — adjust a lane's contract fields (model, permissions,
-  effort, and similar) after spawn.
-- `lane.shutdown` — stop a running executor lane.
-- `lane.retry` — re-run a stopped or failed lane.
-- `lane.delete` — remove a lane you no longer need.
+`executor.spawn` takes `worktreeMode`, and the default is `auto`:
 
-Orca reclaims each lane's isolated worktree **automatically** when the lane is
-deleted or pruned — there is no manual worktree-removal step and no worktree tool.
+- **read-only or sole-writer lanes run directly in the project checkout** — no
+  worktree. Do not force one for a scout or a lone writer.
+- **only overlapping writers get a dedicated isolated worktree.**
 
-## Approvals
+Pass `isolated` explicitly when you know a lane needs its own worktree even though
+`auto` wouldn't give it one, and keep concurrent writers file-disjoint. Orca reclaims
+a lane's worktree automatically when the lane is deleted or pruned — there is no
+manual removal step.
 
-When an executor needs a gated action, it surfaces an approval. Manage them with:
+## Lane controls, approvals, and events
 
-- `approval.list` — pending approvals for your project.
-- `approval.request` — request an approval on behalf of a lane.
-- `approval.respond` — approve or deny.
+Beyond the loop above, you can adjust a lane's contract fields after spawn
+(model, permissions, effort), shut a lane down, retry a stopped or failed lane,
+and delete a lane you no longer need. When an executor needs a gated action it
+surfaces an approval for you to grant or deny. An event stream keeps clients in
+sync (drain, ack, replay). Ask the server for your current tool list rather than
+memorizing names — the surface is deliberately small and changes.
 
-Keep install, shell, credential, and network-mutation actions explicit and
-approval-gated.
-
-## Events
-
-The dashboard and clients stay in sync through an event stream:
-
-- `event.drain` — pull new events.
-- `event.ack` — acknowledge processed events.
-- `event.replay` — re-read a range of past events.
-
-## Setup and access
-
-- `orca.setup_guide` — the canonical onboarding walkthrough (how to register a
-  client over MCP and get connected). Point new clients at this instead of
-  memorizing wiring.
-- `tailscale.status` — read the private-access state for phone viewing.
-- `tailscale.serve.configure` — a workstation/admin operation to expose the
-  read-only dashboard privately over the tailnet. Never enable a public tunnel.
+`fleet.emergency_stop` is the break-glass path: it stops running agents. Use it
+when something is genuinely running away, not as routine cleanup.
 
 ## Security rules
 
 - Never ask for or print API tokens, provider secrets, pairing codes, or raw
   credential values in lane instructions.
 - Do not expose the dashboard through public tunnels; private tailnet access only.
-- Treat paired phones as read-only viewer devices, not host-admin devices.
+- A paired phone or laptop is an **operator**, not a workstation admin. It can
+  read the workspace and use the dashboard's stop/close controls. It cannot mint
+  pairing codes, change private-access settings, revoke another device, or grant
+  a lane unsandboxed permissions. Do not design around a phone being able to do
+  workstation-admin work.
 - Keep install, shell, credential, and network-mutation actions explicit,
   approval-gated, and auditable.
 
 ## Integration notes (for adopting projects)
 
-- **The orchestrator is the unit, not the "session."** You register an
-  orchestrator per working directory and spawn executor lanes under it. Some API
-  responses and on-disk artifact paths still carry a `sessionId` field that
-  mirrors the orchestrator id; do not build integrations that depend on a
-  separate "session" concept.
 - **Sandboxed Codex has two landmines.** A `codex exec` running under
   `--sandbox workspace-write`/`read-only` (a) cancels outbound MCP calls and
   (b) cannot bind localhost ports. If you run Codex as an orchestrator or
@@ -109,7 +106,7 @@ The dashboard and clients stay in sync through an event stream:
   calls to Orca will silently fail and it will blame Orca. Capture executor exit
   status via the file+exit contract, not by expecting the sandboxed process to
   reach the daemon.
-- **Done executors linger, then drop from the dashboard.** A finished executor
-  stays visible for a few minutes, then ages out of `/api/overview`. That is
-  expected pruning, not lost work — the lane's artifacts (`outcome.txt`,
+- **Done executors linger, then drop off the dashboard.** A finished executor
+  stays visible for a few minutes, then ages out of the dashboard projection.
+  That is expected pruning, not lost work — the lane's artifacts (`outcome.txt`,
   `transcript.json`) persist on disk regardless.

@@ -3,10 +3,10 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { availableToolIdsForRole } from '../src/agent-tools/roles.js';
-import { buildAgentToolDiscovery } from '../src/agent-tools/discovery.js';
 import { buildNextActionEnvelope } from '../src/agent-tools/next-action.js';
-import { findTool, TOOL_DEFINITIONS } from '../src/agent-tools/tool-definitions.js';
+import { findTool, getToolDefinitions, TOOL_DEFINITIONS } from '../src/agent-tools/tool-definitions.js';
 import { ROLE_INSTRUCTIONS } from '../src/agent-tools/role-instructions.js';
 import { chooseNextTool } from '../src/agent-tools/next-action.js';
 import { OrcaRegistry } from '../src/registry.js';
@@ -41,60 +41,114 @@ async function makeOrchestrator(registry, { cwd = process.cwd(), actor = 'test',
   return { orchestrator, lease };
 }
 
-test('agent tool discovery is public-safe and includes stable required tool ids', () => {
-  const discovery = buildAgentToolDiscovery();
-  assert.equal(discovery.contractVersion, 'orca.agent-tools.v1');
-  assert.equal(discovery.publicSafe, true);
-  const ids = new Set(discovery.tools.map((tool) => tool.id));
+test('the tool table is public-safe and carries the core-loop tool ids', () => {
+  const tools = getToolDefinitions();
+  const ids = new Set(tools.map((tool) => tool.id));
+  // The loop the whole product exists for: register -> spawn -> read -> audit ->
+  // integrate or discard, plus the runtime paths that break without them.
   for (const id of [
-    'session.next_action',
-    'executor.capabilities',
-    'lane.create',
-    'lane.terminal.tail',
-    'lane.heartbeat',
+    'orchestrator.register',
+    'orchestrator.status',
+    'orchestrator.resign',
+    'executor.spawn',
+    'lane.list',
+    'lane.get',
     'lane.submit',
-    'lane.shutdown',
+    'lane.terminal.tail',
+    'lane.terminal.write',
+    'lane.artifacts.list',
+    'lane.artifacts.get',
     'lane.controls.update',
+    'lane.shutdown',
+    'lane.retry',
+    'lane.delete',
+    'approval.request',
+    'approval.list',
+    'approval.respond',
     'audit.queue_one',
-    'audit.queue_all_ready',
     'audit.findings.record',
     'audit.accept',
     'audit.request_fix',
     'audit.block',
-    'project.list',
-    'project.describe',
-    'project.quick_link.upsert',
-    'project.quick_link.delete',
-    'project.quick_link.health',
+    'lane.integrate',
+    'lane.worktree.discard',
+    'fleet.emergency_stop',
     'event.drain',
-    'event.replay',
-    'event.ack',
+    'project.preview.set',
   ]) {
     assert.equal(ids.has(id), true, `missing ${id}`);
   }
-  assert.equal(JSON.stringify(discovery).includes(process.cwd()), false);
-  assert.deepEqual(discovery.tools.filter((tool) => !tool.implemented || !tool.route).map((tool) => tool.id), []);
-  assert.deepEqual(discovery.roles.flatMap((role) => role.plannedTools), []);
-  assert.match(discovery.leasePolicy, /Scoped tool leases authenticate MCP and CLI agent calls/);
-  assert.equal(discovery.leasePolicy.includes('future guarded'), false);
-  assert.equal(discovery.leasePolicy.includes('normal dashboard auth today'), false);
-  assert.equal(findTool('project.list')?.method, 'GET');
-  assert.equal(findTool('project.list')?.route, '/api/projects');
-  assert.equal(availableToolIdsForRole('orchestrator').includes('project.list'), true);
-  // v2 removed the agent-facing session/project CRUD tools from the MCP surface.
-  assert.equal(findTool('project.create'), null);
-  assert.equal(findTool('project.archive'), null);
-  assert.equal(findTool('project.restore'), null);
-  assert.equal(findTool('session.create'), null);
-  assert.equal(findTool('session.list'), null);
-  assert.equal(findTool('session.describe'), null);
-  assert.equal(availableToolIdsForRole('orchestrator').includes('project.create'), false);
-  assert.equal(availableToolIdsForRole('dashboard').includes('project.archive'), false);
-  assert.equal(findTool('project.quick_link.upsert')?.method, 'POST');
-  assert.equal(findTool('project.quick_link.upsert')?.route, '/api/projects/{projectId}/quick-links');
-  assert.equal(findTool('project.quick_link.delete')?.route, '/api/projects/{projectId}/quick-links/{linkId}');
-  assert.equal(findTool('project.quick_link.health')?.route, '/api/projects/{projectId}/quick-links/{linkId}/check');
-  assert.equal(findTool('project.quick_link.health')?.implemented, true);
+  // Public-safe: no local paths leak through the table, and every advertised tool
+  // is really implemented and routed (an unimplemented row would be a lie).
+  assert.equal(JSON.stringify(tools).includes(process.cwd()), false);
+  assert.deepEqual(tools.filter((tool) => !tool.implemented || !tool.route).map((tool) => tool.id), []);
+
+  // Tools deleted in the scale-back must stay gone from the surface AND from
+  // every role's toolset — an agent must not be told to call a dead route.
+  for (const dead of [
+    'session.next_action', 'executor.capabilities', 'lane.create', 'lane.heartbeat',
+    'audit.queue_all_ready', 'audit.log.read', 'audit.log.ack',
+    'project.list', 'project.describe', 'project.quick_link.upsert',
+    'project.quick_link.delete', 'project.quick_link.health',
+    'orchestrator.update', 'orchestrator.heartbeat',
+    'event.replay', 'event.ack',
+    'tailscale.status', 'tailscale.serve.configure', 'orca.setup_guide',
+    'artifact.cleanup', 'artifact.schedule',
+    'project.create', 'project.archive', 'project.restore',
+    'session.create', 'session.list', 'session.describe',
+  ]) {
+    assert.equal(findTool(dead), null, `deleted tool "${dead}" is still in the table`);
+    for (const role of ['orchestrator', 'executor', 'auditor', 'dashboard']) {
+      assert.equal(availableToolIdsForRole(role).includes(dead), false, `${role} can still call deleted "${dead}"`);
+    }
+  }
+
+  // The one surviving preview tool points at the quick-link route the dashboard
+  // renders from (/api/overview previews).
+  assert.equal(findTool('project.preview.set')?.method, 'POST');
+  assert.equal(findTool('project.preview.set')?.route, '/api/projects/{projectId}/quick-links');
+});
+
+// Regression guard for a bug this refactor actually shipped: registry-audit.js
+// handed an agent nextRequiredTool:'session.next_action' / 'lane.create' AFTER
+// both tools were deleted. Those literals live outside chooseNextTool (routes and
+// registry methods override nextRequiredTool on refusals), so the coherence guard
+// below could not see them. Sweep src/ for quoted tool-id-shaped literals instead.
+test('no source file quotes a tool id that no longer exists', async () => {
+  const liveIds = new Set(TOOL_DEFINITIONS.map((tool) => tool.id));
+  const srcDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src');
+
+  // Dotted, lower_snake segments — the exact shape of a tool id. Restricted to the
+  // known GROUPS so ordinary dotted prose/identifiers don't trip it.
+  // 'orca' is deliberately absent: no live tool uses it as a group, and the
+  // prefix collides with real non-tool strings ('orca.streams.v1', '*.ts.net').
+  const GROUPS = ['orchestrator', 'executor', 'lane', 'approval', 'audit', 'fleet', 'event', 'project', 'session', 'tailscale', 'artifact'];
+  const SHAPE = new RegExp(`'((?:${GROUPS.join('|')})\\.[a-z_][a-z0-9_.]*)'`, 'g');
+  // Escape hatch for a dotted literal in these groups that is genuinely NOT a
+  // tool id. Keep it short and specific; an empty set is the healthy state.
+  const NOT_A_TOOL_ID = new Set([]);
+
+  const offenders = [];
+  const walk = async (dir) => {
+    for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
+      const resolved = path.join(dir, entry.name);
+      if (entry.isDirectory()) { await walk(resolved); continue; }
+      if (!entry.name.endsWith('.js')) continue;
+      const text = await fs.readFile(resolved, 'utf8');
+      for (const match of text.matchAll(SHAPE)) {
+        const id = match[1];
+        if (liveIds.has(id) || NOT_A_TOOL_ID.has(id)) continue;
+        offenders.push(`${path.relative(srcDir, resolved)}: '${id}'`);
+      }
+    }
+  };
+  await walk(srcDir);
+
+  assert.deepEqual(
+    offenders,
+    [],
+    `src/ quotes tool ids that are not in TOOL_DEFINITIONS (an agent would be told to call a dead route):\n  ${offenders.join('\n  ')}`,
+  );
 });
 
 test('role instructions and next-action only reference live tool ids (v2 coherence guard)', () => {
@@ -180,7 +234,7 @@ test('nextAction envelope only advertises an implemented nextRequiredTool', asyn
       projectId: orchestrator.projectId,
       sessionId: orchestrator.id,
     });
-    assert.equal(planning.nextRequiredTool, 'lane.create');
+    assert.equal(planning.nextRequiredTool, 'executor.spawn');
     assert.equal(planning.allowedTools.includes(planning.nextRequiredTool), true);
     assert.equal(findTool(planning.nextRequiredTool)?.implemented, true);
 
@@ -195,7 +249,7 @@ test('nextAction envelope only advertises an implemented nextRequiredTool', asyn
       sessionId: orchestrator.id,
       laneId: lane.id,
     });
-    assert.equal(active.nextRequiredTool, 'session.next_action');
+    assert.equal(active.nextRequiredTool, 'orchestrator.status');
     assert.equal(active.nextToolImplemented, true);
 
     registry.markLaneCompleted(registry.getLane(lane.id));
@@ -292,13 +346,13 @@ test('tool leases are scoped, hashed at rest, and enforce allowed tools', async 
       ttlMs: 60000,
     });
     assert.equal(Boolean(issued.leaseToken), true);
-    assert.equal(issued.lease.allowedTools.includes('session.next_action'), true);
+    assert.equal(issued.lease.allowedTools.includes('orchestrator.status'), true);
     assert.equal(issued.lease.lastUsedAt, null);
     assert.equal(JSON.stringify(registry.toolLeases).includes(issued.leaseToken), false);
 
     const validated = registry.validateToolLease(issued.leaseToken, {
       role: 'orchestrator',
-      toolId: 'session.next_action',
+      toolId: 'orchestrator.status',
       sessionId: session.id,
       laneId: lane.id,
     });
@@ -312,12 +366,12 @@ test('tool leases are scoped, hashed at rest, and enforce allowed tools', async 
     registry.toolLeases.find((lease) => lease.id === issued.lease.id).expiresAt = new Date(Date.now() - 1000).toISOString();
     assert.throws(() => registry.validateToolLease(issued.leaseToken, {
       role: 'orchestrator',
-      toolId: 'session.next_action',
+      toolId: 'orchestrator.status',
     }), (error) => error.status === 401 && /expired/.test(error.message));
 
     assert.throws(() => registry.createToolLease({
       role: 'god',
-      allowedTools: ['session.next_action'],
+      allowedTools: ['orchestrator.status'],
     }), (error) => error.status === 422 && /role must be/i.test(error.message));
 
     assert.throws(() => registry.createToolLease({
@@ -328,13 +382,13 @@ test('tool leases are scoped, hashed at rest, and enforce allowed tools', async 
 
     assert.throws(() => registry.createToolLease({
       role: 'auditor',
-      allowedTools: ['audit.queue_all_ready'],
+      allowedTools: ['audit.queue_one'],
     }), (error) => error.status === 422 && /scoped to a session or lane/.test(error.message));
 
     const sessionAuditor = registry.createToolLease({
       role: 'auditor',
       sessionId: session.id,
-      allowedTools: ['audit.queue_all_ready'],
+      allowedTools: ['audit.queue_one'],
       actor: 'auditor-test',
     });
     assert.equal(sessionAuditor.lease.projectId, project.id);
@@ -343,14 +397,14 @@ test('tool leases are scoped, hashed at rest, and enforce allowed tools', async 
     const sessionOnlyLease = registry.createToolLease({
       role: 'orchestrator',
       sessionId: session.id,
-      allowedTools: ['project.describe', 'session.next_action'],
+      allowedTools: ['lane.list', 'orchestrator.status'],
       actor: 'session-only-test',
     });
     assert.equal(sessionOnlyLease.lease.projectId, project.id);
     assert.equal(sessionOnlyLease.lease.sessionId, session.id);
     assert.equal(registry.validateToolLease(sessionOnlyLease.leaseToken, {
       role: 'orchestrator',
-      toolId: 'project.describe',
+      toolId: 'lane.list',
       projectId: project.id,
     }).projectId, project.id);
 
@@ -369,7 +423,7 @@ test('tool leases are scoped, hashed at rest, and enforce allowed tools', async 
     const otherProject = registry.projects.find((p) => p.id === otherOrchestrator.projectId);
     assert.throws(() => registry.validateToolLease(sessionOnlyLease.leaseToken, {
       role: 'orchestrator',
-      toolId: 'project.describe',
+      toolId: 'lane.list',
       projectId: otherProject.id,
     }), (error) => error.status === 403 && /project mismatch/.test(error.message));
 
@@ -380,29 +434,4 @@ test('tool leases are scoped, hashed at rest, and enforce allowed tools', async 
       allowedTools: ['lane.get'],
     }), (error) => error.status === 422 && /lane does not belong to the requested project/.test(error.message));
   });
-});
-
-test('Tailscale agent tools expose read-only setup and keep Serve configure admin-only', () => {
-  const status = findTool('tailscale.status');
-  assert.ok(status, 'tailscale.status tool exists');
-  assert.equal(status.method, 'GET');
-  assert.equal(status.route, '/api/private-access/tailnet');
-  assert.equal(status.implemented, true);
-  assert.equal(status.mutating, false);
-  assert.ok(status.roles.includes('orchestrator'), 'orchestrator can read Tailscale status');
-
-  const configure = findTool('tailscale.serve.configure');
-  assert.ok(configure, 'tailscale.serve.configure tool exists');
-  assert.equal(configure.method, 'POST');
-  assert.equal(configure.route, '/api/private-access/serve');
-  assert.equal(configure.implemented, true);
-  assert.equal(configure.mutating, true);
-  assert.deepEqual(configure.roles, ['dashboard']);
-  assert.equal(availableToolIdsForRole('orchestrator').includes('tailscale.serve.configure'), false);
-
-  const guide = findTool('orca.setup_guide');
-  assert.ok(guide, 'orca.setup_guide tool exists');
-  assert.equal(guide.route, '/api/private-access/setup-plan');
-  assert.equal(guide.mutating, false);
-  assert.ok(guide.roles.includes('orchestrator'), 'orchestrator can read setup guide');
 });

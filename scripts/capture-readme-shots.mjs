@@ -1,7 +1,8 @@
-// Capture polished, public-safe screenshots for the README. Boots an isolated
-// server from a temp cwd (never touches real .orca state), seeds fictional sample
-// projects/sessions/a lane, and captures desktop + phone shots in light & dark into
-// docs/assets/. Sample names are made-up — no real project names, no secrets.
+// Capture the README screenshots. Boots an isolated server from a temp cwd (never
+// touches real .orca state), seeds fictional sample projects/agents/lanes, and writes
+// exactly the three images the README references (hero, pairing, phone-dashboard)
+// into docs/assets/. Sample names are made-up — no real project names, no secrets,
+// and the tailnet hostname is forced to a placeholder (see the page.route below).
 import { chromium } from 'playwright';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -36,10 +37,9 @@ const remote = `http://workstation.localtest.me:${port}`;
 const post = (p, body) => fetch(lh + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
 
 // --- Seed fictional, public-safe sample data ---
-// v2: projects are keyed by cwd and only appear in the tree once an orchestrator
-// registers them (overview drops projects with zero orchestrators). Each sample
-// project is a folder whose basename is its display name; each "session" is now an
-// orchestrator record (title = the old session name), and the lane spawns under it.
+// Projects are keyed by cwd and only appear once an orchestrator registers them
+// (the overview drops projects with zero orchestrators). Each sample project is a
+// folder whose basename is its display name; lanes spawn under their orchestrator.
 async function projectDir(name) {
   const dir = path.join(realTempRoot, name);
   await fs.mkdir(dir, { recursive: true });
@@ -56,7 +56,7 @@ const pixelDir = await projectDir('Pixel Forge');
 const authOrch = await registerOrch(auroraDir, 'claude', 'Auth rework');
 const rateOrch = await registerOrch(auroraDir, 'codex', 'Rate limiter');
 const pixelOrch = await registerOrch(pixelDir, 'claude', 'Particle system');
-const spawn = (orch, title) => post(`/api/orchestrators/${orch.id}/lanes`, { actor: orch.actor, approved: true, title, executorType: 'mock' });
+const spawn = (orch, title) => post(`/api/orchestrators/${orch.id}/executors`, { actor: orch.actor, approved: true, title, executorType: 'mock' });
 await spawn(authOrch, 'Refactor token store');
 await spawn(authOrch, 'Add rotation tests');
 await spawn(rateOrch, 'Sliding-window limiter');
@@ -102,9 +102,7 @@ async function shot(name, { url, width, height, theme = 'dark', paired = false, 
 // 1. Hero — desktop, dark, populated agent canvas. The viewport is kept short so
 //    the tree fills the frame instead of floating in empty canvas.
 await shot('hero', { url: lh + '/', width: 1320, height: 660, theme: 'dark' });
-// 2. Light theme — same view, to show theming.
-await shot('dashboard-light', { url: lh + '/', width: 1320, height: 660, theme: 'light' });
-// 3. Pairing — the workstation "Pair a device" screen (Remote tab; QR + one-time
+// 2. Pairing — the workstation "Pair a device" screen (Remote tab; QR + one-time
 //    code). The page.route fake tailnet state above makes it render as "serving".
 await shot('pairing', {
   url: lh + '/#remote',
@@ -113,7 +111,7 @@ await shot('pairing', {
   theme: 'dark',
   before: async (page) => { await page.waitForTimeout(800); },
 });
-// 4. Phone — the real dashboard on a paired phone.
+// 3. Phone — the real dashboard on a paired phone.
 await shot('phone-dashboard', { url: remote + '/', width: 412, height: 880, theme: 'dark', paired: true });
 
 await b.close();

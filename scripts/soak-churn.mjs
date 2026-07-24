@@ -117,6 +117,8 @@ async function bootServer() {
   process.env.ORCA_REPO_ROOTS = realTempDir;
   // Mock-only churn: no real audit dispatch, no worktrees, fast tick/complete.
   process.env.ORCA_AUTO_AUDIT = 'false';
+  // Soak drives ~20 concurrent lanes per orchestrator; default cap is 4.
+  process.env.ORCA_LANE_CONCURRENCY = '20';
   process.env.ORCA_HEARTBEAT_MS = '300';
   process.env.ORCA_AUTO_COMPLETE_MS = '2000';
   process.env.ORCA_MAX_TERMINAL_LANES_PER_SESSION = String(CONFIG.maxTerminalLanesPerSession);
@@ -181,13 +183,8 @@ async function registerOrchestrators(count) {
     }
     projectId = register.body.projectId;
 
-    const configured = await req('PATCH', `/api/orchestrators/${register.body.id}`, {
-      actor: `soak-orchestrator-${i}`,
-      approvedCapacity: 20,
-      laneConcurrencyLimit: 20,
-      spawnPolicy: 'within_capacity',
-    });
-    if (configured.status !== 200) throw new Error(`orchestrator configure failed: ${JSON.stringify(configured)}`);
+    // (Capacity comes from ORCA_LANE_CONCURRENCY, set below — the PATCH route
+    // went with the orchestrator.update tool.)
 
     sessions.push({ id: register.body.id, name: register.body.title || `Soak Session ${i}` });
   }
@@ -213,7 +210,7 @@ function randomAutoCompleteMs() {
 
 async function createOneLane(session, index) {
   const autoCompleteMs = randomAutoCompleteMs();
-  const created = await req('POST', `/api/orchestrators/${session.id}/lanes`, {
+  const created = await req('POST', `/api/orchestrators/${session.id}/executors`, {
     title: `soak lane ${session.name}#${index}`,
     executorType: 'mock',
     owner: 'executor',

@@ -6,16 +6,13 @@ import { OrcaRegistry } from './registry.js';
 import { PrivateAccessStore } from './private-access/store.js';
 import { AuthSessionStore } from './auth-sessions/store.js';
 import { SESSION_COOKIE_NAME } from './auth-sessions/crypto.js';
-import { buildAgentToolDiscovery } from './agent-tools/discovery.js';
 import { buildNextActionEnvelope } from './agent-tools/next-action.js';
 import { handleLaneRoutes, FALL_THROUGH as LANE_FALL_THROUGH } from './server-routes/lanes.js';
 import { handleProjectRoutes } from './server-routes/projects.js';
 import { handleMcpRoutes } from './server-routes/mcp.js';
-import { handleExecutorRoutes } from './server-routes/executors.js';
 import { handleOrchestratorRoutes } from './server-routes/orchestrators.js';
 import { handlePrivateAccessApi } from './server-routes/private-access.js';
 import { handleAgentToolRoutes } from './server-routes/agent-tools.js';
-import { handleArtifactRoutes } from './server-routes/artifacts.js';
 import { handleMiscRoutes } from './server-routes/misc.js';
 import { createStaticServer } from './server-routes/static-server.js';
 import { createAuthApi } from './server-routes/auth-api.js';
@@ -45,7 +42,6 @@ const rateLimiter = createRateLimiter({
   disabled: process.env.ORCA_RATE_LIMIT_DISABLED === 'true',
 });
 const API_TOKEN = process.env.ORCA_API_TOKEN || '';
-const WORKER_TOKEN = process.env.ORCA_WORKER_TOKEN || '';
 const MAX_JSON_BODY_BYTES = (() => {
   const raw = Number.parseInt(process.env.ORCA_MAX_JSON_BYTES || '', 10);
   if (Number.isFinite(raw) && raw > 0) return raw;
@@ -303,80 +299,28 @@ function getToolLeaseToken(req) {
 
 function toolLeaseRequirementForRoute(method, parts) {
   if (parts[0] !== 'api') return null;
-  if (parts[1] === 'agent-tools' && parts[2] === 'discovery' && method === 'GET') {
-    return { toolId: 'executor.capabilities' };
-  }
-  if (parts[1] === 'agent-tools' && parts[2] === 'next-action' && method === 'GET') {
-    return { toolId: 'session.next_action' };
-  }
-  if (parts[1] === 'projects' && parts.length === 2 && method === 'GET') {
-    return { toolId: 'project.list' };
-  }
-  if (parts[1] === 'projects' && parts[2] && parts.length === 3 && method === 'GET') {
-    return { toolId: 'project.describe', projectId: parts[2] };
-  }
   if (parts[1] === 'projects' && parts[2] && parts[3] === 'quick-links' && parts.length === 4 && method === 'POST') {
-    return { toolId: 'project.quick_link.upsert', projectId: parts[2] };
-  }
-  if (parts[1] === 'projects' && parts[2] && parts[3] === 'quick-links' && parts[4] && parts.length === 5 && method === 'DELETE') {
-    return { toolId: 'project.quick_link.delete', projectId: parts[2] };
-  }
-  if (parts[1] === 'projects' && parts[2] && parts[3] === 'quick-links' && parts[4] && parts[5] === 'check' && method === 'POST') {
-    return { toolId: 'project.quick_link.health', projectId: parts[2] };
-  }
-  if (parts[1] === 'private-access' && parts[2] === 'tailnet' && parts.length === 3 && method === 'GET') {
-    return { toolId: 'tailscale.status' };
-  }
-  if (parts[1] === 'private-access' && parts[2] === 'setup-plan' && parts.length === 3 && method === 'GET') {
-    return { toolId: 'orca.setup_guide' };
-  }
-  if (parts[1] === 'audit' && parts[2] === 'events' && parts.length === 3 && method === 'GET') {
-    return { toolId: 'audit.log.read' };
-  }
-  // Artifact garbage-collection (global, session-less capability). Mapped so an
-  // orchestrator MCP lease can call it; operators reach it via the auth fallback.
-  if (parts[1] === 'artifacts' && parts[2] === 'cleanup') {
-    if (parts[3] === 'schedule' && parts.length === 4 && (method === 'GET' || method === 'PATCH')) {
-      return { toolId: 'artifact.schedule' };
-    }
-    if (parts.length === 3 && method === 'POST') {
-      return { toolId: 'artifact.cleanup' };
-    }
-    if (parts[3] === 'run-now' && parts.length === 4 && method === 'POST') {
-      return { toolId: 'artifact.cleanup' };
-    }
-  }
-  if (parts[1] === 'audit' && parts[2] === 'events' && parts[3] && parts[4] === 'ack' && parts.length === 5 && method === 'POST') {
-    return { toolId: 'audit.log.ack' };
+    return { toolId: 'project.preview.set', projectId: parts[2] };
   }
   if (parts[1] === 'orchestrators' && parts.length === 2 && method === 'POST') {
     return { toolId: 'orchestrator.register' };
-  }
-  if (parts[1] === 'orchestrators' && parts[2] && parts.length === 3 && method === 'PATCH') {
-    return { toolId: 'orchestrator.update' };
   }
   if (parts[1] === 'orchestrators' && parts[2] && parts[3] === 'resign' && method === 'POST') {
     return { toolId: 'orchestrator.resign' };
   }
   if (parts[1] === 'orchestrators' && parts[2] && parts[3] === 'executors' && parts.length === 4 && method === 'POST') {
-    return { toolId: 'executor.spawn' };
+    // Scope to the container (parts[2]) so a project-scoped lease is refused at the
+    // gate, not only by the route's own ownership check. Inherited from the deleted
+    // POST .../lanes requirement, which was the scoped one.
+    return { toolId: 'executor.spawn', sessionId: parts[2] };
   }
   // v2: lane/audit/event/status capabilities are re-homed onto the orchestrator
   // container (parts[2] is the orc_ id, which is the lane container id).
-  if (parts[1] === 'orchestrators' && parts[2] && parts[3] === 'lanes' && parts.length === 4) {
-    if (method === 'GET') return { toolId: 'lane.list', sessionId: parts[2] };
-    if (method === 'POST') return { toolId: 'lane.create', sessionId: parts[2] };
+  if (parts[1] === 'orchestrators' && parts[2] && parts[3] === 'lanes' && parts.length === 4 && method === 'GET') {
+    return { toolId: 'lane.list', sessionId: parts[2] };
   }
-  if (parts[1] === 'orchestrators' && parts[2] && parts[3] === 'audit-done-lanes' && method === 'POST') {
-    return { toolId: 'audit.queue_all_ready', sessionId: parts[2] };
-  }
-  if (parts[1] === 'orchestrators' && parts[2] && parts[3] === 'events') {
-    if (parts[4] === 'drain' && method === 'GET') return { toolId: 'event.drain', sessionId: parts[2] };
-    if (parts[4] === 'replay' && method === 'GET') return { toolId: 'event.replay', sessionId: parts[2] };
-    if (parts[4] === 'ack' && method === 'POST') return { toolId: 'event.ack', sessionId: parts[2] };
-  }
-  if (parts[1] === 'orchestrators' && parts[2] && parts[3] === 'heartbeat' && parts.length === 4 && method === 'POST') {
-    return { toolId: 'orchestrator.heartbeat', sessionId: parts[2] };
+  if (parts[1] === 'orchestrators' && parts[2] && parts[3] === 'events' && parts[4] === 'drain' && method === 'GET') {
+    return { toolId: 'event.drain', sessionId: parts[2] };
   }
   if (parts[1] === 'orchestrators' && parts[2] && parts[3] === 'status' && parts.length === 4 && method === 'GET') {
     return { toolId: 'orchestrator.status', sessionId: parts[2] };
@@ -402,12 +346,12 @@ function toolLeaseRequirementForRoute(method, parts) {
   if (parts[1] === 'lanes' && parts[2] && parts.length === 3 && method === 'DELETE') {
     return { toolId: 'lane.delete', laneId: parts[2] };
   }
-  if (parts[1] === 'lanes' && parts[2] && parts[3] === 'heartbeat' && method === 'POST') {
-    return { toolId: 'lane.heartbeat', laneId: parts[2] };
-  }
   if (parts[1] === 'lanes' && parts[2] && parts[3] === 'submit' && method === 'POST') {
     return { toolId: 'lane.submit', laneId: parts[2] };
   }
+  // The approvals trio backs Claude's --permission-prompt-tool relay
+  // (executor/command-builder.js + mcp-server.js handlePermissionPrompt), so a
+  // governed Claude lane's own lease must carry these ids.
   if (parts[1] === 'lanes' && parts[2] && parts[3] === 'approvals' && parts.length === 4) {
     if (method === 'POST') return { toolId: 'approval.request', laneId: parts[2] };
     if (method === 'GET') return { toolId: 'approval.list', laneId: parts[2] };
@@ -788,7 +732,6 @@ const { serveStaticOrIndex, buildMobileManifest } = createStaticServer({
   requireDashboardAuth,
   requestOrigin,
   API_TOKEN,
-  WORKER_TOKEN,
 });
 
 
@@ -802,7 +745,7 @@ const { handleAuthApi } = createAuthApi({
   rejectSpoofedActor, requestOrigin, sameOriginAllowed, currentBrowserSession,
   hasValidApiToken, isLocalBootstrapAdmin, requireAdminAuth, requireOperatorAuth,
   requireMutatingToken, buildSessionCookie, buildClearSessionCookie,
-  API_TOKEN, WORKER_TOKEN, SESSION_COOKIE_NAME,
+  API_TOKEN, SESSION_COOKIE_NAME,
 });
 
 // Dependency bundle handed to extracted route-group handlers. The singletons
@@ -819,12 +762,10 @@ const ROUTE_CTX = {
   constantTimeEqual,
   hasSpecificToolLeaseAuth,
   getToolLeaseToken,
-  WORKER_TOKEN,
   buildNextActionEnvelope,
   requestOrigin,
   requireAdminAuth,
   privateAccess,
-  buildAgentToolDiscovery,
   hasOperatorAuth,
   hasAdminAuth,
   buildMobileManifest,
@@ -856,11 +797,6 @@ async function handleApi(req, res, pathname, method, parts) {
 
   if (await handleMiscRoutes(ROUTE_CTX, req, res, method, parts) !== LANE_FALL_THROUGH) return;
 
-  if (parts[1] === 'artifacts') {
-    const result = await handleArtifactRoutes(ROUTE_CTX, req, res, method, parts);
-    if (result !== LANE_FALL_THROUGH) return;
-  }
-
 
 
   if (parts[1] === 'agent-tools') {
@@ -873,11 +809,6 @@ async function handleApi(req, res, pathname, method, parts) {
     return handlePrivateAccessApi(ROUTE_CTX, req, res, method, parts);
   }
 
-
-  if (parts[1] === 'executors') {
-    const result = await handleExecutorRoutes(ROUTE_CTX, req, res, method, parts);
-    if (result !== LANE_FALL_THROUGH) return;
-  }
 
   if (parts[1] === 'orchestrators') {
     const result = await handleOrchestratorRoutes(ROUTE_CTX, req, res, method, parts);

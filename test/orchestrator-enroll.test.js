@@ -58,7 +58,7 @@ test('orchestrator: a non-owner is refused; a live holder cannot be taken over, 
 
     // A different orchestrator lease may not mutate the container it doesn't own.
     assert.throws(
-      () => registry.assertOrchestratorOwnership({ toolId: 'lane.create', sessionId: orchestrator.id, lease: leaseB }),
+      () => registry.assertOrchestratorOwnership({ toolId: 'lane.delete', sessionId: orchestrator.id, lease: leaseB }),
       (e) => e.status === 409 && /not the active orchestrator/.test(e.message),
     );
 
@@ -81,7 +81,7 @@ test('orchestrator: a non-owner is refused; a live holder cannot be taken over, 
     assert.equal(takenOver.leaseId, leaseB.id, 'takeover rebinds the owning lease');
 
     // The new owner may now mutate.
-    registry.assertOrchestratorOwnership({ toolId: 'lane.create', sessionId: orchestrator.id, lease: leaseB });
+    registry.assertOrchestratorOwnership({ toolId: 'lane.delete', sessionId: orchestrator.id, lease: leaseB });
   });
 });
 
@@ -114,9 +114,9 @@ test('orchestrator: exclusive ownership refuses a non-owner mutating call', asyn
 
     // Owner may mutate; a non-owner is refused; reads + ownership-exempt tools
     // (register/resign/spawn) are always allowed regardless of ownership.
-    registry.assertOrchestratorOwnership({ toolId: 'lane.create', sessionId: orchestrator.id, lease: owner });
+    registry.assertOrchestratorOwnership({ toolId: 'lane.delete', sessionId: orchestrator.id, lease: owner });
     assert.throws(
-      () => registry.assertOrchestratorOwnership({ toolId: 'lane.create', sessionId: orchestrator.id, lease: other }),
+      () => registry.assertOrchestratorOwnership({ toolId: 'lane.delete', sessionId: orchestrator.id, lease: other }),
       (e) => e.status === 409 && /not the active orchestrator/.test(e.message),
     );
     registry.assertOrchestratorOwnership({ toolId: 'lane.list', sessionId: orchestrator.id, lease: other }); // read ok
@@ -126,7 +126,7 @@ test('orchestrator: exclusive ownership refuses a non-owner mutating call', asyn
     // must register/take over before it can mutate.
     registry.resignOrchestrator(orchestrator.id, {}, { leaseId: owner.id });
     assert.throws(
-      () => registry.assertOrchestratorOwnership({ toolId: 'lane.create', sessionId: orchestrator.id, lease: other }),
+      () => registry.assertOrchestratorOwnership({ toolId: 'lane.delete', sessionId: orchestrator.id, lease: other }),
       (e) => e.status === 409 && /No active orchestrator/.test(e.message),
     );
     const takenOver = await registry.registerOrchestrator(
@@ -134,7 +134,7 @@ test('orchestrator: exclusive ownership refuses a non-owner mutating call', asyn
       { leaseId: other.id },
     );
     assert.equal(takenOver.id, orchestrator.id);
-    registry.assertOrchestratorOwnership({ toolId: 'lane.create', sessionId: orchestrator.id, lease: other });
+    registry.assertOrchestratorOwnership({ toolId: 'lane.delete', sessionId: orchestrator.id, lease: other });
   });
 });
 

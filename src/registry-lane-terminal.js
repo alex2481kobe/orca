@@ -263,7 +263,6 @@ Changed files: ${changedFiles.length}
       expectedArtifacts: lane.expectedArtifacts || [],
       targetUrl: lane.targetUrl || null,
       mcpConfigPath: lane.mcpConfigPath || null,
-      mcpTools: lane.mcpTools || [],
       command: lane.command || null,
       commandArgs: lane.commandArgs || null,
       executorBinary: lane.executorBinary || null,

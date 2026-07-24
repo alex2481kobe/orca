@@ -4,14 +4,11 @@
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { nowIso, clonePayload, normalizeSlug, realpathSyncSafe, isRealPathWithinBoundarySync } from './registry-utils.js';
-import { sanitizeSettingsOverrides } from './effective-settings/schema.js';
 import { directoryExists } from './worktree-manager.js';
 import {
   MAX_PROJECT_QUICK_LINKS,
-  sanitizeQuickLinkText,
   normalizeQuickLink,
   normalizeQuickLinks,
-  boundedQuickLinkHealthCheck,
   tailnetUrlForPort,
 } from './registry-quick-links.js';
 import { detectTailnetState } from './private-access/tailnet.js';
@@ -79,7 +76,6 @@ export const projectMethods = {
       quickLinks: normalizeQuickLinks(quickLinks),
       policyProfile,
       repoRoot: validatedRepoRoot,
-      settingsOverrides: sanitizeSettingsOverrides(settingsOverrides),
       // Per-project agent defaults: new sessions inherit `leader` (default
       // executor), and the composer falls back to `defaultModel` when a lane
       // hasn't pinned one. Both optional ('' = no project-level default).
@@ -166,9 +162,6 @@ export const projectMethods = {
       project.state = nextState;
     }
 
-    if (patch.settingsOverrides !== undefined) {
-      project.settingsOverrides = sanitizeSettingsOverrides(patch.settingsOverrides);
-    }
 
     if (patch.leader !== undefined) {
       project.leader = String(patch.leader || '').trim().slice(0, 120);
@@ -279,73 +272,6 @@ export const projectMethods = {
     return next;
   },
 
-  deleteProjectQuickLink(locator, linkId, context = {}) {
-    const project = this.getProject(locator);
-    if (!project) {
-      throw { status: 404, message: 'Project not found.' };
-    }
-    const actor = context.actor || 'dashboard';
-    const policyCheck = this.evaluateActionPolicy('updateProject', {
-      actor,
-      approved: context.approved,
-    });
-    if (!policyCheck.allowed) {
-      throw {
-        status: 409,
-        message: policyCheck.message,
-        requiresApproval: true,
-        risk: policyCheck.policy.risk,
-      };
-    }
-    const before = project.quickLinks || [];
-    const next = before.filter((link) => link.id !== linkId);
-    if (before.length === next.length) {
-      throw { status: 404, message: 'Quick link not found.' };
-    }
-    project.quickLinks = next;
-    project.updatedAt = nowIso();
-    this.recordAudit({
-      type: 'project_quick_link_deleted',
-      actor,
-      projectId: project.id,
-      summary: `Quick link removed from ${project.name}`,
-      evidence: { linkId },
-      status: 'passed',
-    });
-    this.persistState();
-    return clonePayload({ project, removed: true, linkId });
-  },
-
-  async checkProjectQuickLink(locator, linkId, { actor = 'dashboard', prefer = 'auto' } = {}) {
-    const project = this.getProject(locator);
-    if (!project) {
-      throw { status: 404, message: 'Project not found.' };
-    }
-    const link = (project.quickLinks || []).find((item) => item.id === linkId);
-    if (!link) {
-      throw { status: 404, message: 'Quick link not found.' };
-    }
-    const result = await boundedQuickLinkHealthCheck(link, { prefer });
-    link.healthStatus = result.status;
-    link.lastCheckedAt = nowIso();
-    link.lastStatusCode = result.httpStatus;
-    link.lastHealthDetail = sanitizeQuickLinkText(result.detail, '', 180);
-    link.updatedAt = nowIso();
-    project.updatedAt = nowIso();
-    this.recordAudit({
-      type: 'project_quick_link_health_checked',
-      actor,
-      projectId: project.id,
-      summary: `Quick link "${link.label}" health checked: ${result.status}`,
-      evidence: {
-        linkId: link.id,
-        status: result.status,
-        httpStatus: result.httpStatus,
-        detail: result.detail,
-      },
-      status: result.status === 'reachable' || result.status === 'not_checkable' ? 'passed' : 'failed',
-    });
-    this.persistState();
-    return clonePayload({ project, link, result });
-  },
+  // (No deleteProjectQuickLink / checkProjectQuickLink: one upsert is the whole
+  // preview surface. Health status stays whatever the writer declared.)
 };

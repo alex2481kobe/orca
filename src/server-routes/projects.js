@@ -12,19 +12,6 @@ export async function handleProjectRoutes(ctx, req, res, method, parts) {
     parseJsonBody,
     rejectSpoofedActor,
   } = ctx;
-    if (parts.length === 2 && method === 'GET') {
-      const lease = req._toolLease || null;
-      const leaseLane = lease?.laneId ? registry.getLane(lease.laneId) : null;
-      const leaseSession = lease?.sessionId
-        ? registry.getSession(lease.sessionId)
-        : (leaseLane?.sessionId ? registry.getSession(leaseLane.sessionId) : null);
-      const leaseProjectId = lease?.projectId || leaseSession?.projectId || leaseLane?.projectId || null;
-      const projects = registry.listProjects();
-      return sendJson(res, 200, leaseProjectId
-        ? projects.filter((project) => project.id === leaseProjectId)
-        : projects);
-    }
-
     if (parts.length === 2 && method === 'POST') {
       const body = await parseJsonBody(req);
       if (body === null) return sendBodyError(req, res);
@@ -70,7 +57,6 @@ export async function handleProjectRoutes(ctx, req, res, method, parts) {
     }
 
     if (parts.length === 3) {
-      if (method === 'GET') return sendJson(res, 200, project);
       if (method === 'PATCH') {
         const body = await parseJsonBody(req);
         if (body === null) return sendBodyError(req, res);
@@ -161,42 +147,7 @@ export async function handleProjectRoutes(ctx, req, res, method, parts) {
         }
       }
 
-      if (parts.length === 5 && method === 'DELETE') {
-        const body = await parseJsonBody(req);
-        if (body === null) return sendBodyError(req, res);
-        if (rejectSpoofedActor(body, res)) return;
-        try {
-          const result = registry.deleteProjectQuickLink(project.id, linkId, {
-            actor: req._toolLease?.actor || body.actor || 'dashboard',
-            approved: body.approved,
-          });
-          return sendJson(res, 200, result);
-        } catch (error) {
-          return sendJson(res, error.status || 500, {
-            error: error.message || 'Could not delete quick link.',
-            requiresApproval: error.requiresApproval || false,
-            risk: error.risk || null,
-          });
-        }
-      }
-
-      if (parts.length === 6 && parts[5] === 'check' && method === 'POST') {
-        const body = await parseJsonBody(req);
-        if (body === null) return sendBodyError(req, res);
-        if (rejectSpoofedActor(body, res)) return;
-        try {
-          const result = await registry.checkProjectQuickLink(project.id, linkId, {
-            actor: req._toolLease?.actor || body.actor || 'dashboard',
-            prefer: body.prefer || 'auto',
-          });
-          return sendJson(res, 200, result);
-        } catch (error) {
-          return sendJson(res, error.status || 500, {
-            error: error.message || 'Could not check quick link.',
-          });
-        }
-      }
-
+      // (No DELETE and no /check: one write path is the whole preview surface.)
       return sendJson(res, 405, { error: 'Method not allowed.' });
     }
 

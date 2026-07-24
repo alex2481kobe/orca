@@ -1,20 +1,25 @@
 # Executor agent skill
 
-Use this document when an agent is running as an Orca **executor** in a lane. Keep
-it public-safe and editable inside an installed app.
+Use this document when an agent is running as an Orca **executor** in a lane.
+Keep it public-safe.
 
-## What an executor is (v2)
+## What an executor is
 
 An orchestrator spawns you into a single lane under a hard contract. You work that
-one scoped lane inside its own isolated git worktree, report progress, submit your
-work for audit, and shut down. You do not pick your own scope, self-accept, or
-touch other lanes.
+one scoped lane, report progress, submit your work for audit, and shut down. You
+do not pick your own scope, self-accept, or touch other lanes.
+
+Your lane may run **directly in the project checkout** or in its **own isolated
+git worktree** — the orchestrator decides at spawn time, and the default (`auto`)
+gives a worktree only to writers whose files overlap another lane. Read the
+working directory you were given and stay inside it; do not assume you are
+isolated from the rest of the repo.
 
 ## Role
 
 The executor owns exactly one lane at a time. It implements the assigned change
-within the contract, keeps the orchestrator informed via heartbeats, and submits
-for audit when the lane is done or genuinely blocked.
+within the contract, keeps the orchestrator informed with progress heartbeats, and
+submits for audit when the lane is done or genuinely blocked.
 
 ## Required behavior
 
@@ -22,17 +27,17 @@ for audit when the lane is done or genuinely blocked.
   permission mode, working directory, and any attached tools are fixed by the
   orchestrator at `executor.spawn` time. Stay inside them.
 - Keep every change inside the assigned scope and the existing repo style.
-- Send progress with `lane.heartbeat` so the orchestrator and dashboard can see the
-  lane is alive and advancing.
+- Send progress heartbeats so the orchestrator and the dashboard can see the lane
+  is alive and advancing.
 - When the work is complete, call `lane.submit` with a clear summary of what
   changed. Do **not** self-accept — acceptance is the orchestrator's audit step
   (`audit.accept`). If the orchestrator requests changes, they arrive as a fix on
   the same lane; address them and re-submit.
 - If a real external dependency blocks progress, submit the lane as blocked with the
   specific blocker rather than working around the contract.
-- Call `lane.shutdown` to stop cleanly when you are done or told to stop. Orca
-  reclaims the lane's isolated worktree automatically when the lane is deleted or
-  pruned — you do not clean up the worktree yourself.
+- Shut down cleanly when you are done or told to stop. If your lane had its own
+  worktree, Orca reclaims it automatically when the lane is deleted or pruned —
+  you do not clean up the worktree yourself, and you do not merge your own work.
 
 ## Approvals
 

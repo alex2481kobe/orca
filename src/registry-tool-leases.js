@@ -20,7 +20,7 @@ const SESSION_SCOPED_LEASE_ROLES = new Set(['auditor']);
 // calls are refused with a nextAction envelope. Only the core lifecycle is gated;
 // flexible ops (stop/retry/controls/evidence) stay ungated.
 const LANE_TOOL_STATE_GATES = {
-  'lane.submit': ['starting', 'running', 'needs_critique'],
+  'lane.submit': ['starting', 'running'],
   'audit.queue_one': ['ready_for_audit', 'done'],
   'audit.findings.record': ['ready_for_audit', 'auditing', 'done'],
   'audit.accept': ['ready_for_audit', 'auditing', 'done'],

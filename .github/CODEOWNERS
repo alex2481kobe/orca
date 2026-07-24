@@ -1,6 +1,6 @@
 # Code owners for security-sensitive paths: app source (auth, tool leases,
 # executor spawning, credential handling, URL policy, admin routes, render layer),
-# build/dependency/packaging config, workflows, and governance docs. Changes here
+# build/dependency config, workflows, and governance docs. Changes here
 # require code-owner review.
 /src/ @alex2481kobe
 /public/ @alex2481kobe
@@ -8,7 +8,6 @@
 /package.json @alex2481kobe
 /package-lock.json @alex2481kobe
 /.npmrc @alex2481kobe
-/src-tauri/ @alex2481kobe
 /scripts/ @alex2481kobe
 /public/service-worker.js @alex2481kobe
 /public/manifest.webmanifest @alex2481kobe

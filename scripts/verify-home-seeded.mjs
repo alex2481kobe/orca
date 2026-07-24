@@ -45,7 +45,7 @@ const post = (p, body) => fetch(base + p, { method: 'POST', headers: { 'content-
 const projDir = await fs.realpath(await (async () => { const d = path.join(realTemp, 'Demo Project'); await fs.mkdir(d, { recursive: true }); return d; })());
 const orch = await post('/api/orchestrators', { actor: 'demo', cwd: projDir, title: 'Demo orchestrator' });
 check('seed.orchestrator', Boolean(orch && orch.id));
-const lane = await post(`/api/orchestrators/${orch.id}/lanes`, { actor: 'demo', approved: true, title: 'Demo lane', executorType: 'mock' });
+const lane = await post(`/api/orchestrators/${orch.id}/executors`, { actor: 'demo', approved: true, title: 'Demo lane', executorType: 'mock' });
 check('seed.lane', Boolean(lane && lane.id));
 
 const ctx = await b.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: 'dark' });

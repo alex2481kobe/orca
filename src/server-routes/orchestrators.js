@@ -57,26 +57,9 @@ export async function handleOrchestratorRoutes(ctx, req, res, method, parts) {
     }
   }
 
-  // PATCH /api/orchestrators/{id} — update self-authored title/focus.
-  if (parts.length === 3 && method === 'PATCH') {
-    const body = await parseJsonBody(req);
-    if (body === null) return sendBodyError(req, res);
-    if (rejectSpoofedActor(body, res)) return;
-    const leaseId = leaseIdFor(ctx, req, registry, 'orchestrator.update');
-    if (leaseId && leaseId.error) return sendJson(res, leaseId.status, { error: leaseId.error });
-    try {
-      const updated = registry.updateOrchestrator(parts[2], {
-        title: body.title,
-        focus: body.focus,
-        approvedCapacity: body.approvedCapacity,
-        laneConcurrencyLimit: body.laneConcurrencyLimit,
-        spawnPolicy: body.spawnPolicy,
-      }, { leaseId: leaseId?.id || 'dashboard' });
-      return sendJson(res, 200, updated);
-    } catch (error) {
-      return sendJson(res, error.status || 500, { error: error.message || 'Could not update orchestrator.' });
-    }
-  }
+  // (No PATCH /api/orchestrators/{id}: title/focus are folded into POST
+  // /api/orchestrators — re-registering the same cwd on the owning lease
+  // refreshes them idempotently.)
 
   // POST /api/orchestrators/{id}/resign — leave; another agent may take over.
   if (parts.length === 4 && parts[3] === 'resign' && method === 'POST') {
@@ -105,6 +88,11 @@ export async function handleOrchestratorRoutes(ctx, req, res, method, parts) {
     const orchestratorId = parts[2];
     const orchestrator = (registry.orchestrators || []).find((o) => o.id === orchestratorId);
     if (!orchestrator) return sendJson(res, 404, { error: 'Orchestrator not found.' });
+    // Inherited from the deleted POST .../lanes route: this is now the ONLY way to
+    // create a lane, so the unsandboxed-mode gate has to live here or it is gone.
+    if (unsandboxedBlocked(body.permissionsProfile)) {
+      return sendJson(res, 403, { error: 'Unsandboxed agent permissions (bypass/yolo/force) require workstation admin auth, not a paired device. Use a sandboxed mode (plan/auto-edit).' });
+    }
     const lease = leaseIdFor(ctx, req, registry, 'executor.spawn');
     if (lease && lease.error) return sendJson(res, lease.status, { error: lease.error });
     const leaseId = lease?.id || 'dashboard';
@@ -115,7 +103,10 @@ export async function handleOrchestratorRoutes(ctx, req, res, method, parts) {
     try {
       const lanePayload = { ...body, owner: body.owner || 'executor' };
       const lane = await registry.createLane(orchestratorId, lanePayload, {
-        actor: body.actor || orchestrator.actor || 'orchestrator',
+        // Lease actor wins over a body-supplied one so a scoped lease cannot
+        // author work under someone else's name (carried over from the deleted
+        // POST .../lanes route, which is now this route's only caller shape).
+        actor: req._toolLease?.actor || body.actor || orchestrator.actor || 'orchestrator',
         approved: body.approved,
       });
       return sendJson(res, 201, lane);
@@ -132,69 +123,24 @@ export async function handleOrchestratorRoutes(ctx, req, res, method, parts) {
   // container id. The tool-lease gate + ownership check already ran in server.js.
   const orchestratorExists = (id) => (registry.orchestrators || []).some((o) => o.id === id);
 
-  // GET /api/orchestrators/{id}/lanes — compact lane list.
-  // POST /api/orchestrators/{id}/lanes — create a governed lane in the container.
+  // GET /api/orchestrators/{id}/lanes — compact lane list. There is no POST:
+  // executor.spawn (POST .../executors) is the single way to create a lane.
   if (parts.length === 4 && parts[3] === 'lanes') {
     if (!orchestratorExists(parts[2])) return sendJson(res, 404, { error: 'Orchestrator not found.' });
     if (method === 'GET') return sendJson(res, 200, registry.listLanesCompact(parts[2]));
-    if (method === 'POST') {
-      const body = await parseJsonBody(req);
-      if (body === null) return sendBodyError(req, res);
-      if (rejectSpoofedActor(body, res)) return;
-      if (unsandboxedBlocked(body.permissionsProfile)) {
-        return sendJson(res, 403, { error: 'Unsandboxed agent permissions (bypass/yolo/force) require workstation admin auth, not a paired device. Use a sandboxed mode (plan/auto-edit).' });
-      }
-      try {
-        const lanePayload = { ...body };
-        if (!lanePayload.owner && req._toolLease?.role === 'orchestrator') {
-          lanePayload.owner = 'executor';
-        }
-        const lane = await registry.createLane(parts[2], lanePayload, {
-          actor: req._toolLease?.actor || body.actor || 'dashboard',
-          approved: body.approved,
-        });
-        return sendJson(res, 201, lane);
-      } catch (error) {
-        return sendJson(res, error.status || 500, {
-          error: error.message || 'Could not create lane.',
-          requiresApproval: error.requiresApproval || false,
-          risk: error.risk || null,
-        });
-      }
-    }
     return sendJson(res, 405, { error: 'Method not allowed.' });
   }
 
-  // POST /api/orchestrators/{id}/audit-done-lanes — queue audits for done lanes.
-  if (parts.length === 4 && parts[3] === 'audit-done-lanes' && method === 'POST') {
-    if (!orchestratorExists(parts[2])) return sendJson(res, 404, { error: 'Orchestrator not found.' });
-    const body = await parseJsonBody(req);
-    if (body === null) return sendBodyError(req, res);
-    if (rejectSpoofedActor(body, res)) return;
-    try {
-      const result = await registry.queueDoneLanesAudit(parts[2], {
-        ...body,
-        actor: req._toolLease?.actor || body.actor || 'dashboard',
-      });
-      return sendJson(res, 200, result);
-    } catch (error) {
-      return sendJson(res, error.status || 500, {
-        error: error.message || 'Could not queue audit.',
-        requiresApproval: error.requiresApproval || false,
-        risk: error.risk || null,
-      });
-    }
-  }
-
-  // Durable agent-event queue: drain/replay (GET) + ack (POST).
+  // GET /api/orchestrators/{id}/events/drain — durable agent-event wakeups.
+  // Draining CONSUMES: whatever it hands back is acknowledged for this consumer,
+  // so the next drain returns only what is new. (No separate ack/replay routes.)
   if (parts.length === 5 && parts[3] === 'events') {
     if (!orchestratorExists(parts[2])) return sendJson(res, 404, { error: 'Orchestrator not found.' });
-    if (['drain', 'replay'].includes(parts[4]) && method === 'GET') {
+    if (parts[4] === 'drain' && method === 'GET') {
       const sp = typeof getSearchParams === 'function' ? getSearchParams(req.url || '/') : null;
       if (!sp) return sendJson(res, 400, { error: 'Invalid request query string.' });
       try {
-        const reader = parts[4] === 'drain' ? registry.drainAgentEvents : registry.replayAgentEvents;
-        return sendJson(res, 200, reader.call(registry, parts[2], {
+        return sendJson(res, 200, registry.drainAgentEvents(parts[2], {
           role: req._toolLease?.role || 'dashboard',
           actor: req._toolLease?.actor || 'dashboard',
           limit: sp.get('limit') || 50,
@@ -205,39 +151,9 @@ export async function handleOrchestratorRoutes(ctx, req, res, method, parts) {
         return sendJson(res, error.status || 500, { error: error.message || 'Could not read agent events.' });
       }
     }
-    if (parts[4] === 'ack' && method === 'POST') {
-      const body = await parseJsonBody(req);
-      if (body === null) return sendBodyError(req, res);
-      if (rejectSpoofedActor(body, res)) return;
-      try {
-        const result = registry.ackAgentEvents(parts[2], {
-          eventIds: body.eventIds,
-          actor: req._toolLease?.actor || 'dashboard',
-          role: req._toolLease?.role || 'dashboard',
-        });
-        return sendJson(res, 200, result);
-      } catch (error) {
-        return sendJson(res, error.status || 500, { error: error.message || 'Could not acknowledge agent event.' });
-      }
-    }
     return sendJson(res, 405, { error: 'Method not allowed.' });
   }
 
-  // POST /api/orchestrators/{id}/heartbeat — refresh the lease-owner's lastSeenAt
-  // so read-only monitoring doesn't let ownership go stale (~15 min).
-  if (parts.length === 4 && parts[3] === 'heartbeat' && method === 'POST') {
-    if (!orchestratorExists(parts[2])) return sendJson(res, 404, { error: 'Orchestrator not found.' });
-    const body = await parseJsonBody(req).catch(() => ({}));
-    if (rejectSpoofedActor(body || {}, res)) return;
-    const leaseId = leaseIdFor(ctx, req, registry, 'orchestrator.heartbeat');
-    if (leaseId && leaseId.error) return sendJson(res, leaseId.status, { error: leaseId.error });
-    try {
-      const result = registry.touchOrchestrator(parts[2], { leaseId: leaseId?.id || 'dashboard' });
-      return sendJson(res, 200, result);
-    } catch (error) {
-      return sendJson(res, error.status || 500, { error: error.message || 'Could not refresh orchestrator heartbeat.' });
-    }
-  }
 
   // POST /api/orchestrators/{id}/emergency-stop — break-glass: stop all live lanes
   // under this orchestrator at once. Body {all:true} stops EVERY executor fleet-
@@ -271,7 +187,12 @@ export async function handleOrchestratorRoutes(ctx, req, res, method, parts) {
   // GET /api/orchestrators/{id}/status — ownership + lane tree + next tool.
   if (parts.length === 4 && parts[3] === 'status' && method === 'GET') {
     try {
-      return sendJson(res, 200, registry.orchestratorStatus(parts[2]));
+      // Pass the caller's lease so status doubles as the ownership heartbeat
+      // (the standalone orchestrator.heartbeat tool/route is gone).
+      const lease = leaseIdFor(ctx, req, registry, 'orchestrator.status');
+      return sendJson(res, 200, registry.orchestratorStatus(parts[2], {
+        leaseId: lease && !lease.error ? lease.id : null,
+      }));
     } catch (error) {
       return sendJson(res, error.status || 500, { error: error.message || 'Could not read orchestrator status.' });
     }

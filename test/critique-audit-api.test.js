@@ -104,7 +104,7 @@ async function createOrchestratorLane(server, token, laneBody = {}) {
   });
   assert.equal(register.status, 200, JSON.stringify(register.body));
   const orchestratorId = register.body.id;
-  const lane = await server.requestJson(`/api/orchestrators/${orchestratorId}/lanes`, {
+  const lane = await server.requestJson(`/api/orchestrators/${orchestratorId}/executors`, {
     method: 'POST',
     headers: { 'x-orca-token': token },
     body: {

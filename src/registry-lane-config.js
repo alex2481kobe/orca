@@ -1,15 +1,14 @@
 // Lane/session configuration normalizers (spawn policy, idle-shutdown mode,
-// critique mode, approved capacity). Extracted from registry.js. Pure helpers.
+// approved capacity). Extracted from registry.js. Pure helpers.
 
 const SPAWN_POLICIES = new Set(['never', 'ask', 'within_capacity', 'auto']);
-const IDLE_SHUTDOWN_MODES = new Set(['immediate', 'short_keepalive', 'policy']);
-const CRITIQUE_MODES = new Set(['off', 'suggested', 'required', 'visual-required']);
-// Worktree isolation modes an orchestrator/lane can request:
-//   auto     — let Orca decide from the situation (the default; see resolveWorktreeMode)
-//   direct   — no worktree; the lane runs in the repo root checkout itself
-//   isolated — a dedicated per-lane git worktree (safe for concurrent writers)
-//   shared   — several lanes deliberately share the one repo checkout (conflict risk)
-export const WORKTREE_MODES = new Set(['auto', 'direct', 'isolated', 'shared']);
+// Worktree isolation a caller may REQUEST. Only two, because the other two were
+// noise: 'direct' is just what 'auto' already resolves to for a sole writer, and
+// 'shared' sold conflict risk as a feature. The RESOLVED outcome below is still
+// 'direct' | 'isolated' — that is an internal fact about where the lane runs.
+//   auto     — let Orca decide from the situation (the default)
+//   isolated — always give this lane its own git worktree
+export const WORKTREE_MODES = new Set(['auto', 'isolated']);
 export const DEFAULT_APPROVED_CAPACITY = 2;
 
 export function normalizeSpawnPolicy(value, fallback = 'within_capacity') {
@@ -17,28 +16,19 @@ export function normalizeSpawnPolicy(value, fallback = 'within_capacity') {
   return SPAWN_POLICIES.has(normalized) ? normalized : fallback;
 }
 
-export function normalizeIdleShutdownMode(value, fallback = 'immediate') {
-  const normalized = String(value || fallback).trim().toLowerCase();
-  return IDLE_SHUTDOWN_MODES.has(normalized) ? normalized : fallback;
-}
-
-export function normalizeCritiqueMode(value, fallback = 'suggested') {
-  const normalized = String(value || fallback).trim().toLowerCase();
-  return CRITIQUE_MODES.has(normalized) ? normalized : fallback;
-}
 
 export function normalizeWorktreeMode(value, fallback = 'auto') {
   const normalized = String(value || fallback).trim().toLowerCase();
   return WORKTREE_MODES.has(normalized) ? normalized : fallback;
 }
 
-// Resolve a concrete worktree mode from a (possibly 'auto') request. Pure — the
-// caller supplies the situation. This encodes the policy the user asked for:
+// Resolve a concrete worktree mode ('direct' | 'isolated') from a request. Pure —
+// the caller supplies the situation. This encodes the policy the user asked for:
 //   - read-only work, or a non-git folder, never needs a worktree -> direct
-//   - a sole writer can safely edit the checkout in place            -> direct
-//   - once writers overlap, each writer needs its own worktree       -> isolated
-// An explicit non-auto request is honored, except an isolated/shared request on
-// a non-git folder degrades to direct (there is no working tree to branch).
+//   - a sole writer can safely edit the checkout in place         -> direct
+//   - once writers overlap, each writer needs its own worktree    -> isolated
+// An explicit 'isolated' request is honored, except on a non-git folder where it
+// degrades to direct (there is no working tree to branch).
 export function resolveWorktreeMode({
   requested = 'auto',
   repoIsGit = false,
@@ -46,11 +36,9 @@ export function resolveWorktreeMode({
   activeWriterLanes = 0,
 } = {}) {
   const mode = normalizeWorktreeMode(requested);
-  if (mode !== 'auto') {
-    // Only 'isolated' truly needs a git working tree (to branch a worktree);
-    // 'shared'/'direct' just run in the folder, so they apply anywhere.
-    if (!repoIsGit && mode === 'isolated') return 'direct';
-    return mode;
+  if (mode === 'isolated') {
+    // 'isolated' needs a git working tree to branch a worktree from.
+    return repoIsGit ? 'isolated' : 'direct';
   }
   if (!repoIsGit || isReadOnly) return 'direct';
   return activeWriterLanes > 0 ? 'isolated' : 'direct';

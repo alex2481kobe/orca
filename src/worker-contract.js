@@ -13,7 +13,6 @@ export const LANE_STATES = {
   QUEUED: 'queued',
   STARTING: 'starting',
   RUNNING: 'running',
-  NEEDS_CRITIQUE: 'needs_critique',
   READY_FOR_AUDIT: 'ready_for_audit',
   AUDITING: 'auditing',
   FIX_REQUESTED: 'fix_requested',

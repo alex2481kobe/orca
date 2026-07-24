@@ -9,7 +9,7 @@ export function createAuthApi(deps) {
     rejectSpoofedActor, requestOrigin, sameOriginAllowed, currentBrowserSession,
     hasValidApiToken, isLocalBootstrapAdmin, requireAdminAuth, requireOperatorAuth,
     requireMutatingToken, buildSessionCookie, buildClearSessionCookie,
-    API_TOKEN, WORKER_TOKEN, SESSION_COOKIE_NAME,
+    API_TOKEN, SESSION_COOKIE_NAME,
   } = deps;
 
   function hasPositiveSameOriginSignal(req) {

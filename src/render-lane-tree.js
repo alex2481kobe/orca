@@ -10,7 +10,6 @@ const GLYPH = {
   queued: '◷',
   starting: '◐',
   running: '●',
-  needs_critique: '✎',
   ready_for_audit: '◆',
   auditing: '🔍',
   fix_requested: '↻',
@@ -48,10 +47,8 @@ function detailLines(lane) {
   const task = clip(lane.taskDescription || lane.taskPrompt || lane.title, 64);
   if (task) lines.push(`task: ${task}`);
   const audit = String(lane.auditState || 'not_queued');
-  const critique = String(lane.critiqueState || '');
   const meta = [];
   if (audit && audit !== 'not_queued') meta.push(`audit: ${audit}`);
-  if (critique && !['not_required', ''].includes(critique)) meta.push(`critique: ${critique}`);
   if (meta.length) lines.push(meta.join('   '));
   if (lane.targetUrl) lines.push(`url: ${clip(lane.targetUrl, 60)}`);
   else if (lane.branch) lines.push(`branch: ${clip(lane.branch, 56)}`);
@@ -66,21 +63,13 @@ function summaryCounts(lanes) {
 }
 
 // session: { name } ; lanes: array of compact lane objects (listLanesCompact shape).
-// options.backlog: optional sessionBacklogStatus() result to show a backlog line.
-export function renderLaneTree(session, lanes = [], options = {}) {
+export function renderLaneTree(session, lanes = []) {
   const all = Array.isArray(lanes) ? lanes : [];
   const name = clip(session?.name || 'Session', 60);
   const header = all.length
     ? `${name} — ${all.length} lane${all.length === 1 ? '' : 's'} (${summaryCounts(all)})`
     : `${name} — no lanes yet`;
   const out = [header];
-
-  if (options.backlog && options.backlog.counts && options.backlog.counts.total) {
-    const c = options.backlog.counts;
-    out.push(`backlog: ${c.total} task${c.total === 1 ? '' : 's'} — ${c.accepted} accepted · ${c.in_lane} running · ${c.pending} pending`
-      + (c.failed ? ` · ${c.failed} failed` : '')
-      + (c.blocked ? ` · ${c.blocked} blocked` : ''));
-  }
 
   // Top-level = non-auditor lanes. Auditor lanes nest under their target.
   const auditorsByTarget = new Map();

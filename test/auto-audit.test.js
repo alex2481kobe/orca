@@ -35,15 +35,15 @@ async function makeOrchestrator(registry, { actor = 'test', title = 'Orch' } = {
 }
 
 // Seed an orchestrator container plus one executor lane under it. Per-lane flow
-// config (auditTier/requireAuditPass/…) now rides on the lane's settingsOverrides
+// config (auditTier/requireAuditPass/…) now rides on the lane's `flow` field
 // (the deleted session container used to carry it); spawnPolicy lives on the
 // orchestrator record.
-async function seed(registry, { settingsOverrides, spawnPolicy } = {}) {
+async function seed(registry, { flow, spawnPolicy } = {}) {
   const { orchestrator } = await makeOrchestrator(registry);
   if (spawnPolicy) orchestrator.spawnPolicy = spawnPolicy;
   const lane = registry.createLane(
     orchestrator.id,
-    { title: 'Work lane', executorType: 'mock', ...(settingsOverrides ? { settingsOverrides } : {}) },
+    { title: 'Work lane', executorType: 'mock', ...(flow ? { flow } : {}) },
     { actor: 'test', approved: true },
   );
   return { orchestrator, lane };
@@ -62,7 +62,7 @@ test('auto-audit: a finished executor lane auto-queues an audit when required', 
 test('auto-audit: an orchestrator-tier lane is left queued for the orchestrator (no auto-auditor, no escalation)', async () => {
   await withAutoAuditRegistry(async (registry) => {
     const { lane } = await seed(registry, {
-      settingsOverrides: { flow: { auditTier: 'orchestrator', requireAuditPass: true } },
+      flow: { auditTier: 'orchestrator', requireAuditPass: true },
     });
     registry.markLaneCompleted(registry.getLane(lane.id));
     await registry.dispatchPendingAudits();
@@ -103,8 +103,10 @@ test('auto-audit: an orchestrator-container lane notifies its orchestrator and s
     // Idempotent: a second tick must not duplicate the event or escalate.
     await registry.dispatchPendingAudits();
     assert.equal(registry.getLane(lane.id).auditState, 'queued');
-    const again = registry.replayAgentEvents(orch.id, { role: 'orchestrator' })
-      .events.filter((e) => e.type === 'audit_required' && e.laneId === lane.id);
+    // (replayAgentEvents is gone with the event.replay tool — read the durable
+    // queue itself, which is what drain projects from.)
+    const again = registry.agentQueue
+      .filter((e) => e.sessionId === orch.id && e.type === 'audit_required' && e.laneId === lane.id);
     assert.equal(again.length, 1, 'exactly one audit_required event per completion');
   });
 });
@@ -132,7 +134,7 @@ test('auto-audit: disabled when autoAudit is off', async () => {
   registry.stopScheduler();
   try {
     const { lane } = await seed(registry, {
-      settingsOverrides: { flow: { auditTier: 'orchestrator', requireAuditPass: true } },
+      flow: { auditTier: 'orchestrator', requireAuditPass: true },
     });
     registry.markLaneCompleted(registry.getLane(lane.id));
     assert.notEqual(registry.getLane(lane.id).auditState, 'queued');

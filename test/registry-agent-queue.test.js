@@ -42,7 +42,7 @@ function makeLane(registry, sessionId, body = {}) {
   return registry.createLane(sessionId, { title: 'Queue Lane', executorType: 'mock', ...body }, { actor: 'test', approved: true });
 }
 
-test('agent queue: drain, replay, and ack are ordered and per consumer', async () => {
+test('agent queue: draining consumes, is ordered, and is scoped per consumer', async () => {
   await withRegistry(async (registry) => {
     const { project, session } = await makeSession(registry);
     const first = registry.enqueueAgentEvent({
@@ -76,23 +76,19 @@ test('agent queue: drain, replay, and ack are ordered and per consumer', async (
     assert.equal(orchA.events[0].acks, undefined);
     assert.deepEqual(orchA.events[0].metadata, { safe: 'kept' });
 
-    registry.ackAgentEvents(session.id, {
-      role: 'orchestrator',
-      actor: 'orch-a',
-      eventIds: [first.id],
-    });
+    // Draining CONSUMES: orch-a already took all three above, so a second drain
+    // is empty. (There is no separate ack tool any more.)
+    const orchAAfterDrain = registry.drainAgentEvents(session.id, { role: 'orchestrator', actor: 'orch-a' });
+    assert.deepEqual(orchAAfterDrain.events, []);
 
-    const orchAAfterAck = registry.drainAgentEvents(session.id, { role: 'orchestrator', actor: 'orch-a' });
-    assert.deepEqual(orchAAfterAck.events.map((event) => event.id), [second.id, third.id]);
-
+    // ...but the ack is per consumer, so a different orchestrator still sees all three.
     const orchB = registry.drainAgentEvents(session.id, { role: 'orchestrator', actor: 'orch-b' });
     assert.deepEqual(orchB.events.map((event) => event.id), [first.id, second.id, third.id]);
 
-    const replay = registry.replayAgentEvents(session.id, { role: 'orchestrator', actor: 'orch-a', afterSeq: first.seq });
-    assert.deepEqual(replay.events.map((event) => event.id), [second.id, third.id]);
-    const fullReplay = registry.replayAgentEvents(session.id, { role: 'orchestrator', actor: 'orch-a' });
-    assert.equal(fullReplay.events[0].ackedBy, 'orch-a');
-    assert.ok(fullReplay.events[0].ackedAt);
+    // The ack is recorded against the draining consumer, not globally.
+    const stored = registry.agentQueue.find((entry) => entry.id === first.id);
+    assert.ok(stored.acks['orchestrator:orch-a'], 'orch-a ack recorded by the drain');
+    assert.equal(stored.acks['orchestrator:orch-a'].ackedBy, 'orch-a');
 
     // A fresh orchestrator consumer sees all three unacked events, including the
     // targetRole:'any' broadcast (which any role can drain).
@@ -125,11 +121,8 @@ test('agent queue: dedupe preserves ack state and caps per-event consumers', asy
     });
     assert.deepEqual(event.metadata, { safe: 'kept' });
 
-    registry.ackAgentEvents(session.id, {
-      role: 'orchestrator',
-      actor: 'orch-a',
-      eventIds: [event.id],
-    });
+    // Draining is the ack.
+    registry.drainAgentEvents(session.id, { role: 'orchestrator', actor: 'orch-a' });
     const deduped = registry.enqueueAgentEvent({
       type: 'loop_paused',
       targetRole: 'orchestrator',
@@ -146,10 +139,10 @@ test('agent queue: dedupe preserves ack state and caps per-event consumers', asy
     }).events, [], 'dedupe must not make already handled work unacked again');
 
     for (let index = 0; index < 80; index += 1) {
-      registry.ackAgentEvents(session.id, {
+      registry.ackAgentEvent(event.id, {
         role: 'orchestrator',
         actor: `orch-${index}`,
-        eventIds: [event.id],
+        sessionId: session.id,
       });
     }
     const stored = registry.agentQueue.find((entry) => entry.id === event.id);
@@ -235,11 +228,7 @@ test('agent queue: ack state persists and remains scoped per consumer after relo
       sessionId: session.id,
       projectId: session.projectId,
     });
-    registry.ackAgentEvents(session.id, {
-      role: 'orchestrator',
-      actor: 'orch-a',
-      eventIds: [event.id],
-    });
+    registry.drainAgentEvents(session.id, { role: 'orchestrator', actor: 'orch-a' });
     await registry.persistState();
     await registry.drainPendingWrites();
     registry.stopScheduler();
