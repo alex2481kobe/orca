@@ -47,15 +47,21 @@ async function projectDir(name) {
 }
 const registerOrch = (cwd, actor, title) => post('/api/orchestrators', { actor, cwd, title });
 
+// The `actor` is what the CLI-type badge shows, so seed the REAL agent names
+// (claude / codex) — the whole point is that Orca drives the CLI you already run.
+// Two projects, three orchestrator agents, each with its own executor lanes, so the
+// shot shows actual tree depth (agent → subagents) rather than a row of roots.
 const auroraDir = await projectDir('Aurora API');
 const pixelDir = await projectDir('Pixel Forge');
-const nimbusDir = await projectDir('Nimbus Deploy');
-const authOrch = await registerOrch(auroraDir, 'auth-rework', 'Auth rework');
-await registerOrch(auroraDir, 'rate-limiter', 'Rate limiter');
-await registerOrch(pixelDir, 'particle-system', 'Particle system');
-await registerOrch(nimbusDir, 'deploy-pipeline', 'Deploy pipeline');
-const lane = await post(`/api/orchestrators/${authOrch.id}/lanes`, { actor: 'demo', approved: true, title: 'Refactor token store', executorType: 'mock' });
-void lane;
+const authOrch = await registerOrch(auroraDir, 'claude', 'Auth rework');
+const rateOrch = await registerOrch(auroraDir, 'codex', 'Rate limiter');
+const pixelOrch = await registerOrch(pixelDir, 'claude', 'Particle system');
+const spawn = (orch, title) => post(`/api/orchestrators/${orch.id}/lanes`, { actor: orch.actor, approved: true, title, executorType: 'mock' });
+await spawn(authOrch, 'Refactor token store');
+await spawn(authOrch, 'Add rotation tests');
+await spawn(rateOrch, 'Sliding-window limiter');
+await spawn(rateOrch, 'Backpressure metrics');
+await spawn(pixelOrch, 'GPU instancing pass');
 
 const b = await chromium.launch();
 
@@ -90,16 +96,15 @@ async function shot(name, { url, width, height, theme = 'dark', paired = false, 
   console.log('shot', name, '->', file);
 }
 
-// v2: the dashboard is a single Home screen (projects → orchestrators → executors
-// tree); there are no per-session/per-lane deep-link routes. All dashboard shots
-// target Home, which renders the seeded orchestrators + the spawned lane.
-// 1. Hero — desktop, dark, populated project/orchestrator/executor tree.
-await shot('hero', { url: lh + '/', width: 1320, height: 860, theme: 'dark' });
+// The dashboard is a single Home screen — an interactive node-graph canvas
+// (orchestrator agents → their executor lanes) plus Settings and Remote devices.
+// There are no per-lane deep-link routes, so every dashboard shot targets Home.
+// 1. Hero — desktop, dark, populated agent canvas. The viewport is kept short so
+//    the tree fills the frame instead of floating in empty canvas.
+await shot('hero', { url: lh + '/', width: 1320, height: 660, theme: 'dark' });
 // 2. Light theme — same view, to show theming.
-await shot('dashboard-light', { url: lh + '/', width: 1320, height: 860, theme: 'light' });
-// 3. Lane detail — orchestration depth (the lane appears under its orchestrator).
-await shot('lane-detail', { url: lh + '/', width: 1320, height: 860, theme: 'dark' });
-// 4. Pairing — the workstation "Pair a device" screen (Remote tab; QR + one-time
+await shot('dashboard-light', { url: lh + '/', width: 1320, height: 660, theme: 'light' });
+// 3. Pairing — the workstation "Pair a device" screen (Remote tab; QR + one-time
 //    code). The page.route fake tailnet state above makes it render as "serving".
 await shot('pairing', {
   url: lh + '/#remote',
@@ -108,7 +113,7 @@ await shot('pairing', {
   theme: 'dark',
   before: async (page) => { await page.waitForTimeout(800); },
 });
-// 5. Phone — the real dashboard on a paired phone.
+// 4. Phone — the real dashboard on a paired phone.
 await shot('phone-dashboard', { url: remote + '/', width: 412, height: 880, theme: 'dark', paired: true });
 
 await b.close();

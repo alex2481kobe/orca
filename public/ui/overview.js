@@ -235,8 +235,11 @@ function fitView(pos) {
   const vw = canvasEls.canvas.clientWidth || 1000, vh = canvasEls.canvas.clientHeight || 700;
   const scale = Math.min(1, (vw - PAD * 2) / maxX, (vh - PAD * 2) / maxY);
   viewport.scale = Math.max(0.3, scale);
+  // CENTER the tree in the viewport (both axes) rather than pinning it to the top —
+  // a short tree in a tall canvas otherwise hugs the top edge with dead space below
+  // (very visible on a phone, where the canvas is tall and the tree is wide).
   viewport.x = Math.max(PAD, (vw - maxX * viewport.scale) / 2);
-  viewport.y = PAD;
+  viewport.y = Math.max(PAD, (vh - maxY * viewport.scale) / 2);
   applyViewport();
 }
 

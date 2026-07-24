@@ -114,6 +114,34 @@ body.home-canvas .ops-main { padding: calc(var(--topbar-height) + var(--safe-are
 /* ---- live links popover (registered dev-server ports over Tailscale) ---- */
 .ov-links { position: absolute; top: var(--space-3); right: var(--space-3); z-index: 7; display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--panel); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.42); max-width: 340px; }
 .ov-links[hidden] { display: none; }
+
+/* ---- phone: the canvas is the remote window, so it has to fit a narrow screen ----
+   Without this the stat cards wrap to three rows, the floating drawer button
+   (#sidebar-reopen, position:fixed top-left) covers the first card, and the graph
+   is pushed off the bottom. Stats become one horizontally-scrollable row indented
+   past the drawer button, and the canvas takes the remaining height. */
+@media (max-width: 880px) {
+  body.home-canvas .ops-main { padding: calc(var(--safe-area-top) + 2.9rem) 0.75rem 0.6rem; }
+  .ov-workspace { gap: var(--space-2); height: calc(var(--vph, 100vh) - 3.9rem); min-height: 0; }
+  .ov-topbar { flex-wrap: nowrap; gap: var(--space-2); align-items: center; }
+  .ov-statbar {
+    flex-wrap: nowrap; overflow-x: auto; gap: var(--space-2);
+    /* clear the fixed drawer button that floats over the top-left corner */
+    padding-left: 2.6rem;
+    scrollbar-width: none;
+  }
+  .ov-statbar::-webkit-scrollbar { display: none; }
+  .ov-stat { flex: 0 0 auto; min-width: 0; padding: var(--space-2) var(--space-3); gap: 6px; }
+  .ov-stat-n { font-size: 1.05rem; }
+  .ov-stat-l { font-size: 0.7rem; white-space: nowrap; }
+  /* keep only the essential controls on a phone — zoom/fit/fullscreen are
+     pointer affordances; touch already pans/pinches, so drop the clutter */
+  .ov-controls { gap: 6px; }
+  .ov-ctrl { min-width: 32px; height: 32px; padding: 0 7px; }
+  .ov-ctrl[data-canvas="zoom-in"], .ov-ctrl[data-canvas="zoom-out"], .ov-ctrl[data-canvas="fullscreen"] { display: none; }
+  .ov-ctrl.ov-links-btn span { display: none; } /* icon-only */
+  .ov-ctrl.ov-links-btn { padding: 0 9px; }
+}
 .ov-preview { display: inline-flex; align-items: center; gap: 6px; padding: var(--space-2) var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-pill); background: color-mix(in srgb, var(--text) 5%, transparent); color: var(--text); text-decoration: none; font-size: 0.76rem; line-height: 1; }
 @media (hover: hover) { .ov-preview:hover { background: color-mix(in srgb, var(--text) 10%, transparent); border-color: var(--muted); } }
 .ov-preview-ic { color: var(--accent-blue); flex: 0 0 auto; }
