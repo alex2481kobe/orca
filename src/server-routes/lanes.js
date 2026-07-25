@@ -77,6 +77,7 @@ export async function handleLaneRoutes(ctx, req, res, method, parts) {
     getSearchParams,
     constantTimeEqual,
     hasSpecificToolLeaseAuth,
+    hasAdminAuth,
   } = ctx;
     const lane = registry.getLane(parts[2]);
     if (!lane) {
@@ -364,6 +365,18 @@ export async function handleLaneRoutes(ctx, req, res, method, parts) {
       const body = await parseJsonBody(req);
       if (body === null) return sendBodyError(req, res);
       if (rejectSpoofedActor(body, res)) return;
+      // Merging into the checkout is workflow (operator-level), but PUSHING writes to
+      // the developer's REMOTE — outside the "operator controls the workflow, admin
+      // mutates the host" line. Gate it like emergency-stop {all:true}: a paired
+      // phone or a lease may integrate locally, only the workstation may publish.
+      if (body.push) {
+        const privileged = typeof hasAdminAuth === 'function' && hasAdminAuth(req);
+        if (!privileged) {
+          return sendJson(res, 403, {
+            error: 'Pushing an integrated branch to the remote requires workstation admin auth. Omit push:true to merge locally.',
+          });
+        }
+      }
       try {
         const result = await registry.integrateLane(lane.id, {
           actor: req._toolLease?.actor || body.actor || 'dashboard',

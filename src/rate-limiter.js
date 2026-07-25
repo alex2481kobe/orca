@@ -91,9 +91,15 @@ function classifyRoute(method, parts) {
     if (['stop', 'retry', 'heartbeat', 'integrate'].includes(p3)) return 'processControl';
     if (p3 === 'worktree' && (p4 === 'remove' || p4 === 'discard')) return 'cleanup';
   }
-  if (p1 === 'sessions') {
-    if (p3 === 'lanes' && verb === 'POST') return 'processSpawn';
-    if (p3 === 'capacity' || p3 === 'audit-done-lanes') return 'processControl';
+  if (p1 === 'orchestrators') {
+    // Spawning launches a REAL CLI child process, so it belongs on the strict
+    // processSpawn budget. This mapping used to point at POST /api/sessions/{id}/lanes
+    // — a route deleted with the session model — which silently demoted every spawn
+    // to the 180/min defaultMutation budget. Registering is cheap per call but
+    // unbounded in effect (each orchestrator brings its own lane capacity), so it
+    // shares the same budget.
+    if (p3 === 'executors' && verb === 'POST') return 'processSpawn';
+    if (!p2 && verb === 'POST') return 'processSpawn';
   }
   // The cleanup SCHEDULE is read (GET) on every dashboard refresh; only the
   // destructive cleanup runs (POST run-now / cleanup) belong on the strict

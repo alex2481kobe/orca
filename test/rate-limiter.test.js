@@ -40,7 +40,14 @@ test('rate limiter enforces a fixed-window policy without leaking actor keys', (
 test('route classifier maps privileged surfaces to specific policies', () => {
   assert.equal(classifyRoute('POST', ['api', 'auth', 'pair']), 'authPair');
   assert.equal(classifyRoute('POST', ['api', 'lanes', 'lane-1', 'evidence']), 'evidenceCapture');
-  assert.equal(classifyRoute('POST', ['api', 'sessions', 'session-1', 'lanes']), 'processSpawn');
+  // Spawning launches a REAL CLI child process, so it must sit on the strict
+  // processSpawn budget. This line used to assert the deleted
+  // POST /api/sessions/{id}/lanes — i.e. the budget was pinned to a dead route while
+  // every live spawn fell through to the 180/min defaultMutation bucket.
+  assert.equal(classifyRoute('POST', ['api', 'orchestrators', 'orc-1', 'executors']), 'processSpawn');
+  // Registering is cheap per call but unbounded in effect (each orchestrator brings
+  // its own lane capacity), so it shares the same budget.
+  assert.equal(classifyRoute('POST', ['api', 'orchestrators']), 'processSpawn');
   assert.equal(classifyRoute('POST', ['api', 'artifacts', 'cleanup']), 'cleanup');
   assert.equal(classifyRoute('POST', ['api', 'agent-tools', 'leases']), 'agentLease');
   assert.equal(classifyRoute('PATCH', ['api', 'private-access', 'settings']), 'privateAccess');

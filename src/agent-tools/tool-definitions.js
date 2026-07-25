@@ -292,8 +292,12 @@ export const TOOL_DEFINITIONS = [
     method: 'GET',
     route: '/api/orchestrators/{orchestratorId}/events/drain',
     implemented: true,
-    mutating: false,
-    summary: 'Drain unacknowledged durable agent events for your orchestrator, scoped to the caller role/lease. Query: limit, type, afterSeq.',
+    // CONSUMES: whatever it returns is acknowledged for this consumer, so a second
+    // call does NOT return the same events. It is therefore mutating despite being a
+    // GET — which also makes the ownership gate apply (assertOrchestratorOwnership
+    // skips non-mutating tools), so one orchestrator cannot drain another's queue.
+    mutating: true,
+    summary: 'Drain unacknowledged durable agent events for your orchestrator, scoped to the caller role/lease. CONSUMES what it returns — the same events are not returned twice, so persist them before acting. Query: limit, type, afterSeq.',
   },
 
   // --- live preview link -----------------------------------------------------

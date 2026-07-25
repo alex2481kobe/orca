@@ -7,6 +7,23 @@ import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { isRunningLaneState } from './worker-contract.js';
 import { nowIso, buildLaneRoute } from './registry-utils.js';
+import { CLI_EXECUTOR_DEFAULTS, FIRST_CLASS_CLI_EXECUTOR_TYPES } from './executor/constants.js';
+
+// Binaries we are willing to SIGKILL when reaping an orphaned lane after a hard
+// restart. Derived from the executor table so a newly added CLI is covered
+// automatically (the old hardcoded /codex|claude|gemini/ silently skipped
+// composer-cli's `cursor-agent`).
+//
+// Deliberately FIRST-CLASS ONLY: the generic `cli` executor defaults to `node`, and
+// matching "node" would let a reused pid take out an unrelated Node process — or the
+// daemon itself. A generic-cli orphan is left alone rather than risk that.
+const EXECUTOR_BINARY_PATTERN = new RegExp(
+  `\\b(${FIRST_CLASS_CLI_EXECUTOR_TYPES
+    .map((type) => CLI_EXECUTOR_DEFAULTS[type]?.binary)
+    .filter(Boolean)
+    .map((binary) => String(binary).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('|')})\\b`,
+);
 
 export const lifecycleMethods = {
   // On a HARD restart (SIGKILL — graceful shutdown already stops executors), a
@@ -26,7 +43,12 @@ export const lifecycleMethods = {
     } catch {
       return false; // process is already gone (or ps unavailable) — nothing to reap
     }
-    if (!/\b(codex|claude|gemini)\b/.test(command)) return false; // reused / not our executor — do NOT kill
+    // Only kill something that really is one of our executor binaries — a pid can be
+    // reused by an unrelated process between crash and restart. Derive the names from
+    // the executor table instead of hardcoding: the old literal list
+    // (codex|claude|gemini) silently skipped composer-cli's `cursor-agent`, so those
+    // lanes survived a daemon restart forever.
+    if (!EXECUTOR_BINARY_PATTERN.test(command)) return false; // reused / not our executor — do NOT kill
     try {
       process.kill(-pid, 'SIGKILL');
       return true;

@@ -174,57 +174,51 @@ test('project and lane mutations require policy approval', async () => {
   }
 });
 
-test('first-class CLI lanes accept executor overrides and command payloads', async () => {
+// SECURITY: this test used to assert the OPPOSITE — that a first-class CLI lane
+// accepts a caller-supplied multi-token `command`. That was the vulnerability written
+// down as a spec: cli-adapter prefers caller argv over Orca's built argv, and only the
+// FIRST token was ever validated, so extra tokens let a non-admin launch an
+// unsandboxed agent while permissionsProfile still read "plan". Orca builds the argv
+// for these executors; bring-your-own-argv lives on executorType 'cli'.
+test('first-class CLI lanes REFUSE caller-supplied argv (sandbox-escape guard)', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
 
   try {
     const { orchestrator: session } = await makeOrchestrator(registry);
 
-    const codexLane = registry.createLane(session.id, {
+    for (const [executorType, binary] of [
+      ['codex', 'codex'],
+      ['claude', 'claude'],
+      ['gemini-cli', 'gemini'],
+      ['composer-cli', 'cursor-agent'],
+    ]) {
+      let thrown = null;
+      try {
+        registry.createLane(session.id, {
+          title: `${executorType} Lane`,
+          executorType,
+          command: `${binary} --version`, // an extra token beyond the binary
+          executorBinary: binary,
+          workdir: process.cwd(),
+          mcpToolIds: [],
+        }, { approved: true, actor: 'test' });
+      } catch (err) { thrown = err; }
+      assert.ok(thrown, `${executorType} accepted extra command tokens`);
+      assert.equal(thrown.status, 422);
+      assert.match(String(thrown.message), /Orca builds the command line/i);
+    }
+
+    // The bare binary (no extra tokens) is still accepted — this guard must not
+    // break ordinary lane creation.
+    const ok = registry.createLane(session.id, {
       title: 'Codex Lane',
       executorType: 'codex',
-      command: 'codex --version',
-      executorBinary: '/usr/bin/codex',
+      executorBinary: 'codex',
+      taskPrompt: 'do the work',
       workdir: process.cwd(),
       mcpToolIds: [],
     }, { approved: true, actor: 'test' });
-
-    const claudeLane = registry.createLane(session.id, {
-      title: 'Claude Lane',
-      executorType: 'claude',
-      command: 'claude --version',
-      executorBinary: 'claude',
-      workdir: process.cwd(),
-      mcpToolIds: [],
-    }, { approved: true, actor: 'test' });
-
-    assert.equal(codexLane.executorType, 'codex');
-    assert.equal(claudeLane.executorType, 'claude');
-    assert.equal(codexLane.command, 'codex --version');
-    assert.equal(claudeLane.command, 'claude --version');
-
-    const geminiLane = registry.createLane(session.id, {
-      title: 'Gemini CLI Lane',
-      executorType: 'gemini-cli',
-      command: 'gemini --version',
-      executorBinary: 'gemini',
-      workdir: process.cwd(),
-      mcpToolIds: [],
-    }, { approved: true, actor: 'test' });
-
-    const composerLane = registry.createLane(session.id, {
-      title: 'Composer CLI Lane',
-      executorType: 'composer-cli',
-      command: 'cursor-agent --version',
-      executorBinary: 'cursor-agent',
-      workdir: process.cwd(),
-      mcpToolIds: [],
-    }, { approved: true, actor: 'test' });
-
-    assert.equal(geminiLane.executorType, 'gemini-cli');
-    assert.equal(composerLane.executorType, 'composer-cli');
-    assert.equal(geminiLane.command, 'gemini --version');
-    assert.equal(composerLane.command, 'cursor-agent --version');
+    assert.equal(ok.executorType, 'codex');
   } finally {
     await cleanup();
   }
@@ -257,11 +251,13 @@ test('first-class CLI lanes enforce binary/command executor targeting', async ()
       mcpToolIds: [],
     }, { approved: true, actor: 'test' }), (error) => error.status === 422);
 
+    // Bare binary only — extra argv tokens are refused for first-class CLIs (Orca
+    // builds their command line; see the sandbox-escape guard test above).
     const validLane = registry.createLane(session.id, {
       title: 'Valid codex bare binary',
       executorType: 'codex',
       executorBinary: 'codex',
-      command: 'codex --help',
+      command: 'codex',
       mcpToolIds: [],
     }, { approved: true, actor: 'test' });
     assert.equal(validLane.executorType, 'codex');
@@ -300,7 +296,7 @@ test('first-class CLI lanes enforce binary/command executor targeting', async ()
     const geminiLane = registry.createLane(session.id, {
       title: 'Valid gemini bare binary',
       executorType: 'gemini-cli',
-      command: 'gemini --help',
+      command: 'gemini', // bare binary: first-class CLIs refuse caller-supplied argv
       executorBinary: 'gemini',
       mcpToolIds: [],
     }, { approved: true, actor: 'test' });
@@ -309,7 +305,7 @@ test('first-class CLI lanes enforce binary/command executor targeting', async ()
     const composerLane = registry.createLane(session.id, {
       title: 'Valid composer bare binary',
       executorType: 'composer-cli',
-      command: 'cursor-agent --help',
+      command: 'cursor-agent', // bare binary: first-class CLIs refuse caller-supplied argv
       executorBinary: 'cursor-agent',
       mcpToolIds: [],
     }, { approved: true, actor: 'test' });
@@ -634,7 +630,7 @@ test('MCP config is generated per-lane with a safe path and only Orca\'s own ser
     const lane = registry.createLane(session.id, {
       title: 'MCP lane',
       executorType: 'codex',
-      command: 'codex --version',
+      command: 'codex', // bare binary: first-class CLIs refuse caller-supplied argv
     }, { actor: 'test', approved: true });
 
     // A lane only gets an MCP config once it has a lease: the custom-tool CRUD is
@@ -663,7 +659,7 @@ test('MCP config is generated per-lane with a safe path and only Orca\'s own ser
     const noLeaseLane = registry.createLane(session.id, {
       title: 'No lease lane',
       executorType: 'codex',
-      command: 'codex --version',
+      command: 'codex',
     }, { actor: 'test', approved: true });
     const runtimeDir2 = path.join(process.cwd(), 'artifacts', session.id, noLeaseLane.id);
     await fs.mkdir(runtimeDir2, { recursive: true });

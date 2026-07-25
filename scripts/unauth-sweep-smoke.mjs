@@ -96,7 +96,45 @@ const PROBES = [
   ['GET', '/api/policy'],
   ['GET', '/api/system/blockers'],
   ['GET', '/artifacts/any/lane/evidence.json'],
+
+  // --- live routes that were MISSING from this sweep (added after an audit found
+  // the list had drifted: ~12 probes pointed at deleted routes while these 18 real
+  // ones went unswept). Each must refuse an anonymous caller.
+  ['POST', '/api/lanes/lane-x/terminal-resize'],
+  ['POST', '/api/projects/prj-x/quick-links'],
+  ['PATCH', '/api/projects/prj-x/quick-links/ql-x'],
+  ['PATCH', '/api/projects/prj-x'],
+  ['DELETE', '/api/projects/prj-x'],
+  ['POST', '/api/projects/prj-x/archive'],
+  ['POST', '/api/projects/prj-x/restore'],
+  ['POST', '/api/mcp/orchestrator-bootstrap'],
+  ['PATCH', '/api/private-access/settings'],
+  ['GET', '/api/private-access/tailnet'],
+  ['GET', '/api/private-access/setup-plan'],
+  ['GET', '/api/system/dirs'],
+  ['GET', '/api/mobile/manifest'],
+  ['GET', '/api/agent-tools/leases'],
+  ['POST', '/api/agent-tools/leases'],
+  ['DELETE', '/api/agent-tools/leases/lease-x'],
+  ['GET', '/api/orchestrators/orc-x/status'],
+  ['GET', '/api/lanes/lane-x/stream'],
 ];
+
+// Routes this sweep INTENTIONALLY still probes even though they were deleted, so a
+// resurrected route can't sneak back in unguarded. A 404 is only acceptable for a
+// path listed here — anywhere else a 404 means the probe itself has gone stale and
+// is silently testing nothing (exactly how the list drifted before).
+const DELETED_ROUTES = new Set([
+  'GET /api/audit/events',
+  'POST /api/audit/events/ev-x/ack',
+  'POST /api/artifacts/cleanup',
+  'POST /api/artifacts/cleanup/run-now',
+  'GET /api/artifacts/cleanup/schedule',
+  'PATCH /api/artifacts/cleanup/schedule',
+  'POST /api/mcp',
+  'GET /api/mcp',
+  'POST /api/agent-tools/next-action',
+]);
 
 for (const [method, p, isPublic] of PROBES) {
   let status;
@@ -113,6 +151,11 @@ for (const [method, p, isPublic] of PROBES) {
     else log('public', `${method} ${p} → ${status} ok`);
   } else if (is2xx) {
     fail(`${method} ${p} — UNAUTHENTICATED 2xx (${status}) — data/host leak!`);
+  } else if (status === 404 && !DELETED_ROUTES.has(`${method} ${p}`)) {
+    // A 404 denies the request, but it also means this probe is not exercising a
+    // gate — the route is gone. Left unchecked, the sweep slowly fills with dead
+    // probes and reports "all denied" while covering less and less.
+    fail(`${method} ${p} — 404: probe is stale (route no longer exists). Remove it, or add it to DELETED_ROUTES if it must stay guarded.`);
   } else {
     log('denied', `${method} ${p} → ${status}`);
   }

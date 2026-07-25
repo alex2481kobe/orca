@@ -233,6 +233,26 @@ export const laneCreateMethods = {
           };
         }
       }
+      // SECURITY: for a first-class CLI, ORCA builds the argv (sandbox flags,
+      // permission mode, MCP wiring). Raw caller-supplied argv is therefore a
+      // sandbox-escape primitive: cli-adapter PREFERS lane.args/commandArgs over the
+      // built argv, so `args:["--dangerously-skip-permissions"]` would launch a fully
+      // unsandboxed agent while `permissionsProfile` still read "plan" — routing
+      // straight around the unsandboxed-permissions gate that a paired device is
+      // supposed to fail. Only the first token of `command`/`executorBinary` was
+      // ever checked, so everything after it was a free pass. Refuse the fields
+      // outright; the generic `cli` executor type exists for bring-your-own-argv.
+      const rawArgv = [
+        ['args', args],
+        ['commandArgs', commandArgs],
+      ].filter(([, value]) => Array.isArray(value) && value.length);
+      if (rawArgv.length || commandParts.length > 1) {
+        const offending = rawArgv.map(([key]) => key).concat(commandParts.length > 1 ? ['command (extra tokens)'] : []);
+        throw {
+          status: 422,
+          message: `Orca builds the command line for ${normalizedExecutorType}; remove ${offending.join(', ')} and pass taskPrompt instead. Use executorType "cli" if you need to supply your own argv.`,
+        };
+      }
     }
 
     const now = nowIso();

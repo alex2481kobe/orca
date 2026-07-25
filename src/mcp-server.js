@@ -91,7 +91,7 @@ function instructionsForRole() {
   return (
     `${rules}\n\n`
     + 'Tool names use "__" where the contract uses "." (e.g. orchestrator.status -> orchestrator__status). '
-    + 'Path params (sessionId/laneId/projectId) default from this connection when omitted. '
+    + 'Path params (orchestratorId/laneId/projectId) default from this connection when omitted. '
     + 'Mutating tools take a "body" object. The server is authoritative: it enforces ordering and policy and '
     + 'returns a nextAction envelope you must follow.'
   );
@@ -121,7 +121,10 @@ function toMcpTool(tool) {
       description: `${param}${DEFAULT_PARAMS[param] || (param === 'role' && ROLE) ? ' (defaults from this MCP connection)' : ''}`,
     };
   }
-  if (tool.mutating) {
+  // Only non-GET tools take a request payload. (A GET tool can still be `mutating`
+  // — event.drain consumes what it returns — but it carries no body, so advertising
+  // one would just invite the agent to send something that is silently dropped.)
+  if (tool.mutating && tool.method !== 'GET') {
     properties.body = {
       type: 'object',
       description: 'Request payload for this tool (fields depend on the action).',

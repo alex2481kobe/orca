@@ -974,13 +974,30 @@ test('API lane creation enforces the executor binary constraint', async () => {
       body: {
         title: 'Good codex lane',
         executorType: 'codex',
-        command: 'codex --version',
+        command: 'codex', // bare binary: first-class CLIs refuse caller-supplied argv
         owner: 'dashboard',
         approved: true,
       },
     });
     assert.equal(validLane.status, 201);
     assert.equal(validLane.body.executorType, 'codex');
+
+    // The sandbox-escape guard holds over HTTP too, and for an ADMIN caller at that:
+    // cli-adapter prefers caller argv over Orca's built argv, so raw args would have
+    // launched an unsandboxed agent while permissionsProfile still read "plan".
+    const rawArgv = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/executors`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: {
+        title: 'Raw argv lane',
+        executorType: 'codex',
+        args: ['--dangerously-bypass-approvals-and-sandbox'],
+        owner: 'dashboard',
+        approved: true,
+      },
+    });
+    assert.equal(rawArgv.status, 422);
+    assert.match(String(rawArgv.body?.error || ''), /Orca builds the command line/i);
   } finally {
     await server.stop();
   }

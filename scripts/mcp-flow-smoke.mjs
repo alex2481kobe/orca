@@ -228,17 +228,23 @@ try {
   await waitForLaneState(spawn2.data.id, (s) => s === 'stopped', 'stopped-in-progress lane');
   log('orchestrator stop-in-progress', `${spawn2.data.id} stopped while running`);
 
-  // Spawn real Codex + Claude executor lanes via MCP (version command).
+  // A first-class CLI lane may no longer carry caller-supplied argv: raw args beat
+  // Orca's built argv inside cli-adapter, so `commandArgs` was a sandbox-escape
+  // primitive that routed around the unsandboxed-permissions gate. `--version` was
+  // this smoke's cheap liveness trick; it is now refused BY DESIGN. Assert the
+  // refusal here, and leave "a real codex/claude lane runs to exit 0" to
+  // smoke:real-executor, which spawns them properly via taskPrompt.
   for (const [bin, type] of [[codexBinary, 'codex'], [claudeBinary, 'claude']]) {
     if (!bin) { log(`orchestrator spawn ${type}`, 'skipped: CLI not available'); continue; }
     const laneRes = await orch.call('executor__spawn', {
       orchestratorId,
       body: { actor: 'orchestrator', approved: true, title: `MCP ${type} lane`, owner: 'orchestrator', role: 'executor', executorType: type, commandArgs: ['--version'] },
     });
-    if (laneRes.isError || !laneRes.data?.id) fail(`orchestrator executor__spawn (${type})`, laneRes.text);
-    const done = await waitForLaneState(laneRes.data.id, (s) => ['done', 'failed', 'stopped'].includes(s), `${type} lane`);
-    if (done.state !== 'done' || done.processMeta?.exitCode !== 0) fail(`${type} lane exit`, JSON.stringify(done.processMeta || done.state));
-    log(`orchestrator spawn ${type}`, `${laneRes.data.id} done exit=0 (real ${type})`);
+    if (!laneRes.isError) fail(`first-class ${type} lane must refuse raw commandArgs`, laneRes.text);
+    if (!/Orca builds the command line/i.test(laneRes.text || '')) {
+      fail(`first-class ${type} raw-argv refusal reason`, laneRes.text);
+    }
+    log(`orchestrator spawn ${type}`, 'raw commandArgs correctly refused (sandbox-escape guard)');
   }
 
   // ---- EXECUTOR ROLE -----------------------------------------------------

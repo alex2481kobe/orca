@@ -25,6 +25,17 @@ export function buildExecutorCommandArgs(label, lane, options = {}) {
     const v = String(value || '').replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, max);
     return v && !v.startsWith('-') ? v : '';
   };
+  // The PROMPT is also a discrete argv token, and it is the one field every caller
+  // controls — so it is the easiest flag-injection vector: a taskPrompt of
+  // "--dangerously-bypass-approvals-and-sandbox" would otherwise land in argv AFTER
+  // the sandbox flags, in override position, and launch an unsandboxed agent.
+  // Unlike the fields above we must NOT drop it (prompts legitimately start with "-",
+  // e.g. a markdown bullet), so neutralize instead: a leading space makes the parser
+  // see a positional while leaving the prompt semantically identical.
+  const positionalSafe = (value) => {
+    const v = String(value ?? '');
+    return v.startsWith('-') ? ` ${v}` : v;
+  };
   const model = flagSafe(lane.model, 120);
   const permissions = flagSafe(lane.permissionsProfile, 120);
   const intelligence = flagSafe(lane.intelligenceProfile, 80);
@@ -90,7 +101,7 @@ export function buildExecutorCommandArgs(label, lane, options = {}) {
         }
       }
       if (targetUrl) out.push('--target', targetUrl);
-      out.push(targetUrl ? `Target: ${targetUrl}\n${safePrompt}` : safePrompt);
+      out.push(positionalSafe(targetUrl ? `Target: ${targetUrl}\n${safePrompt}` : safePrompt));
       break;
     }
     case 'claude': {
@@ -116,7 +127,7 @@ export function buildExecutorCommandArgs(label, lane, options = {}) {
         out.push('--permission-prompt-tool', 'mcp__orca__permission_prompt');
       }
       if (!terminalPresentation) out.push('--output-format', 'stream-json', '--verbose', '--include-partial-messages');
-      out.push(targetUrl ? `Target: ${targetUrl}\n${safePrompt}` : safePrompt);
+      out.push(positionalSafe(targetUrl ? `Target: ${targetUrl}\n${safePrompt}` : safePrompt));
       break;
     }
     case 'gemini-cli': {
