@@ -48,8 +48,15 @@ if (RAW_ROLE && !ROLES.has(RAW_ROLE)) {
   process.stderr.write(`[orca-mcp] ORCA_ROLE="${RAW_ROLE}" is not a known role; defaulting to orchestrator. Valid roles: ${[...ROLES].join(', ')}.\n`);
 }
 const ROLE = normalizeRole(process.env.ORCA_ROLE || 'orchestrator');
+// Path params this connection can fill in for the agent, so a lane's tools work
+// without the agent having to know (or restate) its own ids.
+// `orchestratorId` is the container param the routes use. ORCA_SESSION_ID is the
+// historical name for the same value — a lane's `sessionId` IS its orchestrator id —
+// so accept either, preferring the explicit one. Without this, every container-scoped
+// tool (executor.spawn, orchestrator.status/resign, fleet.emergency_stop, lane.list)
+// becomes a required-argument call even though the connection already knows the id.
 const DEFAULT_PARAMS = {
-  sessionId: process.env.ORCA_SESSION_ID || '',
+  orchestratorId: process.env.ORCA_ORCHESTRATOR_ID || process.env.ORCA_SESSION_ID || '',
   laneId: process.env.ORCA_LANE_ID || '',
   projectId: process.env.ORCA_PROJECT_ID || '',
 };

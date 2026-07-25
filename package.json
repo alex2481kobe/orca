@@ -3,8 +3,17 @@
   "version": "0.1.17",
   "private": true,
   "type": "module",
-  "description": "Local daemon that lets your existing coding agents (Claude Code, Codex, …) spawn and audit subagents — watchable from your phone over Tailscale.",
-  "keywords": ["mcp","agents","claude-code","codex","orchestration","tailscale","worktree","daemon"],
+  "description": "Local daemon that lets your existing coding agents (Claude Code, Codex, \u2026) spawn and audit subagents \u2014 watchable from your phone over Tailscale.",
+  "keywords": [
+    "mcp",
+    "agents",
+    "claude-code",
+    "codex",
+    "orchestration",
+    "tailscale",
+    "worktree",
+    "daemon"
+  ],
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -32,6 +41,7 @@
     "smoke:streams": "node scripts/streams-smoke.mjs",
     "smoke:private-access": "node scripts/private-access-smoke.mjs",
     "smoke:mcp-flow": "node scripts/mcp-flow-smoke.mjs",
+    "smoke:onboarding": "node scripts/verify-agent-onboarding.mjs",
     "smoke:mcp-cli-handshake": "node scripts/mcp-cli-handshake-smoke.mjs",
     "smoke:real-executor": "node scripts/real-executor-smoke.mjs",
     "smoke:pwa-cache": "node scripts/pwa-cache-smoke.mjs",

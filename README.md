@@ -60,6 +60,11 @@ is any good — without sitting in a terminal watching.
 
 ```bash
 npm install
+
+# Recommended: bound where agents are allowed to register and work.
+# Unset, an agent can register any folder under your home directory.
+export ORCA_REPO_ROOTS="$HOME/code"     # comma-separated absolute paths
+
 npm start          # daemon + dashboard on http://127.0.0.1:3000
 ```
 

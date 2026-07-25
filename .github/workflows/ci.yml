@@ -77,6 +77,11 @@ jobs:
           npm run smoke:pwa-cache
           npm run smoke:state-migrations
           npm run smoke:mcp-flow
+          # Drives the exact README quickstart end-to-end as a real MCP client.
+          # Unit tests always pass ids explicitly, so this is the only gate that
+          # catches a broken ONBOARDING surface (e.g. a renamed route param the
+          # bridge no longer fills in for the agent).
+          npm run smoke:onboarding
           npm run smoke:auth-sessions
           npm run smoke:process-lifecycle
           npm run smoke:lane-stream

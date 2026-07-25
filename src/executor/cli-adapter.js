@@ -236,6 +236,10 @@ export class CliExecutorAdapter {
 
     // Server-controlled values always win.
     baseEnv.ORCA_LANE_ID = String(lane.id);
+    // A lane's sessionId IS its orchestrator id. Export it under the name the routes
+    // and the MCP bridge actually use ({orchestratorId}), keeping ORCA_SESSION_ID as
+    // the back-compatible alias so an already-running agent config keeps working.
+    baseEnv.ORCA_ORCHESTRATOR_ID = String(lane.sessionId || '');
     baseEnv.ORCA_SESSION_ID = String(lane.sessionId || '');
     baseEnv.ORCA_PROJECT_ID = String(lane.projectId || '');
     baseEnv.ORCA_ARTIFACT_DIR = lane.artifactPath || '';
@@ -270,6 +274,7 @@ export class CliExecutorAdapter {
           ORCA_TOOL_LEASE_TOKEN: String(runtimeEnv.ORCA_TOOL_LEASE_TOKEN),
           ORCA_ROLE: String(runtimeEnv.ORCA_ROLE || 'executor'),
           ORCA_LANE_ID: String(lane.id),
+          ORCA_ORCHESTRATOR_ID: String(lane.sessionId || ''),
           ORCA_SESSION_ID: String(lane.sessionId || ''),
           ORCA_PROJECT_ID: String(lane.projectId || ''),
         },

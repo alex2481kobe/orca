@@ -154,6 +154,7 @@ export function displayArg(value) {
 // Server-managed env keys a lane may never set or override.
 export const RESERVED_EXECUTOR_ENV_KEYS = new Set([
   'ORCA_LANE_ID',
+  'ORCA_ORCHESTRATOR_ID',
   'ORCA_SESSION_ID',
   'ORCA_PROJECT_ID',
   'ORCA_ARTIFACT_DIR',
