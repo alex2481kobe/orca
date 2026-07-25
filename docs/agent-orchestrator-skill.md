@@ -99,32 +99,23 @@ when something is genuinely running away, not as routine cleanup.
 
 ## Integration notes (for adopting projects)
 
-- **A sandboxed `codex exec` cannot call MCP tools — and that is fine here.**
-  Under `--sandbox read-only` or `workspace-write`, `codex exec` auto-cancels
-  outbound MCP tool calls ("user cancelled MCP tool call"); it also cannot bind
-  localhost ports. This is an upstream Codex limitation, not an Orca or config
-  problem: `codex exec` closes stdin, so the approval elicitation a restricted
-  sandbox routes MCP calls through is auto-denied. There is no config key that
-  lifts it (`approval_policy`, `mcp_approval_policy`, `trusted_mcp_servers` and
-  friends are ignored) — only `--dangerously-bypass-approvals-and-sandbox` or
-  `--sandbox danger-full-access`, which throw away the sandbox. See openai/codex
-  issues #24135 and #16685.
+- **Codex and Claude are equally supported — measured, not assumed.** On the
+  versions we test (codex-cli 0.144.5, claude 2.1.220) BOTH reach Orca's MCP tools
+  from inside a governed lane, Codex under `--sandbox read-only` and
+  `workspace-write` alike. There is no CLI to prefer. See
+  [`cli-capabilities.md`](cli-capabilities.md) for the version-stamped matrix and
+  `npm run verify:cli-capabilities`, which re-proves it against your installed CLIs
+  and fails if the behavior ever changes.
 
-  **Do not "fix" this by giving executors full access.** Orca never requires a
-  spawned executor to phone home: **process exit is the authoritative completion
-  signal**, and stdout/JSONL is captured by the daemon that spawned it. A sandboxed
-  Codex executor works normally — it simply cannot self-report over MCP.
+  **Never hand an executor full sandbox access to "fix" a suspected MCP problem.**
+  Orca does not require a spawned executor to phone home: **process exit is the
+  authoritative completion signal** and the daemon that spawned the child captures
+  its output. MCP callback is for richer mid-run reporting; a lane that cannot reach
+  MCP still runs, completes, and gets audited.
 
-  This is also why Claude behaves differently. Claude Code exposes a *programmatic*
-  approval hook (`--permission-prompt-tool`), so Orca answers its permission prompts
-  itself over MCP and nothing needs a human on stdin. Codex has no equivalent for
-  MCP calls under a sandbox. The asymmetry is a CLI capability difference, not a
-  difference in how Orca configures them.
-
-  Practical rule: **Codex is a first-class executor; prefer Claude when you need an
-  agent that calls Orca's MCP tools back mid-run.** A human-wired interactive
-  `codex mcp add orca` orchestrator is unaffected — the limitation is specific to
-  the headless, sandboxed `codex exec` that Orca spawns for a lane.
+  Genuine CLI quirks worth knowing: a sandboxed `codex exec` cannot bind localhost
+  ports (grant that access explicitly if a lane must serve a preview), and
+  `codex exec` has no `-a/--ask-for-approval` flag — use `-c approval_policy=...`.
 - **Done executors linger, then drop off the dashboard.** A finished executor
   stays visible for a few minutes, then ages out of the dashboard projection.
   That is expected pruning, not lost work — the lane's artifacts (`outcome.txt`,

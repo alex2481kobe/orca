@@ -42,6 +42,7 @@
     "smoke:private-access": "node scripts/private-access-smoke.mjs",
     "smoke:mcp-flow": "node scripts/mcp-flow-smoke.mjs",
     "smoke:onboarding": "node scripts/verify-agent-onboarding.mjs",
+    "verify:cli-capabilities": "node scripts/verify-cli-capabilities.mjs",
     "smoke:mcp-cli-handshake": "node scripts/mcp-cli-handshake-smoke.mjs",
     "smoke:real-executor": "node scripts/real-executor-smoke.mjs",
     "smoke:pwa-cache": "node scripts/pwa-cache-smoke.mjs",
