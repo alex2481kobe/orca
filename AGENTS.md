@@ -41,9 +41,13 @@ Roles are exactly four: `orchestrator`, `executor`, `auditor`, `dashboard`
   lifecycle, cleanup, and route authorization are decided server-side. A client must
   never be able to grant itself a tool the server did not lease it.
 
-External MCP clients drive Orca as the orchestrator over `src/mcp-server.js`; the bare
-`claude mcp add orca -- node "$PWD/src/mcp-server.js"` wiring defaults to the
-orchestrator role. A scoped off-origin orchestrator lease is minted by
+External MCP clients drive Orca as the orchestrator over `src/mcp-server.js`. It is a
+plain stdio MCP server with no client-specific behavior, so any MCP-capable agent can
+wire it — `claude mcp add orca -- node "$PWD/src/mcp-server.js"`,
+`codex mcp add orca -- node "$PWD/src/mcp-server.js"`, or the equivalent
+`{"command": "node", "args": ["<abs>/src/mcp-server.js"]}` entry. The bare wiring
+defaults to the orchestrator role; spawned executors get their role and ids injected
+by the lane runtime. A scoped off-origin orchestrator lease is minted by
 `POST /api/mcp/orchestrator-bootstrap`, which is admin-gated on purpose.
 
 ## Public / Private Boundary

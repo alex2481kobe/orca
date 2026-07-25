@@ -68,14 +68,24 @@ export ORCA_REPO_ROOTS="$HOME/code"     # comma-separated absolute paths
 npm start          # daemon + dashboard on http://127.0.0.1:3000
 ```
 
-Point an agent at it over MCP:
+Point your agent at it over MCP. Orca is a plain stdio MCP server, so **any
+MCP-capable client works** — register it however that client registers MCP servers:
 
 ```bash
 # Run from your Orca checkout — the package isn't published to npm, so point the
 # client at the bundled bridge by absolute path.
 claude mcp add orca -- node "$PWD/src/mcp-server.js"
-# or: codex mcp add orca -- node "$PWD/src/mcp-server.js"
+codex  mcp add orca -- node "$PWD/src/mcp-server.js"
 ```
+
+For any other client, the equivalent config is:
+
+```jsonc
+{ "command": "node", "args": ["/absolute/path/to/orca/src/mcp-server.js"] }
+```
+
+The connection defaults to the **orchestrator** role. (Executor subagents that Orca
+spawns get their role and ids injected automatically — you never wire those.)
 
 Then, from inside that agent:
 
