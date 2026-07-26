@@ -1,5 +1,4 @@
-// Role normalization + per-role tool permission filtering. Extracted from
-// agent-tools.js.
+// Role normalization + per-role tool permission filtering.
 
 import { ROLES } from './contract.js';
 import { TOOL_DEFINITIONS } from './tool-definitions.js';

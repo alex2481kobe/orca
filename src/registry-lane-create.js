@@ -1,5 +1,5 @@
 // Lane creation (worktree provisioning, tool scoping, validation) as a
-// prototype mixin for OrcaRegistry. Extracted from registry.js.
+// prototype mixin for OrcaRegistry.
 
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';

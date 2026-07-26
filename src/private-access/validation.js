@@ -1,5 +1,5 @@
 // Private-access validation, normalization, and URL/settings helpers.
-// Extracted from private-access.js.
+//
 
 import { validateNetworkUrl } from '../url-policy.js';
 

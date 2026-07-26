@@ -1,5 +1,5 @@
 // Lane operations: submit, approvals, controls, stop/retry/heartbeat, artifacts,
-// worktree removal — prototype mixin for OrcaRegistry. Extracted from registry.js.
+// worktree removal — prototype mixin for OrcaRegistry.
 
 import fs from 'node:fs/promises';
 import path from 'node:path';

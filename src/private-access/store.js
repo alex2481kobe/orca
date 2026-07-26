@@ -1,4 +1,4 @@
-// Private-access persistent store. Extracted from private-access.js.
+// Private-access persistent store.
 
 import fs from 'node:fs/promises';
 import path from 'node:path';

@@ -1,5 +1,5 @@
-// Browser auth session + pairing-code store. Extracted from auth-sessions.js;
-// pure crypto/encoding helpers live in crypto.js.
+// Browser auth session + pairing-code store. Pure crypto/encoding helpers
+// live in crypto.js.
 
 import fsSync from 'node:fs';
 import path from 'node:path';

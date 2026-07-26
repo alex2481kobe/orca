@@ -1,5 +1,5 @@
 // State-file read with backup recovery + corrupt-file quarantine.
-// Extracted from state-store.js; low-level I/O lives in io.js.
+// Low-level I/O lives in io.js.
 
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';

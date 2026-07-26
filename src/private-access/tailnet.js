@@ -1,5 +1,4 @@
-// Tailnet detection, setup plan, and bounded health checks. Extracted from
-// private-access.js.
+// Tailnet detection, setup plan, and bounded health checks.
 
 import { spawnSync } from 'node:child_process';
 import {

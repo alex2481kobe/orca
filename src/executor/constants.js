@@ -1,4 +1,4 @@
-// Executor factory constants. Extracted from executor-factory.js.
+// Executor factory constants.
 
 import { fileURLToPath } from 'node:url';
 

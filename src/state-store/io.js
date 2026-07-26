@@ -1,5 +1,5 @@
 // Low-level atomic JSON file I/O + parse helpers for the state store.
-// Extracted from state-store.js. The recovery orchestration lives in recovery.js.
+// The recovery orchestration lives in recovery.js.
 
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
@@ -37,7 +37,6 @@ function serializeJson(payload) {
 // Throttle the best-effort `.bak` copy so it happens at most once per window
 // instead of on every debounced persist — copying the full file each time was
 // the other half of the per-persist I/O cost that grew with total state.
-//
 // The atomic write-temp-then-fsync-then-rename of the PRIMARY is unchanged, so
 // crash/power-loss durability of the canonical file is untouched. Only the
 // backup freshness relaxes: after a skipped backup the `.bak` may lag the

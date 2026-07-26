@@ -1,5 +1,5 @@
 // Lane/session configuration normalizers (spawn policy, idle-shutdown mode,
-// approved capacity). Extracted from registry.js. Pure helpers.
+// approved capacity). Pure helpers.
 
 const SPAWN_POLICIES = new Set(['never', 'ask', 'within_capacity', 'auto']);
 // Worktree isolation a caller may REQUEST. Only two, because the other two were

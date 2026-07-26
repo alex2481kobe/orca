@@ -1,6 +1,6 @@
 import { clonePayload } from './registry-utils.js';
 
-// Action approval/risk policy table + its one accessor. Extracted from registry.js. The server
+// Action approval/risk policy table + its one accessor. The server
 // merges persisted overrides on top of this (never weakening a hardcoded
 // requiresApproval for a known action). evaluateActionPolicy/getPolicyMap consume it.
 export const defaultPolicy = {

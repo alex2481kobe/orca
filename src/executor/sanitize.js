@@ -1,5 +1,4 @@
-// Argument/command sanitization + shell tokenization. Extracted from
-// executor-factory.js.
+// Argument/command sanitization + shell tokenization.
 
 import { MAX_ARGS, CONTROL_CHAR_RE } from './constants.js';
 

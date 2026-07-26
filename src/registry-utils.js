@@ -1,5 +1,4 @@
-// Pure, dependency-light helpers shared across the OrcaRegistry. Extracted from
-// registry.js so the core file stays focused on stateful behavior. Everything
+// Pure, dependency-light helpers shared across the OrcaRegistry. Everything
 // here is side-effect-free (except ensureDirectorySync, which only touches the
 // filesystem) and safe to unit-test in isolation.
 

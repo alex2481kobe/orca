@@ -1,6 +1,5 @@
 // Agent tool-lease lifecycle + tool-state gating, as a prototype mixin for
-// OrcaRegistry. Extracted from registry.js to keep the core class focused.
-//
+// OrcaRegistry.
 // These are methods (they use `this`) collected into one object and merged onto
 // OrcaRegistry.prototype via Object.assign, so the public API is unchanged
 // (registry.createToolLease(...) etc.) and they call sibling methods via `this`.

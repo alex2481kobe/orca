@@ -1,5 +1,5 @@
 // Audit-event recording/query + per-lane log & agent-event appenders
-// (with growth caps) as a prototype mixin for OrcaRegistry. Extracted from registry.js.
+// (with growth caps) as a prototype mixin for OrcaRegistry.
 
 import { randomUUID } from 'node:crypto';
 import { nowIso, clonePayload } from './registry-utils.js';

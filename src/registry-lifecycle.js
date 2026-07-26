@@ -1,6 +1,6 @@
 // Lifecycle helpers: interrupted-lane recovery on boot, demo seeding, and
 // action-policy (approval-gate) evaluation. Prototype mixin for OrcaRegistry.
-// Extracted from registry.js.
+//
 
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -13,7 +13,6 @@ import { CLI_EXECUTOR_DEFAULTS, FIRST_CLASS_CLI_EXECUTOR_TYPES } from './executo
 // restart. Derived from the executor table so a newly added CLI is covered
 // automatically (the old hardcoded /codex|claude|gemini/ silently skipped
 // composer-cli's `cursor-agent`).
-//
 // Deliberately FIRST-CLASS ONLY: the generic `cli` executor defaults to `node`, and
 // matching "node" would let a reused pid take out an unrelated Node process — or the
 // daemon itself. A generic-cli orphan is left alone rather than risk that.

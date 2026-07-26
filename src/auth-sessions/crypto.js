@@ -1,5 +1,5 @@
-// Pure crypto/encoding helpers for browser auth sessions. Extracted from
-// auth-sessions.js. CSPRNG tokens, constant-time hash compare, cookie parsing.
+// Pure crypto/encoding helpers for browser auth sessions: CSPRNG tokens,
+// constant-time hash compare, cookie parsing.
 
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 

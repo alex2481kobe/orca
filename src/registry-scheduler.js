@@ -1,5 +1,5 @@
 // Executor-adapter management + the scheduler run loop (lane lifecycle engine)
-// as a prototype mixin for OrcaRegistry. Extracted from registry.js.
+// as a prototype mixin for OrcaRegistry.
 
 import { LANE_STATES, isRunningLaneState, isLiveLaneState } from './worker-contract.js';
 import { nowIso } from './registry-utils.js';

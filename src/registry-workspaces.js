@@ -1,5 +1,5 @@
 // Session workspace provisioning + lane workdir resolution (path-boundary
-// enforcement) as a prototype mixin for OrcaRegistry. Extracted from registry.js.
+// enforcement) as a prototype mixin for OrcaRegistry.
 
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';

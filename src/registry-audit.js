@@ -1,5 +1,5 @@
 // Lane audit lifecycle methods (queue/accept/request-fix/block), as a prototype
-// mixin for OrcaRegistry. Extracted from registry.js.
+// mixin for OrcaRegistry.
 
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';

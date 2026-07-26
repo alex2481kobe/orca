@@ -1,6 +1,6 @@
 // State persistence: load-with-recovery from disk, debounced atomic writes,
 // snapshot serialization, and the SSE stream-revision counter. Prototype mixin
-// for OrcaRegistry. Extracted from registry.js.
+// for OrcaRegistry.
 
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';

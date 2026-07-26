@@ -1,5 +1,5 @@
 // Project CRUD + quick-link methods, as a prototype mixin for OrcaRegistry.
-// Extracted from registry.js.
+//
 
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';

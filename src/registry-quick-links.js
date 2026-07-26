@@ -1,5 +1,5 @@
 // Project quick-link (live dev-server link) normalization + health checks.
-// Extracted from registry.js. Pure helpers only — the outbound health probe went
+// Pure helpers only — the outbound health probe went
 // with the deleted project.quick_link.health tool.
 
 import { randomUUID } from 'node:crypto';

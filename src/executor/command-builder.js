@@ -1,5 +1,5 @@
 // Executor command-line construction + sandbox/permission flag mapping.
-// Extracted from executor-factory.js.
+//
 
 // Modes that mean "no sandbox" by name. Authorization must NOT stop here: what
 // actually matters is the EFFECTIVE mode after per-executor mapping (see below).

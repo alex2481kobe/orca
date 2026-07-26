@@ -1,5 +1,4 @@
-// CLI executor adapter (Codex/Claude/cli) + pending adapter. Extracted from
-// executor-factory.js.
+// CLI executor adapter (Codex/Claude/cli) + pending adapter.
 
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';

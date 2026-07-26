@@ -1,5 +1,5 @@
 // Lane terminal-state handlers (completed/failed/stopped) + artifact transcript
-// writing — prototype mixin for OrcaRegistry. Extracted from registry.js.
+// writing — prototype mixin for OrcaRegistry.
 
 import fs from 'node:fs/promises';
 import path from 'node:path';

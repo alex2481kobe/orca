@@ -1,4 +1,4 @@
-// Agent tool contract constants. Extracted from agent-tools.js.
+// Agent tool contract constants.
 
 export const CONTRACT_VERSION = 'orca.agent-tools.v1';
 

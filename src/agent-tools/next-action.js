@@ -1,4 +1,4 @@
-// Next-action state machine + envelope builder. Extracted from agent-tools.js.
+// Next-action state machine + envelope builder.
 
 import { CONTRACT_VERSION } from './contract.js';
 import { isLiveLaneState } from '../worker-contract.js';
