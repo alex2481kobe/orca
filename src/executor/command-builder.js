@@ -27,9 +27,17 @@ const FORCE_ALIAS_MODES = new Set([
 // lane-controls route — a lane's mode can be changed after spawn, and that path was
 // previously ungated entirely.
 export function isUnsandboxedEffectiveMode(executorType, permissionsProfile) {
+  const type = String(executorType || '').trim().toLowerCase();
+  // The generic 'cli' executor is unsandboxed BY DEFINITION, at every mode. Orca
+  // builds no argv for it and maps it to no sandbox flag — the caller supplies raw
+  // args, which is exactly why first-class types refuse them and point here. With
+  // an allowed interpreter (say node) that is arbitrary code with the daemon user's
+  // full authority, so `permissionsProfile: "plan"` on a 'cli' lane means nothing.
+  // It is opt-in via ORCA_ENABLE_CUSTOM_CLI/ORCA_CLI_BINARY, but opting the FEATURE
+  // in must not hand a paired phone arbitrary execution: it stays admin-only.
+  if (type === 'cli') return true;
   const mode = String(permissionsProfile || '').trim().toLowerCase();
   if (!mode) return false;
-  const type = String(executorType || '').trim().toLowerCase();
   if (type === 'composer-cli') return FORCE_ALIAS_MODES.has(mode);
   return NAMED_UNSANDBOXED_MODES.has(mode);
 }

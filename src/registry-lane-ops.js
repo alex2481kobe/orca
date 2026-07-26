@@ -6,7 +6,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { LANE_STATES, isLiveLaneState } from './worker-contract.js';
 import { nowIso, clonePayload, safeArray } from './registry-utils.js';
-import { removeLaneWorktree, mergeLaneBranch, changedFilesIn } from './worktree-manager.js';
+import { removeLaneWorktree, mergeLaneBranch, worktreeCleanliness } from './worktree-manager.js';
 import { validateNetworkUrl } from './url-policy.js';
 import { buildNextActionEnvelope } from './agent-tools/next-action.js';
 
@@ -51,6 +51,17 @@ export const laneOpsMethods = {
     const deletable = new Set([DONE_STATE, FAILED_STATE, STOPPED_STATE, ACCEPTED_STATE, BLOCKED_STATE, 'archived']);
     if (!deletable.has(lane.state)) {
       throw { status: 422, message: 'Stop the lane before deleting it.', nextAction: this._laneNextAction(lane, 'lane.shutdown') };
+    }
+    // A deletable STATE is not a dead process: an accepted lane can still have a
+    // live child (audit.accept is allowed straight from ready_for_audit). Dropping
+    // the record then discards the only handle anything has on that process.
+    if (typeof this.isLaneProcessLive === 'function' && this.isLaneProcessLive(lane.id)) {
+      throw {
+        status: 409,
+        message: 'Lane still has a live executor process; deleting the record now would orphan it. Stop the lane first (lane.shutdown), then delete.',
+        processLive: true,
+        nextAction: this._laneNextAction(lane, 'lane.shutdown'),
+      };
     }
     if (typeof this.clearLaneExecutor === 'function') this.clearLaneExecutor(lane.id);
     if (typeof this.revokeToolLeasesForLane === 'function') {
@@ -418,7 +429,10 @@ export const laneOpsMethods = {
         status: 409,
         message: 'Lane still has a live executor process; retrying now would orphan it and let its exit corrupt the new run. Stop the lane first (lane.shutdown), then retry.',
         processLive: true,
-        nextAction: this._laneNextAction(lane),
+        // Point at the CORRECTIVE tool. The computed envelope for fix_requested is
+        // lane.retry — the call that just failed — so an agent following the
+        // machine-readable next step would loop on the refusal.
+        nextAction: this._laneNextAction(lane, 'lane.shutdown'),
       };
     }
     this.clearLaneExecutor(lane.id);
@@ -615,7 +629,12 @@ export const laneOpsMethods = {
   async emergencyStopContainer(orchestratorId, { actor = 'operator', reason = 'emergency stop' } = {}) {
     const orch = (this.orchestrators || []).find((o) => o.id === orchestratorId);
     if (!orch) throw { status: 404, message: 'Orchestrator not found.' };
-    const live = (this.lanes || []).filter((lane) => lane.sessionId === orchestratorId && isLiveLaneState(lane.state));
+    // laneOccupiesSlot, not isLiveLaneState: a lane that submitted is
+    // ready_for_audit with its child STILL RUNNING. Filtering on state alone made
+    // break-glass report "0 stopped" while leaving that child burning tokens and
+    // editing files — the one guarantee this button exists to provide.
+    const live = (this.lanes || []).filter((lane) => lane.sessionId === orchestratorId
+      && (typeof this.laneOccupiesSlot === 'function' ? this.laneOccupiesSlot(lane) : isLiveLaneState(lane.state)));
     let stopped = 0;
     for (const lane of live) {
       try {
@@ -648,6 +667,18 @@ export const laneOpsMethods = {
     }
     if (path.resolve(lane.worktreePath) === path.resolve(lane.repoRoot)) {
       throw { status: 422, message: 'Lane runs directly in the repo checkout; Orca will not remove the session repository.' };
+    }
+    // Discard is permitted from ready_for_audit/accepted, and BOTH can still have a
+    // live child (submit does not wait for exit, and an audit can be accepted from
+    // there). force:true would then delete the working directory out from under a
+    // process that is still writing to it.
+    if (typeof this.isLaneProcessLive === 'function' && this.isLaneProcessLive(lane.id)) {
+      throw {
+        status: 409,
+        message: 'Lane still has a live executor process; discarding its worktree now would pull the working directory out from under it. Stop the lane first (lane.shutdown), then discard.',
+        processLive: true,
+        nextAction: this._laneNextAction(lane, 'lane.shutdown'),
+      };
     }
     const policyCheck = this.evaluateActionPolicy('cleanupArtifacts', { actor, approved });
     if (!policyCheck.allowed) {
@@ -740,7 +771,19 @@ export const laneOpsMethods = {
     // set, none of the work reached the base checkout, and retention then pruned the
     // lane record while worktree removal refused the dirty tree — stranding the only
     // copy under .orca/workspaces with nothing pointing at it.
-    const dirtyFiles = lane.worktreePath ? changedFilesIn(lane.worktreePath) : [];
+    // Fail CLOSED: "could not inspect" must not read as "clean", or a broken .git
+    // turns a dirty worktree back into the silent-loss case this guard exists for.
+    const cleanliness = worktreeCleanliness(lane.worktreePath);
+    if (!cleanliness.ok) {
+      throw {
+        status: 409,
+        message: `Could not determine whether the lane worktree has uncommitted work (${cleanliness.error}); refusing to integrate rather than risk discarding it. Inspect ${lane.worktreePath} by hand.`,
+        dirty: true,
+        worktreePath: lane.worktreePath,
+        branch: lane.branch,
+      };
+    }
+    const dirtyFiles = cleanliness.files;
     if (dirtyFiles.length) {
       throw {
         status: 409,

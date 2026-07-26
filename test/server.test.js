@@ -2500,7 +2500,12 @@ test('admin can revoke a paired device by sessionId; a non-admin cannot, and unk
 // sandbox escape by itself.
 test('a paired operator cannot reach an unsandboxed agent by escalating a queued lane or by executor-specific mode aliasing', async () => {
   const token = 'route-token-permission-escalation';
-  const server = await startServer({ token });
+  // Custom CLI ENABLED: that is the scenario the escape needs. Opting the feature
+  // in is a workstation choice; it must not widen what a paired phone can launch.
+  const server = await startServer({
+    token,
+    env: { ORCA_ENABLE_CUSTOM_CLI: 'true', ORCA_CLI_BINARY: process.execPath },
+  });
 
   try {
     const pairing = await server.requestJson('/api/auth/pairing-codes', {
@@ -2569,6 +2574,26 @@ test('a paired operator cannot reach an unsandboxed agent by escalating a queued
       body: { title: 'composer', executorType: 'composer-cli', permissionsProfile: 'auto-edit', owner: 'dashboard', approved: true },
     });
     assert.equal(composerAutoEdit.status, 403, 'auto-edit maps to --force on composer-cli, so it is unsandboxed');
+
+    // executorType "cli" is the deliberate escape hatch first-class types point at
+    // for raw argv — Orca builds no command line and maps no sandbox flag, so with
+    // an allowed interpreter it is arbitrary code at the daemon's authority. Opting
+    // the FEATURE in must not hand a paired phone arbitrary execution: it is
+    // admin-only at every permissionsProfile, including "plan".
+    const customCli = await server.requestJson(spawnUrl, {
+      method: 'POST',
+      headers: operator,
+      body: {
+        title: 'raw argv escape',
+        executorType: 'cli',
+        executorBinary: process.execPath,
+        args: ['-e', 'process.exit(0)'],
+        permissionsProfile: 'plan',
+        owner: 'dashboard',
+        approved: true,
+      },
+    });
+    assert.equal(customCli.status, 403, `custom-CLI spawn is admin-only: ${JSON.stringify(customCli.body)}`);
 
     // ...and the same alias must NOT be over-blocked where it really is sandboxed:
     // claude maps auto-edit to acceptEdits, codex to --sandbox workspace-write.

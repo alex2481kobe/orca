@@ -11,7 +11,7 @@
 // Both are closed by gating on the EFFECTIVE mode, at every route that can set it.
 import { isUnsandboxedEffectiveMode } from '../executor/command-builder.js';
 
-export const UNSANDBOXED_DENIAL = 'Unsandboxed agent permissions require workstation admin auth, not a paired device. Use a sandboxed mode (plan, or auto-edit on an executor that sandboxes it).';
+export const UNSANDBOXED_DENIAL = 'Unsandboxed agent permissions require workstation admin auth, not a paired device. Use a sandboxed mode (plan, or auto-edit on an executor that sandboxes it) with a first-class executor; executorType "cli" runs caller-supplied argv with no sandbox and is always admin-only.';
 
 // A paired-device operator is deliberately NOT enough here: pairing grants
 // workflow control (stop/resign/approve), not the ability to launch a process

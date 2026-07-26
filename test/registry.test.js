@@ -1875,3 +1875,87 @@ test('stopping a lane that already submitted keeps its work auditable', async ()
     await cleanup();
   }
 });
+
+// A deletable/discardable STATE is not a dead process: audit.accept is allowed
+// straight from ready_for_audit, so an `accepted` lane can still have a live child.
+// Dropping the record or its worktree then orphans that process (or yanks the
+// directory out from under it), and break-glass reported "0 stopped" for it.
+test('operations that assume a dead process are refused while the child is alive', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const { orchestrator } = await makeOrchestrator(registry);
+    const lane = registry.createLane(orchestrator.id, {
+      title: 'Submitted but alive',
+      executorType: 'mock',
+      autoCompleteMs: 600000,
+    }, { actor: 'test', approved: true });
+
+    await registry.advanceLanes();
+    registry.submitLane(lane.id, { actor: 'executor', summary: 'handoff' });
+    registry.acceptLaneAudit(lane.id, { actor: 'orchestrator', findings: ['ok'] });
+    assert.equal(registry.isLaneProcessLive(lane.id), true, 'accepted, but the child is still running');
+
+    let deleteError = null;
+    try {
+      await registry.deleteLane(lane.id, { actor: 'dashboard' });
+    } catch (error) { deleteError = error; }
+    assert.ok(deleteError, 'delete must refuse a live child');
+    assert.equal(deleteError.status, 409);
+    assert.equal(deleteError.nextAction?.nextRequiredTool, 'lane.shutdown');
+    assert.ok(registry.getLane(lane.id), 'the record survives the refusal');
+
+    // Break-glass must actually reach it — filtering on lane.state alone reported
+    // zero stopped lanes and left the child running.
+    const result = await registry.emergencyStopContainer(orchestrator.id, { actor: 'operator' });
+    assert.equal(result.laneCount >= 1, true, 'emergency stop must see the submitted-but-live lane');
+    assert.equal(registry.isLaneProcessLive(lane.id), false, 'and actually stop it');
+  } finally {
+    await cleanup();
+  }
+});
+
+// changedFilesIn() returns [] for BOTH "clean" and "could not tell", so a broken
+// .git made a dirty worktree look clean — integrate would stamp integratedAt and
+// let retention reap the only copy. The destructive path must fail closed.
+test('integrate fails closed when worktree cleanliness cannot be determined', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const repoDir = path.join(process.cwd(), 'demo-repo');
+    await fs.mkdir(repoDir, { recursive: true });
+    const g = (...args) => spawnSync('git', args, { cwd: repoDir, encoding: 'utf8' });
+    g('init', '-q');
+    g('config', 'user.email', 'test@local');
+    g('config', 'user.name', 'Test');
+    await fs.writeFile(path.join(repoDir, 'README.md'), 'hello');
+    g('add', 'README.md');
+    g('commit', '-qm', 'init');
+
+    const { orchestrator: session } = await makeOrchestrator(registry, { cwd: repoDir });
+    const lane = registry.createLane(session.id, {
+      title: 'Uninspectable lane',
+      executorType: 'mock',
+      worktreeMode: 'isolated',
+      branch: 'feature/uninspectable',
+    }, { actor: 'test', approved: true });
+    const stored = registry.getLane(lane.id);
+    assert.ok(stored.worktreePath);
+
+    // Leave real uncommitted work, then make `git status` impossible to run.
+    await fs.writeFile(path.join(stored.worktreePath, 'work.txt'), 'the only copy\n');
+    await fs.writeFile(path.join(stored.worktreePath, '.git'), 'gitdir: /nonexistent/broken\n');
+
+    stored.state = 'accepted';
+    stored.auditState = 'accepted';
+
+    let error = null;
+    try {
+      await registry.integrateLane(lane.id, { actor: 'dashboard' });
+    } catch (caught) { error = caught; }
+    assert.ok(error, 'integrate must refuse when cleanliness is unknown');
+    assert.equal(error.status, 409);
+    assert.match(String(error.message || ''), /could not determine/i);
+    assert.ok(!registry.getLane(lane.id).integratedAt, 'and must not stamp integratedAt');
+  } finally {
+    await cleanup();
+  }
+});

@@ -314,12 +314,31 @@ function parseWorktreeList(stdout) {
 
 export function changedFilesIn(worktreePath) {
   if (!worktreePath) return [];
+  return worktreeCleanliness(worktreePath).files;
+}
+
+/**
+ * Cleanliness probe that distinguishes "clean" from "could not tell".
+ * changedFilesIn() collapses both to [], which is fine for display but fails OPEN
+ * for anything that can destroy work: an unreadable or broken .git makes a dirty
+ * worktree look clean, and integration would then stamp integratedAt on work it
+ * never merged — the exact loss this guard exists to prevent. Callers gating a
+ * destructive step must use this and refuse when `ok` is false.
+ */
+export function worktreeCleanliness(worktreePath) {
+  if (!worktreePath) return { ok: false, files: [], error: 'No worktree path to inspect.' };
   try {
     const result = runGit(['status', '--porcelain'], { cwd: worktreePath });
-    if (result.status !== 0) return [];
-    return result.stdout.split('\n').map((line) => line.trim()).filter(Boolean).slice(0, 500);
-  } catch {
-    return [];
+    if (result.status !== 0) {
+      return { ok: false, files: [], error: String(result.stderr || '').trim() || `git status exited ${result.status}` };
+    }
+    return {
+      ok: true,
+      files: result.stdout.split('\n').map((line) => line.trim()).filter(Boolean).slice(0, 500),
+      error: null,
+    };
+  } catch (error) {
+    return { ok: false, files: [], error: error?.message || String(error) };
   }
 }
 
