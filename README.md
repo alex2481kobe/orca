@@ -87,6 +87,24 @@ For any other client, the equivalent config is:
 The connection defaults to the **orchestrator** role. (Executor subagents that Orca
 spawns get their role and ids injected automatically — you never wire those.)
 
+The command above works as-is against a loopback daemon with **no** API token:
+Orca grants local admin when nothing is configured. **Once you set
+`ORCA_API_TOKEN`** — which you must before reaching the dashboard from your phone
+(see [`docs/tailscale-mobile-access.md`](docs/tailscale-mobile-access.md)) — that
+bootstrap is deliberately off, and the bare command above gets `401
+Unauthorized`. Mint the agent a scoped lease rather than handing it your API
+token:
+
+```bash
+curl -sX POST http://127.0.0.1:3000/api/mcp/orchestrator-bootstrap \
+  -H "x-orca-token: $ORCA_API_TOKEN" -H 'content-type: application/json' \
+  -d '{"actor":"my-agent"}'
+```
+
+That returns paste-ready MCP config for Claude Code, Codex, and any other client,
+each carrying an `ORCA_TOOL_LEASE_TOKEN` scoped to the orchestrator role. Your API
+token never reaches the agent, and the lease can be revoked on its own.
+
 Then, from inside that agent:
 
 ```

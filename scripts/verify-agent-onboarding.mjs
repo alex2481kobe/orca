@@ -26,6 +26,10 @@ process.env.ORCA_CREDENTIAL_BACKEND = 'memory';
 process.env.ORCA_RATE_LIMIT_DISABLED = 'true';
 process.env.ORCA_REPO_ROOTS = realTemp;          // the agent registers inside here
 process.env.ORCA_AUTO_COMPLETE_MS = '1200';       // mock lanes finish fast
+// Phase 1 proves the TOKENLESS quickstart, so the operator's own exported token
+// must not leak in and fail the proof for an unrelated reason. Phase 2 below
+// covers the tokenized configuration explicitly.
+delete process.env.ORCA_API_TOKEN;
 
 const sm = await import('../src/server.js');
 const server = await sm.startServer(0, '127.0.0.1');
@@ -191,6 +195,72 @@ async function call2Fallback() {
   return !res?.result?.isError;
 }
 step('fleet.emergency_stop reachable', stopped);
+
+// ---- 4. the TOKENIZED configuration ----
+// The bare command in phase 1 works only because a loopback daemon with no token
+// grants implicit admin. The Tailscale runbook REQUIRES ORCA_API_TOKEN, which
+// turns that bootstrap off — so the same command 401s and a first adopter cannot
+// start the loop. The documented answer is the admin-gated bootstrap endpoint,
+// which mints a SCOPED lease (never handing the agent the API token). Prove it.
+const phase2Token = 'onboarding-proof-api-token';
+process.env.ORCA_API_TOKEN = phase2Token;
+const sm2 = await import(`../src/server.js?onboarding-token-phase=${Date.now()}`);
+const server2 = await sm2.startServer(0, '127.0.0.1');
+const port2 = server2.address().port;
+const base2 = `http://127.0.0.1:${port2}`;
+
+const bareRes = await fetch(`${base2}/api/orchestrators`, {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ cwd: workDir, title: 'no auth', actor: 'claude' }),
+});
+step('tokenized: the bare wiring is correctly refused', bareRes.status === 401, `${bareRes.status}`);
+
+const bootstrapRes = await fetch(`${base2}/api/mcp/orchestrator-bootstrap`, {
+  method: 'POST',
+  headers: { 'content-type': 'application/json', 'x-orca-token': phase2Token },
+  body: JSON.stringify({ actor: 'onboarding-proof' }),
+});
+const bootstrap = await bootstrapRes.json().catch(() => ({}));
+const leaseToken = bootstrap?.leaseToken || '';
+step('tokenized: bootstrap mints a scoped orchestrator lease', Boolean(leaseToken), `${bootstrapRes.status}`);
+step('tokenized: the API token never appears in the bootstrap payload',
+  !JSON.stringify(bootstrap).includes(phase2Token));
+
+// Wire the bridge exactly as the returned config says, and run the first step.
+const leaseEnv = bootstrap?.bootstrap?.clients?.claudeDesktop?.config?.mcpServers?.orca?.env || {};
+const c2 = spawn('node', [path.join(repoDir, 'src', 'mcp-server.js')], {
+  env: { ...process.env, ...leaseEnv, ORCA_AGENT_TOOLS_BASE_URL: base2 },
+  stdio: ['pipe', 'pipe', 'pipe'],
+});
+let b2 = '';
+const p2 = new Map();
+c2.stdout.on('data', (chunk) => {
+  b2 += chunk;
+  let i;
+  while ((i = b2.indexOf('\n')) >= 0) {
+    const line = b2.slice(0, i); b2 = b2.slice(i + 1);
+    if (!line.trim()) continue;
+    try { const m = JSON.parse(line); if (p2.has(m.id)) { p2.get(m.id)(m); p2.delete(m.id); } } catch { /* */ }
+  }
+});
+let n2 = 0;
+const r2 = (method, params) => new Promise((resolve) => {
+  const id = ++n2; p2.set(id, resolve);
+  c2.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
+});
+await r2('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'onboarding-proof-token', version: '1' } });
+const reg2 = await r2('tools/call', {
+  name: 'orchestrator__register',
+  arguments: { body: { cwd: workDir, title: 'Tokenized onboarding proof', actor: 'claude' } },
+});
+const reg2Text = reg2?.result?.content?.[0]?.text ?? '';
+let reg2Id = '';
+try { reg2Id = JSON.parse(reg2Text)?.id || ''; } catch { /* non-JSON error text */ }
+step('tokenized: orchestrator.register works with the minted lease', Boolean(reg2Id), reg2Id || reg2Text.slice(0, 140));
+c2.kill();
+if (sm2.stopServer) await sm2.stopServer();
+await new Promise((r) => server2.close(r));
 
 console.log(`\n[onboarding] ${failed ? 'FAILED' : 'OK'} — a new agent can wire Orca with the documented command and run the loop.`);
 if (sm.stopServer) await sm.stopServer();
