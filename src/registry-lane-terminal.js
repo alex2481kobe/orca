@@ -139,19 +139,27 @@ export const laneTerminalMethods = {
     const now = nowIso();
     const actor = context.actor || 'scheduler';
     const reason = context.reason || `Stopped by ${actor}`;
-    lane.state = STOPPED_STATE;
-    lane.updatedAt = now;
-    lane.completedAt = now;
-    lane.exitReason = reason;
-    if (typeof this.markTaskFailedFromLane === 'function') {
-      this.markTaskFailedFromLane(lane.id, reason);
+    // A lane that already SUBMITTED has handed off reviewable work, and stopping
+    // is about the PROCESS, not the work (see the submit-is-not-exit invariant).
+    // Downgrading ready_for_audit -> stopped stranded that work: the orchestrator
+    // could no longer accept it or request fixes, and the submission was the only
+    // record of it. Kill the process, keep the submission auditable.
+    const preserveSubmission = lane.state === READY_FOR_AUDIT_STATE;
+    if (!preserveSubmission) {
+      lane.state = STOPPED_STATE;
+      lane.completedAt = now;
+      if (typeof this.markTaskFailedFromLane === 'function') {
+        this.markTaskFailedFromLane(lane.id, reason);
+      }
     }
+    lane.updatedAt = now;
+    lane.exitReason = reason;
     this.appendLaneLog(lane, reason, { persist: false });
     this.appendLaneAgentEvent(lane, {
       type: 'agent.stopped',
       source: lane.executorType,
       title: 'Agent stopped',
-      content: reason,
+      content: preserveSubmission ? `${reason} (submitted work is still awaiting audit)` : reason,
     });
     this.recordAudit({
       type: 'lane_stopped',
@@ -159,7 +167,9 @@ export const laneTerminalMethods = {
       projectId: lane.projectId,
       sessionId: lane.sessionId,
       laneId: lane.id,
-      summary: `Lane ${lane.title} stopped`,
+      summary: preserveSubmission
+        ? `Lane ${lane.title} process stopped; submitted work still awaiting audit`
+        : `Lane ${lane.title} stopped`,
       evidence: { lane },
       status: 'passed',
     });
@@ -173,7 +183,9 @@ export const laneTerminalMethods = {
         type: 'lane_stopped',
         targetRole: 'orchestrator',
         title: `Executor lane "${lane.title}" stopped`.slice(0, 160),
-        body: reason,
+        body: preserveSubmission
+          ? `${reason} — its process is gone, but it had already submitted: the work is still awaiting your audit (audit.accept / audit.request_fix).`
+          : reason,
         severity: 'warning',
         actor,
         projectId: lane.projectId,

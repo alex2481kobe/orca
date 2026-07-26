@@ -1831,3 +1831,47 @@ test('a rejected isolated spawn leaves no orphaned worktree or branch behind', a
     await cleanup();
   }
 });
+
+// Stopping is about the PROCESS; submitting is about the WORK. A stop after a
+// submit used to downgrade ready_for_audit -> stopped, which stranded the work:
+// the orchestrator could no longer accept it or request fixes, and the submission
+// was the only record of it.
+test('stopping a lane that already submitted keeps its work auditable', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const { orchestrator } = await makeOrchestrator(registry);
+    const lane = registry.createLane(orchestrator.id, {
+      title: 'Submitted then stopped',
+      executorType: 'mock',
+      autoCompleteMs: 600000,
+    }, { actor: 'test', approved: true });
+
+    await registry.advanceLanes();
+    registry.submitLane(lane.id, { actor: 'executor', summary: 'my handoff', handoff: 'pick up here' });
+    assert.equal(registry.getLane(lane.id).state, 'ready_for_audit');
+
+    await registry.stopLane(lane.id, { actor: 'dashboard', approved: true });
+
+    const stopped = registry.getLane(lane.id);
+    assert.equal(stopped.state, 'ready_for_audit', 'the submission survives the stop');
+    assert.equal(stopped.summary, 'my handoff', 'the handoff is intact');
+    assert.equal(registry.isLaneProcessLive(lane.id), false, 'but the process really is gone');
+
+    // The whole point: the orchestrator can still act on the work.
+    const accepted = registry.acceptLaneAudit(lane.id, { actor: 'orchestrator', findings: ['looks good'] });
+    assert.ok(accepted, 'a stopped-but-submitted lane can still be audited');
+    assert.equal(registry.getLane(lane.id).auditState, 'accepted');
+
+    // An UNsubmitted lane still stops normally.
+    const plain = registry.createLane(orchestrator.id, {
+      title: 'Never submitted',
+      executorType: 'mock',
+      autoCompleteMs: 600000,
+    }, { actor: 'test', approved: true });
+    await registry.advanceLanes();
+    await registry.stopLane(plain.id, { actor: 'dashboard', approved: true });
+    assert.equal(registry.getLane(plain.id).state, 'stopped');
+  } finally {
+    await cleanup();
+  }
+});
