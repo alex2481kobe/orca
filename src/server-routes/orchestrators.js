@@ -17,6 +17,37 @@ export async function handleOrchestratorRoutes(ctx, req, res, method, parts) {
   // controls route, which can change the mode of an already-created lane.
   const unsandboxedBlocked = makeUnsandboxedGate(ctx, req);
 
+  // GET /api/orchestrators — list them.
+  //
+  // Without this there was NO way to enumerate orchestrators: /api/health happily
+  // reported `counts.orchestrators`, but any caller trying to sweep for open work
+  // got "API route not found". A cleanup sweep that silently found nothing then
+  // reported "all clear" while five lanes were still awaiting audit — the failure
+  // this route exists to prevent.
+  //
+  // Active-only by default (a resigned orchestrator is not open work); pass
+  // ?all=1 to include resigned ones.
+  if (parts.length === 2 && method === 'GET') {
+    const params = typeof getSearchParams === 'function' ? getSearchParams(req.url) : null;
+    const includeAll = params ? ['1', 'true', 'yes'].includes(String(params.get('all') || '').toLowerCase()) : false;
+    const projectId = params ? String(params.get('projectId') || '').trim() : '';
+    const rows = (registry.orchestrators || [])
+      .filter((item) => (includeAll ? true : !item.resignedAt))
+      .filter((item) => (projectId ? item.projectId === projectId : true))
+      .map((item) => ({
+        id: item.id,
+        projectId: item.projectId,
+        actor: item.actor,
+        title: item.title,
+        focus: item.focus,
+        source: item.source,
+        registeredAt: item.registeredAt,
+        lastSeenAt: item.lastSeenAt,
+        resignedAt: item.resignedAt ?? null,
+      }));
+    return sendJson(res, 200, { orchestrators: rows, count: rows.length });
+  }
+
   // POST /api/orchestrators — register (or takeover / stale-dedupe).
   if (parts.length === 2 && method === 'POST') {
     const body = await parseJsonBody(req);

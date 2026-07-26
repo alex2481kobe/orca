@@ -20,6 +20,16 @@ export const TOOL_DEFINITIONS = [
     summary: 'Register as an orchestrator for your working directory, and set/refresh your self-authored title + focus line. Body: {cwd, actor?, title?, focus?, takeoverOrchestratorId?}. Orca creates the project implicitly (keyed by realpath(cwd)) and binds an orchestrator record to your lease. Re-register with the same cwd to update title/focus.',
   },
   {
+    id: 'orchestrator.list',
+    group: 'orchestrator',
+    roles: ['orchestrator', 'auditor', 'dashboard'],
+    method: 'GET',
+    route: '/api/orchestrators',
+    implemented: true,
+    mutating: false,
+    summary: 'List orchestrators. Active only by default (a resigned one is not open work); ?all=1 includes resigned, ?projectId= filters to one project. Use this to find open work after reconnecting — /api/health reports a count but is not a listing.',
+  },
+  {
     id: 'orchestrator.status',
     group: 'orchestrator',
     roles: ['orchestrator', 'executor', 'auditor', 'dashboard'],
@@ -219,7 +229,7 @@ export const TOOL_DEFINITIONS = [
     route: '/api/lanes/{laneId}/audit/findings',
     implemented: true,
     mutating: true,
-    summary: 'Record audit findings and choose accept, request-fix, or block verdict.',
+    summary: 'Record audit findings and choose accept, request-fix, or block verdict. Body REQUIRES `verdict` (accepted | fix_requested | blocked) plus findings and/or reviewedFiles; entries may be strings or objects carrying a summary/message/path field. What is recorded here is remembered on the lane and satisfies the review gate on a later audit.accept — you do not have to repeat it inline.',
   },
   {
     id: 'audit.accept',

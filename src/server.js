@@ -297,13 +297,16 @@ function getToolLeaseToken(req) {
   return Array.isArray(token) ? token[0] : token;
 }
 
-function toolLeaseRequirementForRoute(method, parts) {
+export function toolLeaseRequirementForRoute(method, parts) {
   if (parts[0] !== 'api') return null;
   if (parts[1] === 'projects' && parts[2] && parts[3] === 'quick-links' && parts.length === 4 && method === 'POST') {
     return { toolId: 'project.preview.set', projectId: parts[2] };
   }
   if (parts[1] === 'orchestrators' && parts.length === 2 && method === 'POST') {
     return { toolId: 'orchestrator.register' };
+  }
+  if (parts[1] === 'orchestrators' && parts.length === 2 && method === 'GET') {
+    return { toolId: 'orchestrator.list' };
   }
   if (parts[1] === 'orchestrators' && parts[2] && parts[3] === 'resign' && method === 'POST') {
     return { toolId: 'orchestrator.resign' };

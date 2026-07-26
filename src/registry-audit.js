@@ -82,6 +82,24 @@ export function sanitizeFlowConfig(raw = {}) {
   return out;
 }
 
+/**
+ * Coerce one finding / reviewed-file entry to meaningful text.
+ *
+ * Plain `String(item)` turned an object into "[object Object]" — truthy, so a
+ * structured finding satisfied the review gate while carrying no readable
+ * review at all. Objects are read for their text fields instead, and anything
+ * with no text is dropped so it cannot rubber-stamp an accept.
+ */
+function auditEntryText(item) {
+  if (item == null) return '';
+  if (typeof item === 'string') return item.trim();
+  if (typeof item === 'object') {
+    const text = item.summary ?? item.message ?? item.detail ?? item.title ?? item.path ?? item.file;
+    return typeof text === 'string' ? text.trim() : '';
+  }
+  return String(item).trim();
+}
+
 export const auditMethods = {
   // The agent-flow config for a lane: defaults, with the lane's own validated
   // overrides on top.
@@ -303,12 +321,19 @@ export const auditMethods = {
     if (isRunningLaneState(lane.state)) {
       throw { status: 409, message: 'Cannot accept a lane that is still running. Stop it first.' };
     }
-    const findingsList = safeArray(findings).map((item) => String(item || '').trim()).filter(Boolean).slice(0, 100);
-    const reviewedList = safeArray(reviewedFiles).map((item) => String(item || '').trim()).filter(Boolean).slice(0, 200);
+    const findingsList = safeArray(findings).map(auditEntryText).filter(Boolean).slice(0, 100);
+    const reviewedList = safeArray(reviewedFiles).map(auditEntryText).filter(Boolean).slice(0, 200);
+    // A review recorded EARLIER on this lane counts. The contract's flow is
+    // audit.findings.record -> audit.accept, and this gate previously read only
+    // its own request body, so following the documented two-step flow still got
+    // refused and callers had to repeat the findings inline on accept.
+    const priorReview = safeArray(lane.auditFindings).some(
+      (record) => safeArray(record?.findings).length || safeArray(record?.reviewedFiles).length,
+    );
     // Integrity gate: an accept must record a real review — at least one finding
     // or a reviewed file — so an agent (or a hasty operator) can't rubber-stamp
     // work with an empty verdict. The corrective step is audit.findings.record.
-    if (!findingsList.length && !reviewedList.length) {
+    if (!findingsList.length && !reviewedList.length && !priorReview) {
       throw {
         status: 409,
         message: 'Cannot accept an audit with no recorded review. Record at least one finding or list the files you reviewed (audit.findings.record) before accepting.',
