@@ -5,7 +5,7 @@
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { isRunningLaneState } from './worker-contract.js';
+import { LANE_STATES, isRunningLaneState } from './worker-contract.js';
 import { nowIso, buildLaneRoute } from './registry-utils.js';
 import { CLI_EXECUTOR_DEFAULTS, FIRST_CLASS_CLI_EXECUTOR_TYPES } from './executor/constants.js';
 
@@ -35,6 +35,9 @@ export const lifecycleMethods = {
   // cli-adapter's own stop()).
   _reapOrphanedLaneProcess(lane) {
     const meta = lane.processMeta || {};
+    // The child already reported its exit — nothing to reap, and its pid may since
+    // have been reused by something unrelated.
+    if (meta.endedAt) return false;
     const pid = Number(meta.pgid || meta.pid);
     if (!Number.isInteger(pid) || pid <= 1) return false;
     let command = '';
@@ -73,16 +76,33 @@ export const lifecycleMethods = {
           lane.workdir = this.resolveLaneWorkdir(session, null);
         }
       }
-      if (isRunningLaneState(lane.state)) {
+      // Any state reachable BEFORE the child exits can leave a live process behind a
+      // hard restart, not just starting/running: lane.submit sets ready_for_audit
+      // without waiting for exit, and a fix request / audit acceptance / block can
+      // follow while the child is still executing. A state-only check left those
+      // detached process groups running unsupervised, forever.
+      const mayHaveLiveChild = isRunningLaneState(lane.state) || [
+        LANE_STATES.READY_FOR_AUDIT,
+        LANE_STATES.FIX_REQUESTED,
+        LANE_STATES.ACCEPTED,
+        LANE_STATES.BLOCKED,
+      ].includes(lane.state);
+      if (mayHaveLiveChild) {
         const reaped = this._reapOrphanedLaneProcess(lane);
-        this.markLaneFailed(
-          lane,
-          reaped
-            ? 'Controller restarted while lane was active (orphaned executor process reaped)'
-            : 'Controller restarted while lane was active',
-          'system',
-          false,
-        );
+        if (isRunningLaneState(lane.state)) {
+          this.markLaneFailed(
+            lane,
+            reaped
+              ? 'Controller restarted while lane was active (orphaned executor process reaped)'
+              : 'Controller restarted while lane was active',
+            'system',
+            false,
+          );
+        } else if (reaped) {
+          // The lane already submitted its work: reap the process but KEEP the state,
+          // so the handoff stays auditable (same rule as an explicit stop).
+          this.appendLaneLog?.(lane, 'Controller restarted; orphaned executor process reaped (submitted work left intact)', { persist: false });
+        }
       }
       if (!lane.id) {
         lane.id = randomUUID();

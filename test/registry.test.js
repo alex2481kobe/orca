@@ -1959,3 +1959,79 @@ test('integrate fails closed when worktree cleanliness cannot be determined', as
     await cleanup();
   }
 });
+
+// Isolation is decided at CREATE time and never revisited, so two lanes spawned
+// read-only both legitimately run `direct`. Flipping them to a writable mode via
+// controls is sandboxed (the permission gate allows it) but would put two
+// concurrent writers in the same checkout.
+test('controls cannot turn a second direct lane into an overlapping writer', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const repoDir = path.join(process.cwd(), 'demo-repo');
+    await fs.mkdir(repoDir, { recursive: true });
+    const g = (...args) => spawnSync('git', args, { cwd: repoDir, encoding: 'utf8' });
+    g('init', '-q');
+    g('config', 'user.email', 'test@local');
+    g('config', 'user.name', 'Test');
+    await fs.writeFile(path.join(repoDir, 'README.md'), 'hello');
+    g('add', 'README.md');
+    g('commit', '-qm', 'init');
+    const { orchestrator: session } = await makeOrchestrator(registry, { cwd: repoDir });
+
+    const mk = (title) => registry.createLane(session.id, {
+      title, executorType: 'mock', worktreeMode: 'auto', permissionsProfile: 'read-only',
+    }, { actor: 'test', approved: true });
+    const a = mk('Scout A');
+    const b = mk('Scout B');
+    assert.notEqual(registry.getLane(a.id).worktreeMode, 'isolated', 'read-only lanes run directly');
+    assert.notEqual(registry.getLane(b.id).worktreeMode, 'isolated');
+
+    // First one may become a writer: it is the sole writer in the checkout.
+    registry.updateLaneControls(a.id, { permissionsProfile: 'auto-edit' }, { actor: 'test', approved: true });
+    assert.equal(registry.getLane(a.id).permissionsProfile, 'auto-edit');
+
+    // The second may not — that would be two writers in one checkout.
+    let error = null;
+    try {
+      registry.updateLaneControls(b.id, { permissionsProfile: 'auto-edit' }, { actor: 'test', approved: true });
+    } catch (caught) { error = caught; }
+    assert.ok(error, 'the second direct writer must be refused');
+    assert.equal(error.status, 409);
+    assert.equal(error.conflictingLaneId, a.id);
+    assert.equal(registry.getLane(b.id).permissionsProfile, 'read-only', 'and the change must not be applied');
+  } finally {
+    await cleanup();
+  }
+});
+
+// A hard restart (SIGKILL) leaves detached child process groups behind. Recovery
+// only reaped starting/running lanes, but lane.submit sets ready_for_audit without
+// waiting for exit — so a submitted lane's child survived unsupervised forever.
+test('restart recovery reaps a submitted lane orphan without destroying its handoff', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const { orchestrator } = await makeOrchestrator(registry);
+    const lane = registry.createLane(orchestrator.id, {
+      title: 'Submitted before the crash',
+      executorType: 'mock',
+      autoCompleteMs: 600000,
+    }, { actor: 'test', approved: true });
+    await registry.advanceLanes();
+    registry.submitLane(lane.id, { actor: 'executor', summary: 'work handed off' });
+
+    // Simulate what persisted state looks like after a SIGKILL: a live-looking pid
+    // with no endedAt, in a post-submit state.
+    const stored = registry.getLane(lane.id);
+    stored.processMeta = { pid: 999999, pgid: 999999, endedAt: null, binary: 'codex' };
+
+    const attempted = [];
+    registry._reapOrphanedLaneProcess = (l) => { attempted.push(l.id); return true; };
+    registry.recoverInterruptedLanes();
+
+    assert.equal(attempted.includes(lane.id), true, 'the submitted lane orphan must be reaped');
+    assert.equal(registry.getLane(lane.id).state, 'ready_for_audit', 'and its handoff must survive');
+    assert.equal(registry.getLane(lane.id).summary, 'work handed off');
+  } finally {
+    await cleanup();
+  }
+});

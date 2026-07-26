@@ -889,6 +889,11 @@ function startServer(port = PORT, host = HOST) {
       server.off('error', onError);
       const address = server.address();
       const effectivePort = typeof address === 'string' ? address : (address?.port || port);
+      // Tell the registry the port we ACTUALLY bound. serverBaseUrl() otherwise
+      // reports the configured PORT, which is wrong whenever the daemon binds an
+      // ephemeral port (PORT=0) — and that URL is handed to agents, both in the
+      // MCP bootstrap config and in every executor lane's runtime env.
+      if (registry && typeof effectivePort === 'number') registry.boundPort = effectivePort;
       console.log(`Orca listening at http://${host}:${effectivePort}`);
       console.log(`Dashboard route root: /`);
       console.log(`Health: /api/health`);

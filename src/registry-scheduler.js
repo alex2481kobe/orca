@@ -214,10 +214,13 @@ export const schedulerMethods = {
       const queued = sessionLanes
         .filter((lane) => lane.state === QUEUED_STATE)
         .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-      // Measure live capacity by LANE STATE (running/starting): authoritative.
-      // getRunningCountForSession (executor-reported active runtimes) could
-      // undercount a RUNNING lane and let the start loop exceed approvedCapacity.
-      const runningCount = sessionLanes.filter((lane) => isRunningLaneState(lane.state)).length;
+      // Measure live capacity by LANE STATE (running/starting) — authoritative,
+      // because getRunningCountForSession (executor-reported runtimes) could
+      // undercount a RUNNING lane and let the start loop exceed approvedCapacity —
+      // OR by a live process, because a lane that called lane.submit reads
+      // ready_for_audit while its child is still executing and still holds a slot.
+      const runningCount = sessionLanes.filter((lane) =>
+        isRunningLaneState(lane.state) || this.isLaneProcessLive(lane.id)).length;
       const approvedCapacity = normalizeApprovedCapacity(orchestrator.approvedCapacity, normalizeApprovedCapacity(orchestrator.laneConcurrencyLimit, 4));
       const capacityLimit = normalizeSpawnPolicy(orchestrator.spawnPolicy, 'auto') === 'never' ? 0 : approvedCapacity;
       let availableSlots = Math.max(0, capacityLimit - runningCount);
@@ -300,7 +303,10 @@ export const schedulerMethods = {
     const baseMs = this.laneIdleTimeoutMs;
     if (!Number.isFinite(baseMs) || baseMs <= 0) return;
     for (const lane of (this.lanes || [])) {
-      if (!isRunningLaneState(lane.state)) continue;
+      // A submitted-but-still-running child reads ready_for_audit, so a state-only
+      // check let it idle forever burning its slot. Stopping it now preserves the
+      // submission (markLaneStopped keeps ready_for_audit) and just reaps the process.
+      if (!isRunningLaneState(lane.state) && !this.isLaneProcessLive(lane.id)) continue;
       if (lane.idleShutdown === false) continue;
       const lastActivity = Date.parse(lane.lastActivityAt || lane.startedAt || lane.updatedAt || lane.createdAt) || 0;
       if (!lastActivity || (now - lastActivity) <= baseMs) continue;

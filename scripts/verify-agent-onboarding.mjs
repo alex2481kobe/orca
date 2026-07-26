@@ -229,18 +229,15 @@ step('tokenized: the API token never appears in the bootstrap payload',
 
 // Wire the bridge from the returned config and run the first step.
 const leaseEnv = bootstrap?.bootstrap?.clients?.claudeDesktop?.config?.mcpServers?.orca?.env || {};
-// The base URL has to be ASSERTED rather than silently overwritten: this proof
-// runs the daemon on an ephemeral port, so the config's real (configured-port)
-// URL cannot be dialled here — but overriding it without checking would let a
-// missing or malformed base URL in the config pass unnoticed.
+// Use the returned config VERBATIM — no overrides. Anything we substitute here is
+// a field this proof stops proving, and the base URL in particular used to be
+// silently replaced, so a missing or wrong one would have passed.
 const advertisedBase = String(leaseEnv.ORCA_AGENT_TOOLS_BASE_URL || '');
-step('tokenized: the config carries a usable loopback base URL',
-  /^http:\/\/(127\.0\.0\.1|localhost):\d+\/?$/.test(advertisedBase), advertisedBase || '(missing)');
+step('tokenized: the config advertises the port the daemon actually bound',
+  advertisedBase.replace(/\/$/, '') === base2, advertisedBase || '(missing)');
 step('tokenized: the config carries the orchestrator role', leaseEnv.ORCA_ROLE === 'orchestrator', leaseEnv.ORCA_ROLE || '(missing)');
 const c2 = spawn('node', [path.join(repoDir, 'src', 'mcp-server.js')], {
-  // Everything from the config verbatim; only the port is retargeted at this
-  // proof's ephemeral daemon, and the value it replaces was just asserted above.
-  env: { ...process.env, ...leaseEnv, ORCA_AGENT_TOOLS_BASE_URL: base2 },
+  env: { ...process.env, ...leaseEnv },
   stdio: ['pipe', 'pipe', 'pipe'],
 });
 let b2 = '';

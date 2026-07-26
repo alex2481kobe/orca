@@ -141,8 +141,14 @@ function buildCapacity(registry, session) {
   const approvedCapacity = Number.isFinite(session.approvedCapacity) ? session.approvedCapacity : 0;
   const laneConcurrencyLimit = Number.isFinite(session.laneConcurrencyLimit) ? session.laneConcurrencyLimit : approvedCapacity;
   const effectiveLimit = laneConcurrencyLimit || approvedCapacity;
+  // laneOccupiesSlot where available: a lane that submitted still has a live child
+  // and still consumes a slot, so a state-only count under-reports activeAgents and
+  // over-reports idleSlots — telling an orchestrator it may fan out when it may not.
+  const occupies = typeof registry?.laneOccupiesSlot === 'function'
+    ? (lane) => registry.laneOccupiesSlot(lane)
+    : (lane) => isLiveLaneState(lane.state);
   const activeAgents = (registry?.lanes || [])
-    .filter((lane) => lane.sessionId === session.id && isLiveLaneState(lane.state))
+    .filter((lane) => lane.sessionId === session.id && occupies(lane))
     .length;
   return {
     spawnPolicy: session.spawnPolicy || 'auto',

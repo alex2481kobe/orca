@@ -360,7 +360,9 @@ export const toolLeaseMethods = {
     const host = process.env.ORCA_HOST && process.env.ORCA_HOST !== '0.0.0.0'
       ? process.env.ORCA_HOST
       : '127.0.0.1';
-    const port = process.env.PORT || '3000';
+    // The port we actually bound (set by startServer) beats the configured one:
+    // PORT=0 means "pick a free port", so echoing it hands agents a dead URL.
+    const port = this.boundPort || process.env.PORT || '3000';
     return `http://${host}:${port}`;
   },
 

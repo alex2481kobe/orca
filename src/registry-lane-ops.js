@@ -269,6 +269,28 @@ export const laneOpsMethods = {
       verificationCommand: typeof verificationCommand === 'string' ? verificationCommand.trim().slice(0, 1000) : before.verificationCommand,
     };
 
+    // Isolation is decided at CREATE time from whether the lane is a writer, and it
+    // is never reconsidered. So two lanes spawned as read-only both legitimately
+    // resolve to `direct`, and flipping them to a writable mode here (sandboxed, so
+    // the permission gate correctly allows it) would leave two concurrent writers in
+    // the same checkout — the collision auto-isolation exists to prevent. Refuse the
+    // reclassification while the lane is still direct and another writer occupies it.
+    const becomingWriter = before.permissionsProfile === 'read-only' && next.permissionsProfile !== 'read-only';
+    if (becomingWriter && lane.worktreeMode !== 'isolated') {
+      const otherDirectWriter = (this.lanes || []).find((other) => other.id !== lane.id
+        && other.sessionId === lane.sessionId
+        && other.worktreeMode !== 'isolated'
+        && other.permissionsProfile !== 'read-only'
+        && (typeof this.laneOccupiesSlot === 'function' ? this.laneOccupiesSlot(other) : isLiveLaneState(other.state)));
+      if (otherDirectWriter) {
+        throw {
+          status: 409,
+          message: `Cannot make this lane writable: it runs directly in the repo checkout and lane "${otherDirectWriter.title}" is already writing there. Spawn a new lane with worktreeMode "isolated" instead, or wait for that lane to finish.`,
+          conflictingLaneId: otherDirectWriter.id,
+        };
+      }
+    }
+
     lane.model = next.model;
     lane.permissionsProfile = next.permissionsProfile;
     lane.intelligenceProfile = next.intelligenceProfile;
