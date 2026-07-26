@@ -3,6 +3,7 @@
 // creates the project (keyed by realpath(cwd)) and an orchestrator record bound
 // to the lease. Replaces the session-scoped enroll flow.
 import { FALL_THROUGH } from './lanes.js';
+import { makeUnsandboxedGate, UNSANDBOXED_DENIAL } from './permission-gate.js';
 
 export async function handleOrchestratorRoutes(ctx, req, res, method, parts) {
   const {
@@ -11,15 +12,10 @@ export async function handleOrchestratorRoutes(ctx, req, res, method, parts) {
   } = ctx;
   if (parts[1] !== 'orchestrators') return FALL_THROUGH;
 
-  // UNSANDBOXED agent modes (bypass/yolo/force) grant full FS/network access and
-  // must NOT be available to a paired-device operator (workflow-only boundary).
-  const UNSANDBOXED_MODES = new Set(['bypass', 'bypass-permissions', 'bypasspermissions', 'yolo', 'force', 'danger', 'danger-full-access']);
-  const unsandboxedBlocked = (permissionsProfile) => {
-    if (!UNSANDBOXED_MODES.has(String(permissionsProfile || '').trim().toLowerCase())) return false;
-    const privileged = (typeof hasAdminAuth === 'function' && hasAdminAuth(req))
-      || Boolean(typeof getToolLeaseToken === 'function' && getToolLeaseToken(req));
-    return !privileged;
-  };
+  // UNSANDBOXED agent modes grant full FS/network access and must NOT be available
+  // to a paired-device operator (workflow-only boundary). Shared with the lane
+  // controls route, which can change the mode of an already-created lane.
+  const unsandboxedBlocked = makeUnsandboxedGate(ctx, req);
 
   // POST /api/orchestrators — register (or takeover / stale-dedupe).
   if (parts.length === 2 && method === 'POST') {
@@ -90,8 +86,8 @@ export async function handleOrchestratorRoutes(ctx, req, res, method, parts) {
     if (!orchestrator) return sendJson(res, 404, { error: 'Orchestrator not found.' });
     // Inherited from the deleted POST .../lanes route: this is now the ONLY way to
     // create a lane, so the unsandboxed-mode gate has to live here or it is gone.
-    if (unsandboxedBlocked(body.permissionsProfile)) {
-      return sendJson(res, 403, { error: 'Unsandboxed agent permissions (bypass/yolo/force) require workstation admin auth, not a paired device. Use a sandboxed mode (plan/auto-edit).' });
+    if (unsandboxedBlocked(body.executorType, body.permissionsProfile)) {
+      return sendJson(res, 403, { error: UNSANDBOXED_DENIAL });
     }
     const lease = leaseIdFor(ctx, req, registry, 'executor.spawn');
     if (lease && lease.error) return sendJson(res, lease.status, { error: lease.error });

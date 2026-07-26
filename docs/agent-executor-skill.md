@@ -40,14 +40,20 @@ Your tools are: `lane.get`, `lane.list`, `orchestrator.status`,
 - **Capture evidence for UI or browser work.** If your lane has a `targetUrl`,
   the orchestrator's `audit.accept` will be refused with `409` unless the lane
   has a captured screenshot or recording (`.png/.jpg/.gif/.webp/.svg/.pdf/.mp4/.webm`)
-  in its artifacts. The lane's artifact directory is
-  `artifacts/$ORCA_SESSION_ID/$ORCA_LANE_ID` **relative to the Orca server's
-  working directory** (the `ORCA_ARTIFACT_DIR` env var holds the same path in the
-  server's URL form, with a leading `/` — it is not a filesystem path). Always
-  confirm the file landed with `lane.artifacts.list` before you `lane.submit`.
+  in its artifacts. **`ORCA_ARTIFACT_DIR` is the absolute filesystem directory to
+  write into** — use it directly. (It resolves to
+  `artifacts/$ORCA_ORCHESTRATOR_ID/$ORCA_LANE_ID` under the Orca server's working
+  directory; `lane.artifactPath` is the separate URL form used by the dashboard.)
+  Do not write evidence relative to your own repo or worktree — the daemon looks
+  only in `ORCA_ARTIFACT_DIR`. Always confirm the file landed with
+  `lane.artifacts.list` before you `lane.submit`.
 - When the work is complete, call `lane.submit { summary, changedFiles, handoff }`
   — it only works while your lane is still starting/running, so submit before you
-  exit. Do **not** self-accept: `audit.accept` is not leased to you, and
+  exit. Then **exit promptly**: submit records your handoff, but your process
+  exiting is what actually completes the lane, releases its capacity slot, and
+  lets the orchestrator integrate the worktree (integration is refused while your
+  process is alive, so it cannot merge a tree you are still writing). Do **not**
+  self-accept: `audit.accept` is not leased to you, and
   acceptance is the orchestrator's step. If the orchestrator requests changes,
   they arrive as a fix on the same lane; address them and re-submit.
 - If a real external dependency blocks progress, say so in the `summary` and

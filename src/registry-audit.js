@@ -45,7 +45,7 @@ const FLOW_DEFAULTS = {
 
 const FLOW_FIELDS = {
   template: ['orchestrator-only', 'orchestrator-executor', 'orchestrator-executor-audit'],
-  auditTier: ['orchestrator', 'separate-auditor'],
+  auditTier: ['orchestrator'],
   fixRouting: ['same-agent', 'new-agent'],
 };
 
@@ -104,9 +104,10 @@ export const auditMethods = {
     return Boolean(lane) && lane.owner !== 'orchestrator' && lane.owner !== 'auditor';
   },
 
-  // Auto-run audits for lanes whose work is queued for review. Per the resolved
-  // Auditor setting: 'separate-auditor' spawns a dedicated auditor lane scoped to
-  // the executor lane's worktree; otherwise the orchestrator is nudged to audit.
+  // Auto-run audits for lanes whose work is queued for review: the lane's owning
+  // orchestrator is nudged to audit it. (There is no separate-auditor tier — that
+  // value was accepted by validation but never dispatched, so a caller asking for
+  // an independent audit silently got a self-audit instead. It is gone.)
   // Idempotent — flips auditState to 'auditing' before dispatch so a lane is only
   // dispatched once. Bounded by maxAuditLoops via requestLaneFix escalation.
   async dispatchPendingAudits() {
@@ -195,15 +196,6 @@ export const auditMethods = {
         this.persistState();
       }
     }
-  },
-
-  buildAuditorPrompt(lane) {
-    return [
-      `You are the auditor for executor lane "${lane.title}" (lane id ${lane.id}).`,
-      'Review its changes in this worktree against the task it was given.',
-      'When done, call the audit tool to accept the work (audit.accept) or request fixes',
-      '(audit.request_fix) with concrete findings. Do not start unrelated work.',
-    ].join(' ');
   },
 
   queueLaneAudit(laneLocator, context = {}) {

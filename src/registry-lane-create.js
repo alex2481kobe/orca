@@ -3,7 +3,7 @@
 
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { LANE_STATES, isRunningLaneState, isLiveLaneState } from './worker-contract.js';
+import { LANE_STATES } from './worker-contract.js';
 import {
   nowIso,
   clonePayload,
@@ -132,7 +132,9 @@ export const laneCreateMethods = {
       const activeAgents = (this.lanes || []).filter((lane) => (
         lane.sessionId === session.id
         && lane.owner !== 'auditor'
-        && isLiveLaneState(lane.state)
+        // laneOccupiesSlot, not isLiveLaneState: a lane that called lane.submit
+        // still has a live child, and must keep consuming its slot until it exits.
+        && this.laneOccupiesSlot(lane)
       )).length;
       if (activeAgents >= effectiveLimit) {
         throw {
@@ -169,10 +171,16 @@ export const laneCreateMethods = {
     // get an isolated worktree.
     const requestedWorktreeMode = worktreeMode !== undefined ? worktreeMode : 'auto';
     const isReadOnlyLane = String(permissionsProfile || '').trim() === 'read-only';
+    // Count QUEUED writers too (laneOccupiesSlot — the same predicate capacity uses
+    // above), not just starting/running. Isolation is decided at creation, but lanes start on
+    // a scheduler tick: two writers spawned back-to-back were both still `queued` when
+    // the second was classified, so both resolved to `direct` and the scheduler then
+    // ran both concurrently in the repository root — exactly the collision this is
+    // meant to prevent. A queued writer will overlap, so it has to count as one.
     const activeWriterLanes = (this.lanes || []).filter((lane) => (
       lane.sessionId === session.id
       && lane.permissionsProfile !== 'read-only'
-      && isRunningLaneState(lane.state)
+      && this.laneOccupiesSlot(lane)
     )).length;
     const resolvedWorktreeMode = resolveWorktreeMode({
       requested: requestedWorktreeMode,

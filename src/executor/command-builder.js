@@ -1,6 +1,39 @@
 // Executor command-line construction + sandbox/permission flag mapping.
 // Extracted from executor-factory.js.
 
+// Modes that mean "no sandbox" by name. Authorization must NOT stop here: what
+// actually matters is the EFFECTIVE mode after per-executor mapping (see below).
+const NAMED_UNSANDBOXED_MODES = new Set([
+  'bypass', 'bypass-permissions', 'bypasspermissions', 'yolo', 'force', 'danger', 'danger-full-access',
+]);
+// Aliases the argv builder treats as "force" (isForceMode below). For most CLIs these
+// only accept edits inside the workspace, but composer-cli turns them into `--force`,
+// which is a genuinely unsandboxed run.
+const FORCE_ALIAS_MODES = new Set([
+  'auto', 'auto-edit', 'auto_edit', 'auto-accept', 'auto_accept', 'acceptedits',
+  ...NAMED_UNSANDBOXED_MODES,
+]);
+
+// THE authorization predicate: does this (executorType, permissionsProfile) pair
+// actually produce an UNSANDBOXED child? Answer per executor, because the same string
+// means different things:
+//   codex        — plan/ask/read-only -> --sandbox read-only, everything else ->
+//                  workspace-write. Still sandboxed either way.
+//   claude       — only the bypass family disables permissions.
+//   gemini-cli   — the bypass family maps to yolo.
+//   composer-cli — ANY force alias (including "auto-edit") emits --force = unsandboxed.
+// Callers must gate on THIS, not on the raw string, or a mode that reads as sandboxed
+// at one route launches unsandboxed at another. Used by the spawn route AND the
+// lane-controls route — a lane's mode can be changed after spawn, and that path was
+// previously ungated entirely.
+export function isUnsandboxedEffectiveMode(executorType, permissionsProfile) {
+  const mode = String(permissionsProfile || '').trim().toLowerCase();
+  if (!mode) return false;
+  const type = String(executorType || '').trim().toLowerCase();
+  if (type === 'composer-cli') return FORCE_ALIAS_MODES.has(mode);
+  return NAMED_UNSANDBOXED_MODES.has(mode);
+}
+
 export function buildExecutorCommandArgs(label, lane, options = {}) {
   const mcpServers = (options && options.mcpServers && typeof options.mcpServers === 'object') ? options.mcpServers : {};
   const presentationMode = String(options.presentationMode || lane.presentationMode || 'chat').trim().toLowerCase();

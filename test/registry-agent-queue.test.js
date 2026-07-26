@@ -121,22 +121,43 @@ test('agent queue: dedupe preserves ack state and caps per-event consumers', asy
     });
     assert.deepEqual(event.metadata, { safe: 'kept' });
 
-    // Draining is the ack.
-    registry.drainAgentEvents(session.id, { role: 'orchestrator', actor: 'orch-a' });
-    const deduped = registry.enqueueAgentEvent({
+    // Repeats of a STILL-PENDING condition collapse into the one event — that is
+    // what dedupe is for (no spam while nobody has handled it yet).
+    const collapsed = registry.enqueueAgentEvent({
       type: 'loop_paused',
       targetRole: 'orchestrator',
-      title: 'Pause again',
+      title: 'Pause again (still pending)',
       projectId: session.projectId,
       sessionId: session.id,
       dedupeKey: 'loop-paused:test',
     });
-    assert.equal(deduped.id, event.id);
-    assert.equal(deduped.occurrences, 2);
-    assert.deepEqual(registry.drainAgentEvents(session.id, {
+    assert.equal(collapsed.id, event.id, 'unhandled repeats collapse');
+    assert.equal(collapsed.occurrences, 2);
+
+    // Draining is the ack.
+    registry.drainAgentEvents(session.id, { role: 'orchestrator', actor: 'orch-a' });
+
+    // But an occurrence AFTER the handler already drained is genuinely new work, and
+    // must wake the same orchestrator again. This previously did not: the dedupe
+    // predicate tested a top-level `ackedAt` that stored events never carry, so the
+    // acked event absorbed every later occurrence and drain (which filters on that
+    // same ack) returned nothing. An orchestrator that handled one audit_required for
+    // a lane was never notified about the next one — it waited forever.
+    const reoccurred = registry.enqueueAgentEvent({
+      type: 'loop_paused',
+      targetRole: 'orchestrator',
+      title: 'Paused again after being handled',
+      projectId: session.projectId,
+      sessionId: session.id,
+      dedupeKey: 'loop-paused:test',
+    });
+    assert.notEqual(reoccurred.id, event.id, 'a new occurrence after an ack is a new event');
+    const redrained = registry.drainAgentEvents(session.id, {
       role: 'orchestrator',
       actor: 'orch-a',
-    }).events, [], 'dedupe must not make already handled work unacked again');
+    }).events;
+    assert.equal(redrained.length, 1, 'the same orchestrator is woken for the second occurrence');
+    assert.equal(redrained[0].id, reoccurred.id);
 
     for (let index = 0; index < 80; index += 1) {
       registry.ackAgentEvent(event.id, {

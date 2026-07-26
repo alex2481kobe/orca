@@ -6,7 +6,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { LANE_STATES, isLiveLaneState } from './worker-contract.js';
 import { nowIso, clonePayload, safeArray } from './registry-utils.js';
-import { removeLaneWorktree, mergeLaneBranch } from './worktree-manager.js';
+import { removeLaneWorktree, mergeLaneBranch, changedFilesIn } from './worktree-manager.js';
 import { validateNetworkUrl } from './url-policy.js';
 import { buildNextActionEnvelope } from './agent-tools/next-action.js';
 
@@ -706,6 +706,36 @@ export const laneOpsMethods = {
     }
     if (!lane.repoRoot || !lane.branch) {
       throw { status: 422, message: 'Lane has no repoRoot/branch to integrate.' };
+    }
+    // The lane state can read terminal while the child is still alive: lane.submit
+    // sets ready_for_audit without waiting for exit, and an audit can be accepted
+    // from there. Merging then races an executor that is still editing the worktree.
+    // Process exit is the authoritative completion signal, so require it here.
+    if (typeof this.isLaneProcessLive === 'function' && this.isLaneProcessLive(lane.id)) {
+      throw {
+        status: 409,
+        message: 'Lane still has a live executor process; integrating now would merge a worktree that is still being written. Wait for the executor to exit (or stop the lane) before integrating.',
+        processLive: true,
+        branch: lane.branch,
+      };
+    }
+    // Refuse to integrate a DIRTY worktree. Executors are told to submit and leave
+    // the worktree, not to commit — so uncommitted edits are the ordinary case, and
+    // integration measures commits only (`base..laneBranch`). An executor that edited
+    // without committing therefore looked like "nothing to merge": integratedAt was
+    // set, none of the work reached the base checkout, and retention then pruned the
+    // lane record while worktree removal refused the dirty tree — stranding the only
+    // copy under .orca/workspaces with nothing pointing at it.
+    const dirtyFiles = lane.worktreePath ? changedFilesIn(lane.worktreePath) : [];
+    if (dirtyFiles.length) {
+      throw {
+        status: 409,
+        message: `Lane worktree has ${dirtyFiles.length} uncommitted change(s); integrating now would silently drop them. Commit them on ${lane.branch} (in ${lane.worktreePath}) and integrate again.`,
+        dirty: true,
+        changedFiles: dirtyFiles.slice(0, 50),
+        worktreePath: lane.worktreePath,
+        branch: lane.branch,
+      };
     }
     const result = mergeLaneBranch({ repoRoot: lane.repoRoot, branch: lane.branch, push: Boolean(push) });
     if (result.merged) {

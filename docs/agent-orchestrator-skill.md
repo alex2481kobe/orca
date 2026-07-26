@@ -184,8 +184,9 @@ silently change what you observe:
   or tool activity before it is stopped as idle (default 900000 = 15 min; `0`
   disables it). A lane spawned with `idleShutdown:false` is exempt.
 - `ORCA_AUTO_AUDIT` — auto-audit is **on** by default: when an executor lane
-  finishes and its flow requires an audit, Orca queues it and either nudges you
-  or spawns a dedicated auditor lane. Set it to `false` and nothing audits a
+  finishes and its flow requires an audit, Orca queues it and nudges **you** —
+  the lane's owning orchestrator — to review it. Orca does not spawn a dedicated
+  auditor lane; you are the audit tier. Set it to `false` and nothing audits a
   finished lane until you call `audit.queue_one` yourself. Auditor and
   orchestrator lanes are never auto-audited (no self-audit).
 

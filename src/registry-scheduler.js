@@ -1,7 +1,7 @@
 // Executor-adapter management + the scheduler run loop (lane lifecycle engine)
 // as a prototype mixin for OrcaRegistry. Extracted from registry.js.
 
-import { LANE_STATES, isRunningLaneState } from './worker-contract.js';
+import { LANE_STATES, isRunningLaneState, isLiveLaneState } from './worker-contract.js';
 import { nowIso } from './registry-utils.js';
 import { createExecutorAdapter } from './executor-factory.js';
 import { normalizeApprovedCapacity, normalizeSpawnPolicy } from './registry-lane-config.js';
@@ -56,6 +56,29 @@ export const schedulerMethods = {
   clearLaneExecutor(laneId) {
     if (!laneId) return;
     this.laneExecutorMap.delete(String(laneId));
+  },
+
+  // Does this lane still have a LIVE child process, regardless of what its state
+  // field says? lane.submit flips state to ready_for_audit while the executor is
+  // still running (process exit is the authoritative completion signal, not the
+  // submit call), so lane.state alone under-reports occupancy — it let a submitted
+  // but still-writing executor stop counting against capacity/isolation.
+  isLaneProcessLive(laneId) {
+    if (!laneId) return false;
+    const key = String(laneId);
+    const adapters = [...Object.values(this.executors), ...this.unknownExecutorAdapters.values()];
+    for (const adapter of adapters) {
+      if (typeof adapter.getActiveLaneIds !== 'function') continue;
+      if (adapter.getActiveLaneIds().some((id) => String(id) === key)) return true;
+    }
+    return false;
+  },
+
+  // The occupancy predicate capacity/isolation should use: a lane holds a slot
+  // while its state is live OR its process is still alive.
+  laneOccupiesSlot(lane) {
+    if (!lane) return false;
+    return isLiveLaneState(lane.state) || this.isLaneProcessLive(lane.id);
   },
 
   getRunningCountForSession(sessionId) {

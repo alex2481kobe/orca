@@ -131,8 +131,16 @@ export const agentQueueMethods = {
     const normalizedDedupeKey = dedupeKey ? cleanText(dedupeKey, '', 240) : null;
     const now = nowIso();
     if (normalizedDedupeKey) {
+      // Collapse repeats of a STILL-PENDING condition, but never into an event a
+      // consumer already drained. `!event.ackedAt` used to stand in for this and was
+      // always true: stored events carry per-consumer `acks`, and top-level `ackedAt`
+      // exists only on the clone handed to a reader (publicEventForConsumer). So an
+      // acked `audit-required:{laneId}` absorbed every later occurrence, and drain
+      // filters on that same ack — an orchestrator that had already handled one audit
+      // was never woken for the next one on the same lane. A new occurrence after an
+      // ack is genuinely new: fall through and enqueue a fresh event.
       const existing = (this.agentQueue || []).find((event) =>
-        !event.ackedAt
+        !(event.acks && typeof event.acks === 'object' && Object.keys(event.acks).length)
         && event.dedupeKey === normalizedDedupeKey
         && event.sessionId === (sessionId || null)
         && event.targetRole === normalizedRole);

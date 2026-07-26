@@ -1738,3 +1738,52 @@ test('approved repo roots default to HOME, and the dir picker opens into it', as
     await cleanup();
   }
 });
+
+// lane.submit is a HANDOFF, not proof of exit: it flips state to ready_for_audit
+// while the child is still running. Occupancy must follow the process, not the
+// state field, or an orchestrator silently fans out past its approved capacity
+// with live executors — and (with auto isolation) a second writer lands in the
+// same checkout as the first.
+test('a lane that submitted while its process is still alive keeps holding its capacity slot', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const { orchestrator } = await makeOrchestrator(registry);
+    const record = registry.orchestrators.find((o) => o.id === orchestrator.id);
+    record.approvedCapacity = 1;
+    record.laneConcurrencyLimit = 1;
+
+    // autoCompleteMs far beyond the test: the mock runtime stays active.
+    const laneA = registry.createLane(orchestrator.id, {
+      title: 'Long runner',
+      executorType: 'mock',
+      autoCompleteMs: 600000,
+    }, { actor: 'test', approved: true });
+
+    await registry.advanceLanes();
+    assert.equal(registry.getLane(laneA.id).state, 'running');
+    assert.equal(registry.isLaneProcessLive(laneA.id), true, 'the mock runtime is active');
+
+    // The executor submits its handoff — but does NOT exit.
+    registry.submitLane(laneA.id, { actor: 'executor', summary: 'handoff' });
+    assert.equal(registry.getLane(laneA.id).state, 'ready_for_audit');
+    assert.equal(registry.isLaneProcessLive(laneA.id), true, 'submitting does not end the process');
+    assert.equal(registry.laneOccupiesSlot(registry.getLane(laneA.id)), true,
+      'a submitted-but-live lane still occupies its slot');
+
+    // ...so the orchestrator is still at capacity and cannot fan out again.
+    let capacityError = null;
+    try {
+      registry.createLane(orchestrator.id, {
+        title: 'Should not fit',
+        executorType: 'mock',
+      }, { actor: 'test', approved: true });
+    } catch (error) {
+      capacityError = error;
+    }
+    assert.ok(capacityError, 'spawning past capacity must be refused while the submitted lane is still live');
+    assert.equal(capacityError.status, 409);
+    assert.match(String(capacityError.message || ''), /at capacity/i);
+  } finally {
+    await cleanup();
+  }
+});

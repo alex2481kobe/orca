@@ -6,6 +6,7 @@
 
 import { promises as fsp } from 'node:fs';
 import path from 'node:path';
+import { makeUnsandboxedGate, UNSANDBOXED_DENIAL } from './permission-gate.js';
 
 export const FALL_THROUGH = Symbol('orca-route-fall-through');
 
@@ -153,6 +154,13 @@ export async function handleLaneRoutes(ctx, req, res, method, parts) {
       const body = await parseJsonBody(req);
       if (body === null) return sendBodyError(req, res);
       if (rejectSpoofedActor(body, res)) return;
+      // Same gate the spawn route applies. Without it a paired operator could spawn
+      // a lane as "plan" and then escalate the still-queued lane to an unsandboxed
+      // mode here — the scheduler would later launch the unsandboxed argv.
+      if (body.permissionsProfile !== undefined
+        && makeUnsandboxedGate(ctx, req)(lane.executorType, body.permissionsProfile)) {
+        return sendJson(res, 403, { error: UNSANDBOXED_DENIAL });
+      }
       try {
         const updated = registry.updateLaneControls(lane.id, body, {
           actor: req._toolLease?.actor || body.actor || 'dashboard',
@@ -387,6 +395,11 @@ export async function handleLaneRoutes(ctx, req, res, method, parts) {
         return sendJson(res, error.status || 500, {
           error: error.message || 'Could not integrate lane.',
           conflicts: error.conflicts || false,
+          // A dirty worktree is refused rather than silently dropped; the caller
+          // needs the file list to know what to commit.
+          dirty: error.dirty || false,
+          changedFiles: error.changedFiles || null,
+          worktreePath: error.worktreePath || null,
           baseBranch: error.baseBranch || null,
           branch: error.branch || null,
           nextAction: error.nextAction || null,

@@ -2494,3 +2494,188 @@ test('admin can revoke a paired device by sessionId; a non-admin cannot, and unk
     await server.stop();
   }
 });
+
+// A paired device is an OPERATOR (stop/resign/approve), never a workstation admin.
+// The spawn route enforced that; two sibling paths did not, and each one is a full
+// sandbox escape by itself.
+test('a paired operator cannot reach an unsandboxed agent by escalating a queued lane or by executor-specific mode aliasing', async () => {
+  const token = 'route-token-permission-escalation';
+  const server = await startServer({ token });
+
+  try {
+    const pairing = await server.requestJson('/api/auth/pairing-codes', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'dashboard', label: 'operator phone' },
+    });
+    assert.equal(pairing.status, 201);
+    const paired = await server.requestJson('/api/auth/pair', {
+      method: 'POST',
+      body: { actor: 'dashboard', code: pairing.body.pairing.code, label: 'operator phone' },
+    });
+    assert.equal(paired.status, 200);
+    const cookie = String(paired.response.headers['set-cookie']);
+    const operator = { cookie };
+
+    const orchestrator = await registerOrchestrator(server, token);
+    const spawnUrl = `/api/orchestrators/${orchestrator.body.id}/executors`;
+
+    // Baseline: the gate the spawn route already had.
+    const directBypass = await server.requestJson(spawnUrl, {
+      method: 'POST',
+      headers: operator,
+      body: { title: 'direct', executorType: 'codex', permissionsProfile: 'bypass-permissions', owner: 'dashboard' },
+    });
+    assert.equal(directBypass.status, 403, 'named bypass mode is blocked for a paired operator');
+
+    // ESCAPE 1 — spawn sandboxed, then escalate the still-queued lane. The controls
+    // route mutated permissionsProfile with no privilege check at all, and the
+    // scheduler launches whatever mode the lane holds when its turn comes.
+    const planLane = await server.requestJson(spawnUrl, {
+      method: 'POST',
+      headers: operator,
+      body: { title: 'plan lane', executorType: 'codex', permissionsProfile: 'plan', owner: 'dashboard', approved: true },
+    });
+    assert.equal(planLane.status, 201, `plan spawn should be allowed: ${JSON.stringify(planLane.body)}`);
+    const laneId = planLane.body.id;
+
+    const escalate = await server.requestJson(`/api/lanes/${laneId}/controls`, {
+      method: 'PATCH',
+      headers: operator,
+      body: { permissionsProfile: 'bypass-permissions', actor: 'dashboard', approved: true },
+    });
+    assert.equal(escalate.status, 403, 'post-spawn escalation must hit the same gate as spawn');
+
+    const afterEscalate = await server.requestJson(`/api/lanes/${laneId}`, {
+      method: 'GET',
+      headers: { 'x-orca-token': token },
+    });
+    assert.equal(afterEscalate.body.permissionsProfile, 'plan', 'the refused escalation must not have been applied');
+
+    // ...but an ADMIN may still do it — this is an authorization gate, not a ban.
+    const adminEscalate = await server.requestJson(`/api/lanes/${laneId}/controls`, {
+      method: 'PATCH',
+      headers: { 'x-orca-token': token },
+      body: { permissionsProfile: 'bypass-permissions', actor: 'dashboard', approved: true },
+    });
+    assert.equal(adminEscalate.status, 200, `admin escalation stays allowed: ${JSON.stringify(adminEscalate.body)}`);
+
+    // ESCAPE 2 — mode names are executor-specific. composer-cli turns "auto-edit"
+    // into --force (unsandboxed), and the spawn route's own denial message used to
+    // recommend "auto-edit" as the safe alternative.
+    const composerAutoEdit = await server.requestJson(spawnUrl, {
+      method: 'POST',
+      headers: operator,
+      body: { title: 'composer', executorType: 'composer-cli', permissionsProfile: 'auto-edit', owner: 'dashboard', approved: true },
+    });
+    assert.equal(composerAutoEdit.status, 403, 'auto-edit maps to --force on composer-cli, so it is unsandboxed');
+
+    // ...and the same alias must NOT be over-blocked where it really is sandboxed:
+    // claude maps auto-edit to acceptEdits, codex to --sandbox workspace-write.
+    for (const executorType of ['claude', 'codex']) {
+      const sandboxed = await server.requestJson(spawnUrl, {
+        method: 'POST',
+        headers: operator,
+        body: { title: `${executorType} auto-edit`, executorType, permissionsProfile: 'auto-edit', owner: 'dashboard', approved: true },
+      });
+      assert.equal(sandboxed.status, 201, `${executorType} auto-edit is sandboxed and must stay available to an operator: ${JSON.stringify(sandboxed.body)}`);
+    }
+  } finally {
+    await server.stop();
+  }
+});
+
+// Executors are told to submit and LEAVE the worktree, not to commit — so an
+// isolated lane whose work is uncommitted is the ordinary case, and integration
+// (which measures commits, base..laneBranch) saw "nothing to merge", set
+// integratedAt, and let retention reap the only copy.
+test('POST /api/lanes/{id}/integrate refuses a dirty worktree instead of silently discarding the work', async () => {
+  const token = 'route-token-integrate-dirty';
+  const server = await startServer({ token });
+  try {
+    await initGitRepoAt(process.cwd());
+    const orchestrator = await registerOrchestrator(server, token, { title: 'Integrate Dirty Orchestrator' });
+
+    const lane = await createAcceptedIsolatedLane(server, token, orchestrator.body.id, {
+      branch: 'feat-dirty',
+    });
+    // Edit inside the worktree WITHOUT committing — zero commits ahead of base.
+    const workFile = path.join(lane.worktreePath, 'uncommitted.txt');
+    await fs.writeFile(workFile, 'the executor\'s only copy of its work\n');
+    await acceptAudit(server, token, lane.id);
+
+    const refused = await server.requestJson(`/api/lanes/${lane.id}/integrate`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'dashboard' },
+    });
+    assert.equal(refused.status, 409, JSON.stringify(refused.body));
+    assert.equal(refused.body.dirty, true);
+    assert.match(String(refused.body.error || ''), /uncommitted/i);
+
+    // The work is still there, and the lane must NOT read as integrated (which is
+    // what made retention eligible to prune the record).
+    assert.equal((await fs.stat(workFile)).isFile(), true);
+    const after = await server.requestJson(`/api/lanes/${lane.id}`, {
+      method: 'GET',
+      headers: { 'x-orca-token': token },
+    });
+    assert.ok(!after.body.integratedAt, 'a refused integrate must not stamp integratedAt');
+
+    // Committing it makes integrate succeed — the refusal is actionable, not a wall.
+    await gitIn(lane.worktreePath, 'add', 'uncommitted.txt');
+    await gitIn(lane.worktreePath, 'commit', '-qm', 'lane work');
+    const integrated = await server.requestJson(`/api/lanes/${lane.id}/integrate`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'dashboard' },
+    });
+    assert.equal(integrated.status, 200, JSON.stringify(integrated.body));
+    assert.equal(integrated.body.integrated, true);
+    assert.equal((await fs.stat(path.join(process.cwd(), 'uncommitted.txt'))).isFile(), true);
+  } finally {
+    await server.stop();
+  }
+});
+
+// Isolation is decided at CREATE time but lanes start on a scheduler tick, so two
+// writers spawned back-to-back were both still `queued` when the second was
+// classified — both resolved to `direct` and then ran concurrently in the repo root.
+test('two auto-mode writer lanes spawned before any scheduler tick do not both run directly in the checkout', async () => {
+  const token = 'route-token-writer-isolation';
+  const server = await startServer({ token });
+  try {
+    await initGitRepoAt(process.cwd());
+    const orchestrator = await registerOrchestrator(server, token, { title: 'Writer Isolation Orchestrator' });
+
+    const spawnWriter = async (title) => {
+      const res = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/executors`, {
+        method: 'POST',
+        headers: { 'x-orca-token': token },
+        body: {
+          title,
+          executorType: 'mock',
+          // 'auto' + a writable profile: this is the default fan-out shape.
+          worktreeMode: 'auto',
+          permissionsProfile: 'auto-edit',
+          autoCompleteMs: 400,
+          approved: true,
+        },
+      });
+      assert.equal(res.status, 201, JSON.stringify(res.body));
+      return res.body;
+    };
+
+    const first = await spawnWriter('Writer A');
+    const second = await spawnWriter('Writer B');
+
+    const direct = [first, second].filter((lane) => lane.worktreeMode !== 'isolated');
+    assert.equal(direct.length <= 1, true,
+      `at most one concurrent writer may run directly in the checkout, got ${direct.length} (A=${first.worktreeMode}, B=${second.worktreeMode})`);
+    assert.equal(second.worktreeMode, 'isolated', 'the second concurrent writer must be isolated');
+    assert.ok(second.worktreePath, 'an isolated lane needs its own worktree');
+    assert.notEqual(second.worktreePath, first.worktreePath);
+  } finally {
+    await server.stop();
+  }
+});
