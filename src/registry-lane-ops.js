@@ -108,7 +108,9 @@ export const laneOpsMethods = {
     }
     if (summary) lane.summary = String(summary).slice(0, 4000);
     if (Array.isArray(changedFiles) && changedFiles.length) {
-      lane.changedFiles = changedFiles.map((file) => String(file).slice(0, 400)).slice(0, 500);
+      const reportedChangedFiles = changedFiles.map((file) => String(file).slice(0, 400)).slice(0, 500);
+      lane.reportedChangedFiles = reportedChangedFiles;
+      lane.changedFiles = reportedChangedFiles;
     }
     if (handoff) lane.handoff = String(handoff).slice(0, 4000);
     lane.state = READY_FOR_AUDIT_STATE;

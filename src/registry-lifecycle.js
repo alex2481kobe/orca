@@ -172,7 +172,9 @@ export const lifecycleMethods = {
       return {
         allowed: false,
         policy,
-        message: `${action} requires explicit approval before execution.`,
+        // Name the remedy: an agent reading only this message previously had no
+        // way to discover that `approved: true` in the request body clears it.
+        message: `${action} requires explicit approval before execution. Re-send the request with "approved": true in the body, or have an operator approve it.`,
       };
     }
 

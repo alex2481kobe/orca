@@ -13,7 +13,12 @@ import {
 } from './registry-utils.js';
 import { buildNextActionEnvelope } from './agent-tools/next-action.js';
 import { FIRST_CLASS_CLI_EXECUTOR_TYPES, getExecutorProfile } from './executor-factory.js';
-import { createLaneWorktree, removeLaneWorktree, describeRepoRoot } from './worktree-manager.js';
+import {
+  createLaneWorktree,
+  removeLaneWorktree,
+  describeRepoRoot,
+  changedFilesIn,
+} from './worktree-manager.js';
 import { sanitizeFlowConfig } from './registry-audit.js';
 import { validateNetworkUrl } from './url-policy.js';
 import {
@@ -344,6 +349,9 @@ export const laneCreateMethods = {
         exitReason: null,
         processMeta: null,
         changedFiles: [],
+        // Direct lanes share the checkout, so terminal git status must be scoped
+        // against the dirt that was already present when this lane was created.
+        changedFilesBaseline: changedFilesIn(resolvedWorkdir),
         lastEvidenceCaptureAt: null,
         lastEvidence: null,
         auditState: 'not_queued',

@@ -20,6 +20,22 @@ const {
 // notifications/audit events and clobber the recorded outcome.
 const TERMINAL_LANE_STATES = new Set([DONE_STATE, FAILED_STATE, STOPPED_STATE, ACCEPTED_STATE]);
 
+function changedFilePaths(entry) {
+  const value = String(entry || '').trim();
+  if (!value) return [];
+  const withoutStatus = value.replace(/^[MADRCU?!]{1,2}\s+/, '');
+  return withoutStatus.split(' -> ').map((file) => file.replace(/^"(.*)"$/, '$1'));
+}
+
+function scopedDirectChanges(current, baseline, reported) {
+  const reportedPaths = new Set((reported || []).flatMap(changedFilePaths));
+  if (reportedPaths.size) {
+    return current.filter((entry) => changedFilePaths(entry).some((file) => reportedPaths.has(file)));
+  }
+  const baselinePaths = new Set((baseline || []).flatMap(changedFilePaths));
+  return current.filter((entry) => changedFilePaths(entry).every((file) => !baselinePaths.has(file)));
+}
+
 export const laneTerminalMethods = {
   markLaneCompleted(lane) {
     if (!lane || TERMINAL_LANE_STATES.has(lane.state)) return;
@@ -212,7 +228,11 @@ export const laneTerminalMethods = {
     let changedFiles = Array.isArray(lane.changedFiles) ? lane.changedFiles : [];
     if (lane.worktreePath || lane.workdir) {
       const result = changedFilesIn(lane.worktreePath || lane.workdir);
-      if (result.length) changedFiles = result;
+      if (result.length) {
+        changedFiles = lane.worktreeMode === 'isolated'
+          ? result
+          : scopedDirectChanges(result, lane.changedFilesBaseline, lane.reportedChangedFiles);
+      }
     }
     lane.changedFiles = changedFiles;
 
