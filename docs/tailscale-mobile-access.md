@@ -41,6 +41,30 @@ Per-executor overrides follow the pattern `ORCA_<EXECUTOR>_BINARY` and
 `ORCA_<EXECUTOR>_WORKDIR_ROOTS` — for example `ORCA_CODEX_BINARY` or
 `ORCA_CLAUDE_BINARY`.
 
+Other env vars worth knowing on this process:
+
+- `ORCA_ALLOWED_HOSTS` — comma-separated extra `Host` header values accepted from
+  **direct** (non-proxied) browser connections. Loopback names are always
+  allowed and requests through Tailscale Serve are exempt (they authenticate
+  normally), so you only need this when a browser reaches the server directly
+  under some other hostname. It is the anti-DNS-rebinding gate: keep it empty
+  unless you have that exact need.
+- `ORCA_AGENT_TOOLS_BASE_URL` — the base URL the MCP bridge calls back on,
+  default `http://127.0.0.1:3000`. If you run the server on any other port or
+  host, every agent's MCP client must have this set to match, or its tool calls
+  go nowhere. Orca exports it automatically into spawned lanes; you set it by
+  hand only for the top-level agent you wire up yourself.
+- `ORCA_LANE_CONCURRENCY` — how many lanes one orchestrator runs at once
+  (default 4, clamped to 64). This is the only way to change lane capacity, and
+  it does not retro-apply to orchestrators already in `.orca/state.json`.
+- `ORCA_LANE_IDLE_TIMEOUT_MS` — stop a running lane after this long with no
+  output or tool activity (default `900000` = 15 min; `0` disables).
+- `ORCA_AUTO_AUDIT` — set to `false` to stop Orca from auto-queuing audits for
+  finished lanes. On by default.
+
+See [`agent-orchestrator-skill.md`](agent-orchestrator-skill.md) for how the last
+three change what an orchestrating agent sees.
+
 ## 3. Smoke the API + UI from the Mac
 
 ```bash
@@ -106,10 +130,12 @@ Open the following in mobile Safari/Chrome:
    — and enter it on the phone. Do not put tokens or codes in URLs.
 2. `<base-url>/api/health` — JSON `{ "status": "ok" }` (no counts; this is the
    only data-free public route besides `/api/auth/status`).
-3. Before pairing, confirm the URL leaks nothing: `<base-url>/api/projects` and
+3. Before pairing, confirm the URL leaks nothing: `<base-url>/api/overview` and
    `<base-url>/api/mobile/manifest` must both return `401` with no project,
    orchestrator, or lane data. After pairing (browser session cookie), the same
-   routes return your workspace.
+   two routes return your workspace. (`/api/overview` is the read-only dashboard
+   poll — projects, orchestrators, lanes. There is no `GET /api/projects`; that
+   path is POST-only and a GET returns `404`, so it is not a useful check.)
 
 ### What a paired phone can and cannot do
 
@@ -171,7 +197,4 @@ tailscale serve reset
 - Public Tailscale Funnel.
 - Auto-seed of demo data (set `ORCA_SEED=1` only if you want a
   starter example project).
-- Unconfirmed destructive cleanup. Artifact cleanup refuses to delete anything
-  without `confirmed: true` plus the approval policy check; use `dryRun: true`
-  to preview.
 - Hand-edited tokens in shell history; prefer `read -s`.

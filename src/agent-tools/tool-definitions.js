@@ -47,7 +47,7 @@ export const TOOL_DEFINITIONS = [
     route: '/api/orchestrators/{orchestratorId}/executors',
     implemented: true,
     mutating: true,
-    summary: 'Spawn an executor lane under your orchestrator (runs in your project\'s cwd). Body: {title, executorType, taskPrompt, model?, permissionsProfile?, worktreeMode?, idleShutdown?}. worktreeMode: auto (default — read-only/sole-writer lanes run directly in the checkout, overlapping writers get a dedicated worktree) or isolated (always give this lane its own worktree). idleShutdown: true (default — reap the lane after the idle window with no output/heartbeat) or false (never auto-reap).',
+    summary: 'Spawn an executor lane under your orchestrator (runs in your project\'s cwd). Body: {title, executorType, taskPrompt, model?, permissionsProfile?, worktreeMode?, idleShutdown?}. worktreeMode: auto (default — read-only/sole-writer lanes run directly in the checkout, overlapping writers get a dedicated worktree) or isolated (always give this lane its own worktree). idleShutdown: true (default — reap the lane after the idle window with no output or tool activity) or false (never auto-reap).',
   },
 
   // --- lane observation + control -------------------------------------------

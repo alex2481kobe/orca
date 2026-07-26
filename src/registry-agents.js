@@ -340,6 +340,11 @@ export const agentMethods = {
     const stale = this._orchestratorStale(orch);
     return clonePayload({
       orchestratorId: orch.id,
+      // The project this orchestrator is bound to. Without it, an agent that polls
+      // status but no longer holds its `orchestrator.register` response cannot call
+      // project-scoped tools at all — `project.preview.set` (the live preview URLs
+      // the README advertises) needs a projectId and there is no other way to get one.
+      projectId: orch.projectId || null,
       sessionId: orch.id,
       sessionName: name,
       activeOrchestrator: {

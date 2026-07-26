@@ -18,8 +18,9 @@ The dashboard shows the live state of every project, orchestrator, and executor
 lane as an interactive node canvas, reachable from a phone over private Tailscale.
 It is a **monitoring surface with break-glass controls**, not an agent console:
 a human can stop an executor, stop the agents under an orchestrator, or close
-(resign) an agent from it, but there is no chat and no way to type into a running
-agent. Real orchestration happens over MCP — through you.
+(resign) an agent from it, but the dashboard has no chat box and no way to type
+into a running agent. Real orchestration happens over MCP — through you (and
+`lane.terminal.write` is the only path into a running executor's prompt).
 
 ## Role
 
@@ -33,25 +34,69 @@ isolation.
    (`cwd`). Orca binds you to that project and shows you on the dashboard.
    Registered orchestrators are the only actors allowed to spawn and audit;
    unregistered mutating calls are refused.
-2. **Publish status.** Push your current plan/status so a human watching the
-   dashboard knows what you are doing, and read `orchestrator.status` to get the
-   live state of your project's lanes back.
-3. **Spawn.** Check the available executor types, models, permission modes, and
-   effort levels first, then call `executor.spawn` to create a scoped lane under
-   contract — one owner, one reviewable unit of work, within capacity.
-4. **Monitor.** Watch executors without touching them:
+2. **Refresh your title and focus.** There is no separate status-push tool.
+   Re-call `orchestrator.register` with the same `cwd` — it is idempotent and
+   updates the self-authored `title` + `focus` line the dashboard shows. Poll
+   `orchestrator.status` for the lane tree, capacity, and the next required tool;
+   polling it also refreshes your lease, so a read-only monitoring loop keeps its
+   ownership from going stale (after ~15 minutes idle another agent can take the
+   orchestrator over via `takeoverOrchestratorId`).
+3. **Spawn.** `executor.spawn { title, executorType, taskPrompt, model?,
+   permissionsProfile?, intelligenceProfile?, worktreeMode?, idleShutdown? }` —
+   one owner, one reviewable unit of work. There is no capability-discovery tool;
+   these are the values:
+   - `executorType`: `codex`, `claude`, `gemini-cli`, `composer-cli`, or `mock`
+     (plus `cli` only when the operator enabled a generic CLI profile). An
+     unsupported type is refused with the supported list.
+   - `model`: passed straight through to that CLI's `--model`. Blank = the CLI's
+     own default. Orca ships no model list.
+   - `permissionsProfile`: how much the lane may do. Orca maps the string per
+     CLI, so it does not mean the same thing everywhere:
+     - Codex: `read-only` / `plan` / `ask` / `default` → `--sandbox read-only`;
+       anything else, blank included, → `--sandbox workspace-write`. A Codex lane
+       is always sandboxed.
+     - Claude: passed as `--permission-mode` (`auto-edit` → `acceptEdits`,
+       `bypass` → `bypassPermissions`); blank leaves the CLI's default. Orca
+       routes Claude's permission prompts to you (`approval.list` /
+       `approval.respond`) for every value **except** the force modes (`auto`,
+       `auto-edit`, `auto-accept`, `bypass`, `force`, `yolo`), which self-approve.
+     - `gemini-cli`: `--approval-mode`, unless the value is a plan/read-only one.
+       `composer-cli`: only a force mode matters (it becomes `--force`).
+     The exact string `read-only` additionally marks the lane a non-writer, which
+     is what stops `auto` worktree mode from giving it a worktree.
+   - `intelligenceProfile`: reasoning effort. Codex accepts
+     `minimal|low|medium|high|xhigh`; Claude accepts `low|medium|high|xhigh|max`
+     plus `ultracode`. `gemini-cli` and `composer-cli` ignore it.
+   - `worktreeMode`: `auto` (default) or `isolated` — see "Worktree isolation is
+     conditional" below. No other value is accepted.
+   - `idleShutdown`: default `true` — a running lane with no output or tool
+     activity for the idle window is reaped. Pass `false` for a lane that is
+     legitimately quiet for a long time.
+   Lanes above your capacity are accepted and stay **queued** until a slot frees
+   (see "Lane capacity" below).
+4. **Monitor.** Watch executors:
    - `lane.list` — all lanes for the project and their state.
-   - `lane.get` — full detail for one lane (contract, status, submission).
-   - `lane.terminal.tail` — raw terminal output for a running lane.
-   You steer executors through spawn/shutdown/retry/audit — you do not type into a
-   running executor.
+   - `lane.get` — full detail for one lane (contract, logs, changed files,
+     `resultText` — read this to see WHY a lane failed).
+   - `lane.terminal.tail` — raw terminal output for a running lane; poll with
+     `nextOffset`.
+   - `lane.terminal.write` — answer a prompt a worker is blocked on. This is the
+     one way to type into a running executor; the dashboard has no such control.
 5. **Audit.** When an executor calls `lane.submit`, review before accepting:
    - `audit.queue_one` — pull a submitted lane into the audit queue.
    - `audit.findings.record` — record structured audit findings.
    - `audit.accept` — accept the work (lane is done).
    - `audit.request_fix` — send it back with required changes.
    - `audit.block` — block a lane that must not proceed.
-   Do not treat an executor's own summary as final; audit it.
+   Do not treat an executor's own summary as final; audit it. Two server-side
+   gates will refuse an empty sign-off with `409`:
+   - `audit.accept` requires at least one finding or one reviewed file. Call
+     `audit.findings.record` first.
+   - A lane that has a `targetUrl` (UI/browser work) additionally requires
+     **captured evidence** — a `.png/.jpg/.gif/.webp/.svg/.pdf/.mp4/.webm`
+     artifact on the lane. Check with `lane.artifacts.list` / read it with
+     `lane.artifacts.get` before accepting; if there is none, `audit.request_fix`
+     and tell the executor to capture a screenshot.
 6. **Land isolated work.** A lane that ran in its own worktree is not in the
    project checkout yet: after accepting, call `lane.integrate` to merge it, or
    `lane.worktree.discard` to throw it away. Lanes that ran directly in the
@@ -68,21 +113,81 @@ isolation.
 - **only overlapping writers get a dedicated isolated worktree.**
 
 Pass `isolated` explicitly when you know a lane needs its own worktree even though
-`auto` wouldn't give it one, and keep concurrent writers file-disjoint. Orca reclaims
-a lane's worktree automatically when the lane is deleted or pruned — there is no
-manual removal step.
+`auto` wouldn't give it one, and keep concurrent writers file-disjoint.
+
+**An isolated worktree is not reclaimed for you.** Retention pruning deliberately
+*skips* an isolated lane that still holds un-integrated work — record and worktree
+both stay on disk indefinitely, so nothing silently deletes unmerged code. You
+release it by finishing the lane: `lane.integrate` (merge it back) or
+`lane.worktree.discard` (throw it away). `lane.delete` also removes the worktree,
+but only for a terminal lane and it takes the record with it.
+
+## Lane capacity
+
+An orchestrator runs a bounded number of lanes at once; the rest queue. The
+default is **4** and there is no tool to change it — set the `ORCA_LANE_CONCURRENCY`
+env var on the Orca server process (values above 64 are clamped to 64).
+
+Trap: the value is only applied to an orchestrator record that has **no** capacity
+field yet. An orchestrator already persisted in `.orca/state.json` keeps the
+capacity it was created with, so changing the env var does **not** retro-apply to
+existing orchestrators — it takes effect for ones registered afterwards.
 
 ## Lane controls, approvals, and events
 
-Beyond the loop above, you can adjust a lane's contract fields after spawn
-(model, permissions, effort), shut a lane down, retry a stopped or failed lane,
-and delete a lane you no longer need. When an executor needs a gated action it
-surfaces an approval for you to grant or deny. An event stream keeps clients in
-sync (drain, ack, replay). Ask the server for your current tool list rather than
-memorizing names — the surface is deliberately small and changes.
+`lane.controls.update` adjusts a lane's contract fields after spawn: `model`,
+`permissionsProfile`, `intelligenceProfile` (reasoning effort — the field is not
+called `effort`), and — when the user left them blank — `targetUrl` and
+`verificationCommand` you have learned for this work. Setting `targetUrl` is what
+puts the lane under the captured-evidence rule above. `lane.shutdown`,
+`lane.retry`, and `lane.delete` cover stop, re-run, and cleanup.
+
+When an executor needs a gated action it surfaces an approval: `approval.list`
+then `approval.respond`. A governed Claude executor **blocks** until you decide.
+
+`event.drain` is the only event tool — there is no ack or replay call, because
+draining IS the acknowledgement. Whatever a drain returns is consumed and will
+never be returned again, so **persist the events before you act on them**; if
+your call fails mid-processing, those events are gone. Query params: `limit`,
+`type`, `afterSeq`.
+
+Your MCP client's tool list is authoritative — the surface is deliberately small
+and changes; do not call a tool you cannot see in it.
 
 `fleet.emergency_stop` is the break-glass path: it stops running agents. Use it
 when something is genuinely running away, not as routine cleanup.
+
+## Live preview links
+
+If you start a dev server for the user, register it with `project.preview.set`
+so the link renders on the dashboard and on their phone:
+
+```
+project.preview.set { projectId, body: { label, localUrl, port?, kind?, id? } }
+```
+
+`localUrl` is the loopback URL you actually started (e.g.
+`http://127.0.0.1:5173`); Orca derives the tailnet URL. `kind` is one of
+`dev-server`, `vite`, `preview`, `dashboard`, `artifact`, `docs`, `other`. Pass an
+existing link's `id` to update it instead of adding another. `projectId` comes
+from your `orchestrator.register` response (a lane's MCP connection fills it in
+automatically).
+
+## Server-side knobs that change your behavior
+
+These are env vars on the Orca server process, not tools. Know them because they
+silently change what you observe:
+
+- `ORCA_LANE_CONCURRENCY` — lanes per orchestrator (default 4, max 64). See
+  "Lane capacity" for the backfill trap.
+- `ORCA_LANE_IDLE_TIMEOUT_MS` — how long a *running* lane may produce no output
+  or tool activity before it is stopped as idle (default 900000 = 15 min; `0`
+  disables it). A lane spawned with `idleShutdown:false` is exempt.
+- `ORCA_AUTO_AUDIT` — auto-audit is **on** by default: when an executor lane
+  finishes and its flow requires an audit, Orca queues it and either nudges you
+  or spawns a dedicated auditor lane. Set it to `false` and nothing audits a
+  finished lane until you call `audit.queue_one` yourself. Auditor and
+  orchestrator lanes are never auto-audited (no self-audit).
 
 ## Security rules
 

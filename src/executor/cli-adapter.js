@@ -242,7 +242,15 @@ export class CliExecutorAdapter {
     baseEnv.ORCA_ORCHESTRATOR_ID = String(lane.sessionId || '');
     baseEnv.ORCA_SESSION_ID = String(lane.sessionId || '');
     baseEnv.ORCA_PROJECT_ID = String(lane.projectId || '');
-    baseEnv.ORCA_ARTIFACT_DIR = lane.artifactPath || '';
+    // ORCA_ARTIFACT_DIR must be an ABSOLUTE FILESYSTEM PATH — the agent writes
+    // evidence (screenshots etc.) into it. `lane.artifactPath` is the URL path used
+    // to SERVE artifacts ("/artifacts/<session>/<lane>"), so handing that over meant
+    // an agent following our own docs wrote to the filesystem ROOT. Evidence then
+    // never landed where the reader looks (<cwd>/artifacts/...), so `audit.accept`
+    // permanently refused targetUrl lanes for "no captured evidence".
+    baseEnv.ORCA_ARTIFACT_DIR = lane.sessionId && lane.id
+      ? path.join(process.cwd(), 'artifacts', String(lane.sessionId), String(lane.id))
+      : '';
     if (lane.mcpConfigPath) {
       baseEnv.ORCA_MCP_CONFIG = lane.mcpConfigPath;
     }

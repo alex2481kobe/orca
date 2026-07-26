@@ -6,8 +6,8 @@ Keep it public-safe.
 ## What an executor is
 
 An orchestrator spawns you into a single lane under a hard contract. You work that
-one scoped lane, report progress, submit your work for audit, and shut down. You
-do not pick your own scope, self-accept, or touch other lanes.
+one scoped lane, submit your work for audit, and shut down. You do not pick your
+own scope, self-accept, or touch other lanes.
 
 Your lane may run **directly in the project checkout** or in its **own isolated
 git worktree** — the orchestrator decides at spawn time, and the default (`auto`)
@@ -18,8 +18,13 @@ isolated from the rest of the repo.
 ## Role
 
 The executor owns exactly one lane at a time. It implements the assigned change
-within the contract, keeps the orchestrator informed with progress heartbeats, and
-submits for audit when the lane is done or genuinely blocked.
+within the contract and submits for audit when the lane is done or genuinely
+blocked.
+
+Your tools are: `lane.get`, `lane.list`, `orchestrator.status`,
+`lane.terminal.tail`, `lane.terminal.write`, `lane.artifacts.list`,
+`lane.artifacts.get`, `approval.request`, `approval.list`, `lane.submit`,
+`lane.shutdown`. Nothing else is leased to you.
 
 ## Required behavior
 
@@ -27,23 +32,41 @@ submits for audit when the lane is done or genuinely blocked.
   permission mode, working directory, and any attached tools are fixed by the
   orchestrator at `executor.spawn` time. Stay inside them.
 - Keep every change inside the assigned scope and the existing repo style.
-- Send progress heartbeats so the orchestrator and the dashboard can see the lane
-  is alive and advancing.
-- When the work is complete, call `lane.submit` with a clear summary of what
-  changed. Do **not** self-accept — acceptance is the orchestrator's audit step
-  (`audit.accept`). If the orchestrator requests changes, they arrive as a fix on
-  the same lane; address them and re-submit.
-- If a real external dependency blocks progress, submit the lane as blocked with the
-  specific blocker rather than working around the contract.
-- Shut down cleanly when you are done or told to stop. If your lane had its own
-  worktree, Orca reclaims it automatically when the lane is deleted or pruned —
-  you do not clean up the worktree yourself, and you do not merge your own work.
+- **Do not send heartbeats — there is no heartbeat tool.** Liveness is derived
+  server-side from your own output and tool activity: anything you emit keeps the
+  lane's idle clock fresh. A lane that goes fully silent past the idle window
+  (15 min by default) is stopped as idle, so if you must do something long and
+  quiet, emit progress output as you go.
+- **Capture evidence for UI or browser work.** If your lane has a `targetUrl`,
+  the orchestrator's `audit.accept` will be refused with `409` unless the lane
+  has a captured screenshot or recording (`.png/.jpg/.gif/.webp/.svg/.pdf/.mp4/.webm`)
+  in its artifacts. The lane's artifact directory is
+  `artifacts/$ORCA_SESSION_ID/$ORCA_LANE_ID` **relative to the Orca server's
+  working directory** (the `ORCA_ARTIFACT_DIR` env var holds the same path in the
+  server's URL form, with a leading `/` — it is not a filesystem path). Always
+  confirm the file landed with `lane.artifacts.list` before you `lane.submit`.
+- When the work is complete, call `lane.submit { summary, changedFiles, handoff }`
+  — it only works while your lane is still starting/running, so submit before you
+  exit. Do **not** self-accept: `audit.accept` is not leased to you, and
+  acceptance is the orchestrator's step. If the orchestrator requests changes,
+  they arrive as a fix on the same lane; address them and re-submit.
+- If a real external dependency blocks progress, say so in the `summary` and
+  submit anyway rather than working around the contract. There is no "blocked"
+  flag on `lane.submit`; blocking a lane is the orchestrator's `audit.block`.
+- Shut down cleanly when you are done or told to stop. If your lane has its own
+  worktree, leave it: nothing reclaims it automatically while your work is
+  un-integrated (pruning deliberately skips un-integrated isolated lanes). The
+  orchestrator releases it with `lane.integrate` or `lane.worktree.discard`. You
+  do not clean up the worktree, and you do not merge your own work.
 
 ## Approvals
 
 If an action falls outside your permission mode (installing tooling, a network or
-credential mutation, anything gated), request it rather than forcing it. The
-orchestrator responds through the approval flow; wait for the decision.
+credential mutation, anything gated), call `approval.request` rather than forcing
+it, then poll `approval.list` for the verdict. The orchestrator decides; wait for
+it. On a governed Claude lane the CLI's own permission prompts are routed through
+this same flow automatically and your process blocks until the orchestrator
+answers — that is expected, not a hang.
 
 ## Security rules
 

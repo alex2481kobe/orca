@@ -9,7 +9,15 @@ const SPAWN_POLICIES = new Set(['never', 'ask', 'within_capacity', 'auto']);
 //   auto     — let Orca decide from the situation (the default)
 //   isolated — always give this lane its own git worktree
 export const WORKTREE_MODES = new Set(['auto', 'isolated']);
-export const DEFAULT_APPROVED_CAPACITY = 2;
+// Bare fallback for normalizeApprovedCapacity when a caller supplies none. It is
+// deliberately the SAME number a freshly registered orchestrator gets, honouring
+// ORCA_LANE_CONCURRENCY (registry-agents.js DEFAULT_ORCHESTRATOR_CAPACITY) — this
+// used to be a hardcoded 2 while every real call site passed 4, so any future caller
+// that took the bare default would have silently halved an operator's configured
+// lane capacity.
+export const DEFAULT_APPROVED_CAPACITY = Number.parseInt(process.env.ORCA_LANE_CONCURRENCY ?? '', 10) > 0
+  ? Math.min(64, Number.parseInt(process.env.ORCA_LANE_CONCURRENCY, 10))
+  : 4;
 
 export function normalizeSpawnPolicy(value, fallback = 'within_capacity') {
   const normalized = String(value || fallback).trim().toLowerCase();

@@ -27,7 +27,7 @@ runs:
 ```sh
 npm run typecheck:imports
 npm run smoke:no-hardcoded-colors
-npm test                    # node --test, ~270 tests
+npm test                    # the full node --test suite
 npm run smoke               # full-flow gate
 npm run smoke:screens       # 7 browser screen proofs (Chromium)
 npm run smoke:unauth-sweep  # every mutating route must refuse anonymous callers
