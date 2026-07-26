@@ -407,6 +407,20 @@ export const laneOpsMethods = {
     if (![FAILED_STATE, STOPPED_STATE, FIX_REQUESTED_STATE, BLOCKED_STATE].includes(lane.state)) {
       throw { status: 409, message: `Lane state "${lane.state}" is not retryable.` };
     }
+    // A retryable state does not guarantee a dead process: an executor can submit
+    // (ready_for_audit) and be bounced with audit.request_fix (fix_requested) while
+    // its child is still running. Retrying then only cleared registry mappings — the
+    // old runtime stayed, the next start overwrote the adapter's entry for this lane
+    // id, and the orphaned first child's exit callback later clobbered the new run's
+    // state. Require the process to be gone first.
+    if (typeof this.isLaneProcessLive === 'function' && this.isLaneProcessLive(lane.id)) {
+      throw {
+        status: 409,
+        message: 'Lane still has a live executor process; retrying now would orphan it and let its exit corrupt the new run. Stop the lane first (lane.shutdown), then retry.',
+        processLive: true,
+        nextAction: this._laneNextAction(lane),
+      };
+    }
     this.clearLaneExecutor(lane.id);
     if (typeof this.revokeToolLeasesForLane === 'function') {
       this.revokeToolLeasesForLane(lane.id, {

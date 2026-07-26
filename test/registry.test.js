@@ -1787,3 +1787,47 @@ test('a lane that submitted while its process is still alive keeps holding its c
     await cleanup();
   }
 });
+
+// Worktree provisioning happens BEFORE executor/argv/flow validation, so a late
+// refusal used to leave a git worktree and branch behind with no lane record
+// pointing at them — invisible to discard and to retention pruning.
+test('a rejected isolated spawn leaves no orphaned worktree or branch behind', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const repoDir = path.join(process.cwd(), 'demo-repo');
+    await fs.mkdir(repoDir, { recursive: true });
+    const g = (...args) => spawnSync('git', args, { cwd: repoDir, encoding: 'utf8' });
+    g('init', '-q');
+    g('config', 'user.email', 'test@local');
+    g('config', 'user.name', 'Test');
+    await fs.writeFile(path.join(repoDir, 'README.md'), 'hello');
+    g('add', 'README.md');
+    g('commit', '-qm', 'init');
+
+    const { orchestrator: session } = await makeOrchestrator(registry, { cwd: repoDir });
+    const worktreesBefore = g('worktree', 'list').stdout;
+    const branchesBefore = g('branch', '--list').stdout;
+
+    // Isolated (provisions a worktree) + an invalid flow config (refused later).
+    let rejected = null;
+    try {
+      registry.createLane(session.id, {
+        title: 'Doomed lane',
+        executorType: 'mock',
+        worktreeMode: 'isolated',
+        branch: 'feature/doomed',
+        flow: { fixRouting: 'telepathy' },
+      }, { actor: 'test', approved: true });
+    } catch (error) {
+      rejected = error;
+    }
+    assert.ok(rejected, 'the invalid flow config must be refused');
+    assert.equal(rejected.status, 422);
+
+    assert.equal(registry.lanes.some((l) => l.title === 'Doomed lane'), false, 'no lane record was created');
+    assert.equal(g('worktree', 'list').stdout, worktreesBefore, 'no worktree was leaked');
+    assert.equal(g('branch', '--list').stdout, branchesBefore, 'no branch was leaked');
+  } finally {
+    await cleanup();
+  }
+});
