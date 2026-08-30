@@ -115,6 +115,15 @@ isolation.
 Pass `isolated` explicitly when you know a lane needs its own worktree even though
 `auto` wouldn't give it one, and keep concurrent writers file-disjoint.
 
+When the project checkout already has dependencies, Orca links every existing
+root and package/app `node_modules` directory into a new isolated worktree at the
+same relative path. This lets the lane run the prepared toolchain without an
+install or network access. The link targets are shared and mutable: executors may
+run existing tools, but must not run dependency install, update, or prune commands
+inside the lane. If the checkout has no prepared dependencies, or only some links
+can be created, the lane records a visible toolchain warning instead of silently
+pretending its checks can run.
+
 **An isolated worktree is not reclaimed for you.** Retention pruning deliberately
 *skips* an isolated lane that still holds un-integrated work — record and worktree
 both stay on disk indefinitely, so nothing silently deletes unmerged code. You

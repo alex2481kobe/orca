@@ -4,6 +4,8 @@ import fs from 'node:fs';
 
 const MAX_BRANCH_LEN = 200;
 const BRANCH_PREFIX = 'orca/lane/';
+const DEPENDENCY_DIR = 'node_modules';
+const DEPENDENCY_SCAN_SKIP = new Set(['.git', '.orca']);
 
 function runGit(args, options = {}) {
   return spawnSync('git', args, {
@@ -129,6 +131,120 @@ export function describeRepoRoot(repoRoot) {
   };
 }
 
+function discoverDependencyDirectories(repoRoot) {
+  const directories = [];
+  const issues = [];
+
+  const visit = (currentDir) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(currentDir, { withFileTypes: true });
+    } catch (error) {
+      issues.push(`Could not inspect ${path.relative(repoRoot, currentDir) || '.'}: ${error.message}`);
+      return;
+    }
+
+    for (const entry of entries) {
+      if (DEPENDENCY_SCAN_SKIP.has(entry.name)) continue;
+      const entryPath = path.join(currentDir, entry.name);
+      if (entry.name === DEPENDENCY_DIR) {
+        try {
+          if (fs.statSync(entryPath).isDirectory()) directories.push(entryPath);
+          else issues.push(`${path.relative(repoRoot, entryPath)} is not a directory.`);
+        } catch (error) {
+          issues.push(`Could not use ${path.relative(repoRoot, entryPath)}: ${error.message}`);
+        }
+        // Never traverse dependencies: that is both expensive and would discover
+        // implementation-private nested installs that Node does not resolve as a
+        // package/app toolchain root.
+        continue;
+      }
+      // Do not follow directory symlinks while discovering package roots. Besides
+      // preventing cycles, this keeps discovery bounded to the registered checkout.
+      if (entry.isDirectory() && !entry.isSymbolicLink()) visit(entryPath);
+    }
+  };
+
+  visit(repoRoot);
+  directories.sort((a, b) => a.localeCompare(b));
+  return { directories, issues };
+}
+
+/**
+ * Make an isolated worktree reuse dependency installations already prepared in
+ * the registered checkout. Every root/package node_modules directory is linked at
+ * the same relative path so npm-workspaces monorepos preserve package-local module
+ * resolution as well as their root toolchain.
+ *
+ * The links deliberately share mutable targets. Callers must surface the returned
+ * warning to executors: existing tools may run, but install/update/prune commands
+ * must run in the parent checkout, never through a lane link.
+ */
+export function prepareLaneToolchain({ repoRoot, worktreePath }) {
+  const { directories, issues: scanIssues } = discoverDependencyDirectories(repoRoot);
+  const linked = [];
+  const issues = [...scanIssues];
+
+  for (const sourcePath of directories) {
+    const relativePath = path.relative(repoRoot, sourcePath);
+    const destinationPath = path.join(worktreePath, relativePath);
+    const destinationParent = path.dirname(destinationPath);
+    if (!directoryExists(destinationParent)) {
+      issues.push(`Skipped ${relativePath}: its package directory is not present in the worktree.`);
+      continue;
+    }
+
+    try {
+      const existing = fs.lstatSync(destinationPath, { throwIfNoEntry: false });
+      if (existing) {
+        if (!existing.isSymbolicLink()) {
+          issues.push(`Skipped ${relativePath}: the worktree path already exists and is not a symlink.`);
+          continue;
+        }
+        const existingTarget = fs.realpathSync(destinationPath);
+        const sourceTarget = fs.realpathSync(sourcePath);
+        if (existingTarget !== sourceTarget) {
+          issues.push(`Skipped ${relativePath}: the worktree symlink points somewhere else.`);
+          continue;
+        }
+      } else {
+        fs.symlinkSync(sourcePath, destinationPath, process.platform === 'win32' ? 'junction' : 'dir');
+      }
+      linked.push(relativePath);
+    } catch (error) {
+      issues.push(`Could not link ${relativePath}: ${error.message}`);
+    }
+  }
+
+  const discoveredCount = directories.length;
+  const linkedCount = linked.length;
+  let status = 'linked';
+  if (discoveredCount === 0 || linkedCount === 0) status = 'unavailable';
+  else if (linkedCount !== discoveredCount || issues.length) status = 'partial';
+
+  let message;
+  if (status === 'linked') {
+    message = `Linked ${linkedCount} existing node_modules director${linkedCount === 1 ? 'y' : 'ies'} from the parent checkout. These shared dependencies are read/write: run existing tools, but do not run install, update, or prune commands in this lane.`;
+  } else if (status === 'partial') {
+    message = `Linked ${linkedCount} of ${discoveredCount} existing node_modules directories from the parent checkout. Some package toolchains may be unavailable. Linked dependencies are shared and must not be installed, updated, or pruned from this lane.`;
+  } else {
+    message = discoveredCount === 0
+      ? 'No node_modules directories exist in the parent checkout, so this isolated lane has no prepared JavaScript/TypeScript toolchain. Prepare dependencies in the parent checkout, then retry the lane.'
+      : `Could not link any of the ${discoveredCount} existing node_modules directories from the parent checkout. This isolated lane has no prepared JavaScript/TypeScript toolchain; inspect the setup issues before running checks.`;
+  }
+
+  return {
+    status,
+    strategy: 'shared-symlink',
+    sharedMutable: linkedCount > 0,
+    discoveredCount,
+    linkedCount,
+    linked,
+    issues: issues.slice(0, 32),
+    message,
+  };
+}
+
 /**
  * Create a git worktree for a lane.
  *
@@ -195,6 +311,7 @@ export function createLaneWorktree({
         branch: existing.branch || branchHint || null,
         created: false,
         repoRoot: descriptor.repoRoot,
+        toolchainSetup: prepareLaneToolchain({ repoRoot: descriptor.repoRoot, worktreePath }),
       };
     }
   }
@@ -220,6 +337,7 @@ export function createLaneWorktree({
     branch,
     created: true,
     repoRoot: descriptor.repoRoot,
+    toolchainSetup: prepareLaneToolchain({ repoRoot: descriptor.repoRoot, worktreePath }),
   };
 }
 
@@ -317,6 +435,28 @@ export function changedFilesIn(worktreePath) {
   return worktreeCleanliness(worktreePath).files;
 }
 
+function isSharedDependencyLinkStatus(worktreePath, statusLine) {
+  if (!String(statusLine || '').startsWith('?? ')) return false;
+  let relativePath = statusLine.slice(3);
+  if (relativePath.startsWith('"')) {
+    try { relativePath = JSON.parse(relativePath); } catch { return false; }
+  }
+  if (path.basename(relativePath) !== DEPENDENCY_DIR) return false;
+
+  const worktreeRoot = path.resolve(worktreePath);
+  const candidate = path.resolve(worktreeRoot, relativePath);
+  if (!candidate.startsWith(`${worktreeRoot}${path.sep}`)) return false;
+  try {
+    if (!fs.lstatSync(candidate).isSymbolicLink()) return false;
+    const rawTarget = fs.readlinkSync(candidate);
+    const target = path.resolve(path.dirname(candidate), rawTarget);
+    return path.basename(target) === DEPENDENCY_DIR
+      && !target.startsWith(`${worktreeRoot}${path.sep}`);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Cleanliness probe that distinguishes "clean" from "could not tell".
  * changedFilesIn() collapses both to [], which is fine for display but fails OPEN
@@ -332,9 +472,18 @@ export function worktreeCleanliness(worktreePath) {
     if (result.status !== 0) {
       return { ok: false, files: [], error: String(result.stderr || '').trim() || `git status exited ${result.status}` };
     }
+    const files = result.stdout.split('\n')
+      // Dependency links are Orca-created worktree plumbing, not lane-authored
+      // source changes. Some repositories do not ignore node_modules; filtering
+      // only an untracked node_modules SYMLINK to a target outside this worktree
+      // keeps status/integration honest without hiding real files or directories.
+      .filter((line) => !isSharedDependencyLinkStatus(worktreePath, line))
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .slice(0, 500);
     return {
       ok: true,
-      files: result.stdout.split('\n').map((line) => line.trim()).filter(Boolean).slice(0, 500),
+      files,
       error: null,
     };
   } catch (error) {

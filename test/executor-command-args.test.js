@@ -126,6 +126,33 @@ test('buildExecutorCommandArgs derives safe argv from lane task prompt', () => {
   });
   assert.equal(claudeTerminalArgs.includes('--output-format'), false);
   assert.equal(claudeTerminalArgs.includes('stream-json'), false);
+
+  const sharedToolchainArgs = buildExecutorCommandArgs('codex', {
+    taskPrompt: 'Run the acceptance checks',
+    permissionsProfile: 'workspace',
+    worktreeMode: 'isolated',
+    toolchainSetup: {
+      status: 'linked',
+      sharedMutable: true,
+      message: 'Linked the existing toolchain.',
+    },
+  });
+  const sharedToolchainPrompt = sharedToolchainArgs.at(-1);
+  assert.match(sharedToolchainPrompt, /isolated-worktree toolchain notice/i);
+  assert.match(sharedToolchainPrompt, /Do NOT run npm install, npm ci, pnpm install, yarn install/i);
+  assert.match(sharedToolchainPrompt, /Run the acceptance checks/);
+
+  const unavailableToolchainArgs = buildExecutorCommandArgs('codex', {
+    taskPrompt: 'Run the acceptance checks',
+    permissionsProfile: 'workspace',
+    worktreeMode: 'isolated',
+    toolchainSetup: {
+      status: 'unavailable',
+      sharedMutable: false,
+      message: 'No prepared JavaScript/TypeScript toolchain is available.',
+    },
+  });
+  assert.match(unavailableToolchainArgs.at(-1), /Report the unavailable toolchain clearly/i);
 });
 
 test('codex sandbox governance maps from lane permissions', () => {

@@ -15,6 +15,14 @@ gives a worktree only to writers whose files overlap another lane. Read the
 working directory you were given and stay inside it; do not assume you are
 isolated from the rest of the repo.
 
+An isolated JavaScript/TypeScript worktree may contain `node_modules` symlinks to
+the prepared dependencies in the parent checkout, including package/app-local
+installs. You may use those links to run the existing toolchain and tests. They are
+shared, mutable dependencies, so do **not** run `npm install`, `npm ci`, package
+manager install/update commands, or dependency-pruning commands through them. If
+Orca reports that toolchain setup is unavailable or partial, report the blocked
+checks clearly; do not hide the failure or attempt a network install.
+
 ## Role
 
 The executor owns exactly one lane at a time. It implements the assigned change

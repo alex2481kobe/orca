@@ -861,6 +861,10 @@ test('Worktree manager creates per-lane worktree under approved base and cleanup
     assert.equal(wtStat.isDirectory(), true);
     assert.equal(lane.branch, 'feature/cleanup');
     assert.equal(lane.repoRoot, repoDir);
+    assert.equal(lane.toolchainSetup.status, 'unavailable');
+    assert.equal(lane.toolchainSetup.discoveredCount, 0);
+    assert.match(lane.toolchainSetup.message, /no prepared JavaScript\/TypeScript toolchain/i);
+    assert.ok(lane.warnings.some((warning) => warning.kind === 'toolchain_setup_incomplete'));
 
     await assert.rejects(
       registry.removeLaneWorktree(lane.id, { actor: 'test', approved: true }),
@@ -900,6 +904,74 @@ test('Worktree manager creates per-lane worktree under approved base and cleanup
     });
     assert.equal(duplicateCleanup.removed, true);
     assert.equal(duplicateCleanup.branchRemoved, true);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('isolated worktrees can execute root and package toolchains from the parent checkout', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const repoDir = path.join(process.cwd(), 'workspace-repo');
+    const appDir = path.join(repoDir, 'apps', 'web');
+    await fs.mkdir(appDir, { recursive: true });
+    await fs.writeFile(path.join(repoDir, 'package.json'), JSON.stringify({
+      private: true,
+      workspaces: ['apps/*'],
+    }));
+    await fs.writeFile(path.join(appDir, 'package.json'), JSON.stringify({ name: 'web', private: true }));
+
+    const rootToolDir = path.join(repoDir, 'node_modules', 'fixture-tool');
+    const rootBinDir = path.join(repoDir, 'node_modules', '.bin');
+    const appDependencyDir = path.join(appDir, 'node_modules', 'fixture-app-dep');
+    await fs.mkdir(rootToolDir, { recursive: true });
+    await fs.mkdir(rootBinDir, { recursive: true });
+    await fs.mkdir(appDependencyDir, { recursive: true });
+    await fs.writeFile(path.join(rootToolDir, 'cli.js'), 'console.log("fixture-tool-ok")\n');
+    await fs.symlink('../fixture-tool/cli.js', path.join(rootBinDir, 'fixture-tool'));
+    await fs.writeFile(path.join(appDependencyDir, 'index.js'), 'module.exports = "fixture-app-dep-ok";\n');
+    await fs.writeFile(path.join(appDependencyDir, 'package.json'), JSON.stringify({
+      name: 'fixture-app-dep',
+      main: 'index.js',
+    }));
+
+    const g = (...args) => spawnSync('git', args, { cwd: repoDir, encoding: 'utf8' });
+    g('init', '-q');
+    g('config', 'user.email', 'test@local');
+    g('config', 'user.name', 'Test');
+    g('add', 'package.json', 'apps/web/package.json');
+    g('commit', '-qm', 'init workspace fixture');
+
+    const { orchestrator } = await makeOrchestrator(registry, { cwd: repoDir });
+    const lane = registry.createLane(orchestrator.id, {
+      title: 'toolchain lane',
+      executorType: 'mock',
+      worktreeMode: 'isolated',
+    }, { actor: 'test', approved: true });
+
+    const rootModules = path.join(lane.worktreePath, 'node_modules');
+    const appModules = path.join(lane.worktreePath, 'apps', 'web', 'node_modules');
+    assert.equal((await fs.lstat(rootModules)).isSymbolicLink(), true, 'root node_modules is linked');
+    assert.equal((await fs.lstat(appModules)).isSymbolicLink(), true, 'package node_modules is linked');
+    assert.equal(lane.toolchainSetup.status, 'linked');
+    assert.equal(lane.toolchainSetup.sharedMutable, true);
+    assert.deepEqual(lane.toolchainSetup.linked, ['apps/web/node_modules', 'node_modules']);
+    assert.ok(lane.warnings.some((warning) => warning.kind === 'shared_dependency_links'));
+    assert.deepEqual(lane.changedFilesBaseline, [], 'Orca-created dependency links are not lane changes');
+
+    const tool = spawnSync(process.execPath, [path.join(rootModules, '.bin', 'fixture-tool')], {
+      cwd: lane.worktreePath,
+      encoding: 'utf8',
+    });
+    assert.equal(tool.status, 0, tool.stderr);
+    assert.equal(tool.stdout.trim(), 'fixture-tool-ok');
+
+    const appDependency = spawnSync(process.execPath, ['-e', 'console.log(require("fixture-app-dep"))'], {
+      cwd: path.join(lane.worktreePath, 'apps', 'web'),
+      encoding: 'utf8',
+    });
+    assert.equal(appDependency.status, 0, appDependency.stderr);
+    assert.equal(appDependency.stdout.trim(), 'fixture-app-dep-ok');
   } finally {
     await cleanup();
   }

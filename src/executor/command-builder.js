@@ -48,13 +48,26 @@ export function buildExecutorCommandArgs(label, lane, options = {}) {
   const terminalPresentation = presentationMode === 'terminal';
   const taskPrompt = String(lane.taskPrompt || '').trim();
   if (!taskPrompt) return [];
+  const toolchainSetup = lane.toolchainSetup && typeof lane.toolchainSetup === 'object'
+    ? lane.toolchainSetup
+    : null;
+  const toolchainNotice = lane.worktreeMode === 'isolated' && toolchainSetup
+    ? [
+      '[Orca isolated-worktree toolchain notice]',
+      toolchainSetup.message,
+      toolchainSetup.sharedMutable
+        ? 'The linked dependency directories are shared with the parent checkout. Do NOT run npm install, npm ci, pnpm install, yarn install, or any command that mutates dependencies from this lane.'
+        : 'Do not attempt an automatic or network dependency install from this lane. Report the unavailable toolchain clearly if the requested checks cannot run.',
+    ].join('\n')
+    : '';
+  const promptedTask = toolchainNotice ? `${toolchainNotice}\n\n${taskPrompt}` : taskPrompt;
   // Prompt is passed as a single argv token. The old 4096 cap silently truncated
   // ordinary scope-controlled prompts (explicit file lists + exclusions) — exactly
   // the prompts that keep an executor on-task — so it undermined scope control.
   // Cap generously (96 KiB, far under the ~256 KiB per-arg OS limit) so real
   // prompts pass intact; keep the control-char sanitization (a real safety gate).
   const MAX_PROMPT_BYTES = 96 * 1024;
-  const cleaned = taskPrompt.replace(/[\x00-\x1f\x7f]/g, ' ');
+  const cleaned = promptedTask.replace(/[\x00-\x1f\x7f]/g, ' ');
   const safePrompt = Buffer.byteLength(cleaned, 'utf8') > MAX_PROMPT_BYTES
     ? `${cleaned.slice(0, MAX_PROMPT_BYTES)}\n\n[orca: prompt truncated at ${MAX_PROMPT_BYTES} bytes]`
     : cleaned;

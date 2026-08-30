@@ -160,6 +160,7 @@ export const laneCreateMethods = {
     let workdirOverride = workdir;
     let reservedLaneId = null;
     let derivedWorktree = null;
+    let derivedToolchainSetup = null;
     let derivedBranch = String(branch || '').trim();
     let derivedRepoRoot = String(repoRoot || '').trim();
     const sessionRepoRoot = session.repoRoot ? String(session.repoRoot).trim() : '';
@@ -210,6 +211,7 @@ export const laneCreateMethods = {
         derivedWorktree = result.worktreePath;
         derivedBranch = result.branch || derivedBranch;
         derivedRepoRoot = result.repoRoot;
+        derivedToolchainSetup = result.toolchainSetup || null;
         reservedLaneId = laneId;
       } else {
         // direct: run in the repo checkout itself (no worktree). A direct lane is
@@ -331,6 +333,7 @@ export const laneCreateMethods = {
         branch: sanitizedBranch,
         worktreeMode: resolvedWorktreeMode,
         worktreePath: derivedWorktree || resolvedWorkdir,
+        toolchainSetup: derivedToolchainSetup,
         // Idle-shutdown policy for this lane + the last time it showed activity
         // (output/heartbeat/state change). The scheduler reaps a running lane idle
         // past its window per this mode. Default 'immediate'; 'policy' never reaps.
@@ -410,6 +413,18 @@ export const laneCreateMethods = {
         lane.logs.push({
           at: now,
           message: `taskPrompt truncated from ${rawTaskPrompt.length} to ${MAX_TASK_PROMPT_CHARS} chars.`,
+        });
+      }
+      if (derivedToolchainSetup) {
+        const unavailable = derivedToolchainSetup.status !== 'linked';
+        lane.warnings = [...(lane.warnings || []), {
+          kind: unavailable ? 'toolchain_setup_incomplete' : 'shared_dependency_links',
+          message: derivedToolchainSetup.message,
+          issues: derivedToolchainSetup.issues,
+        }];
+        lane.logs.push({
+          at: now,
+          message: `Isolated worktree toolchain setup (${derivedToolchainSetup.status}): ${derivedToolchainSetup.message}`,
         });
       }
       this.persistState();
