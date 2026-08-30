@@ -17,7 +17,7 @@ export const TOOL_DEFINITIONS = [
     route: '/api/orchestrators',
     implemented: true,
     mutating: true,
-    summary: 'Register as an orchestrator for your working directory, and set/refresh your self-authored title + focus line. Body: {cwd, actor?, title?, focus?, takeoverOrchestratorId?}. Orca creates the project implicitly (keyed by realpath(cwd)) and binds an orchestrator record to your lease. Re-register with the same cwd to update title/focus.',
+    summary: 'Register as an orchestrator for your working directory, and set/refresh your self-authored title, focus, and capacity. Body: {cwd, actor?, title?, focus?, approvedCapacity?, laneConcurrencyLimit?, takeoverOrchestratorId?}. approvedCapacity and laneConcurrencyLimit are compatibility names for the same enforced limit and must match if both are supplied. Orca creates the project implicitly (keyed by realpath(cwd)) and binds an orchestrator record to your lease. Re-register with the same cwd to update these fields.',
   },
   {
     id: 'orchestrator.list',

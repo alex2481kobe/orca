@@ -190,6 +190,39 @@ test('createLane refuses to spawn past the orchestrator lane-concurrency limit',
   });
 });
 
+test('reported orchestrator capacity is the same limit enforced by executor spawn', async () => {
+  await withRegistry(async (registry) => {
+    const { orchestrator, lease } = await makeOrchestrator(registry);
+    const updated = registry.updateOrchestrator(
+      orchestrator.id,
+      { approvedCapacity: 8 },
+      { leaseId: lease.id },
+    );
+
+    assert.equal(updated.approvedCapacity, 8);
+    assert.equal(updated.laneConcurrencyLimit, 8, 'the reported capacity aliases must not diverge');
+
+    for (let index = 1; index <= 8; index += 1) {
+      const lane = registry.createLane(
+        orchestrator.id,
+        { title: `lane ${index}`, executorType: 'mock' },
+        { actor: 'test', approved: true },
+      );
+      assert.ok(lane.id, `lane ${index} should fit within the reported 8-lane capacity`);
+    }
+
+    assert.throws(
+      () => registry.createLane(
+        orchestrator.id,
+        { title: 'lane 9', executorType: 'mock' },
+        { actor: 'test', approved: true },
+      ),
+      (error) => error?.status === 409 && /8\/8 lanes are live/.test(error.message),
+      'the first refused spawn must use the same capacity the update reported',
+    );
+  });
+});
+
 // --- Group 2: new agent-callable tools (registry backing logic) ----------------
 
 test('lane.artifacts.list + lane.artifacts.get enumerate and fetch a lane artifact', async () => {

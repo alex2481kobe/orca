@@ -269,7 +269,7 @@ test('nextAction capacity reflects the orchestrator real limits and live active-
   await withIsolatedRegistry(async (registry) => {
     const { orchestrator, lease } = await makeOrchestrator(registry, { title: 'Capacity Orch' });
     // Set a concrete container capacity (was hard-coded "2 slots / 0 active").
-    registry.updateOrchestrator(orchestrator.id, { approvedCapacity: 5, laneConcurrencyLimit: 3 }, { leaseId: lease.id });
+    registry.updateOrchestrator(orchestrator.id, { approvedCapacity: 5 }, { leaseId: lease.id });
 
     // Two live lanes occupy slots (queued counts as live).
     registry.createLane(orchestrator.id, { title: 'L1', executorType: 'mock' }, { actor: 'test', approved: true });
@@ -281,9 +281,9 @@ test('nextAction capacity reflects the orchestrator real limits and live active-
       sessionId: orchestrator.id,
     });
     assert.equal(env.capacity.approvedCapacity, 5, 'reports the real approvedCapacity, not a hard-coded 2');
-    assert.equal(env.capacity.laneConcurrencyLimit, 3);
+    assert.equal(env.capacity.laneConcurrencyLimit, 5);
     assert.equal(env.capacity.activeAgents, 2, 'reports the live count of active lanes');
-    assert.equal(env.capacity.idleSlots, 1, 'idleSlots = limit - active');
+    assert.equal(env.capacity.idleSlots, 3, 'idleSlots = limit - active');
     assert.equal(env.capacity.spawnPolicy, 'auto');
   });
 });

@@ -9,12 +9,10 @@ const SPAWN_POLICIES = new Set(['never', 'ask', 'within_capacity', 'auto']);
 //   auto     — let Orca decide from the situation (the default)
 //   isolated — always give this lane its own git worktree
 export const WORKTREE_MODES = new Set(['auto', 'isolated']);
-// Bare fallback for normalizeApprovedCapacity when a caller supplies none. It is
-// deliberately the SAME number a freshly registered orchestrator gets, honouring
-// ORCA_LANE_CONCURRENCY (registry-agents.js DEFAULT_ORCHESTRATOR_CAPACITY) — this
-// used to be a hardcoded 2 while every real call site passed 4, so any future caller
-// that took the bare default would have silently halved an operator's configured
-// lane capacity.
+// Bare fallback for normalizeApprovedCapacity when a caller supplies none, and
+// the single environment-derived default for a freshly registered orchestrator.
+// A record's stored capacity is authoritative after registration; the environment
+// only supplies this initial/default value.
 export const DEFAULT_APPROVED_CAPACITY = Number.parseInt(process.env.ORCA_LANE_CONCURRENCY ?? '', 10) > 0
   ? Math.min(64, Number.parseInt(process.env.ORCA_LANE_CONCURRENCY, 10))
   : 4;
@@ -56,6 +54,17 @@ export function normalizeApprovedCapacity(value, fallback = DEFAULT_APPROVED_CAP
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed) || parsed < 0) return fallback;
   return Math.min(64, parsed);
+}
+
+// approvedCapacity is the canonical stored field. laneConcurrencyLimit remains a
+// compatibility alias for existing state/API consumers, and is used only when an
+// older record has no canonical value. Writers/migrations keep the two identical.
+export function resolveOrchestratorCapacity(orchestrator, fallback = DEFAULT_APPROVED_CAPACITY) {
+  const approved = Number.parseInt(orchestrator?.approvedCapacity, 10);
+  if (Number.isFinite(approved) && approved >= 0) {
+    return Math.min(64, approved);
+  }
+  return normalizeApprovedCapacity(orchestrator?.laneConcurrencyLimit, fallback);
 }
 
 // A lane command for a first-class CLI must actually invoke that CLI. Executor

@@ -139,8 +139,7 @@ function buildCapacity(registry, session) {
     return { spawnPolicy: 'within_capacity', approvedCapacity: 0, laneConcurrencyLimit: 0, activeAgents: 0, idleSlots: 0, capacityRequests: [] };
   }
   const approvedCapacity = Number.isFinite(session.approvedCapacity) ? session.approvedCapacity : 0;
-  const laneConcurrencyLimit = Number.isFinite(session.laneConcurrencyLimit) ? session.laneConcurrencyLimit : approvedCapacity;
-  const effectiveLimit = laneConcurrencyLimit || approvedCapacity;
+  const effectiveLimit = approvedCapacity;
   // laneOccupiesSlot where available: a lane that submitted still has a live child
   // and still consumes a slot, so a state-only count under-reports activeAgents and
   // over-reports idleSlots — telling an orchestrator it may fan out when it may not.

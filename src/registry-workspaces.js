@@ -14,9 +14,9 @@ import {
 } from './registry-utils.js';
 import {
   DEFAULT_APPROVED_CAPACITY,
-  normalizeApprovedCapacity,
   normalizeSpawnPolicy,
   normalizeWorktreeMode,
+  resolveOrchestratorCapacity,
 } from './registry-lane-config.js';
 
 const MAX_WORKDIR_BYTES = 2048;
@@ -54,17 +54,12 @@ export const workspaceMethods = {
   // capacity defaults onto records restored from an older store.
   ensureSessionWorkspaces() {
     let migrated = false;
-    const DEFAULT_ORCHESTRATOR_CAPACITY = Number.parseInt(process.env.ORCA_LANE_CONCURRENCY ?? '', 10) > 0
-      ? Math.min(64, Number.parseInt(process.env.ORCA_LANE_CONCURRENCY, 10))
-      : 4;
     for (const orchestrator of (this.orchestrators || [])) {
       if (!orchestrator || !orchestrator.id) continue;
-      if (!Number.isFinite(Number.parseInt(orchestrator.approvedCapacity, 10))) {
-        orchestrator.approvedCapacity = normalizeApprovedCapacity(orchestrator.laneConcurrencyLimit, DEFAULT_ORCHESTRATOR_CAPACITY);
-        migrated = true;
-      }
-      if (!Number.isFinite(Number.parseInt(orchestrator.laneConcurrencyLimit, 10))) {
-        orchestrator.laneConcurrencyLimit = normalizeApprovedCapacity(orchestrator.approvedCapacity, DEFAULT_ORCHESTRATOR_CAPACITY);
+      const capacity = resolveOrchestratorCapacity(orchestrator, DEFAULT_APPROVED_CAPACITY);
+      if (orchestrator.approvedCapacity !== capacity || orchestrator.laneConcurrencyLimit !== capacity) {
+        orchestrator.approvedCapacity = capacity;
+        orchestrator.laneConcurrencyLimit = capacity;
         migrated = true;
       }
       const normalizedSpawn = normalizeSpawnPolicy(orchestrator.spawnPolicy, 'auto');

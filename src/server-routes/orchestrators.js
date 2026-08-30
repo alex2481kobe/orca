@@ -75,6 +75,8 @@ export async function handleOrchestratorRoutes(ctx, req, res, method, parts) {
           title: body.title ?? null,
           focus: body.focus ?? null,
           takeoverOrchestratorId: body.takeoverOrchestratorId ?? null,
+          approvedCapacity: body.approvedCapacity,
+          laneConcurrencyLimit: body.laneConcurrencyLimit,
         },
         { leaseId, source },
       );

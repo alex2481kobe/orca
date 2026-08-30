@@ -4,7 +4,7 @@
 import { LANE_STATES, isRunningLaneState, isLiveLaneState } from './worker-contract.js';
 import { nowIso } from './registry-utils.js';
 import { createExecutorAdapter } from './executor-factory.js';
-import { normalizeApprovedCapacity, normalizeSpawnPolicy } from './registry-lane-config.js';
+import { normalizeSpawnPolicy, resolveOrchestratorCapacity } from './registry-lane-config.js';
 
 const {
   QUEUED: QUEUED_STATE,
@@ -221,7 +221,7 @@ export const schedulerMethods = {
       // ready_for_audit while its child is still executing and still holds a slot.
       const runningCount = sessionLanes.filter((lane) =>
         isRunningLaneState(lane.state) || this.isLaneProcessLive(lane.id)).length;
-      const approvedCapacity = normalizeApprovedCapacity(orchestrator.approvedCapacity, normalizeApprovedCapacity(orchestrator.laneConcurrencyLimit, 4));
+      const approvedCapacity = resolveOrchestratorCapacity(orchestrator);
       const capacityLimit = normalizeSpawnPolicy(orchestrator.spawnPolicy, 'auto') === 'never' ? 0 : approvedCapacity;
       let availableSlots = Math.max(0, capacityLimit - runningCount);
 

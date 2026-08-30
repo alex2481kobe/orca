@@ -130,9 +130,7 @@ export const laneCreateMethods = {
     // they don't consume an executor slot. spawnPolicy 'auto'/'within_capacity'
     // enforce the numeric limit; a 0 limit means "unset" → not enforced here.
     const spawnPolicy = normalizeSpawnPolicy(session.spawnPolicy, 'auto');
-    const approvedCapacity = normalizeApprovedCapacity(session.approvedCapacity, 0);
-    const laneConcurrencyLimit = normalizeApprovedCapacity(session.laneConcurrencyLimit, approvedCapacity);
-    const effectiveLimit = laneConcurrencyLimit || approvedCapacity;
+    const effectiveLimit = normalizeApprovedCapacity(session.approvedCapacity, 0);
     if (effectiveLimit > 0 && owner !== 'auditor') {
       const activeAgents = (this.lanes || []).filter((lane) => (
         lane.sessionId === session.id

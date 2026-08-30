@@ -9,18 +9,17 @@ import { safeRmRecursive } from './safe-fs.js';
 import { buildNextActionEnvelope } from './agent-tools/next-action.js';
 import { findTool } from './agent-tools/tool-definitions.js';
 import { renderLaneTree } from './render-lane-tree.js';
-import { normalizeApprovedCapacity, normalizeSpawnPolicy } from './registry-lane-config.js';
+import {
+  DEFAULT_APPROVED_CAPACITY,
+  normalizeApprovedCapacity,
+  normalizeSpawnPolicy,
+  resolveOrchestratorCapacity,
+} from './registry-lane-config.js';
 
 const ORCHESTRATOR_STALE_MS = 15 * 60 * 1000;
 // v2: the orchestrator RECORD is the only container. Capacity the legacy
 // session-container bridge used to fabricate now lives on the record itself.
 //
-// How many executor lanes one orchestrator may run at once. Env-tunable because
-// the orchestrator.update tool + its PATCH route are gone, and a hardcoded cap an
-// operator cannot raise would be a wall, not a default.
-const DEFAULT_ORCHESTRATOR_CAPACITY = Number.parseInt(process.env.ORCA_LANE_CONCURRENCY ?? '', 10) > 0
-  ? Math.min(64, Number.parseInt(process.env.ORCA_LANE_CONCURRENCY, 10))
-  : 4;
 // Mutating orchestrator tools that stay callable regardless of ownership: you
 // register/update/resign to change ownership, and spawn executors under the
 // orchestrator you own.
@@ -29,6 +28,22 @@ const OWNERSHIP_EXEMPT_TOOLS = new Set([
   'orchestrator.register',
   'executor.spawn',
 ]);
+
+function requestedCapacity({ approvedCapacity, laneConcurrencyLimit } = {}, fallback = DEFAULT_APPROVED_CAPACITY) {
+  const supplied = [approvedCapacity, laneConcurrencyLimit]
+    .filter((value) => value !== undefined)
+    .map((value) => normalizeApprovedCapacity(value, fallback));
+  if (!supplied.length) return fallback;
+  if (new Set(supplied).size > 1) {
+    throw { status: 422, message: 'approvedCapacity and laneConcurrencyLimit must match when both are supplied.' };
+  }
+  return supplied[0];
+}
+
+function setOrchestratorCapacity(orchestrator, capacity) {
+  orchestrator.approvedCapacity = capacity;
+  orchestrator.laneConcurrencyLimit = capacity;
+}
 
 export const agentMethods = {
   async _findOrCreateProject(cwd) {
@@ -65,7 +80,15 @@ export const agentMethods = {
     return project;
   },
 
-  async registerOrchestrator({ cwd, actor, title = null, focus = null, takeoverOrchestratorId = null } = {}, { leaseId, source = 'mcp' } = {}) {
+  async registerOrchestrator({
+    cwd,
+    actor,
+    title = null,
+    focus = null,
+    takeoverOrchestratorId = null,
+    approvedCapacity,
+    laneConcurrencyLimit,
+  } = {}, { leaseId, source = 'mcp' } = {}) {
     if (!Array.isArray(this.orchestrators)) this.orchestrators = [];
     if (!Array.isArray(this.projects)) this.projects = [];
     if (typeof cwd !== 'string' || !cwd.trim()) {
@@ -93,6 +116,9 @@ export const agentMethods = {
       orchestrator.leaseId = leaseId;
       orchestrator.resignedAt = null;
       orchestrator.lastSeenAt = now;
+      if (approvedCapacity !== undefined || laneConcurrencyLimit !== undefined) {
+        setOrchestratorCapacity(orchestrator, requestedCapacity({ approvedCapacity, laneConcurrencyLimit }));
+      }
       project.lastActivityAt = now;
       return orchestrator;
     }
@@ -113,6 +139,9 @@ export const agentMethods = {
       if (title !== null && owned.title !== title) owned.titleUpdatedAt = now;
       if (title !== null) owned.title = title;
       if (focus !== null) owned.focus = focus;
+      if (approvedCapacity !== undefined || laneConcurrencyLimit !== undefined) {
+        setOrchestratorCapacity(owned, requestedCapacity({ approvedCapacity, laneConcurrencyLimit }));
+      }
       owned.lastSeenAt = now;
       project.lastActivityAt = now;
       return owned;
@@ -140,10 +169,14 @@ export const agentMethods = {
       reusable.lastSeenAt = nowIso();
       if (title !== null) reusable.title = title;
       if (focus !== null) reusable.focus = focus;
+      if (approvedCapacity !== undefined || laneConcurrencyLimit !== undefined) {
+        setOrchestratorCapacity(reusable, requestedCapacity({ approvedCapacity, laneConcurrencyLimit }));
+      }
       return reusable;
     }
 
     const now = nowIso();
+    const capacity = requestedCapacity({ approvedCapacity, laneConcurrencyLimit });
     const orchestrator = {
       id: `orc_${randomUUID()}`,
       projectId: project.id,
@@ -158,8 +191,8 @@ export const agentMethods = {
       resignedAt: null,
       // Container capacity lives on the record now (was fabricated by the old
       // session bridge).
-      approvedCapacity: DEFAULT_ORCHESTRATOR_CAPACITY,
-      laneConcurrencyLimit: DEFAULT_ORCHESTRATOR_CAPACITY,
+      approvedCapacity: capacity,
+      laneConcurrencyLimit: capacity,
       spawnPolicy: 'auto',
     };
     this.orchestrators.push(orchestrator);
@@ -186,14 +219,14 @@ export const agentMethods = {
     if (focus !== undefined) orchestrator.focus = focus;
     // Container capacity is settable on the record (replaces the old session
     // updateSession capacity fields).
-    if (laneConcurrencyLimit !== undefined) {
-      orchestrator.laneConcurrencyLimit = normalizeApprovedCapacity(laneConcurrencyLimit, DEFAULT_ORCHESTRATOR_CAPACITY);
-      if (!orchestrator.approvedCapacity || orchestrator.approvedCapacity < orchestrator.laneConcurrencyLimit) {
-        orchestrator.approvedCapacity = orchestrator.laneConcurrencyLimit;
-      }
-    }
-    if (approvedCapacity !== undefined) {
-      orchestrator.approvedCapacity = normalizeApprovedCapacity(approvedCapacity, DEFAULT_ORCHESTRATOR_CAPACITY);
+    if (laneConcurrencyLimit !== undefined || approvedCapacity !== undefined) {
+      setOrchestratorCapacity(
+        orchestrator,
+        requestedCapacity(
+          { approvedCapacity, laneConcurrencyLimit },
+          resolveOrchestratorCapacity(orchestrator),
+        ),
+      );
     }
     if (spawnPolicy !== undefined) {
       orchestrator.spawnPolicy = normalizeSpawnPolicy(spawnPolicy, 'auto');
@@ -260,6 +293,7 @@ export const agentMethods = {
     const orch = (this.orchestrators || []).find((item) => item.id === locator);
     if (!orch) return undefined;
     const project = (this.projects || []).find((item) => item.id === orch.projectId);
+    const capacity = resolveOrchestratorCapacity(orch);
     return {
       id: orch.id,
       projectId: orch.projectId,
@@ -271,8 +305,8 @@ export const agentMethods = {
       // resolver treats it as "no override" rather than a fake mode.
       worktreeMode: undefined,
       spawnPolicy: normalizeSpawnPolicy(orch.spawnPolicy, 'auto'),
-      approvedCapacity: normalizeApprovedCapacity(orch.approvedCapacity, DEFAULT_ORCHESTRATOR_CAPACITY),
-      laneConcurrencyLimit: normalizeApprovedCapacity(orch.laneConcurrencyLimit, DEFAULT_ORCHESTRATOR_CAPACITY),
+      approvedCapacity: capacity,
+      laneConcurrencyLimit: capacity,
       artifactRetentionDays: null,
       _orchestratorContainer: true,
     };
