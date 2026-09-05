@@ -46,3 +46,8 @@ throwaway/
 
 # Native wrapper is parked on the experimental branch; kept out of main.
 src-tauri/
+
+# Agent run artifacts — prompts, verdicts and console logs from local
+# orchestrator runs. These carry absolute paths and the names of whatever
+# repo the lane was driving, so they are working data, never shipped.
+runs/

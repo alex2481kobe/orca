@@ -201,10 +201,17 @@ test('orchestrator (Model-B register path): owning lease may audit + accept its 
 
     // Register a Model-B orchestrator (implicitly creates the project keyed by cwd).
     const register = await req('POST', '/api/orchestrators',
-      { cwd: realTempDir, actor: 'chat-owner', title: 'Model-B orch' }, withLease(ownerToken));
+      { cwd: realTempDir, actor: 'chat-owner', title: 'Model-B orch', laneConcurrencyLimit: 4 }, withLease(ownerToken));
     assert.equal(register.status, 200, register.text);
     const orchestratorId = register.body.id;
     assert.ok(typeof orchestratorId === 'string' && orchestratorId.startsWith('orc_'), 'register returns an orc_ id');
+
+    const raised = await req('POST', '/api/orchestrators',
+      { cwd: realTempDir, actor: 'chat-owner', laneConcurrencyLimit: 8 }, withLease(ownerToken));
+    assert.equal(raised.status, 200, raised.text);
+    assert.equal(raised.body.id, orchestratorId, 're-registration updates the owned record, not a different container');
+    assert.equal(raised.body.approvedCapacity, 8);
+    assert.equal(raised.body.laneConcurrencyLimit, 8);
 
     // Spawn an executor lane under the orchestrator: mock + approved + autoComplete
     // so the scheduler drives it to a terminal, auditable state on its own.
