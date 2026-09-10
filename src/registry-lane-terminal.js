@@ -4,6 +4,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { LANE_STATES } from './worker-contract.js';
+import { laneEvidenceRef } from './audit-evidence.js';
 import { nowIso, clonePayload } from './registry-utils.js';
 import { changedFilesIn } from './worktree-manager.js';
 
@@ -74,7 +75,7 @@ export const laneTerminalMethods = {
       sessionId: lane.sessionId,
       laneId: lane.id,
       summary: `Lane ${lane.title} completed`,
-      evidence: { lane },
+      evidence: laneEvidenceRef(lane),
       status: 'passed',
       followUpQueued: false,
     });
@@ -117,7 +118,7 @@ export const laneTerminalMethods = {
       sessionId: lane.sessionId,
       laneId: lane.id,
       summary: `Lane ${lane.title} failed`,
-      evidence: { lane },
+      evidence: laneEvidenceRef(lane),
       status: 'failed',
     });
     // Push a DURABLE, drainable wakeup to the owning orchestrator (lane.sessionId
@@ -186,7 +187,7 @@ export const laneTerminalMethods = {
       summary: preserveSubmission
         ? `Lane ${lane.title} process stopped; submitted work still awaiting audit`
         : `Lane ${lane.title} stopped`,
-      evidence: { lane },
+      evidence: laneEvidenceRef(lane),
       status: 'passed',
     });
     // Push a DURABLE, drainable wakeup to the owning orchestrator (lane.sessionId

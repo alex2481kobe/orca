@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { LANE_STATES, isLiveLaneState } from './worker-contract.js';
+import { laneEvidenceRef } from './audit-evidence.js';
 import { nowIso, clonePayload, safeArray } from './registry-utils.js';
 import { removeLaneWorktree, mergeLaneBranch, worktreeCleanliness } from './worktree-manager.js';
 import { validateNetworkUrl } from './url-policy.js';
@@ -383,7 +384,7 @@ export const laneOpsMethods = {
         sessionId: lane.sessionId,
         laneId: lane.id,
         summary: `Lane ${lane.title} stopped`,
-        evidence: { lane },
+        evidence: laneEvidenceRef(lane),
         status: 'passed',
       });
       // Mirror markLaneStopped's durable orchestrator wakeup so this fallback stop
@@ -483,7 +484,7 @@ export const laneOpsMethods = {
       sessionId: lane.sessionId,
       laneId: lane.id,
       summary: `Retry requested for lane ${lane.title}`,
-      evidence: { lane },
+      evidence: laneEvidenceRef(lane),
       status: 'passed',
     });
     this.persistState();
@@ -737,6 +738,7 @@ export const laneOpsMethods = {
         nextAction: recoverable ? this._laneNextAction(lane, 'lane.integrate') : null,
       };
     }
+    const removedWorktreePath = lane.worktreePath;
     lane.worktreePath = '';
     this.recordAudit({
       type: 'lane_worktree_removed',
@@ -745,7 +747,13 @@ export const laneOpsMethods = {
       sessionId: lane.sessionId,
       laneId: lane.id,
       summary: `Worktree ${force ? 'force-' : ''}removed for lane ${lane.title}`,
-      evidence: { lane, branchRemoved: result.branchRemoved, force: Boolean(force) },
+      evidence: {
+        ...laneEvidenceRef(lane),
+        worktreePath: removedWorktreePath,
+        branch: lane.branch || null,
+        branchRemoved: result.branchRemoved,
+        force: Boolean(force),
+      },
       status: 'passed',
     });
     this.persistState();

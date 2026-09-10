@@ -3,6 +3,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { nowIso, clonePayload } from './registry-utils.js';
+import { compactAuditEvidence } from './audit-evidence.js';
 
 const MAX_LANE_LOG_ENTRIES = 2000;
 const MAX_AGENT_EVENT_ENTRIES = 3000;
@@ -149,6 +150,8 @@ export const auditLogMethods = {
       followUpQueued: event.followUpQueued || false,
       ...event,
     };
+    // Evidence references a lane; it never embeds one (see audit-evidence.js).
+    if (record.evidence) record.evidence = compactAuditEvidence(record.evidence);
     this.auditEvents.unshift(record);
     if (this.auditEvents.length > 200) {
       this.auditEvents.pop();

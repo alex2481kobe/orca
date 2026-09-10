@@ -2,6 +2,7 @@
 // as a prototype mixin for OrcaRegistry.
 
 import { LANE_STATES, isRunningLaneState, isLiveLaneState } from './worker-contract.js';
+import { laneEvidenceRef } from './audit-evidence.js';
 import { nowIso } from './registry-utils.js';
 import { createExecutorAdapter } from './executor-factory.js';
 import { normalizeSpawnPolicy, resolveOrchestratorCapacity } from './registry-lane-config.js';
@@ -255,7 +256,7 @@ export const schedulerMethods = {
           sessionId: containerId,
           laneId: lane.id,
           summary: `Lane ${lane.title} started`,
-          evidence: { lane },
+          evidence: laneEvidenceRef(lane),
           status: 'passed',
         });
 
