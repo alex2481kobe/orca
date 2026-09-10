@@ -3,7 +3,7 @@
   "version": "0.1.17",
   "private": true,
   "type": "module",
-  "description": "Local daemon that lets your existing coding agents (Claude Code, Codex, \u2026) spawn and audit subagents \u2014 watchable from your phone over Tailscale.",
+  "description": "Local daemon that lets your existing coding agents (Claude Code, Codex, …) spawn and audit subagents — watchable from your phone over Tailscale.",
   "keywords": [
     "mcp",
     "agents",
@@ -27,11 +27,14 @@
     "node": ">=18.18.0"
   },
   "bin": {
-    "orca-mcp": "src/mcp-server.js"
+    "orca-mcp": "src/mcp-server.js",
+    "orca": "src/orca-cli.js"
   },
   "scripts": {
     "dev": "node src/server.js",
     "start": "node src/server.js",
+    "doctor": "node src/orca-cli.js doctor",
+    "connect": "node src/orca-cli.js connect",
     "test": "ORCA_AUTO_AUDIT=false node --test --test-concurrency=1 ./test/**/*.test.js",
     "smoke": "node scripts/smoke.mjs",
     "smoke:ssrf": "node scripts/ssrf-smoke.mjs",

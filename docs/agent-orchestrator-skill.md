@@ -72,6 +72,77 @@ flags one pinned to a single installed version or living in another tool's
 private directory. Pass `"nodePath"` to choose your own; it is kept exactly as
 given.
 
+## Connecting and reconnecting
+
+Orca keeps you connected with two established patterns, and nothing more:
+
+- **Sliding renewal**, the way etcd, Consul and Kubernetes keep a lease alive
+  while its holder is active. Each call Orca accepts renews your lease once it is
+  past half its window, so a lease in use never reaches expiry.
+- **A refresh credential**, the OAuth2 refresh-token pattern. Your client config
+  carries a narrow credential (`ORCA_REFRESH_TOKEN`): not a lease, and never the
+  API token. The bridge exchanges it for its own lease, held in memory, whenever
+  it needs one. The credential can do nothing else. It cannot call a tool, it only
+  ever gets an orchestrator lease for its own actor and scope, and revoking it
+  revokes every lease it issued.
+
+The flow, from your side:
+
+1. **Connect, once.** On the machine Orca runs on, run
+   `node /absolute/path/to/orca/src/orca-cli.js connect claude` (or `codex`). It
+   asks Orca for a client config and registers it at user scope through the
+   client's own CLI. On a daemon with an API token, run it with `ORCA_API_TOKEN`
+   set. Then restart the client.
+2. **Start.** The client starts the bridge. Your first tool call makes it
+   exchange the credential for a lease. Register with `orchestrator__register` as
+   usual.
+3. **Work.** Every call Orca accepts renews your lease. While you are active it
+   never expires.
+4. **Go idle, for an hour or a day.** Your lease lapses one full window after
+   your last call (12 hours by default). Nothing else changes. Your orchestrator
+   record, its lanes and its title stay, because they belong to your credential,
+   not to the lease.
+5. **Come back.** Orca's auth check refuses your first call with
+   `Tool lease has expired.` before anything runs. The bridge gets a new lease and
+   sends that one call again, once. You see only the result: same orchestrator,
+   same lanes. No config rewrite, no restart.
+6. **The daemon restarts underneath you.** Leases and credentials are saved with
+   Orca's state. While Orca is down, each call fails with the URL it tried, the
+   cause and the command that starts it. That call never reached Orca, so
+   repeating it is safe. Once Orca is back, your next call works. The bridge never
+   starts Orca itself, and it never repeats a call whose outcome it cannot know.
+7. **A second session on the same machine** starts its own bridge from the same
+   config and gets its own lease. Getting a lease never revokes another one, so
+   neither session can knock the other off. Both act as the same orchestrator,
+   as sessions sharing one config always have.
+8. **Anything else fails:** the error names the one command that fixes it.
+   `node /absolute/path/to/orca/src/orca-cli.js doctor` checks everything
+   read-only and prints the fix for each failed check.
+
+What the errors mean:
+
+| the error says | it means | the one command |
+| --- | --- | --- |
+| `Orca is not running at <url>` | nothing is listening there | `cd /absolute/path/to/orca && npm start` (refused safely if Orca already runs there) |
+| `... but it is not Orca's API` | the config points at the wrong port | `... orca-cli.js connect claude --url <Orca's URL>` |
+| `... its outcome is unknown` | the connection dropped mid-call | call `orchestrator__status` or `lane__list`, and repeat only what did not happen |
+| `Orca is starting.` | the daemon is still starting | try again in a few seconds |
+| `Orca refused this client's credential: ...` | revoked, replaced, or unknown to this Orca | `... orca-cli.js connect claude`, then restart the session |
+| `... fixed lease (ORCA_TOOL_LEASE_TOKEN) and no refresh credential` | a config issued before refresh credentials existed | `... orca-cli.js connect claude`, then restart the session |
+
+Two rules:
+
+- **Never run setup again to fix a connection.** `connect`, like
+  `POST /api/mcp/orchestrator-bootstrap`, replaces the credential for its actor
+  and revokes every lease that credential issued. Every session still running on
+  the old config is then cut off until it restarts. Run `doctor` instead.
+- **To disconnect a client on purpose, revoke its credential:**
+  `DELETE /api/agent-tools/leases/<credential id>` (admin). Revoking one lease is
+  not enough, because its bridge gets another from the credential.
+
+With no `ORCA_API_TOKEN` set, every process on the machine is Orca admin, so role
+scoping is advisory. `doctor` warns about it.
+
 ## Current limitations — read before you start
 
 These describe Orca as it behaves today.
@@ -84,23 +155,26 @@ These describe Orca as it behaves today.
   check before anyone starts it — `curl -s http://127.0.0.1:3000/api/health` or
   `lsof -nP -iTCP:3000 -sTCP:LISTEN`. Never "restart Orca" as a reflex: stopping
   a running daemon kills every executor it runs, and nothing resumes that work.
-- **Your lease expires and nothing renews it.** Polling keeps your orchestrator
-  alive, not your credential. See "Two clocks" below.
+- **A config without a refresh credential cannot recover a lapsed lease.** A
+  config issued before refresh credentials existed carries
+  `ORCA_TOOL_LEASE_TOKEN`. That lease renews while you use it, but once it lapses
+  only `connect` fixes it. See "Connecting and reconnecting" above.
 - **`orchestrator.status` only sees lanes Orca manages.** An agent launched
   outside Orca — a CLI in another terminal, a subagent of your own client — has no
   lane record, no isolation, no audit, and appears in neither status nor the
   dashboard. Wanting a particular model is never a reason to go around Orca:
   `executor.spawn` takes `model` per lane.
-- **One lease is one orchestrator identity per project.** Orca matches your
-  orchestrator by project plus lease. A user-scope MCP config carries one lease, so
-  every client session using that config on the same project shares one
-  orchestrator record: concurrent sessions are not separate orchestrators.
+- **One client config is one orchestrator identity per project.** Orca matches
+  your orchestrator by project plus the credential in your config (for a lease you
+  minted by hand, the lease itself). Every session using that config on the same
+  project shares one orchestrator record, so concurrent sessions are not separate
+  orchestrators.
 - **Tokenless wiring does not refresh on re-register.** Without a lease (the bare
   loopback quickstart) every caller shares the `dashboard` identity, and
   re-registering the same `cwd` creates another orchestrator record instead of
   refreshing yours. Keep the `id` from your first `orchestrator.register` and pass
-  it as `orchestratorId`, or use a minted lease — the bootstrap endpoint works on a
-  loopback daemon without an API token too.
+  it as `orchestratorId`, or run `connect` — it works on a loopback daemon without
+  an API token too.
 - **Writer isolation is decided per orchestrator.** `auto` worktree mode counts
   competing writers only among *your* orchestrator's lanes. Two orchestrators on
   the same checkout can each get a "sole writer" lane running directly in it.
@@ -113,49 +187,24 @@ Two different things expire, and polling touches only one of them.
 | clock | what it is | what refreshes it | when it runs out |
 | --- | --- | --- | --- |
 | orchestrator staleness | `lastSeenAt` on your orchestrator record | polling `orchestrator.status` with the lease that owns it; re-registering | after ~15 minutes without a refresh *and* with no live lanes, the orchestrator counts as stale and another agent may take it over (`takeoverOrchestratorId`) |
-| lease expiry | `expiresAt` on the tool lease in your MCP config | **nothing** — no call extends it | at `expiresAt`, every call made with that lease fails |
+| lease expiry | `expiresAt` on the lease your bridge holds | every call Orca accepts, once the lease is past half its window | one full window after your last call; with a refresh credential in your config, the bridge then gets a new lease by itself |
 
-Lease lifetimes as minted today:
+Lease windows:
 
-- `POST /api/mcp/orchestrator-bootstrap`: **12 hours** when `ttlMs` is omitted.
+- A bootstrap config (from `connect` or `POST /api/mcp/orchestrator-bootstrap`):
+  the request's `ttlMs`, **12 hours** when omitted. The credential remembers it
+  and gives every lease it issues that window.
 - `POST /api/agent-tools/leases`: **15 minutes** when `ttlMs` is omitted (an
   explicit `"ttlMs": null` on either route also gives 15 minutes).
-- `ttlMs` is clamped to between 30 seconds and 24 hours. Pass `"ttlMs": 86400000`
-  for the maximum.
-- Each executor lane gets its own 24-hour lease automatically — so an
-  orchestrator on a default 12-hour lease can expire while the executors it
-  spawned still hold valid ones.
+- `ttlMs` is clamped to between 30 seconds and 24 hours.
+- Each executor lane gets its own 24-hour lease automatically; it ends with the
+  lane.
+- A refresh credential lapses after 90 days without use.
 
-The bootstrap response carries `lease.expiresAt`, and its instructions repeat
-it. Note it.
-
-**Symptom of an expired lease:** calls fail with
-`401 {"error":"Tool lease has expired."}`, and `orchestrator.status` reports
-`"activeOrchestrator": {"active": false, …}`, because an orchestrator whose lease
-is no longer valid counts as stale.
-
-**Recovery today** is manual:
-
-1. Mint a new lease: `POST /api/mcp/orchestrator-bootstrap` with
-   `{"actor":"<the same actor as before>","ttlMs":86400000}`. This needs
-   workstation admin (the API token, or a tokenless loopback daemon). Minting
-   again with the same `actor` revokes that actor's other live lease, so give each
-   independent configuration its own actor. The response lists what it revoked
-   in `bootstrap.leaseLifecycle.replacedLeaseIds`; a refused request (a bad
-   `nodePath`, say) revokes nothing.
-2. Replace the token in your MCP config. For Claude Code:
-   `claude mcp remove orca -s user`, then the `-s user` add command with the new
-   `ORCA_TOOL_LEASE_TOKEN`. For Codex or Claude Desktop, edit the config file.
-3. Restart the client session. The MCP bridge reads its token once, when it
-   starts, so a running session keeps sending the dead token until it restarts.
-4. Re-register with the same `cwd`. Because the old lease is dead your old
-   orchestrator record is stale, and a registration with the same actor rebinds
-   it — same id, same lanes — to the new lease. Or pass `takeoverOrchestratorId`
-   explicitly.
-
-A managed re-mint and revoke flow is Stage 5 of the
-[hardening scope](audits/2026-09-10-hardening-scope/README.md); it does not
-exist yet.
+Polling `orchestrator.status` keeps both clocks running, because it is a call
+Orca accepts. A lease that lapses anyway is replaced as described in
+"Connecting and reconnecting". Your orchestrator stays yours throughout: it
+belongs to your credential, which stays live while any lease it issued is in use.
 
 ## Role
 
@@ -176,7 +225,7 @@ isolation.
    updates the self-authored `title` + `focus` line in place (but see the
    tokenless caveat above). Poll `orchestrator.status` for the lane tree,
    capacity, and the next required tool; polling it keeps your orchestrator from
-   going stale. It does **not** extend your lease.
+   going stale, and like any accepted call it renews your lease.
 3. **Spawn — and choose each lane's model here.** Every executor you need goes
    through `executor.spawn`, including one that must run a particular model:
    `model` is a per-lane field. Do not launch a CLI yourself to get a different

@@ -61,12 +61,21 @@ wire it — `claude mcp add -s user orca -- node "$PWD/src/mcp-server.js"`,
 `{"command": "node", "args": ["<abs>/src/mcp-server.js"]}` entry. Keep `-s user` on
 the Claude form: `claude mcp add` defaults to local scope, which registers Orca for one
 directory only. Codex has no scope flag. The bare wiring defaults to the orchestrator
-role; spawned executors get their role and ids injected by the lane runtime. A scoped
-off-origin orchestrator lease is minted by `POST /api/mcp/orchestrator-bootstrap`,
-which is admin-gated on purpose; the lease expires (12 hours unless `ttlMs` is set,
-24 hours at most) and nothing renews it. Its emitted Claude command carries
-`-s user`, it checks the Node launcher before touching any lease, and minting again
-with the same actor revokes that actor's previous lease. `test/agent-tools.test.js`
+role; spawned executors get their role and ids injected by the lane runtime. Client
+configs come from `POST /api/mcp/orchestrator-bootstrap`, which is admin-gated on
+purpose, usually through `node src/orca-cli.js connect claude|codex`. A config
+carries a refresh credential, never a lease and never the API token. The bridge
+exchanges it for its own lease (`POST /api/agent-tools/leases/refresh`); every
+accepted call slides a lease forward; after a lapse the bridge gets a new lease and
+repeats only the call the auth gate refused (`src/mcp-connection.js`). The
+credential cannot call a tool, and orchestrator ownership follows it, not the
+lease. Issuing a config again for the same actor and scope replaces the credential
+and revokes every lease it issued; revoking the credential does the same. The
+emitted Claude command carries `-s user`, and the Node launcher is checked before
+any credential changes. `node src/orca-cli.js doctor` is the read-only check.
+`test/lease-renewal.test.js`, `test/mcp-connection-errors.test.js`,
+`test/orca-doctor.test.js` and `test/lease-recovery-e2e.test.js` cover the lease
+flow end to end. `test/agent-tools.test.js`
 checks that the docs and the bootstrap text name only live tools and that documented
 Claude installs carry user scope; `test/mcp-orchestrator-bootstrap.test.js` and
 `npm run smoke:mcp-cli-handshake` cover the emitted commands.

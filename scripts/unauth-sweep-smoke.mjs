@@ -116,6 +116,10 @@ const PROBES = [
   ['GET', '/api/agent-tools/leases'],
   ['POST', '/api/agent-tools/leases'],
   ['DELETE', '/api/agent-tools/leases/lease-x'],
+  // Self-authorizing credential routes (dispatched before the operator gate):
+  // with no refresh credential or lease they must refuse, like everything else.
+  ['POST', '/api/agent-tools/leases/refresh'],
+  ['GET', '/api/agent-tools/doctor'],
   ['GET', '/api/orchestrators/orc-x/status'],
   ['GET', '/api/lanes/lane-x/stream'],
 ];

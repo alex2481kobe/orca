@@ -60,7 +60,9 @@ export async function handleOrchestratorRoutes(ctx, req, res, method, parts) {
     if (token) {
       try {
         const lease = registry.validateToolLease(token, { toolId: 'orchestrator.register' });
-        leaseId = lease.id;
+        // A lease acts as its owner: itself, or the refresh credential that issued
+        // it. Every lease one client config obtains owns the same orchestrator.
+        leaseId = lease.ownerId || lease.id;
         actor = lease.actor || actor;
         source = 'mcp';
       } catch (error) {
@@ -235,7 +237,7 @@ function leaseIdFor(ctx, req, registry, toolId) {
   if (!token) return { id: 'dashboard' };
   try {
     const lease = registry.validateToolLease(token, { toolId });
-    return { id: lease.id };
+    return { id: lease.ownerId || lease.id };
   } catch (error) {
     return { error: error.message || 'Tool lease rejected.', status: error.status || 403 };
   }

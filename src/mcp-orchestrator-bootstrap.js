@@ -34,7 +34,7 @@ const SERVER_KEY = 'orca';
 // `claude mcp add` defaults to LOCAL scope: the server exists only in the
 // directory the command ran in. Codex has no scope flag (it writes the user
 // config), so this is Claude-only.
-const CLAUDE_SCOPE_FLAGS = '-s user';
+const CLAUDE_SCOPE_ARGS = ['-s', 'user'];
 const NODE_BINARY = process.platform === 'win32' ? 'node.exe' : 'node';
 const VERSION_PROBE_TIMEOUT_MS = 5000;
 // A path segment carrying a release number (v24.14.1, 25.6.1,
@@ -57,12 +57,14 @@ function tomlString(value) {
   return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
-function buildEnv({ baseUrl, leaseToken, role, projectId, sessionId }) {
-  const env = {
-    ORCA_AGENT_TOOLS_BASE_URL: String(baseUrl || ''),
-    ORCA_TOOL_LEASE_TOKEN: String(leaseToken || ''),
-    ORCA_ROLE: String(role || 'orchestrator'),
-  };
+function buildEnv({ baseUrl, leaseToken, refreshToken, role, projectId, sessionId }) {
+  const env = { ORCA_AGENT_TOOLS_BASE_URL: String(baseUrl || '') };
+  // A bootstrap config carries a refresh credential, which the bridge exchanges
+  // for leases as it needs them. A bare lease token is still accepted: it renews
+  // while it is used, but nothing can replace it once it lapses.
+  if (refreshToken) env.ORCA_REFRESH_TOKEN = String(refreshToken);
+  else env.ORCA_TOOL_LEASE_TOKEN = String(leaseToken || '');
+  env.ORCA_ROLE = String(role || 'orchestrator');
   // Default path params let the agent omit ids on every call; it can still
   // target other sessions/projects explicitly when its lease is broad.
   if (projectId) env.ORCA_PROJECT_ID = String(projectId);
@@ -268,30 +270,41 @@ function shArg(value) {
 
 // `claude mcp add` / `codex mcp add` one-liners, the simplest connect path for
 // the CLI clients. Claude Code passes env as repeated `-e K=V`, Codex CLI as
-// repeated `--env K=V`.
-function buildCliCommand(binary, scopeFlags, envFlag, launcher, env) {
-  const envFlags = Object.entries(env).map(([k, v]) => `${envFlag} ${shArg(`${k}=${v}`)}`).join(' ');
-  const launch = [launcher.command, ...launcher.args].map(shArg).join(' ');
-  const scope = scopeFlags ? `${scopeFlags} ` : '';
-  return `${binary} mcp add ${scope}${SERVER_KEY} ${envFlags} -- ${launch}`;
+// repeated `--env K=V`. The argv form is what `orca-cli.js connect` runs.
+function buildCliArgv(scopeArgs, envFlag, launcher, env) {
+  return [
+    'mcp', 'add', ...scopeArgs, SERVER_KEY,
+    ...Object.entries(env).flatMap(([key, value]) => [envFlag, `${key}=${value}`]),
+    '--', launcher.command, ...launcher.args,
+  ];
 }
+
+const commandLine = (binary, argv) => [binary, ...argv].map(shArg).join(' ');
 
 function buildClientConfigs(launcher, env) {
   const claudeDesktop = buildClaudeDesktopConfig({ launcher, env });
-  const claudeCommand = buildCliCommand('claude', CLAUDE_SCOPE_FLAGS, '-e', launcher, env);
-  const codexCommand = buildCliCommand('codex', '', '--env', launcher, env);
+  const claudeArgv = buildCliArgv(CLAUDE_SCOPE_ARGS, '-e', launcher, env);
+  const codexArgv = buildCliArgv([], '--env', launcher, env);
+  const claudeCommand = commandLine('claude', claudeArgv);
+  const codexCommand = commandLine('codex', codexArgv);
   return {
     claudeCli: {
       label: 'Claude Code CLI',
       merge: 'Run this once, from any directory, then restart your session. It registers the "orca" MCP server for Claude Code at user scope, so Orca is available in every directory.',
       command: claudeCommand,
       snippet: claudeCommand,
+      binary: 'claude',
+      argv: claudeArgv,
+      removeArgv: ['mcp', 'remove', SERVER_KEY, ...CLAUDE_SCOPE_ARGS],
     },
     codexCli: {
       label: 'Codex CLI',
       merge: 'Run this once, from any directory, then restart your session. It registers the "orca" MCP server in your Codex user config (~/.codex/config.toml, or $CODEX_HOME/config.toml); Codex has no scope flag.',
       command: codexCommand,
       snippet: codexCommand,
+      binary: 'codex',
+      argv: codexArgv,
+      removeArgv: ['mcp', 'remove', SERVER_KEY],
     },
     claudeDesktop: {
       label: 'Claude Desktop',
@@ -331,20 +344,35 @@ function runtimeInstructions(runtime, nodePath) {
   ];
 }
 
-function leaseInstructions(lease) {
-  if (!lease) {
+function formatWindow(ms) {
+  const hours = ms / 3_600_000;
+  if (hours >= 1 && Number.isInteger(hours)) return `${hours} hour${hours === 1 ? '' : 's'}`;
+  const minutes = Math.round(ms / 60_000);
+  if (minutes >= 1) return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+  return `${Math.round(ms / 1000)} seconds`;
+}
+
+function leaseInstructions(lease, credential, doctorCommand) {
+  if (!credential) {
     return [
-      'The lease in this config expires and nothing renews it: 12 hours unless the bootstrap request set "ttlMs", 24 hours at most. When calls fail with "Tool lease has expired.", mint a new bootstrap, replace the token in this config, and restart the client session. Minting again with the same actor revokes the previous lease.',
+      'A config that carries ORCA_TOOL_LEASE_TOKEN holds one fixed lease. The lease renews while it is used, but once it lapses (a full lease window with no use) nothing can replace it: calls fail with "Tool lease has expired." until the config is replaced and the client restarted. Configs from POST /api/mcp/orchestrator-bootstrap carry ORCA_REFRESH_TOKEN instead and reconnect by themselves.',
     ];
   }
+  const window = formatWindow(credential.leaseTtlMs);
   const lines = [
-    `This lease (${lease.id}) expires at ${lease.expiresAt}. Nothing renews it: polling and tool calls keep your orchestrator record fresh but never extend the lease. Bootstrap mints 12 hours unless the request sets "ttlMs", and 24 hours is the maximum. After it expires every call fails with "Tool lease has expired."; mint a new bootstrap, put the new token in this config, and restart the client session.`,
-    `Minting another bootstrap with actor "${lease.actor}" for the same project and session revokes this lease immediately, and any client still using it starts failing with "Tool lease has been revoked.". Give each separate client configuration its own actor. A bootstrap request that is refused (a bad nodePath, say) changes no lease.`,
+    `This config carries a refresh credential (${credential.id}), not a lease. The bridge exchanges it for its own lease on first use. That lease renews while you use it; after ${window} with no use it lapses, and your next call gets a new one by itself and repeats only the call that was refused. You never rewrite the config or restart the client for it. Two sessions sharing this config each hold their own lease, neither can revoke the other's, and both act as the same orchestrator.`,
+    `The credential can do one thing: obtain orchestrator leases for actor "${credential.actor}" in this scope. It cannot call a tool itself, and it lapses after 90 days unused. Revoking it (DELETE /api/agent-tools/leases/${credential.id}) revokes every lease it issued, at once.`,
+    `Running this bootstrap again with actor "${credential.actor}" for the same project and session replaces this credential: it and every lease it issued are revoked at once, and sessions still running on this config must restart on the new one. Never run it to fix a connection; run ${doctorCommand} instead. Give each separate client configuration its own actor. A bootstrap request that is refused (a bad nodePath, say) changes nothing.`,
   ];
-  const replaced = lease.replacedLeaseIds || [];
+  if (lease) {
+    lines.push(`The response also returns one lease (${lease.id}, ${window} window) and its token for direct HTTP calls such as scripts or curl. The client configs below do not carry it.`);
+  }
+  const replaced = [
+    ...(credential.replacedCredentialIds || []).map((id) => `credential ${id}`),
+    ...(lease?.replacedLeaseIds || []).map((id) => `lease ${id}`),
+  ];
   if (replaced.length) {
-    const noun = replaced.length === 1 ? 'lease' : 'leases';
-    lines.push(`This bootstrap revoked ${replaced.length} earlier ${noun} held by actor "${lease.actor}" for the same scope: ${replaced.join(', ')}. Clients configured with ${replaced.length === 1 ? 'that token' : 'those tokens'} now fail with "Tool lease has been revoked."; give them this config.`);
+    lines.push(`This bootstrap revoked what actor "${credential.actor}" held for the same scope: ${replaced.join(', ')}. Clients configured with those now fail with a revoked credential or lease; give them this config and restart them.`);
   }
   return lines;
 }
@@ -364,8 +392,10 @@ export function buildOrchestratorMcpConfigs({
   serverPath = MCP_SERVER_PATH,
   runtime = null,
   lease = null,
+  refreshToken = null,
+  credential = null,
 } = {}) {
-  const env = buildEnv({ baseUrl, leaseToken, role, projectId, sessionId });
+  const env = buildEnv({ baseUrl, leaseToken, refreshToken, role, projectId, sessionId });
   const resolvedNode = validateLauncherPath(nodePath || process.execPath, 'nodePath');
   const resolvedServerPath = validateLauncherPath(serverPath || MCP_SERVER_PATH, 'serverPath');
   // One launcher for every client: absolute node + bundled bridge. It needs
@@ -373,19 +403,28 @@ export function buildOrchestratorMcpConfigs({
   // the already-running Orca HTTP API over loopback using the scoped lease.
   const launcher = { command: resolvedNode, args: [resolvedServerPath] };
   const dashboard = dashboardUrl || baseUrl || null;
+  const doctorCommand = [resolvedNode, path.join(path.dirname(resolvedServerPath), 'orca-cli.js'), 'doctor'].map(shArg).join(' ');
 
   return {
     serverKey: SERVER_KEY,
     nodePath: resolvedNode,
     serverPath: resolvedServerPath,
     ...(runtime ? { runtime } : {}),
-    ...(lease ? {
+    ...(lease || credential ? {
       leaseLifecycle: {
-        leaseId: lease.id,
-        actor: lease.actor,
-        expiresAt: lease.expiresAt,
-        renewable: false,
-        replacedLeaseIds: [...(lease.replacedLeaseIds || [])],
+        leaseId: lease?.id ?? null,
+        actor: (credential || lease).actor,
+        expiresAt: lease?.expiresAt ?? null,
+        // Every lease slides while it is used; with a credential, the bridge also
+        // replaces one that lapsed.
+        renewable: true,
+        ...(credential ? {
+          credentialId: credential.id,
+          leaseTtlMs: credential.leaseTtlMs,
+          credentialExpiresAt: credential.expiresAt,
+          replacedCredentialIds: [...(credential.replacedCredentialIds || [])],
+        } : {}),
+        replacedLeaseIds: [...(lease?.replacedLeaseIds || [])],
       },
     } : {}),
     env,
@@ -398,7 +437,7 @@ export function buildOrchestratorMcpConfigs({
       ...runtimeInstructions(runtime, resolvedNode),
       `Open ${dashboard || 'the Orca dashboard URL'} in the desktop app's in-app browser to drive Orca visually.`,
       `The server exposes Orca's orchestrator tools. Call orchestrator__register with your working directory first (Orca binds you to the project keyed by that cwd; re-call it with the same cwd to refresh your title + focus), executor__spawn to launch executors under contract (choose each lane's model there), lane__list / lane__get / lane__terminal__tail to monitor them, and audit__queue_one + one verdict call (audit__accept / audit__request_fix / audit__block) to enforce the completion contract before resigning with orchestrator__resign. The server enforces the workflow.`,
-      ...leaseInstructions(lease),
+      ...leaseInstructions(lease, credential, doctorCommand),
     ],
     clients: buildClientConfigs(launcher, env),
   };

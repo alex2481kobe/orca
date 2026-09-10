@@ -1932,7 +1932,8 @@ test('orchestrator MCP bootstrap is token-gated and returns paste-ready desktop 
 
     const orca = created.body.bootstrap.clients.claudeDesktop.config.mcpServers.orca;
     assert.equal(orca.env.ORCA_ROLE, 'orchestrator');
-    assert.equal(orca.env.ORCA_TOOL_LEASE_TOKEN, created.body.leaseToken);
+    assert.equal(orca.env.ORCA_REFRESH_TOKEN, created.body.refreshToken, 'the config carries the refresh credential');
+    assert.equal(orca.env.ORCA_TOOL_LEASE_TOKEN, undefined, 'and no lease');
     assert.match(created.body.bootstrap.clients.codex.snippet, /\[mcp_servers\.orca\]/);
 
     // The full API token must never appear in the bootstrap payload.
@@ -1956,7 +1957,7 @@ test('orchestrator MCP bootstrap is token-gated and returns paste-ready desktop 
       });
       assert.equal(listed.status, 200);
       return listed.body.leases
-        .filter((lease) => lease.actor === 'desktop-app' && lease.role === 'orchestrator')
+        .filter((lease) => lease.kind !== 'refresh' && lease.actor === 'desktop-app' && lease.role === 'orchestrator')
         .map((lease) => lease.id);
     };
     assert.deepEqual(await liveDesktopLeases(), [created.body.lease.id]);

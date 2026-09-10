@@ -13,7 +13,7 @@ import { handleProjectRoutes } from './server-routes/projects.js';
 import { handleMcpRoutes } from './server-routes/mcp.js';
 import { handleOrchestratorRoutes } from './server-routes/orchestrators.js';
 import { handlePrivateAccessApi } from './server-routes/private-access.js';
-import { handleAgentToolRoutes } from './server-routes/agent-tools.js';
+import { handleAgentToolRoutes, handleAgentCredentialRoutes, isAgentCredentialRoute } from './server-routes/agent-tools.js';
 import { handleMiscRoutes } from './server-routes/misc.js';
 import { createStaticServer } from './server-routes/static-server.js';
 import { createAuthApi } from './server-routes/auth-api.js';
@@ -783,6 +783,7 @@ const ROUTE_CTX = {
   hasOperatorAuth,
   hasAdminAuth,
   buildMobileManifest,
+  apiTokenConfigured: Boolean(API_TOKEN),
 };
 
 async function handleApi(req, res, pathname, method, parts) {
@@ -804,6 +805,12 @@ async function handleApi(req, res, pathname, method, parts) {
   // the main event stream.
   if (parts[1] === 'lanes' && parts[2] && parts[3] === 'stream' && parts.length === 4 && method === 'GET') {
     return handleLaneStream(req, res, parts[2]);
+  }
+  // A client's own credential authenticates these (refresh a lease; doctor's
+  // self-check). They self-authorize and refuse anything without a valid
+  // credential, so they bypass the generic gate like the streams above.
+  if (isAgentCredentialRoute(method, parts)) {
+    return handleAgentCredentialRoutes(ROUTE_CTX, req, res, method, parts);
   }
   if (!requireApiAuth(req, res, parts)) {
     return;

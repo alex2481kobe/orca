@@ -325,7 +325,11 @@ export const agentMethods = {
     if (!tool || !tool.mutating) return; // reads are always allowed
     const orch = (this.orchestrators || []).find((item) => item.id === sessionId);
     if (!orch) return; // no orchestrator container -> nothing to own
-    if (orch.leaseId === lease.id && !orch.resignedAt && !this._orchestratorStale(orch)) {
+    // orch.leaseId records the owning identity: a lease id, or for a lease issued
+    // by a refresh credential, the credential's id (publicToolLease ownerId). So
+    // a lease that replaced a lapsed one still owns what the lapsed one owned.
+    const ownerId = lease.ownerId || lease.id;
+    if (orch.leaseId === ownerId && !orch.resignedAt && !this._orchestratorStale(orch)) {
       // Caller owns it; keep it fresh so it doesn't go stale mid-run.
       orch.lastSeenAt = nowIso();
       return;
@@ -335,7 +339,7 @@ export const agentMethods = {
       projectId: orch.projectId,
       sessionId: orch.id,
     });
-    if (orch.leaseId && orch.leaseId !== lease.id && !orch.resignedAt && !this._orchestratorStale(orch)) {
+    if (orch.leaseId && orch.leaseId !== ownerId && !orch.resignedAt && !this._orchestratorStale(orch)) {
       throw {
         status: 409,
         message: `You are not the active orchestrator for this work (held by ${orch.actor || orch.leaseId}). Register (orchestrator.register with takeoverOrchestratorId) before mutating it.`,

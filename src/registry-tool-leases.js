@@ -14,6 +14,31 @@ import { buildOrchestratorMcpConfigs, resolveMcpLauncher } from './mcp-orchestra
 const LANE_SCOPED_LEASE_ROLES = new Set(['executor']);
 const SESSION_SCOPED_LEASE_ROLES = new Set(['auditor']);
 
+// Refresh credentials: the narrow credential a client config carries instead of
+// a lease (the OAuth2 refresh-token pattern). Kept in toolLeases with kind
+// 'refresh', so persistence, listing, revocation and audit are shared with
+// leases, but validateToolLease never accepts one.
+const REFRESH_KIND = 'refresh';
+// A credential nobody uses for 90 days lapses; any use slides it forward.
+const REFRESH_IDLE_MS = 90 * 24 * 60 * 60 * 1000;
+const MIN_LEASE_TTL_MS = 30 * 1000;
+const MAX_LEASE_TTL_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_LEASE_TTL_MS = 15 * 60 * 1000;
+
+const isRefreshCredential = (item) => item?.kind === REFRESH_KIND;
+
+function clampLeaseTtl(ttlMs) {
+  return Math.max(MIN_LEASE_TTL_MS, Math.min(MAX_LEASE_TTL_MS, Number.parseInt(ttlMs, 10) || DEFAULT_LEASE_TTL_MS));
+}
+
+// A lease's own window. Leases record ttlMs from Stage 5 on; older ones carry
+// only createdAt and expiresAt, which say the same thing.
+function leaseWindowMs(item) {
+  const recorded = Number(item.ttlMs);
+  if (recorded > 0) return recorded;
+  return Date.parse(item.expiresAt) - Date.parse(item.createdAt);
+}
+
 // Authoritative workflow gates: lane states in which each agent tool is legal.
 // Enforced only on the agent (tool-lease) path so out-of-order/skipped/stale
 // calls are refused with a nextAction envelope. Only the core lifecycle is gated;
@@ -96,6 +121,9 @@ export const toolLeaseMethods = {
     ttlMs = 15 * 60 * 1000,
     actor = 'dashboard',
     replaceActiveForActor = false,
+    // The refresh credential this lease was obtained with, if any. The lease then
+    // acts as that credential (publicToolLease ownerId).
+    parentId = null,
   } = {}) {
     const normalizedRole = String(role || 'orchestrator').trim().toLowerCase() || 'orchestrator';
     if (!ROLES.has(normalizedRole)) {
@@ -121,7 +149,7 @@ export const toolLeaseMethods = {
         message: `Tool lease role "${normalizedRole}" cannot grant tool(s): ${disallowedTools.join(', ')}.`,
       };
     }
-    const ttl = Math.max(30 * 1000, Math.min(24 * 60 * 60 * 1000, Number.parseInt(ttlMs, 10) || 15 * 60 * 1000));
+    const ttl = clampLeaseTtl(ttlMs);
     const leaseToken = `${randomUUID()}-${randomUUID()}`;
     const tokenHash = createHash('sha256').update(leaseToken).digest('hex');
     const now = Date.now();
@@ -129,6 +157,7 @@ export const toolLeaseMethods = {
     if (replaceActiveForActor) {
       const revokedAt = new Date(now).toISOString();
       for (const existing of this.toolLeases || []) {
+        if (isRefreshCredential(existing)) continue;
         if (existing.revokedAt) continue;
         if (Date.parse(existing.expiresAt) <= now) continue;
         if (existing.role !== normalizedRole) continue;
@@ -163,10 +192,12 @@ export const toolLeaseMethods = {
       projectId: scope.projectId || null,
       sessionId: scope.sessionId || null,
       laneId: scope.laneId || null,
+      parentId: parentId ? String(parentId) : null,
       allowedTools: normalizedAllowedTools,
       createdAt: new Date(now).toISOString(),
       lastUsedAt: null,
       expiresAt: new Date(now + ttl).toISOString(),
+      ttlMs: ttl,
       revokedAt: null,
     };
     this.toolLeases.unshift(lease);
@@ -190,6 +221,7 @@ export const toolLeaseMethods = {
         role: lease.role,
         allowedTools: lease.allowedTools,
         expiresAt: lease.expiresAt,
+        parentId: lease.parentId,
         tokenHashPrefix: tokenHash.slice(0, 12),
       },
     });
@@ -205,6 +237,12 @@ export const toolLeaseMethods = {
     const scope = this._resolveToolLeaseScope(lease, { allowMissing: true });
     return {
       id: lease.id,
+      kind: lease.kind || 'lease',
+      // Who this lease acts as. A lease obtained with a refresh credential acts as
+      // that credential, so every lease one client config obtains owns the same
+      // orchestrator; any other lease acts as itself.
+      ownerId: lease.parentId || lease.id,
+      parentId: lease.parentId || null,
       role: lease.role,
       actor: lease.actor,
       projectId: scope.projectId,
@@ -215,6 +253,7 @@ export const toolLeaseMethods = {
       lastUsedAt: lease.lastUsedAt || null,
       expiresAt: lease.expiresAt,
       revokedAt: lease.revokedAt || null,
+      ...(isRefreshCredential(lease) ? { leaseTtlMs: lease.leaseTtlMs } : {}),
       active: !lease.revokedAt && Date.parse(lease.expiresAt) > Date.now(),
     };
   },
@@ -222,6 +261,158 @@ export const toolLeaseMethods = {
   listToolLeases({ activeOnly = true } = {}) {
     const leases = this.toolLeases.map((lease) => this.publicToolLease(lease));
     return activeOnly ? leases.filter((lease) => lease.active) : leases;
+  },
+
+  // Sliding renewal, the way etcd, Consul and Kubernetes keep a lease alive while
+  // its holder is active: a lease (or credential) accepted in the second half of
+  // its window is pushed out to a full window again. A holder that keeps using it
+  // never reaches expiry; one that stops lapses a window later. It writes at most
+  // once per half-window, and never revives anything revoked or already expired.
+  _renewIfDue(item, now = Date.now()) {
+    if (!item || item.revokedAt) return false;
+    const expiresAt = Date.parse(item.expiresAt);
+    if (!(expiresAt > now)) return false;
+    const window = leaseWindowMs(item);
+    if (!(window > 0) || expiresAt - now >= window / 2) return false;
+    item.expiresAt = new Date(now + window).toISOString();
+    return true;
+  },
+
+  // Revoke a refresh credential and every lease it issued. Returns what it
+  // revoked, the credential included when it was not already revoked.
+  _revokeCredentialTree(credential, { actor = 'dashboard', reason = 'revoked' } = {}) {
+    const revokedAt = new Date().toISOString();
+    const revoked = [];
+    for (const item of this.toolLeases || []) {
+      if (item.revokedAt) continue;
+      if (item.id !== credential.id && item.parentId !== credential.id) continue;
+      item.revokedAt = revokedAt;
+      revoked.push(item);
+      this.recordAudit({
+        type: 'agent_tool_lease_revoked',
+        actor: String(actor || 'dashboard').slice(0, 120),
+        projectId: item.projectId,
+        sessionId: item.sessionId,
+        laneId: item.laneId,
+        summary: isRefreshCredential(item)
+          ? `Revoked ${item.role} refresh credential`
+          : `Revoked ${item.role} tool lease issued by a revoked refresh credential`,
+        status: 'passed',
+        evidence: {
+          leaseId: item.id,
+          kind: item.kind || 'lease',
+          role: item.role,
+          parentId: item.parentId || null,
+          reason: String(reason || 'revoked').slice(0, 120),
+          tokenHashPrefix: String(item.tokenHash || '').slice(0, 12),
+        },
+      });
+    }
+    return revoked;
+  },
+
+  // Issue the credential a client config carries. It can do one thing: obtain a
+  // lease for its own role, actor and scope (exchangeRefreshCredential). It is
+  // never a tool lease itself, lapses after 90 days unused, and revoking it
+  // revokes every lease it issued. One live credential per actor and scope:
+  // issuing another (running setup again) replaces the previous one and
+  // everything it issued.
+  _issueRefreshCredential({ role, projectId = null, sessionId = null, actor, leaseTtlMs } = {}) {
+    const scope = this._resolveToolLeaseScope({ projectId, sessionId });
+    const normalizedActor = String(actor || 'desktop-app').slice(0, 120);
+    const now = Date.now();
+    for (const existing of this.toolLeases || []) {
+      if (!isRefreshCredential(existing) || existing.revokedAt || !(Date.parse(existing.expiresAt) > now)) continue;
+      if (existing.role !== role || existing.actor !== normalizedActor) continue;
+      if ((existing.projectId || null) !== (scope.projectId || null)) continue;
+      if ((existing.sessionId || null) !== (scope.sessionId || null)) continue;
+      this._revokeCredentialTree(existing, { actor: normalizedActor, reason: 'replaced_by_new_setup' });
+    }
+    const refreshToken = `orca_rt_${randomUUID().replace(/-/g, '')}${randomUUID().replace(/-/g, '')}`;
+    const tokenHash = createHash('sha256').update(refreshToken).digest('hex');
+    const credential = {
+      id: randomUUID(),
+      kind: REFRESH_KIND,
+      tokenHash,
+      role,
+      actor: normalizedActor,
+      projectId: scope.projectId || null,
+      sessionId: scope.sessionId || null,
+      laneId: null,
+      parentId: null,
+      allowedTools: [],
+      leaseTtlMs: clampLeaseTtl(leaseTtlMs),
+      createdAt: new Date(now).toISOString(),
+      lastUsedAt: null,
+      expiresAt: new Date(now + REFRESH_IDLE_MS).toISOString(),
+      ttlMs: REFRESH_IDLE_MS,
+      revokedAt: null,
+    };
+    this.toolLeases.unshift(credential);
+    this.recordAudit({
+      type: 'agent_refresh_credential_created',
+      actor: normalizedActor,
+      projectId: credential.projectId,
+      sessionId: credential.sessionId,
+      summary: `Issued ${role} refresh credential`,
+      status: 'passed',
+      evidence: {
+        leaseId: credential.id,
+        kind: REFRESH_KIND,
+        role,
+        leaseTtlMs: credential.leaseTtlMs,
+        expiresAt: credential.expiresAt,
+        tokenHashPrefix: tokenHash.slice(0, 12),
+      },
+    });
+    this.persistState();
+    return { credential, refreshToken };
+  },
+
+  _findRefreshCredential(refreshToken) {
+    const token = String(refreshToken || '').trim();
+    if (!token) throw { status: 401, message: 'Refresh credential is required.' };
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    const credential = (this.toolLeases || []).find((item) => item.tokenHash === tokenHash && isRefreshCredential(item));
+    if (!credential) throw { status: 401, message: 'Refresh credential not found.' };
+    if (credential.revokedAt) throw { status: 401, message: 'Refresh credential has been revoked.' };
+    if (!(Date.parse(credential.expiresAt) > Date.now())) throw { status: 401, message: 'Refresh credential has expired.' };
+    return credential;
+  },
+
+  // The only thing a refresh credential can do. The caller chooses nothing: role,
+  // actor, scope, tools and lease window all come from the credential. Obtaining
+  // a lease never revokes another, so every session sharing one client config
+  // keeps its own lease.
+  exchangeRefreshCredential(refreshToken) {
+    const credential = this._findRefreshCredential(refreshToken);
+    const now = Date.now();
+    credential.lastUsedAt = new Date(now).toISOString();
+    this._renewIfDue(credential, now);
+    return this.createToolLease({
+      role: credential.role,
+      projectId: credential.projectId,
+      sessionId: credential.sessionId,
+      allowedTools: availableToolIdsForRole(credential.role),
+      ttlMs: credential.leaseTtlMs,
+      actor: credential.actor,
+      parentId: credential.id,
+    });
+  },
+
+  // Read-only, for `orca doctor`: which credential is this, and is it live? It
+  // never renews and never stamps lastUsedAt, so diagnosing changes nothing. A
+  // dead credential is refused with the reason a real call would get.
+  inspectAgentCredential(token) {
+    const value = String(token || '').trim();
+    if (!value) throw { status: 401, message: 'A refresh credential or tool lease is required.' };
+    const tokenHash = createHash('sha256').update(value).digest('hex');
+    const item = (this.toolLeases || []).find((entry) => entry.tokenHash === tokenHash);
+    if (!item) throw { status: 401, message: 'Credential not found.' };
+    const noun = isRefreshCredential(item) ? 'Refresh credential' : 'Tool lease';
+    if (item.revokedAt) throw { status: 401, message: `${noun} has been revoked.` };
+    if (!(Date.parse(item.expiresAt) > Date.now())) throw { status: 401, message: `${noun} has expired.` };
+    return this.publicToolLease(item);
   },
 
   revokeToolLeasesForLane(laneLocator, {
@@ -272,6 +463,11 @@ export const toolLeaseMethods = {
     if (!lease) {
       throw { status: 404, message: 'Tool lease not found.' };
     }
+    if (isRefreshCredential(lease)) {
+      // Revoking a credential revokes everything it issued, at once.
+      if (this._revokeCredentialTree(lease, { actor, reason: 'revoked' }).length) this.persistState();
+      return this.publicToolLease(lease);
+    }
     if (!lease.revokedAt) {
       lease.revokedAt = new Date().toISOString();
       this.recordAudit({
@@ -306,7 +502,8 @@ export const toolLeaseMethods = {
     }
     const tokenHash = createHash('sha256').update(token).digest('hex');
     const lease = this.toolLeases.find((item) => item.tokenHash === tokenHash);
-    if (!lease) {
+    // A refresh credential is never a tool lease: it can only be exchanged for one.
+    if (!lease || isRefreshCredential(lease)) {
       throw { status: 401, message: 'Tool lease not found.' };
     }
     if (lease.revokedAt) {
@@ -332,7 +529,14 @@ export const toolLeaseMethods = {
     if (requestedScope.laneId && leaseScope.laneId && leaseScope.laneId !== requestedScope.laneId) {
       throw { status: 403, message: 'Tool lease lane mismatch.' };
     }
-    lease.lastUsedAt = new Date().toISOString();
+    const now = Date.now();
+    lease.lastUsedAt = new Date(now).toISOString();
+    if (this._renewIfDue(lease, now)) {
+      // Using a lease also keeps the credential it came from alive.
+      const parent = lease.parentId ? this.toolLeases.find((item) => item.id === lease.parentId) : null;
+      if (parent) this._renewIfDue(parent, now);
+      this.persistState();
+    }
     return this.publicToolLease(lease);
   },
 
@@ -450,29 +654,49 @@ export const toolLeaseMethods = {
       runtime: launcher.runtime,
       ...fields,
     });
-    buildConfig({ leaseToken: 'not-yet-minted', projectId, sessionId });
+    buildConfig({ refreshToken: 'not-yet-issued', projectId, sessionId });
 
     const isLive = (item) => !item.revokedAt && Date.parse(item.expiresAt) > Date.now();
     const liveBefore = new Set((this.toolLeases || []).filter(isLive).map((item) => item.id));
-    // createToolLease validates project/session existence + relationship.
-    const { lease, leaseToken } = this.createToolLease({
+    // The client config carries a refresh credential, never a lease: the bridge
+    // exchanges it for leases as it needs them, so a lapsed lease heals itself.
+    // Issuing it replaces this actor's previous credential for the same scope.
+    const { credential, refreshToken } = this._issueRefreshCredential({
       role: normalizedRole,
       projectId,
       sessionId,
-      allowedTools,
-      ttlMs,
       actor,
-      replaceActiveForActor: true,
+      leaseTtlMs: ttlMs,
     });
-    // Reported, not decided here: which live leases that mint just revoked.
-    const replacedLeaseIds = (this.toolLeases || [])
-      .filter((item) => liveBefore.has(item.id) && item.revokedAt)
-      .map((item) => item.id);
+    // One lease is issued with it for direct HTTP use (scripts, curl). Client
+    // configs do not carry it. replaceActiveForActor also retires this actor's
+    // leases from before refresh credentials existed.
+    const { lease, leaseToken } = this.createToolLease({
+      role: normalizedRole,
+      projectId: credential.projectId,
+      sessionId: credential.sessionId,
+      allowedTools,
+      ttlMs: credential.leaseTtlMs,
+      actor: credential.actor,
+      replaceActiveForActor: true,
+      parentId: credential.id,
+    });
+    // Reported, not decided here: which live leases and credentials this revoked.
+    const revokedNow = (this.toolLeases || []).filter((item) => liveBefore.has(item.id) && item.revokedAt);
+    const replacedLeaseIds = revokedNow.filter((item) => !isRefreshCredential(item)).map((item) => item.id);
+    const replacedCredentialIds = revokedNow.filter(isRefreshCredential).map((item) => item.id);
     const bootstrap = buildConfig({
-      leaseToken,
-      projectId: lease.projectId,
-      sessionId: lease.sessionId,
+      refreshToken,
+      projectId: credential.projectId,
+      sessionId: credential.sessionId,
       lease: { id: lease.id, actor: lease.actor, expiresAt: lease.expiresAt, replacedLeaseIds },
+      credential: {
+        id: credential.id,
+        actor: credential.actor,
+        leaseTtlMs: credential.leaseTtlMs,
+        expiresAt: credential.expiresAt,
+        replacedCredentialIds,
+      },
     });
     this.recordAudit({
       type: `${normalizedRole}_mcp_bootstrap_created`,
@@ -483,19 +707,24 @@ export const toolLeaseMethods = {
       status: 'passed',
       evidence: {
         leaseId: lease.id,
+        credentialId: credential.id,
         toolCount: allowedTools.length,
         expiresAt: lease.expiresAt,
+        leaseTtlMs: credential.leaseTtlMs,
         scopedProject: Boolean(lease.projectId),
         scopedSession: Boolean(lease.sessionId),
         replacedLeaseIds,
+        replacedCredentialIds,
         nodeSource: launcher.runtime.source,
       },
     });
     return {
       lease,
-      // leaseToken is returned ONCE here (never persisted in plaintext) so the
-      // operator can paste it into the desktop app's config.
+      // Both tokens are returned ONCE here and never persisted in plaintext. The
+      // refresh credential is what the client configs below carry.
       leaseToken,
+      credential: this.publicToolLease(credential),
+      refreshToken,
       bootstrap,
     };
   },

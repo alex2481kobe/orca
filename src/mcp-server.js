@@ -13,7 +13,9 @@
 //
 // Env (set by the lane runtime):
 //   ORCA_AGENT_TOOLS_BASE_URL  - e.g. http://127.0.0.1:3000
-//   ORCA_TOOL_LEASE_TOKEN      - scoped lease used as x-orca-tool-lease
+//   ORCA_REFRESH_TOKEN         - client configs: a refresh credential the bridge
+//                                exchanges for its own leases (mcp-connection.js)
+//   ORCA_TOOL_LEASE_TOKEN      - lanes: a scoped lease used as x-orca-tool-lease
 //   ORCA_ROLE                  - orchestrator | executor | auditor
 //   ORCA_LANE_ID / ORCA_SESSION_ID / ORCA_PROJECT_ID - default path params
 
@@ -23,11 +25,11 @@ import { TOOL_DEFINITIONS } from './agent-tools/tool-definitions.js';
 import { normalizeRole } from './agent-tools/roles.js';
 import { CONTRACT_VERSION, ROLES } from './agent-tools/contract.js';
 import { roleInstructions } from './agent-tools/role-instructions.js';
+import { OrcaConnection } from './mcp-connection.js';
 
 const require = createRequire(import.meta.url);
 const PACKAGE_VERSION = require('../package.json').version || '0.0.0';
 const BASE_URL = String(process.env.ORCA_AGENT_TOOLS_BASE_URL || 'http://127.0.0.1:3000').replace(/\/$/, '');
-const LEASE_TOKEN = String(process.env.ORCA_TOOL_LEASE_TOKEN || '');
 // ORCA_ROLE decides which tools this bridge ADVERTISES. It is not an authorization
 // boundary: the server binds every tool lease to its role's tool set
 // (registry-tool-leases.js createToolLease -> availableToolIdsForRole) and checks
@@ -61,6 +63,15 @@ const DEFAULT_PARAMS = {
   projectId: process.env.ORCA_PROJECT_ID || '',
 };
 const SERVER_PROTOCOL_VERSION = '2024-11-05';
+// Every call to Orca goes through this: it holds the lease (in memory only),
+// obtains and replaces it with the refresh credential, and explains failures.
+const connection = new OrcaConnection({
+  baseUrl: BASE_URL,
+  leaseToken: process.env.ORCA_TOOL_LEASE_TOKEN || '',
+  refreshToken: process.env.ORCA_REFRESH_TOKEN || '',
+  role: ROLE,
+  laneId: DEFAULT_PARAMS.laneId,
+});
 
 // MCP tool names can't contain dots in some clients; expose dotted ids as
 // underscored names and keep a reverse map for routing.
@@ -184,34 +195,21 @@ async function callTool(name, args = {}) {
     return { isError: true, text: `Missing required parameter "${missing}" for ${id}.` };
   }
 
-  const url = `${BASE_URL}${appendQueryParams(tool, out, args)}`;
-  const headers = {
-    'x-orca-tool-lease': LEASE_TOKEN,
-    accept: 'application/json',
-  };
-  const init = { method: tool.method, headers };
+  let body;
   if (tool.method !== 'GET') {
     const params = new Set(pathParams(tool.route));
-    const body = args.body && typeof args.body === 'object'
+    body = args.body && typeof args.body === 'object'
       ? args.body
       : Object.fromEntries(Object.entries(args).filter(([k]) => !params.has(k)));
-    headers['content-type'] = 'application/json';
-    init.body = JSON.stringify(body);
   }
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 60000);
-  try {
-    const res = await fetch(url, { ...init, signal: controller.signal });
-    const text = await res.text();
-    // Non-2xx bodies carry the nextAction envelope on authoritative refusals —
-    // surface them so the agent learns exactly what to do next.
-    return { isError: !res.ok, text: text || `(${res.status})` };
-  } catch (error) {
-    return { isError: true, text: `Orca tool call failed: ${error?.message || error}` };
-  } finally {
-    clearTimeout(timer);
-  }
+  // Non-2xx bodies carry the nextAction envelope on authoritative refusals, and
+  // connection failures carry the URL, the cause and the fix: surface both so
+  // the agent learns exactly what to do next.
+  return connection.call(appendQueryParams(tool, out, args), {
+    method: tool.method,
+    body,
+    mutating: Boolean(tool.mutating),
+  });
 }
 
 // Claude's --permission-prompt-tool target. Claude calls mcp__orca__permission_prompt
@@ -237,38 +235,29 @@ async function handlePermissionPrompt(args = {}) {
   if (!laneId) return deny('No lane context for permission prompt.');
   const toolName = String(args.tool_name || args.toolName || 'tool');
   const input = args.input ?? {};
-  const headers = { 'x-orca-tool-lease': LEASE_TOKEN, accept: 'application/json', 'content-type': 'application/json' };
-  const approvalsUrl = `${BASE_URL}/api/lanes/${encodeURIComponent(laneId)}/approvals`;
+  const approvalsPath = `/api/lanes/${encodeURIComponent(laneId)}/approvals`;
+  const parse = (text) => { try { return JSON.parse(text); } catch { return null; } };
 
-  let approvalId = null;
-  try {
-    const res = await fetch(approvalsUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ actor: 'executor', kind: 'tool', detail: `${toolName} ${JSON.stringify(input)}`.slice(0, 1900) }),
-    });
-    const data = await res.json().catch(() => null);
-    approvalId = data?.approval?.id;
-  } catch (error) {
-    return deny(`Approval request failed: ${error?.message || error}`);
-  }
+  const created = await connection.call(approvalsPath, {
+    method: 'POST',
+    body: { actor: 'executor', kind: 'tool', detail: `${toolName} ${JSON.stringify(input)}`.slice(0, 1900) },
+    mutating: true,
+  });
+  if (created.isError) return deny(`Approval request failed: ${created.text}`);
+  const approvalId = parse(created.text)?.approval?.id;
   if (!approvalId) return deny('Could not create approval request.');
 
   // Wait for a decision; humans/orchestrators may take a while.
   const deadline = Date.now() + 30 * 60 * 1000;
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 1200));
-    try {
-      const res = await fetch(approvalsUrl, { headers });
-      const data = await res.json().catch(() => null);
-      const approval = (data?.approvals || []).find((entry) => entry.id === approvalId);
-      if (approval && approval.status !== 'pending') {
-        return approval.status === 'approved'
-          ? { isError: false, text: JSON.stringify({ behavior: 'allow', updatedInput: input }) }
-          : deny('Denied by orchestrator/user.');
-      }
-    } catch {
-      // keep polling
+    const polled = await connection.call(approvalsPath, { method: 'GET' });
+    if (polled.isError) continue; // keep polling
+    const approval = (parse(polled.text)?.approvals || []).find((entry) => entry.id === approvalId);
+    if (approval && approval.status !== 'pending') {
+      return approval.status === 'approved'
+        ? { isError: false, text: JSON.stringify({ behavior: 'allow', updatedInput: input }) }
+        : deny('Denied by orchestrator/user.');
     }
   }
   return deny('Approval timed out.');
@@ -303,6 +292,8 @@ async function handle(message) {
 
   switch (method) {
     case 'initialize':
+      // Only used to name the right client in fix commands (claude or codex).
+      connection.setClientName(params?.clientInfo?.name);
       return reply(id, {
         protocolVersion: params?.protocolVersion || SERVER_PROTOCOL_VERSION,
         capabilities: { tools: { listChanged: false } },

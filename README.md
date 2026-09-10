@@ -107,8 +107,14 @@ Orca grants local admin when nothing is configured. **Once you set
 `ORCA_API_TOKEN`** — which you must before reaching the dashboard from your phone
 (see [`docs/tailscale-mobile-access.md`](docs/tailscale-mobile-access.md)) — that
 bootstrap is deliberately off, and the bare command above gets `401
-Unauthorized`. Mint the agent a scoped lease rather than handing it your API
-token:
+Unauthorized`. Give the agent its own scoped credential rather than your API
+token. One command does it and registers the result at user scope:
+
+```bash
+ORCA_API_TOKEN=<your token> node "$PWD/src/orca-cli.js" connect claude   # or: connect codex
+```
+
+Or ask for the config yourself:
 
 ```bash
 curl -sX POST http://127.0.0.1:3000/api/mcp/orchestrator-bootstrap \
@@ -117,16 +123,17 @@ curl -sX POST http://127.0.0.1:3000/api/mcp/orchestrator-bootstrap \
 ```
 
 That returns paste-ready MCP config for Claude Code, Codex, and any other client,
-each carrying an `ORCA_TOOL_LEASE_TOKEN` scoped to the orchestrator role. Your API
-token never reaches the agent, and the lease can be revoked on its own. Before
-you paste it:
+each carrying an `ORCA_REFRESH_TOKEN`: a credential that can only obtain
+orchestrator leases. Your API token never reaches the agent, and the credential
+can be revoked on its own. Before you paste it:
 
-- **The lease expires, and nothing renews it.** This endpoint mints 12 hours when
-  `ttlMs` is omitted; `86400000` (24 hours) is the maximum. The response's
-  `lease.expiresAt` says when. After that every call fails with
-  `Tool lease has expired.` until you mint a new lease, put it in your client
-  config, and restart the client — see
-  [the two clocks](docs/agent-orchestrator-skill.md#two-clocks-orchestrator-staleness-vs-lease-expiry).
+- **It reconnects by itself.** The bridge exchanges the credential for its own
+  lease, every call renews that lease, and after a long idle the bridge gets a new
+  one and repeats the refused call. No config rewrite, no restart. `ttlMs` sets
+  the lease window (12 hours when omitted, 24 hours at most). See
+  [Connecting and reconnecting](docs/agent-orchestrator-skill.md#connecting-and-reconnecting).
+  When something does fail, `node "$PWD/src/orca-cli.js" doctor` says what and
+  prints the fix.
 - **The returned Claude command already carries `-s user`**, so running it from
   any directory registers Orca for every directory. The Codex command has no
   scope flag.
@@ -141,9 +148,10 @@ you paste it:
   `nodePath` that is missing, not executable, not Node, or older than Node 18.18
   is refused with `422`.
 - **Give each separate client configuration its own `actor`.** Minting again with
-  the same `actor` revokes that actor's previous live lease, and the response
-  lists what it revoked in `bootstrap.leaseLifecycle.replacedLeaseIds`. A refused
-  request (a bad `nodePath`, say) changes no lease.
+  the same `actor` replaces that actor's credential and revokes every lease it
+  issued; the response lists them in `bootstrap.leaseLifecycle.replacedCredentialIds`
+  and `replacedLeaseIds`. A refused request (a bad `nodePath`, say) changes
+  nothing.
 
 Then, from inside that agent:
 

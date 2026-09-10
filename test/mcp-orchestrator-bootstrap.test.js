@@ -52,7 +52,7 @@ const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 function activeLeaseIdsFor(registry, actor) {
   return registry.listToolLeases({ activeOnly: true })
-    .filter((lease) => lease.role === 'orchestrator' && lease.actor === actor)
+    .filter((lease) => lease.kind !== 'refresh' && lease.role === 'orchestrator' && lease.actor === actor)
     .map((lease) => lease.id);
 }
 
@@ -298,6 +298,7 @@ test('a bootstrap that fails validation leaves the previous lease active and min
       // orphan lease (whose token nobody ever received) was minted in its place.
       const still = registry.validateToolLease(first.leaseToken, { role: 'orchestrator', toolId: 'orchestrator.register' });
       assert.equal(still.active, true);
+      assert.equal(registry.inspectAgentCredential(first.refreshToken).active, true, 'the working client\'s credential survives');
       assert.deepEqual(activeLeaseIdsFor(registry, 'same-client'), [first.lease.id], `after nodePath ${JSON.stringify(nodePath)}`);
     }
   } finally {
@@ -431,34 +432,43 @@ test("a version-pinned Node, or one inside another agent tool's directory, is ho
   }
 });
 
-test('bootstrap output discloses when this lease expires and that re-minting with the same actor revokes it', async () => {
+test('bootstrap output discloses its refresh credential, how leases renew, and that re-issuing for the same actor replaces it', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   try {
     const first = registry.createOrchestratorMcpBootstrap({ actor: 'disclosed-client', ttlMs: 60 * 60 * 1000, nodePath: process.execPath });
     const text = first.bootstrap.instructions.join('\n');
-    assert.ok(text.includes(first.lease.expiresAt), 'instructions do not say when this lease expires');
-    assert.match(text, /nothing renews it/i);
-    assert.match(text, /24 hours/);
-    assert.match(text, /actor "disclosed-client"[^\n]*revokes this lease/);
+    assert.ok(text.includes(first.credential.id), 'instructions do not name the credential this config carries');
+    assert.match(text, /renews while you use it/);
+    assert.match(text, /after 1 hour with no use it lapses/);
+    assert.match(text, /never rewrite the config or restart the client/);
+    assert.match(text, /actor "disclosed-client"[^\n]*replaces this credential/);
+    assert.match(text, /orca-cli\.js'? doctor/);
     assert.deepEqual(first.bootstrap.leaseLifecycle, {
       leaseId: first.lease.id,
       actor: 'disclosed-client',
       expiresAt: first.lease.expiresAt,
-      renewable: false,
+      renewable: true,
+      credentialId: first.credential.id,
+      leaseTtlMs: 60 * 60 * 1000,
+      credentialExpiresAt: first.credential.expiresAt,
+      replacedCredentialIds: [],
       replacedLeaseIds: [],
     });
 
     const second = registry.createOrchestratorMcpBootstrap({ actor: 'disclosed-client', nodePath: process.execPath });
+    assert.deepEqual(second.bootstrap.leaseLifecycle.replacedCredentialIds, [first.credential.id]);
     assert.deepEqual(second.bootstrap.leaseLifecycle.replacedLeaseIds, [first.lease.id]);
     assert.ok(
-      second.bootstrap.instructions.some((line) => line.includes(first.lease.id) && /revoked/.test(line)),
+      second.bootstrap.instructions.some((line) => line.includes(first.credential.id) && line.includes(first.lease.id) && /revoked/.test(line)),
       'the replacement this bootstrap made is not disclosed',
     );
 
     // Replacement is per actor: another actor's bootstrap revokes nothing.
     const other = registry.createOrchestratorMcpBootstrap({ actor: 'other-client', nodePath: process.execPath });
     assert.deepEqual(other.bootstrap.leaseLifecycle.replacedLeaseIds, []);
+    assert.deepEqual(other.bootstrap.leaseLifecycle.replacedCredentialIds, []);
     assert.equal(registry.validateToolLease(second.leaseToken, { role: 'orchestrator' }).active, true);
+    assert.ok(registry.exchangeRefreshCredential(second.refreshToken).leaseToken, 'the replacing credential issues leases');
   } finally {
     await cleanup();
   }
@@ -486,9 +496,10 @@ test('registry mints an orchestrator lease whose token validates for orchestrato
       (err) => err.status === 403,
     );
 
-    // Bootstrap config carries the same token and points at the real server.
+    // The config carries the refresh credential, never the lease, and points at the real server.
     const env = result.bootstrap.clients.claudeDesktop.config.mcpServers.orca.env;
-    assert.equal(env.ORCA_TOOL_LEASE_TOKEN, result.leaseToken);
+    assert.equal(env.ORCA_REFRESH_TOKEN, result.refreshToken);
+    assert.equal(env.ORCA_TOOL_LEASE_TOKEN, undefined);
     assert.match(env.ORCA_AGENT_TOOLS_BASE_URL, /^http:\/\/127\.0\.0\.1:/);
 
     // An audit event records the bootstrap issuance.
@@ -555,7 +566,7 @@ test('registry replaces duplicate external MCP bootstrap leases for the same cha
       (error) => error.status === 401 && /revoked/i.test(error.message),
     );
     const activeOrchestrators = registry.listToolLeases({ activeOnly: true })
-      .filter((lease) => lease.role === 'orchestrator' && lease.actor === 'same-orchestrator-chat');
+      .filter((lease) => lease.kind !== 'refresh' && lease.role === 'orchestrator' && lease.actor === 'same-orchestrator-chat');
     assert.deepEqual(activeOrchestrators.map((lease) => lease.id), [secondOrchestrator.lease.id]);
 
     // The effective-scope replacement path (a session-only reconnect superseded by
@@ -585,11 +596,14 @@ test('registry replaces duplicate external MCP bootstrap leases for the same cha
       (error) => error.status === 401 && /revoked/i.test(error.message),
     );
     const effectiveScopeActive = registry.listToolLeases({ activeOnly: true })
-      .filter((lease) => lease.role === 'orchestrator' && lease.actor === 'same-effective-scope-chat');
+      .filter((lease) => lease.kind !== 'refresh' && lease.role === 'orchestrator' && lease.actor === 'same-effective-scope-chat');
     assert.deepEqual(effectiveScopeActive.map((lease) => lease.id), [fullScopeReconnect.lease.id]);
+    // Issuing the full-scope config replaced the session-only config's credential,
+    // which revokes the lease it issued; the audit names that lease and why.
     assert.equal(registry.auditEvents.some((event) =>
       event.type === 'agent_tool_lease_revoked'
-      && event.evidence?.reason === 'replace_active_for_actor'), true);
+      && event.evidence?.leaseId === sessionOnly.lease.id
+      && event.evidence?.reason === 'replaced_by_new_setup'), true);
   } finally {
     await cleanup();
   }
