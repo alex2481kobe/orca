@@ -184,3 +184,36 @@ test('instance lock: update records the listener so a refused duplicate can say 
     assert.equal(owned.update({ listen: null }), false, 'a released lock cannot be rewritten');
   });
 });
+
+// The LaunchAgent-vs-shell hazard: the owner records its start time under one
+// TZ/locale and a later start checks it under another. If `ps` formatted the
+// two differently, a LIVE owner would look like a reused pid and lose its lock.
+test('instance lock: an owner in a DIFFERENT timezone and locale is still recognized — no false "pid reused"', async () => {
+  await withStateDir(async ({ stateDir, lockPath }) => {
+    const moduleUrl = new URL('../src/instance-lock.js', import.meta.url).href;
+    const script = [
+      `const { acquireInstanceLock } = await import(${JSON.stringify(moduleUrl)});`,
+      'const lock = acquireInstanceLock(process.argv[1]);',
+      "process.stdout.write(JSON.stringify({ acquired: lock.acquired }) + '\\n');",
+      'setInterval(() => {}, 1 << 30);',
+    ].join('\n');
+    const owner = spawn(process.execPath, ['--input-type=module', '-e', script, stateDir], {
+      env: { ...process.env, TZ: 'Pacific/Kiritimati', LC_ALL: 'de_DE.UTF-8', LANG: 'de_DE.UTF-8' },
+      stdio: ['ignore', 'pipe', 'inherit'],
+    });
+    try {
+      const line = await new Promise((resolve, reject) => {
+        owner.stdout.once('data', (chunk) => resolve(String(chunk)));
+        owner.once('exit', (code) => reject(new Error(`lock owner exited early (${code})`)));
+      });
+      assert.deepEqual(JSON.parse(line), { acquired: true });
+      const before = fs.readFileSync(lockPath, 'utf8');
+      const contender = acquireInstanceLock(stateDir);
+      assert.equal(contender.acquired, false, 'a live owner in another timezone must not read as a reused pid');
+      assert.equal(contender.reason, 'running');
+      assert.equal(fs.readFileSync(lockPath, 'utf8'), before, 'the live owner keeps its lock');
+    } finally {
+      owner.kill('SIGKILL');
+    }
+  });
+});
