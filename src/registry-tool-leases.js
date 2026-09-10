@@ -206,7 +206,12 @@ export const toolLeaseMethods = {
     if (this.toolLeases.length > 500) {
       const now = Date.now();
       const isActive = (l) => !l.revokedAt && Date.parse(l.expiresAt) > now;
-      this.toolLeases = this.toolLeases.filter(isActive).slice(0, 500);
+      // Only leases count toward the cap. A refresh credential lives in a client
+      // config for up to 90 days, so it is among the oldest entries here: capping
+      // it by volume would strand that client until setup is run again, while an
+      // evicted lease heals on the bridge's next exchange.
+      let leasesKept = 0;
+      this.toolLeases = this.toolLeases.filter((l) => isActive(l) && (isRefreshCredential(l) || (leasesKept += 1) <= 500));
     }
     this.recordAudit({
       type: 'agent_tool_lease_created',

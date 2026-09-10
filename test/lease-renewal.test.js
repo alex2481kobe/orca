@@ -260,3 +260,16 @@ test('R4 (routes): a refresh credential opens only the refresh route; it never w
     assert.match(afterRefresh.body.error, /revoked/);
   });
 });
+
+test('the 500-lease cap never evicts a live refresh credential', async () => {
+  await withIsolatedRegistry(async (registry) => {
+    const { credential, refreshToken } = registry._issueRefreshCredential({ role: 'orchestrator', actor: 'cap-client' });
+    const allowedTools = availableToolIdsForRole('orchestrator');
+    for (let i = 0; i < 501; i += 1) {
+      registry.createToolLease({ role: 'orchestrator', actor: `bulk-${i}`, allowedTools, ttlMs: 60 * 60 * 1000 });
+    }
+    assert.ok(record(registry, credential.id), 'lease volume evicted a live refresh credential');
+    assert.equal(registry.exchangeRefreshCredential(refreshToken).lease.role, 'orchestrator');
+    assert.ok(registry.toolLeases.filter((item) => item.kind !== 'refresh').length <= 500, 'the cap no longer bounds leases');
+  });
+});
