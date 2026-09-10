@@ -85,6 +85,7 @@ export const persistenceMethods = {
       this.orchestrators = safeArray(parsed.orchestrators);
       this.lanes = safeArray(parsed.lanes);
       this.auditEvents = safeArray(parsed.auditEvents, []).slice(0, 200);
+      this.archivedLanes = safeArray(parsed.archivedLanes).filter((entry) => entry && typeof entry.id === 'string');
       // Never let persisted (potentially tampered) state weaken an approval
       // gate. Start from the hardcoded defaults; for known actions the default
       // `requiresApproval` and `risk` always win. Disk may only carry custom
@@ -202,12 +203,15 @@ export const persistenceMethods = {
     // freshly enqueued agent event. Serializing on _writeChain guarantees the
     // last-ISSUED (freshest) snapshot is the last to hit disk.
     const snapshot = this.snapshotState();
+    // Resolves true once this snapshot is on disk, false if the write failed.
     const write = (this._writeChain || Promise.resolve()).then(async () => {
       try {
         await fs.mkdir(this.storageDir, { recursive: true });
         await writeJsonFileAtomic(this.stateFile, snapshot, { forceBackup });
+        return true;
       } catch (error) {
         console.error('Persist failed:', error);
+        return false;
       }
     });
     this._writeChain = write;
@@ -228,6 +232,7 @@ export const persistenceMethods = {
       orchestrators: this.orchestrators,
       lanes: this.lanes.map((lane) => this._laneForSnapshot(lane, failedJournalLaneIds)),
       auditEvents: this.auditEvents,
+      archivedLanes: this.archivedLanes || [],
       toolLeases: this.toolLeases,
       agentQueue: normalizeAgentQueueForRestore(this.agentQueue),
     };

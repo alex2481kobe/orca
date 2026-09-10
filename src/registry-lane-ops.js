@@ -72,7 +72,12 @@ export const laneOpsMethods = {
     if (typeof this.removeLaneWorktree === 'function') {
       try { await this.removeLaneWorktree(lane.id, { actor, approved: true, removeBranch: false }); } catch { /* best effort */ }
     }
-    this.lanes = (this.lanes || []).filter((entry) => entry.id !== lane.id);
+    // The record and its logs move to the lane's archive; lane.get still finds
+    // them there until the archive is purged.
+    const { retired, skipped } = this.retireLanes([lane], { reason: `deleted by ${String(actor || 'dashboard').slice(0, 120)}` });
+    if (!retired.length) {
+      throw { status: 500, message: `Could not archive lane ${lane.id} (${skipped[0]?.reason || 'unknown error'}); it was not deleted.` };
+    }
     const session = this.getSession(lane.sessionId);
     const thread = session?.orchestratorThread;
     if (thread && typeof thread === 'object') {
@@ -90,10 +95,11 @@ export const laneOpsMethods = {
       sessionId: lane.sessionId,
       laneId: lane.id,
       summary: `Lane "${lane.title}" deleted`,
+      evidence: { ...laneEvidenceRef(lane), archivedTo: retired[0].file },
       status: 'passed',
     });
     this.persistState();
-    return { deleted: true, id: lane.id };
+    return { deleted: true, id: lane.id, archivedTo: retired[0].file };
   },
 
   submitLane(laneLocator, { actor = 'executor', summary = '', changedFiles = [], handoff = '' } = {}) {

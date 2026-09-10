@@ -11,6 +11,9 @@ import path from 'node:path';
 import { LANE_STATES } from './worker-contract.js';
 import { removeLaneWorktree } from './worktree-manager.js';
 import { parsePositiveInteger } from './registry-utils.js';
+import { archivedLaneIndexEntry, readLaneArchive, writeLaneArchive } from './lane-archive.js';
+import { readJournalAll, removeJournalFiles } from './lane-journal.js';
+import { MAX_AGENT_EVENT_ENTRIES, MAX_LANE_LOG_ENTRIES } from './registry-lane-journal.js';
 
 export const cleanupMethods = {
   // Bound in-memory growth on a long-lived server: keep only the most recent
@@ -67,21 +70,109 @@ export const cleanupMethods = {
       // Guarded like deleteLane: skip shared/non-managed worktrees and never
       // touch the repo root; removeLaneWorktree also refuses any path git does
       // not track as a worktree of the repo. Best-effort and synchronous.
-      for (const lane of this.lanes.filter((l) => dropLaneIds.has(l.id))) {
+      // Pruned lanes are ARCHIVED, not dropped: until this change the record and
+      // its logs vanished with no copy anywhere (the only surviving trace was the
+      // lane object an audit event happened to embed).
+      const dropping = this.lanes.filter((l) => dropLaneIds.has(l.id));
+      const { retired } = this.retireLanes(dropping, {
+        reason: `terminal-lane cap: more than ${maxLanes} lanes (ORCA_MAX_TERMINAL_LANES_PER_SESSION)`,
+      });
+      const retiredIds = new Set(retired.map((item) => item.id));
+      for (const lane of dropping.filter((l) => retiredIds.has(l.id))) {
         if (!lane.repoRoot || !lane.worktreePath) continue;
         if (path.resolve(lane.worktreePath) === path.resolve(lane.repoRoot)) continue;
         try {
           removeLaneWorktree({ repoRoot: lane.repoRoot, worktreePath: lane.worktreePath, removeBranch: false });
         } catch { /* best effort — a failed reclaim must not block pruning */ }
       }
-      this.lanes = this.lanes.filter((l) => !dropLaneIds.has(l.id));
-      for (const id of dropLaneIds) { this.laneRuntimeEnv?.delete(String(id)); if (typeof this.clearLaneExecutor === 'function') this.clearLaneExecutor(id); }
+      for (const id of retiredIds) { this.laneRuntimeEnv?.delete(String(id)); if (typeof this.clearLaneExecutor === 'function') this.clearLaneExecutor(id); }
       // v2: orchestrator records don't carry a session-thread laneIds list, so
       // there is nothing to prune there (lanes reference their orchestrator directly).
-      changed = true;
+      changed = retiredIds.size > 0;
     }
-    if (changed) this.persistState();
     return changed;
+  },
+
+  // Move lanes out of hot state into compressed archives (lane-archive.js).
+  // Order, so a crash loses nothing: journal every pending entry, write and
+  // verify each archive, drop the lanes from state and persist, and only after
+  // that write has landed remove their journals. A lane whose journal cannot be
+  // written is skipped and stays hot. Returns { retired: [{ id, file }], skipped }.
+  retireLanes(lanes, { reason = 'retired', archivedAt = new Date().toISOString() } = {}) {
+    const list = (lanes || []).filter((lane) => lane && lane.id);
+    const retired = [];
+    const skipped = [];
+    if (!list.length) return { retired, skipped };
+    const failed = this._flushLaneJournals();
+    for (const lane of list) {
+      if (failed.has(lane.id)) {
+        skipped.push({ id: lane.id, reason: 'its journal could not be written' });
+        continue;
+      }
+      try {
+        const info = writeLaneArchive(this.storageDir, {
+          laneId: lane.id,
+          lane,
+          logs: readJournalAll(this.storageDir, lane.id, 'logs'),
+          agentEvents: readJournalAll(this.storageDir, lane.id, 'agentEvents'),
+          reason,
+          archivedAt,
+        });
+        this.archivedLanes = [...(this.archivedLanes || []), archivedLaneIndexEntry(lane, info)];
+        retired.push({ id: lane.id, file: info.relativeFile });
+      } catch (error) {
+        skipped.push({ id: lane.id, reason: error?.message || String(error) });
+      }
+    }
+    if (!retired.length) return { retired, skipped };
+    const ids = new Set(retired.map((item) => item.id));
+    this.lanes = (this.lanes || []).filter((lane) => !ids.has(lane.id));
+    for (const id of ids) this._laneTailCache?.delete(String(id));
+    this.persistState();
+    const written = this._flushPersistTimer();
+    this._trackAsync(Promise.resolve(written).then((ok) => {
+      if (!ok) return;
+      for (const id of ids) if (!this.getLane(id)) removeJournalFiles(this.storageDir, id);
+    }).catch(() => {}));
+    return { retired, skipped };
+  },
+
+  // lane.get for a lane that has left hot state: its archived record and the
+  // same capped stream view a hot lane shows. A tool lease sees it only within
+  // the scope it would have seen the hot lane in. null when never archived.
+  readArchivedLane(laneId, { lease = null } = {}) {
+    const id = String(laneId || '');
+    const entry = [...(this.archivedLanes || [])].reverse().find((item) => item.id === id);
+    if (!entry) return null;
+    if (lease) {
+      if (lease.laneId && lease.laneId !== entry.id) return { status: 403, body: { error: 'Tool lease lane mismatch.' } };
+      if (lease.sessionId && entry.sessionId && lease.sessionId !== entry.sessionId) return { status: 403, body: { error: 'Tool lease session mismatch.' } };
+      if (lease.projectId && entry.projectId && lease.projectId !== entry.projectId) return { status: 403, body: { error: 'Tool lease project mismatch.' } };
+    }
+    let archive = null;
+    try {
+      archive = readLaneArchive(this.storageDir, entry.id);
+    } catch (error) {
+      return { status: 500, body: { error: `Lane ${entry.id} is archived, but its archive could not be read: ${error?.message || error}`, archived: entry } };
+    }
+    if (!archive?.lane) {
+      return { status: 410, body: { error: `Lane ${entry.id} was archived (${entry.reason}) and its archive is no longer there; it was purged.`, archived: entry } };
+    }
+    return {
+      status: 200,
+      body: {
+        ...archive.lane,
+        logs: archive.logs.slice(-MAX_LANE_LOG_ENTRIES),
+        agentEvents: archive.agentEvents.slice(-MAX_AGENT_EVENT_ENTRIES),
+        archived: {
+          at: entry.archivedAt,
+          reason: entry.reason,
+          file: entry.file,
+          totalLogs: archive.logs.length,
+          totalAgentEvents: archive.agentEvents.length,
+        },
+      },
+    };
   },
 
 };

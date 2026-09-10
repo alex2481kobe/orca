@@ -49,6 +49,9 @@ export class OrcaRegistry {
     this.orchestrators = [];
     this.lanes = [];
     this.auditEvents = [];
+    // Lanes retired to archive/lanes/ (lane-archive.js): the small index lane.get
+    // uses to find and scope them.
+    this.archivedLanes = [];
     this.toolLeases = [];
     this.agentQueue = [];
     this.artifactRoot = path.join(process.cwd(), 'artifacts');
