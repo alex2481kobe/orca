@@ -58,9 +58,12 @@ directory only. Codex has no scope flag. The bare wiring defaults to the orchest
 role; spawned executors get their role and ids injected by the lane runtime. A scoped
 off-origin orchestrator lease is minted by `POST /api/mcp/orchestrator-bootstrap`,
 which is admin-gated on purpose; the lease expires (12 hours unless `ttlMs` is set,
-24 hours at most) and nothing renews it. `test/agent-tools.test.js` checks that the
-docs and the bootstrap text name only live tools and that documented Claude installs
-carry user scope.
+24 hours at most) and nothing renews it. Its emitted Claude command carries
+`-s user`, it checks the Node launcher before touching any lease, and minting again
+with the same actor revokes that actor's previous lease. `test/agent-tools.test.js`
+checks that the docs and the bootstrap text name only live tools and that documented
+Claude installs carry user scope; `test/mcp-orchestrator-bootstrap.test.js` and
+`npm run smoke:mcp-cli-handshake` cover the emitted commands.
 
 ## Public / Private Boundary
 

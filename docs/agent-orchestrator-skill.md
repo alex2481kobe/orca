@@ -64,13 +64,13 @@ user one there.
 Codex has no scope flag: `codex mcp add` already writes your user config
 (`~/.codex/config.toml`). Do not add `-s` to the Codex command.
 
-**The bootstrap endpoint's Claude one-liner has no scope today.**
 `POST /api/mcp/orchestrator-bootstrap` returns `bootstrap.clients.claudeCli.command`
-as `claude mcp add orca …` with no `--scope`, so as-is it also registers at local
-scope. Insert `-s user` after `mcp add` before you run it. The response's
-`globalInstall` block is unrelated to scope: it is the same configs launched
-through an `orca-mcp` command on your PATH, which exists only after `npm link` in
-an Orca checkout (Orca is not published to npm). Use the `clients` block.
+already carrying `-s user`, so run it as returned, from any directory. Every
+config it returns launches an absolute Node plus Orca's bridge, with nothing on
+your PATH. `bootstrap.runtime` names that Node, and `bootstrap.runtime.warnings`
+flags one pinned to a single installed version or living in another tool's
+private directory. Pass `"nodePath"` to choose your own; it is kept exactly as
+given.
 
 ## Current limitations — read before you start
 
@@ -127,7 +127,8 @@ Lease lifetimes as minted today:
   orchestrator on a default 12-hour lease can expire while the executors it
   spawned still hold valid ones.
 
-The bootstrap response carries `lease.expiresAt`. Note it.
+The bootstrap response carries `lease.expiresAt`, and its instructions repeat
+it. Note it.
 
 **Symptom of an expired lease:** calls fail with
 `401 {"error":"Tool lease has expired."}`, and `orchestrator.status` reports
@@ -140,7 +141,9 @@ is no longer valid counts as stale.
    `{"actor":"<the same actor as before>","ttlMs":86400000}`. This needs
    workstation admin (the API token, or a tokenless loopback daemon). Minting
    again with the same `actor` revokes that actor's other live lease, so give each
-   independent configuration its own actor.
+   independent configuration its own actor. The response lists what it revoked
+   in `bootstrap.leaseLifecycle.replacedLeaseIds`; a refused request (a bad
+   `nodePath`, say) revokes nothing.
 2. Replace the token in your MCP config. For Claude Code:
    `claude mcp remove orca -s user`, then the `-s user` add command with the new
    `ORCA_TOOL_LEASE_TOKEN`. For Codex or Claude Desktop, edit the config file.

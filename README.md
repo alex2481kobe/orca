@@ -128,13 +128,23 @@ you paste it:
   `Tool lease has expired.` until you mint a new lease, put it in your client
   config, and restart the client — see
   [the two clocks](docs/agent-orchestrator-skill.md#two-clocks-orchestrator-staleness-vs-lease-expiry).
-- **Add `-s user` to the returned Claude command.** `claudeCli.command` is emitted
-  without a scope today, so as-is it registers Orca for the current directory only.
-- **Use `clients`, not `globalInstall`.** `globalInstall` launches through an
-  `orca-mcp` command on your PATH, which exists only after `npm link` in an Orca
-  checkout. It has nothing to do with install scope.
+- **The returned Claude command already carries `-s user`**, so running it from
+  any directory registers Orca for every directory. The Codex command has no
+  scope flag.
+- **Check which Node it launches.** Every returned config runs an absolute Node
+  plus Orca's bridge, so nothing has to be on your PATH. Without `nodePath`, Orca
+  names the Node it runs on through its PATH entry (for example
+  `/opt/homebrew/bin/node`) instead of the version-pinned install path behind it.
+  Pass `"nodePath"` to choose one; it is kept exactly as given, so an alias keeps
+  following its target. `bootstrap.runtime` reports the choice, and
+  `bootstrap.runtime.warnings` says when that Node sits inside one installed
+  version or inside another tool's private directory such as `~/.codex`. A
+  `nodePath` that is missing, not executable, not Node, or older than Node 18.18
+  is refused with `422`.
 - **Give each separate client configuration its own `actor`.** Minting again with
-  the same `actor` revokes that actor's previous live lease.
+  the same `actor` revokes that actor's previous live lease, and the response
+  lists what it revoked in `bootstrap.leaseLifecycle.replacedLeaseIds`. A refused
+  request (a bad `nodePath`, say) changes no lease.
 
 Then, from inside that agent:
 

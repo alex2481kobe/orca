@@ -9,7 +9,7 @@ import { safeArray } from './registry-utils.js';
 import { availableToolIdsForRole } from './agent-tools/roles.js';
 import { buildNextActionEnvelope } from './agent-tools/next-action.js';
 import { ROLES } from './agent-tools/contract.js';
-import { buildOrchestratorMcpConfigs } from './mcp-orchestrator-bootstrap.js';
+import { buildOrchestratorMcpConfigs, resolveMcpLauncher } from './mcp-orchestrator-bootstrap.js';
 
 const LANE_SCOPED_LEASE_ROLES = new Set(['executor']);
 const SESSION_SCOPED_LEASE_ROLES = new Set(['auditor']);
@@ -433,6 +433,27 @@ export const toolLeaseMethods = {
     if (!allowedTools.length) {
       throw { status: 500, message: `No ${normalizedRole} tools are available to lease.` };
     }
+    // Check everything the config needs BEFORE any credential changes. Minting
+    // replaces this actor's live lease for the same scope (replaceActiveForActor),
+    // so a bootstrap that failed after minting would revoke a working client's
+    // lease and strand a new one whose token nobody received. resolveMcpLauncher
+    // checks the Node and bridge on disk; the dry build proves the rest of the
+    // config formats, with a placeholder where the token will go.
+    const launcher = resolveMcpLauncher({ nodePath });
+    const baseUrl = this.serverBaseUrl();
+    const buildConfig = (fields) => buildOrchestratorMcpConfigs({
+      baseUrl,
+      role: normalizedRole,
+      dashboardUrl: baseUrl,
+      nodePath: launcher.runtime.nodePath,
+      serverPath: launcher.serverPath,
+      runtime: launcher.runtime,
+      ...fields,
+    });
+    buildConfig({ leaseToken: 'not-yet-minted', projectId, sessionId });
+
+    const isLive = (item) => !item.revokedAt && Date.parse(item.expiresAt) > Date.now();
+    const liveBefore = new Set((this.toolLeases || []).filter(isLive).map((item) => item.id));
     // createToolLease validates project/session existence + relationship.
     const { lease, leaseToken } = this.createToolLease({
       role: normalizedRole,
@@ -443,15 +464,15 @@ export const toolLeaseMethods = {
       actor,
       replaceActiveForActor: true,
     });
-    const baseUrl = this.serverBaseUrl();
-    const bootstrap = buildOrchestratorMcpConfigs({
-      baseUrl,
+    // Reported, not decided here: which live leases that mint just revoked.
+    const replacedLeaseIds = (this.toolLeases || [])
+      .filter((item) => liveBefore.has(item.id) && item.revokedAt)
+      .map((item) => item.id);
+    const bootstrap = buildConfig({
       leaseToken,
-      role: normalizedRole,
       projectId: lease.projectId,
       sessionId: lease.sessionId,
-      dashboardUrl: baseUrl,
-      nodePath: nodePath || process.execPath,
+      lease: { id: lease.id, actor: lease.actor, expiresAt: lease.expiresAt, replacedLeaseIds },
     });
     this.recordAudit({
       type: `${normalizedRole}_mcp_bootstrap_created`,
@@ -466,6 +487,8 @@ export const toolLeaseMethods = {
         expiresAt: lease.expiresAt,
         scopedProject: Boolean(lease.projectId),
         scopedSession: Boolean(lease.sessionId),
+        replacedLeaseIds,
+        nodeSource: launcher.runtime.source,
       },
     });
     return {

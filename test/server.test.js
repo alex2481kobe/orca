@@ -1945,6 +1945,30 @@ test('orchestrator MCP bootstrap is token-gated and returns paste-ready desktop 
     });
     assert.equal(badNodePath.status, 422);
     assert.match(badNodePath.body?.error || '', /control characters/);
+
+    // A refused bootstrap changes nothing. Minting again as "desktop-app" would
+    // revoke the lease created above, so validation must run before that: the
+    // first lease is still the actor's only live one, and no orphan was minted.
+    const liveDesktopLeases = async () => {
+      const listed = await server.requestJson('/api/agent-tools/leases?activeOnly=true', {
+        method: 'GET',
+        headers: { 'x-orca-token': token },
+      });
+      assert.equal(listed.status, 200);
+      return listed.body.leases
+        .filter((lease) => lease.actor === 'desktop-app' && lease.role === 'orchestrator')
+        .map((lease) => lease.id);
+    };
+    assert.deepEqual(await liveDesktopLeases(), [created.body.lease.id]);
+
+    const missingNode = await server.requestJson('/api/mcp/orchestrator-bootstrap', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'desktop-app', nodePath: '/nonexistent-orca-test/bin/node' },
+    });
+    assert.equal(missingNode.status, 422);
+    assert.match(missingNode.body?.error || '', /does not exist/);
+    assert.deepEqual(await liveDesktopLeases(), [created.body.lease.id]);
   } finally {
     await server.stop();
   }

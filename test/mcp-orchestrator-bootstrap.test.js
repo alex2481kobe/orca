@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { readFileSync, realpathSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -6,6 +8,9 @@ import test from 'node:test';
 
 import { OrcaRegistry } from '../src/registry.js';
 import { buildOrchestratorMcpConfigs, MCP_SERVER_PATH } from '../src/mcp-orchestrator-bootstrap.js';
+
+// The runtime-layout tests build stand-in executables with a #!/bin/sh line.
+const POSIX_ONLY = process.platform === 'win32' ? 'needs /bin/sh stand-in executables' : false;
 
 async function withIsolatedRegistry() {
   const previousCwd = process.cwd();
@@ -31,6 +36,45 @@ async function makeOrchestratorContainer(registry, { actor = 'test', title = 'Or
     { leaseId: lease.id },
   );
   return orchestrator;
+}
+
+async function writeExecutable(file, body, mode = 0o755) {
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, body);
+  await fs.chmod(file, mode);
+}
+
+// A stand-in "node" that only answers --version, so a test can lay out any
+// runtime (version directories, aliases, spaces) without installing Node.
+const fakeNode = (file, version) => writeExecutable(file, `#!/bin/sh\necho ${version}\n`);
+
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+function activeLeaseIdsFor(registry, actor) {
+  return registry.listToolLeases({ activeOnly: true })
+    .filter((lease) => lease.role === 'orchestrator' && lease.actor === actor)
+    .map((lease) => lease.id);
+}
+
+// Every string anywhere in the bootstrap output: commands, snippets, prose.
+function allStrings(value, out = []) {
+  if (typeof value === 'string') out.push(value);
+  else if (Array.isArray(value)) value.forEach((item) => allStrings(item, out));
+  else if (value && typeof value === 'object') Object.values(value).forEach((item) => allStrings(item, out));
+  return out;
+}
+
+async function withEnv(overrides, fn) {
+  const saved = Object.fromEntries(Object.keys(overrides).map((key) => [key, process.env[key]]));
+  Object.assign(process.env, overrides);
+  try {
+    return await fn();
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
 }
 
 test('builder emits Claude Desktop JSON and Codex TOML pointing at the MCP server', () => {
@@ -65,23 +109,20 @@ test('builder emits Claude Desktop JSON and Codex TOML pointing at the MCP serve
   assert.ok(out.instructions.length >= 2);
 });
 
-test('builder offers a source-free global-install (orca-mcp) launcher variant', () => {
+test('bootstrap never offers a launcher that needs orca-mcp on PATH', () => {
   const out = buildOrchestratorMcpConfigs({
     baseUrl: 'http://127.0.0.1:3000',
     leaseToken: 'lease-xyz',
     nodePath: '/usr/local/bin/node',
   });
-  // Primary config uses absolute node+path (works for app bundle / source).
+  // orca-mcp resolves only after `npm link` in a checkout (the package is not
+  // published), so a config launched through it cannot run as printed.
+  assert.equal('globalInstall' in out, false, 'the PATH-launched globalInstall block is still emitted');
+  assert.deepEqual(allStrings(out).filter((text) => text.includes('orca-mcp')), [], 'output still mentions orca-mcp');
+  // Every client launches the absolute node + bundled bridge.
   assert.equal(out.clients.claudeDesktop.config.mcpServers.orca.command, '/usr/local/bin/node');
-  // Global-install variant uses the PATH command with no absolute path — no Orca
-  // source checkout needed.
-  const g = out.globalInstall.claudeDesktop.config.mcpServers.orca;
-  assert.equal(g.command, 'orca-mcp');
-  assert.deepEqual(g.args, []);
-  assert.equal(g.env.ORCA_ROLE, 'orchestrator');
-  assert.match(out.globalInstall.codex.snippet, /command = "orca-mcp"/);
-  assert.match(out.globalInstall.codex.snippet, /args = \[\]/);
-  assert.ok(out.instructions.some((line) => /no Orca source checkout is required/i.test(line)));
+  assert.deepEqual(out.clients.claudeDesktop.config.mcpServers.orca.args, [MCP_SERVER_PATH]);
+  assert.match(out.clients.codex.snippet, /command = "\/usr\/local\/bin\/node"/);
   // The package is private/unpublished: never tell users to `npm i -g orca`.
   assert.ok(!out.instructions.some((line) => /npm i -g orca/.test(line)), 'no fake npm i -g orca claim');
 });
@@ -94,13 +135,89 @@ test('builder emits ready-to-run claude/codex "mcp add" CLI one-liners', () => {
     nodePath: '/usr/local/bin/node',
   });
   const claude = out.clients.claudeCli.command;
-  assert.match(claude, /^claude mcp add orca /);
+  assert.match(claude, /^claude mcp add -s user orca /);
   assert.match(claude, /-e ORCA_TOOL_LEASE_TOKEN=lease-xyz/);
   assert.match(claude, /-e ORCA_ROLE=orchestrator/);
   assert.match(claude, /-- \/usr\/local\/bin\/node /);
   const codex = out.clients.codexCli.command;
   assert.match(codex, /^codex mcp add orca /);
   assert.match(codex, /--env ORCA_AGENT_TOOLS_BASE_URL=http:\/\/127\.0\.0\.1:3000/);
+});
+
+test('every emitted Claude Code command registers at user scope; Codex commands carry no scope flag', () => {
+  const out = buildOrchestratorMcpConfigs({
+    baseUrl: 'http://127.0.0.1:3000',
+    leaseToken: 'lease-xyz',
+    nodePath: '/usr/local/bin/node',
+  });
+  const strings = allStrings(out);
+  const claudeCommands = strings.filter((text) => /^claude mcp add\b/.test(text));
+  const codexCommands = strings.filter((text) => /^codex mcp add\b/.test(text));
+  assert.ok(claudeCommands.length > 0 && codexCommands.length > 0, 'found no emitted mcp add commands to check');
+  // `claude mcp add` defaults to LOCAL scope: one directory, silently.
+  for (const command of claudeCommands) {
+    assert.match(command, /^claude mcp add -s user orca /, `local-scope Claude command emitted: ${command.slice(0, 60)}`);
+  }
+  for (const command of codexCommands) {
+    assert.match(command, /^codex mcp add orca /);
+    assert.doesNotMatch(command, /\s(?:-s|--scope)\b/, 'codex mcp add has no scope flag');
+  }
+});
+
+test('emitted CLI commands survive a real shell, including paths with spaces and quotes', { skip: POSIX_ONLY }, async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-mcp-argv-'));
+  try {
+    const stubDir = path.join(dir, 'stub bin');
+    const argvFile = path.join(dir, 'argv');
+    // Stand-in claude/codex: record argv NUL-separated, exactly as the shell passed it.
+    const stub = '#!/bin/sh\nfor a in "$@"; do printf \'%s\\0\' "$a"; done > "$ARGV_OUT"\n';
+    await writeExecutable(path.join(stubDir, 'claude'), stub);
+    await writeExecutable(path.join(stubDir, 'codex'), stub);
+    const nodePath = '/Applications/My Node/bin/node';
+    const serverPath = "/Users/someone/Orca's Checkout/src/mcp-server.js";
+    const out = buildOrchestratorMcpConfigs({
+      baseUrl: 'http://127.0.0.1:3000',
+      leaseToken: "lease 'xyz'",
+      projectId: 'p1',
+      nodePath,
+      serverPath,
+    });
+    const argvOf = (command) => {
+      const run = spawnSync('/bin/sh', ['-c', command], {
+        env: { PATH: `${stubDir}:/usr/bin:/bin`, ARGV_OUT: argvFile },
+        encoding: 'utf8',
+      });
+      assert.equal(run.status, 0, run.stderr);
+      return readFileSync(argvFile, 'utf8').split('\0').slice(0, -1);
+    };
+    const env = [
+      'ORCA_AGENT_TOOLS_BASE_URL=http://127.0.0.1:3000',
+      "ORCA_TOOL_LEASE_TOKEN=lease 'xyz'",
+      'ORCA_ROLE=orchestrator',
+      'ORCA_PROJECT_ID=p1',
+    ];
+    assert.deepEqual(argvOf(out.clients.claudeCli.command), [
+      'mcp', 'add', '-s', 'user', 'orca', ...env.flatMap((entry) => ['-e', entry]), '--', nodePath, serverPath,
+    ]);
+    assert.deepEqual(argvOf(out.clients.codexCli.command), [
+      'mcp', 'add', 'orca', ...env.flatMap((entry) => ['--env', entry]), '--', nodePath, serverPath,
+    ]);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('bootstrap instructions carry no dead or self-contradicting setup steps', () => {
+  const out = buildOrchestratorMcpConfigs({
+    baseUrl: 'http://127.0.0.1:3000',
+    leaseToken: 't',
+    nodePath: '/usr/local/bin/node',
+  });
+  const prose = [...out.instructions, ...Object.values(out.clients).map((client) => client.merge || '')].join('\n');
+  for (const dead of [/orca-mcp/, /npm link/, /globalInstall/, /insert "-s user"/i, /no --scope/i, /orchestrator__update/]) {
+    assert.doesNotMatch(prose, dead);
+  }
+  assert.match(out.clients.claudeCli.merge, /user scope/i);
 });
 
 test('package.json exposes the orca-mcp standalone bin pointing at the MCP server', async () => {
@@ -145,6 +262,206 @@ test('builder rejects malformed launcher paths before emitting MCP snippets', ()
     }),
     (error) => error.status === 422 && /absolute executable path/.test(error.message),
   );
+});
+
+test('a bootstrap that fails validation leaves the previous lease active and mints nothing', { skip: POSIX_ONLY }, async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const root = process.cwd();
+    const directory = path.join(root, 'a-directory');
+    await fs.mkdir(directory);
+    const notExecutable = path.join(root, 'plain', 'node');
+    await writeExecutable(notExecutable, '#!/bin/sh\necho v22.0.0\n', 0o644);
+    const notNode = path.join(root, 'not-node', 'node');
+    await writeExecutable(notNode, '#!/bin/sh\necho hello\n');
+    const tooOld = path.join(root, 'old', 'node');
+    await fakeNode(tooOld, 'v16.20.2');
+    const cases = [
+      ['/usr/bin/node\n--eval=bad', /control characters/],
+      ['node', /absolute executable path/],
+      [path.join(root, 'no such dir', 'node'), /does not exist/],
+      [directory, /is not a file/],
+      [notExecutable, /is not executable/],
+      [notNode, /did not report a Node\.js version/],
+      [tooOld, /v16\.20\.2.*18\.18\.0/],
+    ];
+
+    const first = registry.createOrchestratorMcpBootstrap({ actor: 'same-client', nodePath: process.execPath });
+    for (const [nodePath, message] of cases) {
+      assert.throws(
+        () => registry.createOrchestratorMcpBootstrap({ actor: 'same-client', nodePath }),
+        (error) => error.status === 422 && message.test(error.message),
+        `nodePath ${JSON.stringify(nodePath)} was not refused with ${message}`,
+      );
+      // Minting with this actor would revoke `first`. A refused bootstrap must not
+      // have got that far: the working client's lease still validates, and no
+      // orphan lease (whose token nobody ever received) was minted in its place.
+      const still = registry.validateToolLease(first.leaseToken, { role: 'orchestrator', toolId: 'orchestrator.register' });
+      assert.equal(still.active, true);
+      assert.deepEqual(activeLeaseIdsFor(registry, 'same-client'), [first.lease.id], `after nodePath ${JSON.stringify(nodePath)}`);
+    }
+  } finally {
+    await cleanup();
+  }
+});
+
+test('a Node that crashes on --version is refused with the reason it crashed', { skip: POSIX_ONLY }, async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    // Shaped like a Homebrew node whose shared library an upgrade removed: dyld
+    // prints the missing library and aborts before Node prints anything.
+    const broken = path.join(process.cwd(), 'broken', 'node');
+    await writeExecutable(broken, '#!/bin/sh\necho "dyld[1]: Library not loaded: /opt/homebrew/opt/llhttp/lib/libllhttp.9.3.dylib" >&2\nkill -ABRT $$\n');
+    assert.throws(
+      () => registry.createOrchestratorMcpBootstrap({ actor: 'broken-node', nodePath: broken }),
+      (error) => error.status === 422
+        && /did not report a Node\.js version/.test(error.message)
+        && /SIGABRT/.test(error.message)
+        && /Library not loaded/.test(error.message),
+    );
+    assert.deepEqual(activeLeaseIdsFor(registry, 'broken-node'), []);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('an explicitly selected Node alias is kept verbatim and follows its target deterministically', { skip: POSIX_ONLY }, async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const root = process.cwd();
+    const versionNode = (version) => path.join(root, 'versions', version, 'bin', 'node');
+    for (const version of ['v20.11.1', 'v22.3.0', 'v16.20.2']) await fakeNode(versionNode(version), version);
+    const aliasDir = path.join(root, 'My Node Alias'); // a space, on purpose
+    await fs.mkdir(aliasDir);
+    const link = path.join(aliasDir, 'current');
+    const repoint = async (version) => {
+      await fs.rm(link, { force: true });
+      await fs.symlink(path.join(root, 'versions', version), link);
+    };
+    const alias = path.join(link, 'bin', 'node');
+
+    await repoint('v20.11.1');
+    const first = registry.createOrchestratorMcpBootstrap({ actor: 'alias-client', nodePath: alias });
+    assert.equal(first.bootstrap.nodePath, alias, 'the selected alias was replaced');
+    assert.equal(first.bootstrap.clients.claudeDesktop.config.mcpServers.orca.command, alias);
+    assert.match(first.bootstrap.clients.claudeCli.command, new RegExp(` -- '${escapeRegExp(alias)}' `));
+    assert.ok(first.bootstrap.runtime, 'bootstrap does not report which Node runtime it selected');
+    assert.equal(first.bootstrap.runtime.source, 'explicit');
+    assert.equal(first.bootstrap.runtime.version, 'v20.11.1');
+    assert.equal(first.bootstrap.runtime.realPath, realpathSync(versionNode('v20.11.1')));
+    assert.deepEqual(first.bootstrap.runtime.warnings, []);
+
+    // The alias moves: the config keeps naming the alias; the report names the new target.
+    await repoint('v22.3.0');
+    const second = registry.createOrchestratorMcpBootstrap({ actor: 'alias-client', nodePath: alias });
+    assert.equal(second.bootstrap.nodePath, alias);
+    assert.equal(second.bootstrap.runtime.version, 'v22.3.0');
+    assert.equal(second.bootstrap.runtime.realPath, realpathSync(versionNode('v22.3.0')));
+
+    // Moved to an unsupported Node, or to nothing: refused, and the working lease survives.
+    await repoint('v16.20.2');
+    assert.throws(
+      () => registry.createOrchestratorMcpBootstrap({ actor: 'alias-client', nodePath: alias }),
+      (error) => error.status === 422 && /v16\.20\.2/.test(error.message),
+    );
+    await repoint('gone');
+    assert.throws(
+      () => registry.createOrchestratorMcpBootstrap({ actor: 'alias-client', nodePath: alias }),
+      (error) => error.status === 422 && /does not exist/.test(error.message),
+    );
+    assert.equal(registry.validateToolLease(second.leaseToken, { role: 'orchestrator' }).active, true);
+    assert.deepEqual(activeLeaseIdsFor(registry, 'alias-client'), [second.lease.id]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('with no nodePath, bootstrap prefers a PATH alias of the running Node over its version-pinned real path', { skip: POSIX_ONLY }, async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const root = process.cwd();
+    const stableDir = path.join(root, 'stable bin');
+    await fs.mkdir(stableDir);
+    const alias = path.join(stableDir, 'node');
+    await fs.symlink(process.execPath, alias);
+
+    const viaAlias = await withEnv(
+      { PATH: `${stableDir}${path.delimiter}${process.env.PATH}` },
+      () => registry.createOrchestratorMcpBootstrap({ actor: 'default-a' }),
+    );
+    assert.equal(viaAlias.bootstrap.nodePath, alias, `emitted ${viaAlias.bootstrap.nodePath} instead of the PATH alias`);
+    assert.equal(viaAlias.bootstrap.clients.claudeDesktop.config.mcpServers.orca.command, alias);
+    assert.equal(viaAlias.bootstrap.runtime.source, 'path-alias');
+    assert.equal(viaAlias.bootstrap.runtime.realPath, realpathSync(process.execPath));
+    assert.equal(viaAlias.bootstrap.runtime.version, process.version);
+
+    // No PATH entry resolves to the running Node: fall back to it, and say so.
+    const emptyDir = path.join(root, 'empty');
+    await fs.mkdir(emptyDir);
+    const fallback = await withEnv({ PATH: emptyDir }, () => registry.createOrchestratorMcpBootstrap({ actor: 'default-b' }));
+    assert.equal(fallback.bootstrap.nodePath, process.execPath);
+    assert.equal(fallback.bootstrap.runtime.source, 'daemon-runtime');
+  } finally {
+    await cleanup();
+  }
+});
+
+test("a version-pinned Node, or one inside another agent tool's directory, is honored with an explicit warning", { skip: POSIX_ONLY }, async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const root = process.cwd();
+    const pinned = path.join(root, 'node-versions', 'v22.3.0', 'installation', 'bin', 'node');
+    await fakeNode(pinned, 'v22.3.0');
+    const pinnedOut = registry.createOrchestratorMcpBootstrap({ actor: 'warn-a', nodePath: pinned });
+    assert.equal(pinnedOut.bootstrap.nodePath, pinned, 'an explicit choice is still honored');
+    const pinnedWarnings = pinnedOut.bootstrap.runtime?.warnings || [];
+    assert.ok(pinnedWarnings.some((line) => /v22\.3\.0/.test(line) && /version/i.test(line)), 'no pinned-version warning');
+    assert.ok(pinnedOut.bootstrap.instructions.some((line) => pinnedWarnings.some((w) => line.includes(w))), 'the warning is not in the instructions');
+
+    const fakeHome = path.join(root, 'home');
+    const codexAlias = path.join(fakeHome, '.codex', 'fnm', 'aliases', 'default', 'bin', 'node');
+    await fakeNode(codexAlias, 'v24.14.1');
+    const codexOut = await withEnv({ HOME: fakeHome }, () => registry.createOrchestratorMcpBootstrap({ actor: 'warn-b', nodePath: codexAlias }));
+    assert.equal(codexOut.bootstrap.nodePath, codexAlias);
+    const codexWarnings = codexOut.bootstrap.runtime?.warnings || [];
+    assert.ok(codexWarnings.some((line) => /Codex/.test(line)), 'no warning that Codex owns this Node');
+    assert.ok(!codexWarnings.some((line) => /v24\.14\.1/.test(line)), 'an alias is not a pinned version');
+  } finally {
+    await cleanup();
+  }
+});
+
+test('bootstrap output discloses when this lease expires and that re-minting with the same actor revokes it', async () => {
+  const { registry, cleanup } = await withIsolatedRegistry();
+  try {
+    const first = registry.createOrchestratorMcpBootstrap({ actor: 'disclosed-client', ttlMs: 60 * 60 * 1000, nodePath: process.execPath });
+    const text = first.bootstrap.instructions.join('\n');
+    assert.ok(text.includes(first.lease.expiresAt), 'instructions do not say when this lease expires');
+    assert.match(text, /nothing renews it/i);
+    assert.match(text, /24 hours/);
+    assert.match(text, /actor "disclosed-client"[^\n]*revokes this lease/);
+    assert.deepEqual(first.bootstrap.leaseLifecycle, {
+      leaseId: first.lease.id,
+      actor: 'disclosed-client',
+      expiresAt: first.lease.expiresAt,
+      renewable: false,
+      replacedLeaseIds: [],
+    });
+
+    const second = registry.createOrchestratorMcpBootstrap({ actor: 'disclosed-client', nodePath: process.execPath });
+    assert.deepEqual(second.bootstrap.leaseLifecycle.replacedLeaseIds, [first.lease.id]);
+    assert.ok(
+      second.bootstrap.instructions.some((line) => line.includes(first.lease.id) && /revoked/.test(line)),
+      'the replacement this bootstrap made is not disclosed',
+    );
+
+    // Replacement is per actor: another actor's bootstrap revokes nothing.
+    const other = registry.createOrchestratorMcpBootstrap({ actor: 'other-client', nodePath: process.execPath });
+    assert.deepEqual(other.bootstrap.leaseLifecycle.replacedLeaseIds, []);
+    assert.equal(registry.validateToolLease(second.leaseToken, { role: 'orchestrator' }).active, true);
+  } finally {
+    await cleanup();
+  }
 });
 
 test('registry mints an orchestrator lease whose token validates for orchestrator tools', async () => {
