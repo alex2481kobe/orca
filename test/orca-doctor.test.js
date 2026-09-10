@@ -140,7 +140,7 @@ test('R6: every failed check prints its fix', async () => {
     run = await doctor(ctx);
     assert.equal(run.byId.daemon.status, 'fail');
     assert.ok(run.byId.daemon.summary.includes(closed), run.byId.daemon.summary);
-    assertFix(run.byId.daemon, /npm start/);
+    assertFix(run.byId.daemon, /orca-cli\.js'? start/);
 
     await writeClaude({ mcpServers: { orca: { ...entry, command: '/nonexistent/bin/node' } } });
     run = await doctor(ctx);
@@ -154,7 +154,8 @@ test('R6: every failed check prints its fix', async () => {
     delete process.env.ORCA_REPO_ROOTS;
     await writeClaude({ mcpServers: { orca: entry } });
     run = await doctor(ctx);
-    assertFix(run.byId.fence, /ORCA_REPO_ROOTS/);
+    assert.equal(run.byId.fence.status, 'fail', 'no roots means setup-required: nothing can launch');
+    assertFix(run.byId.fence, /setup --roots/);
     process.env.ORCA_REPO_ROOTS = process.cwd();
 
     // The shape of the entry on a workstation set up before refresh credentials: a
@@ -232,7 +233,7 @@ test('connect: a stopped daemon says where it looked and how to start it', async
     const run = await runCli(['connect', 'claude', '--url', closed], { home, cwd: home });
     assert.equal(run.code, 1);
     assert.ok(run.stderr.includes(closed), run.stderr);
-    assert.match(run.stderr, /Fix: .*npm start/);
+    assert.match(run.stderr, /Fix: .*orca-cli\.js'? start/);
   } finally {
     await fs.rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
   }
