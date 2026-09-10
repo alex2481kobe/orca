@@ -76,15 +76,14 @@ given.
 
 These describe Orca as it behaves today.
 
-- **Never start a second daemon against the same working directory.** Orca keeps
-  its state in `.orca/` under the daemon's working directory. A second start
-  against that directory loads the state *before* it tries to bind the port, and
-  its startup recovery can kill the running daemon's executor processes and mark
-  their lanes failed. Only then does it fail with `EADDRINUSE`. There is no
-  instance lock yet. If a tool call fails because Orca seems down, check before
-  anyone starts it — `curl -s http://127.0.0.1:3000/api/health` or
-  `lsof -nP -iTCP:3000 -sTCP:LISTEN` — and stop the existing daemon first. Never
-  "restart Orca" as a reflex.
+- **One daemon per working directory; a second start is refused.** Orca keeps
+  its state in `.orca/` under the daemon's working directory, and the running
+  daemon holds an exclusive lock on it. A second start against that directory
+  exits with code 1 and names the running daemon's pid and URL; it changes no
+  state and signals no process. If a tool call fails because Orca seems down,
+  check before anyone starts it — `curl -s http://127.0.0.1:3000/api/health` or
+  `lsof -nP -iTCP:3000 -sTCP:LISTEN`. Never "restart Orca" as a reflex: stopping
+  a running daemon kills every executor it runs, and nothing resumes that work.
 - **Your lease expires and nothing renews it.** Polling keeps your orchestrator
   alive, not your credential. See "Two clocks" below.
 - **`orchestrator.status` only sees lanes Orca manages.** An agent launched

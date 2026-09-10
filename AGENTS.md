@@ -40,13 +40,19 @@ Roles are exactly four: `orchestrator`, `executor`, `auditor`, `dashboard`
 - **The server is authoritative.** Pairing, live links, tool leases, executor
   lifecycle, cleanup, and route authorization are decided server-side. A client must
   never be able to grant itself a tool the server did not lease it.
-- **One daemon per working directory — there is no instance lock yet.** A second
-  `npm start` against a directory whose daemon is running loads the same `.orca/`
-  state and runs startup recovery before it binds the port, and that recovery can
-  kill the running daemon's executors and fail their lanes. When an Orca daemon is
-  running from this checkout, develop in a separate worktree or clone, keep tests and
-  smokes on their own temp state and ephemeral ports, and never point them at port
-  3000 or this checkout's `.orca/`.
+- **One daemon per working directory, enforced by an instance lock.** A start takes
+  an exclusive lock on the working directory's `.orca/` (`.orca/daemon.lock`, see
+  `src/instance-lock.js`) before it binds the port or reads any state. A second
+  `npm start` against a directory whose daemon is running is refused: it exits 1,
+  names the owner's pid and URL, changes no state and signals no process. A stale
+  lock is taken over only when its owner has exited or its pid now belongs to a
+  process with a different start time; when Orca cannot prove the owner is gone, it
+  refuses and names the file to delete. The lock only defends state a *running*
+  daemon owns. Importing `src/server.js`, as tests do, over a stopped daemon's
+  `.orca/` opens that state and runs interrupted-lane recovery on it; over a running
+  daemon's, it leaves the state closed and answers every request with 503. So develop
+  in a separate worktree or clone, keep tests and smokes on their own temp state and
+  ephemeral ports, and never point them at port 3000 or this checkout's `.orca/`.
 
 External MCP clients drive Orca as the orchestrator over `src/mcp-server.js`. It is a
 plain stdio MCP server with no client-specific behavior, so any MCP-capable agent can

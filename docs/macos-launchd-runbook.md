@@ -34,13 +34,31 @@ If your checkout lives elsewhere, use that absolute path instead.
 ## 0. Before you start: one daemon per working directory
 
 Orca keeps its state in `.orca/` under the daemon's working directory — here,
-`$ORCA_REPO`. Starting a second daemon against that directory while one is
-running is destructive today. The second process loads the shared state and runs
-startup recovery *before* it discovers the port is taken, and that recovery can
-kill the running daemon's executor processes and mark their lanes failed. Only
-then does it fail with `EADDRINUSE`. If that process exits, `KeepAlive` has
-launchd start it again, and every start runs the same recovery. There is no
-instance lock yet.
+`$ORCA_REPO`. A running daemon holds an exclusive lock on that directory
+(`.orca/daemon.lock`), and every start takes the lock before it binds the port or
+reads any state. A second start against the directory while a daemon owns it is
+refused: it exits with code 1, prints the owner's pid and URL, and changes no
+state and signals no process.
+
+Under the LaunchAgent that refusal repeats. The plist in section 3 sets
+`KeepAlive` to `true`, which starts Orca again whenever it exits, for any reason,
+so exit code 1 does not stop it. If you load the LaunchAgent while a daemon
+started from a terminal owns `$ORCA_REPO`, launchd's start is refused and exits,
+launchd starts it again, and each start is refused the same way, each refusal
+written to `~/Library/Logs/orca/stderr.log`. No state is touched. It ends when
+you unload the job (section 6), or when the terminal daemon stops: that daemon
+gives up the lock as the last step of its shutdown, so the next start launchd
+makes takes the lock and serves Orca from then on. Stopping the terminal daemon
+still stops its executors (section 6).
+
+A daemon that could not clean up (`kill -9`, a power loss) leaves its lock
+behind. The next start takes it over when the owner's pid no longer exists, or
+now belongs to a process that started at a different time. When Orca cannot
+prove the owner is gone — the lock cannot be read, it was written under a
+different hostname (for example, the Mac's hostname has changed since), or the
+owner's start time cannot be checked — the start is refused and names the file
+to delete. Under `KeepAlive` that refusal also repeats, until you confirm that no
+Orca daemon uses `$ORCA_REPO` and delete the file it names.
 
 So check before you load the LaunchAgent, and before any manual start:
 
@@ -52,7 +70,7 @@ launchctl print "gui/$(id -u)/com.orca.local" 2>/dev/null | grep -E '^[[:space:]
 
 If a daemon started from a terminal answers, stop it with `Ctrl-C` in that
 terminal first. Once the LaunchAgent is loaded, do not also run `npm start` or
-`npm run dev` from `$ORCA_REPO`.
+`npm run dev` from `$ORCA_REPO`: it is refused and exits 1.
 
 ## 1. Create a local env file
 

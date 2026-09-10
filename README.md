@@ -70,13 +70,12 @@ npm start          # daemon + dashboard on http://127.0.0.1:3000
 ```
 
 **Run one daemon per working directory.** Orca keeps its state in `.orca/` under
-the directory you start it from. Before `npm start`, check that nothing is
-already serving it — a terminal you forgot, or the
-[LaunchAgent](docs/macos-launchd-runbook.md): `curl -s http://127.0.0.1:3000/api/health`.
-Today a second start against the same directory loads that state *before* it
-discovers the port is taken, and its startup recovery can kill the running
-daemon's executor processes and mark their lanes failed. There is no instance
-lock yet, so stop the existing daemon first.
+the directory you start it from, and the daemon running there holds an exclusive
+lock on it. Before `npm start`, check that nothing is already serving it — a
+terminal you forgot, or the [LaunchAgent](docs/macos-launchd-runbook.md):
+`curl -s http://127.0.0.1:3000/api/health`. If one is, a second start is refused:
+it exits with code 1, prints the running daemon's pid and URL, and changes no
+state and signals no process. Use that daemon, or stop it first.
 
 Point your agent at it over MCP. Orca is a plain stdio MCP server, so **any
 MCP-capable client works** — register it however that client registers MCP servers:

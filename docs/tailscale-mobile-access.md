@@ -32,11 +32,11 @@ The server binds to `127.0.0.1`. The dashboard is at <http://127.0.0.1:3000/>.
 
 **Run one daemon per working directory.** If Orca may already be running from
 this checkout — another terminal, or the LaunchAgent below — check first with
-`curl -s http://127.0.0.1:3000/api/health`. Today a second start against the same
-directory loads the shared `.orca/` state before it discovers the port is taken,
-and its startup recovery can kill the running daemon's executor processes and
-mark their lanes failed. There is no instance lock yet: stop the existing daemon
-before you start another.
+`curl -s http://127.0.0.1:3000/api/health`. The running daemon holds an exclusive
+lock on the directory's `.orca/` state, so a second start against it is refused:
+it exits with code 1, names the running daemon's pid and URL, and changes no state
+and signals no process. Use the daemon that is running, or stop it before you
+start another.
 
 For durable Mac operation after the current terminal exits, use
 [`macos-launchd-runbook.md`](macos-launchd-runbook.md). It keeps the API token
