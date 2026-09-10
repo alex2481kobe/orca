@@ -23,20 +23,21 @@ Do not paste it into chat, screenshots, or commit it.
 
 ```bash
 cd orca
-PORT=3000 ORCA_HOST=127.0.0.1 \
-  ORCA_API_TOKEN=$ORCA_API_TOKEN \
-  npm run dev
+ORCA_API_TOKEN=$ORCA_API_TOKEN node src/orca-cli.js start
 ```
+
+`start` runs Orca in the background with that token, detached from this
+terminal. To keep the token in an owner-only file instead of your shell, use
+`ORCA_API_TOKEN_FILE` (see the [LaunchAgent runbook](macos-launchd-runbook.md)).
 
 The server binds to `127.0.0.1`. The dashboard is at <http://127.0.0.1:3000/>.
 
-**Run one daemon per working directory.** If Orca may already be running from
-this checkout — another terminal, or the LaunchAgent below — check first with
-`curl -s http://127.0.0.1:3000/api/health`. The running daemon holds an exclusive
-lock on the directory's `.orca/` state, so a second start against it is refused:
-it exits with code 1, names the running daemon's pid and URL, and changes no state
-and signals no process. Use the daemon that is running, or stop it before you
-start another.
+**One daemon per machine.** If Orca may already be running (another terminal,
+or the LaunchAgent), `start` reports it and changes nothing;
+`node src/orca-cli.js status` shows it. The running daemon holds an exclusive
+lock on its state directory, so a second daemon on the same state is refused: it
+exits with code 1, names the running daemon's pid and URL, and changes no state
+and signals no process.
 
 For durable Mac operation after the current terminal exits, use
 [`macos-launchd-runbook.md`](macos-launchd-runbook.md). It keeps the API token
@@ -187,10 +188,10 @@ If you do not want a device to be able to stop your agents, do not pair it.
 
 ## 7. Shutdown
 
-- `Ctrl-C` the `npm run dev` process. Orca stops its running executor lanes as
-  it exits. If Orca runs under launchd instead, unload it with
-  `launchctl bootout` ([runbook](macos-launchd-runbook.md), section 6) — killing
-  the process only makes launchd start it again.
+- `node src/orca-cli.js stop`. Orca stops its running executor lanes as it
+  exits, so `stop` refuses while any are running unless you pass `--force`. If
+  Orca runs under launchd, the same `stop` unloads the job, so launchd does not
+  start it again; killing the process only makes launchd start it again.
 - If you used HTTP Serve:
 
 ```bash

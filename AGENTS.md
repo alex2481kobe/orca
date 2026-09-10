@@ -40,19 +40,30 @@ Roles are exactly four: `orchestrator`, `executor`, `auditor`, `dashboard`
 - **The server is authoritative.** Pairing, live links, tool leases, executor
   lifecycle, cleanup, and route authorization are decided server-side. A client must
   never be able to grant itself a tool the server did not lease it.
-- **One daemon per working directory, enforced by an instance lock.** A start takes
-  an exclusive lock on the working directory's `.orca/` (`.orca/daemon.lock`, see
-  `src/instance-lock.js`) before it binds the port or reads any state. A second
-  `npm start` against a directory whose daemon is running is refused: it exits 1,
-  names the owner's pid and URL, changes no state and signals no process. A stale
-  lock is taken over only when its owner has exited or its pid now belongs to a
-  process with a different start time; when Orca cannot prove the owner is gone, it
-  refuses and names the file to delete. The lock only defends state a *running*
-  daemon owns. Importing `src/server.js`, as tests do, over a stopped daemon's
-  `.orca/` opens that state and runs interrupted-lane recovery on it; over a running
-  daemon's, it leaves the state closed and answers every request with 503. So develop
-  in a separate worktree or clone, keep tests and smokes on their own temp state and
-  ephemeral ports, and never point them at port 3000 or this checkout's `.orca/`.
+- **One daemon per machine, owned by no session, enforced by an instance lock.**
+  The daemon keeps its state in one directory resolved by `src/orca-paths.js`
+  (`ORCA_STATE_DIR`, then the config's `stateDir`, then an existing
+  `<checkout>/.orca`, then `~/.local/state/orca`), never by its working
+  directory. A start takes an exclusive lock on it (`<state dir>/daemon.lock`,
+  see `src/instance-lock.js`) before it binds the port or reads any state. A
+  second start against a running daemon's state is refused: it exits 1, names
+  the owner's pid and URL, changes no state and signals no process.
+  `orca-cli.js start|stop|status` find the daemon by that lock and its port,
+  never by process name, and `start` runs it detached so it outlives the session
+  that ran it. A stale lock is taken over only when its owner has exited or its
+  pid now belongs to a process with a different start time; when Orca cannot
+  prove the owner is gone, it refuses and names the file to delete. The lock only
+  defends state a *running* daemon owns. Importing `src/server.js`, as tests do,
+  keeps `<cwd>/.orca` state and never reads the user's config; over a stopped
+  daemon's `.orca/` it opens that state and runs interrupted-lane recovery on it.
+  So develop in a separate worktree or clone, keep tests and smokes on their own
+  temp state and ephemeral ports (pin `ORCA_STATE_DIR` for any daemon a test
+  spawns), and never point them at port 3000 or a real state directory.
+- **The fence is exact** (`src/fence.js`). Agents register, and executors run,
+  only under the configured roots (`orca-cli.js setup --roots`, or
+  `ORCA_REPO_ROOTS`); the daemon's working directory is never added, and no
+  roots means setup-required, not a default. A test that registers agents
+  declares its fixture as the fence (`test/helpers/fence-root.js`).
 
 External MCP clients drive Orca as the orchestrator over `src/mcp-server.js`. It is a
 plain stdio MCP server with no client-specific behavior, so any MCP-capable agent can

@@ -8,15 +8,20 @@ changes scoped and prove security-sensitive behavior with tests or smoke gates.
 
 ```sh
 npm ci --ignore-scripts
-npm start
+ORCA_STATE_DIR="$PWD/.orca" ORCA_REPO_ROOTS="$PWD" npm start
 ```
 
-Open <http://127.0.0.1:3000/>. On loopback with no `ORCA_API_TOKEN` set, the local
+A development daemon runs in the foreground with its own state (`.orca/` in the
+clone, which git ignores) and its own fence (the clone). Pin both: without
+`ORCA_STATE_DIR` it would use the per-user state directory a real install uses.
+If a real Orca already holds port 3000, add `PORT=3100`.
+
+Open <http://127.0.0.1:3000/>. On loopback with no API token set, the local
 process is trusted as admin so you can develop without wiring auth. To exercise the
 hardened path instead, set a token:
 
 ```sh
-ORCA_API_TOKEN="$(openssl rand -hex 32)" npm start
+ORCA_API_TOKEN="$(openssl rand -hex 32)" ORCA_STATE_DIR="$PWD/.orca" ORCA_REPO_ROOTS="$PWD" npm start
 ```
 
 ## Before opening a pull request

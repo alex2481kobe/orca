@@ -58,27 +58,69 @@ is any good — without sitting in a terminal watching.
 
 ## Quickstart
 
+You need Node 18.18+ and the agent CLIs you already use (Claude Code, Codex).
+
 ```bash
-npm install
-
-# Recommended: bound where agents are allowed to register and work.
-# Unset, an agent can register any folder under your home directory. Orca also
-# always allows its own working directory, even when this is set.
-export ORCA_REPO_ROOTS="$HOME/code"     # comma-separated absolute paths
-
-npm start          # daemon + dashboard on http://127.0.0.1:3000
+git clone https://github.com/alex2481kobe/orca.git && cd orca && npm ci
+node src/orca-cli.js setup --roots "$HOME/code" --connect claude
 ```
 
-**Run one daemon per working directory.** Orca keeps its state in `.orca/` under
-the directory you start it from, and the daemon running there holds an exclusive
-lock on it. Before `npm start`, check that nothing is already serving it — a
-terminal you forgot, or the [LaunchAgent](docs/macos-launchd-runbook.md):
-`curl -s http://127.0.0.1:3000/api/health`. If one is, a second start is refused:
-it exits with code 1, prints the running daemon's pid and URL, and changes no
-state and signals no process. Use that daemon, or stop it first.
+That one command does three things, and prints what it did:
 
-Point your agent at it over MCP. Orca is a plain stdio MCP server, so **any
-MCP-capable client works** — register it however that client registers MCP servers:
+1. **Records where agents may work:** exactly the directories you list, and
+   nothing else. Pass absolute paths to existing directories, comma-separated or
+   as repeated `--roots`. They are saved to `~/.config/orca/config.json`
+   (owner-only, never in the repo). To let agents work on Orca itself, include
+   this checkout in `--roots`.
+2. **Starts Orca** as a background daemon that no terminal and no agent session
+   owns: close the terminal or end the session, and Orca keeps running. Its state
+   lives in `~/.local/state/orca`; set `ORCA_STATE_DIR` to put it elsewhere.
+3. **Registers Orca with Claude Code** at user scope, so its tools work from
+   every directory (`--connect codex` for Codex, or both). Restart the client
+   afterwards.
+
+Then check everything with `node src/orca-cli.js doctor`; every failed check
+prints its fix.
+
+### Running Orca
+
+```bash
+node src/orca-cli.js status            # running? pid, URL, state dir, fence
+node src/orca-cli.js start             # reports a running daemon and changes nothing
+node src/orca-cli.js stop              # refuses while executors run; --force stops them too
+node src/orca-cli.js logs              # the daemon's log (<state dir>/logs/daemon.log)
+node src/orca-cli.js service install   # macOS: also start at login, restart after a crash
+```
+
+- **One daemon per machine, shared by every agent.** `start`, `stop` and
+  `status` find it by its instance lock and its port, never by process name,
+  from any directory. A second `start` reports the running daemon and changes
+  nothing. Stopping Orca stops the executors it runs, so `stop` refuses while any
+  are running unless you pass `--force`.
+- **Not set up yet?** With no roots, Orca still runs and answers, but it
+  registers no agent and launches no executor. The dashboard, `doctor`, `start`
+  and every refused tool call name the setup command.
+- **Changing the roots:** run `setup --roots …` again. A running daemon keeps
+  the fence it started with until you restart it (`stop`, then `start`).
+- **Your whole home directory** as a root is refused unless you add
+  `--allow-home-root`. That choice is recorded, and Orca keeps warning about it.
+- `ORCA_REPO_ROOTS` in Orca's environment overrides the saved roots. It is an
+  exact list too: Orca never adds the directory it was started from.
+- **API token (recommended; required before you pair a phone).** Without one,
+  every process on this machine is Orca admin. Keep it in an owner-only file,
+  `(umask 077; openssl rand -hex 32 > ~/.config/orca/api-token)`, and run Orca
+  with `ORCA_API_TOKEN_FILE=~/.config/orca/api-token` (for the service:
+  `service install --token-file ~/.config/orca/api-token`). Agents never get it.
+- **An install from before this** kept its state in `<checkout>/.orca`. Orca
+  keeps using it in place, never moves or copies it, and `setup` records it.
+- `npm start` still runs Orca in the foreground, for development. That daemon
+  belongs to the terminal that started it, and stops with it.
+
+### Connecting a client by hand
+
+`--connect` runs `node src/orca-cli.js connect claude|codex` for you. Orca is a
+plain stdio MCP server, so **any MCP-capable client works**. Register it however
+that client registers MCP servers:
 
 ```bash
 # Run from your Orca checkout — the package isn't published to npm, so point the
@@ -167,9 +209,10 @@ to get a different model. How to drive the loop: the
 [executor skill](docs/agent-executor-skill.md).
 
 Watch it at `http://127.0.0.1:3000`, or from your phone once Tailscale is set up
-(see [`docs/tailscale-mobile-access.md`](docs/tailscale-mobile-access.md)). To keep
-Orca running after the terminal closes on macOS, use the
-[LaunchAgent runbook](docs/macos-launchd-runbook.md).
+(see [`docs/tailscale-mobile-access.md`](docs/tailscale-mobile-access.md)). `start`
+already keeps Orca running after the terminal closes; to also start it at login
+and restart it after a crash on macOS, run `node src/orca-cli.js service install`
+(see the [LaunchAgent runbook](docs/macos-launchd-runbook.md)).
 
 ## The loop
 
@@ -241,8 +284,11 @@ A single always-on Node daemon with a hand-rolled stdio MCP bridge and **one run
 dependency** (`@lydell/node-pty`, for the PTY). It holds the registry (projects,
 orchestrator agents, executor lanes), the scheduler that launches and reaps
 executors, the tool-lease auth, and the Tailscale/PWA remote surface. State lives
-under `.orca/` in your working directory (`state.json`, paired-device sessions, and
-per-lane worktrees); nothing leaves the box.
+in one per-user state directory, never in whatever directory Orca was started
+from: `~/.local/state/orca` by default, `ORCA_STATE_DIR` to move it, and an
+install from before this keeps `<checkout>/.orca`. It holds `state.json`,
+paired-device sessions, per-lane worktrees, lane artifacts and the daemon log.
+Nothing leaves the box.
 
 ## License
 

@@ -123,7 +123,9 @@ What the errors mean:
 
 | the error says | it means | the one command |
 | --- | --- | --- |
-| `Orca is not running at <url>` | nothing is listening there | `cd /absolute/path/to/orca && npm start` (refused safely if Orca already runs there) |
+| `Orca is not running at <url>` | nothing is listening there | `node /absolute/path/to/orca/src/orca-cli.js start` (it reports an Orca that is already running and changes nothing; never a foreground `npm start` from your session, which would die with it) |
+| `Orca is not set up: it has no approved roots …` (`ORCA_SETUP_REQUIRED`) | no fence is configured, so nothing registers or launches | tell your human to run the `fix` command in the error (`… orca-cli.js setup --roots <dir>`) on the workstation; do not choose roots yourself |
+| `cwd is outside the approved repo roots` (`ORCA_OUTSIDE_FENCE`) | your directory is not under the fence | register from a directory inside the roots, or ask your human to run the `fix` command in the error (it adds your directory) and restart Orca |
 | `... but it is not Orca's API` | the config points at the wrong port | `... orca-cli.js connect claude --url <Orca's URL>` |
 | `... its outcome is unknown` | the connection dropped mid-call | call `orchestrator__status` or `lane__list`, and repeat only what did not happen |
 | `Orca is starting.` | the daemon is still starting | try again in a few seconds |
@@ -140,21 +142,26 @@ Two rules:
   `DELETE /api/agent-tools/leases/<credential id>` (admin). Revoking one lease is
   not enough, because its bridge gets another from the credential.
 
-With no `ORCA_API_TOKEN` set, every process on the machine is Orca admin, so role
-scoping is advisory. `doctor` warns about it.
+With no API token set (`ORCA_API_TOKEN`, or `ORCA_API_TOKEN_FILE` naming an
+owner-only file that holds it), every process on the machine is Orca admin, so
+role scoping is advisory. `doctor` warns about it.
 
 ## Current limitations — read before you start
 
 These describe Orca as it behaves today.
 
-- **One daemon per working directory; a second start is refused.** Orca keeps
-  its state in `.orca/` under the daemon's working directory, and the running
-  daemon holds an exclusive lock on it. A second start against that directory
-  exits with code 1 and names the running daemon's pid and URL; it changes no
-  state and signals no process. If a tool call fails because Orca seems down,
-  check before anyone starts it — `curl -s http://127.0.0.1:3000/api/health` or
-  `lsof -nP -iTCP:3000 -sTCP:LISTEN`. Never "restart Orca" as a reflex: stopping
-  a running daemon kills every executor it runs, and nothing resumes that work.
+- **One daemon per machine, owned by no session.** Every agent shares it. If a
+  tool call fails because Orca seems down, check first:
+  `node /absolute/path/to/orca/src/orca-cli.js status`. If it is stopped,
+  `… orca-cli.js start` starts it detached, so it outlives your session; if it is
+  running, `start` says so and changes nothing. Never start Orca with a
+  foreground `npm start` from your session: that daemon dies when your session
+  ends. Never "restart Orca" as a reflex: stopping it stops every executor it
+  runs, nothing resumes that work, and `stop` refuses while any are running.
+- **Orca may not be set up.** With no approved roots it still answers, but
+  registration and spawn refuse with `ORCA_SETUP_REQUIRED` and a `fix` command.
+  The fence is your human's decision: relay the command, do not run it with roots
+  you chose.
 - **A config without a refresh credential cannot recover a lapsed lease.** A
   config issued before refresh credentials existed carries
   `ORCA_TOOL_LEASE_TOKEN`. That lease renews while you use it, but once it lapses
@@ -217,7 +224,8 @@ isolation.
 1. **Register.** Call `orchestrator.register { body: { cwd, title?, focus?,
    approvedCapacity? } }` with the project working directory. Orca binds you to
    that project (keyed by the real path of `cwd`, which must lie inside the
-   daemon's approved roots) and shows you on the dashboard. Keep the returned `id`
+   daemon's approved roots; see the fence under "Server-side knobs") and shows
+   you on the dashboard. Keep the returned `id`
    (your `orchestratorId`) and `projectId`. Registered orchestrators are the only
    actors allowed to spawn and audit; unregistered mutating calls are refused.
 2. **Refresh your title and focus.** There is no separate status-push tool.
@@ -445,11 +453,22 @@ automatically).
 These are env vars on the Orca server process, not tools. Know them because they
 silently change what you observe:
 
-- `ORCA_REPO_ROOTS` — the directories you may register in (comma- or
-  newline-separated absolute paths). The daemon's own working directory is always
-  added, even when this is set. Unset, the approved root is the home directory
-  (plus the working directory if it lies outside home). Registering a `cwd`
-  outside them is refused with `422`.
+- **The fence** — the directories you may register in, and executors may run
+  in. An operator sets it once with
+  `node /absolute/path/to/orca/src/orca-cli.js setup --roots <dir>[,<dir>...]`
+  (saved to `~/.config/orca/config.json`), or with `ORCA_REPO_ROOTS` in Orca's
+  environment (comma- or newline-separated absolute paths), which overrides the
+  file. It is exactly that list: the daemon's own working directory is never
+  added. With no roots Orca is *setup-required*: registration and spawn refuse
+  with `ORCA_SETUP_REQUIRED`, and queued lanes wait. A root covering the whole
+  home directory must be acknowledged (`--allow-home-root`) and keeps warning.
+  Registering a `cwd` outside the roots is refused with `422`
+  (`ORCA_OUTSIDE_FENCE`). Roots apply when Orca starts, and queued lanes are
+  checked against them again at launch. **To orchestrate work on Orca itself,
+  its checkout must be one of the roots.**
+- `ORCA_STATE_DIR` — where the daemon keeps its state (default
+  `~/.local/state/orca`; an install from before this keeps `<checkout>/.orca`).
+  `orca-cli.js status` shows it.
 - `ORCA_LANE_CONCURRENCY` — default capacity for newly registered orchestrators
   (default 4, max 64). See "Lane capacity".
 - `ORCA_LANE_IDLE_TIMEOUT_MS` — how long a *running* lane may produce no output
