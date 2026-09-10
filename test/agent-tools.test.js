@@ -10,6 +10,7 @@ import { findTool, getToolDefinitions, TOOL_DEFINITIONS } from '../src/agent-too
 import { ROLE_INSTRUCTIONS } from '../src/agent-tools/role-instructions.js';
 import { chooseNextTool } from '../src/agent-tools/next-action.js';
 import { OrcaRegistry } from '../src/registry.js';
+import { buildOrchestratorMcpConfigs } from '../src/mcp-orchestrator-bootstrap.js';
 
 async function withIsolatedRegistry(callback) {
   const previousCwd = process.cwd();
@@ -434,4 +435,78 @@ test('tool leases are scoped, hashed at rest, and enforce allowed tools', async 
       allowedTools: ['lane.get'],
     }), (error) => error.status === 422 && /lane does not belong to the requested project/.test(error.message));
   });
+});
+
+// ---- Documentation coherence ------------------------------------------------
+// The rulebook guard above covers ROLE_INSTRUCTIONS and the src/ sweep covers
+// quoted dotted ids. Neither saw the bootstrap template's "__" MCP names — which
+// is how a dead orchestrator__update instruction shipped to every bootstrapped
+// agent — and nothing checked the markdown agents are pointed at. Both are
+// covered here, for dotted contract ids and "__" MCP names alike.
+const DOC_TOOL_GROUPS = ['orchestrator', 'executor', 'lane', 'approval', 'audit', 'fleet', 'event', 'project', 'session', 'tailscale', 'artifact'];
+// A dotted id is a group plus lower_snake segments, not glued to a path, a
+// camelCase field (lane.artifactPath) or a call.
+const DOC_DOTTED_ID = new RegExp(`(?<![A-Za-z0-9_./-])((?:${DOC_TOOL_GROUPS.join('|')})(?:\\.[a-z_][a-z0-9_]*)+)(?![A-Za-z0-9_(])`, 'g');
+const DOC_MCP_NAME = new RegExp(`(?<![A-Za-z0-9_])((?:${DOC_TOOL_GROUPS.join('|')})__[a-z_]+)(?![A-Za-z0-9])`, 'g');
+const REPO_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+function deadToolNames(text) {
+  const liveIds = new Set(TOOL_DEFINITIONS.map((tool) => tool.id));
+  const dead = new Set();
+  for (const match of text.matchAll(DOC_DOTTED_ID)) {
+    if (!liveIds.has(match[1])) dead.add(match[1]);
+  }
+  for (const match of text.matchAll(DOC_MCP_NAME)) {
+    if (!liveIds.has(match[1].replace(/__/g, '.'))) dead.add(match[1]);
+  }
+  return [...dead];
+}
+
+// README, AGENTS and the top-level docs. docs/audits/ is deliberately excluded:
+// an audit is a dated record, and it quotes the dead names it found.
+async function agentFacingDocs() {
+  const files = ['README.md', 'AGENTS.md'];
+  for (const name of await fs.readdir(path.join(REPO_DIR, 'docs'))) {
+    if (name.endsWith('.md')) files.push(path.join('docs', name));
+  }
+  return Promise.all(files.map(async (file) => ({ file, text: await fs.readFile(path.join(REPO_DIR, file), 'utf8') })));
+}
+
+test('the MCP bootstrap template only names live tools', () => {
+  const out = buildOrchestratorMcpConfigs({ baseUrl: 'http://127.0.0.1:3000', leaseToken: 't', nodePath: '/usr/local/bin/node' });
+  const text = [
+    ...out.instructions,
+    ...Object.values(out.clients).map((client) => client.merge || ''),
+  ].join('\n');
+  // The scanner must actually see "__" names here, or this passes vacuously.
+  assert.ok((text.match(DOC_MCP_NAME) || []).includes('executor__spawn'), 'scanner found no MCP tool names in the bootstrap text');
+  assert.deepEqual(deadToolNames(text), [], 'bootstrap instructions name a tool that does not exist');
+});
+
+test('agent-facing docs only name live tools, dotted or "__"', async () => {
+  const offenders = [];
+  let seen = 0;
+  for (const { file, text } of await agentFacingDocs()) {
+    seen += (text.match(DOC_DOTTED_ID) || []).length + (text.match(DOC_MCP_NAME) || []).length;
+    for (const name of deadToolNames(text)) offenders.push(`${file}: ${name}`);
+  }
+  assert.ok(seen > 20, `scanner matched only ${seen} tool names — it is not reading the docs`);
+  assert.deepEqual(offenders, [], `docs name tools that do not exist:\n  ${offenders.join('\n  ')}`);
+});
+
+test('documented Claude Code MCP installs use user scope; Codex ones carry no scope flag', async () => {
+  const offenders = [];
+  for (const { file, text } of await agentFacingDocs()) {
+    for (const line of text.split('\n')) {
+      // Runnable commands only (they separate the launcher with " -- "), not
+      // prose that mentions the command by name.
+      if (/\bclaude\s+mcp\s+add\b.*\s--\s/.test(line) && !/\s(?:-s|--scope)\s+user\b/.test(line)) {
+        offenders.push(`${file}: ${line.trim()}`);
+      }
+      if (/\bcodex\s+mcp\s+add\b.*\s--\s/.test(line) && /\s(?:-s|--scope)\b/.test(line)) {
+        offenders.push(`${file}: ${line.trim()}`);
+      }
+    }
+  }
+  assert.deepEqual(offenders, [], `claude mcp add defaults to LOCAL (one-directory) scope; codex has no scope flag:\n  ${offenders.join('\n  ')}`);
 });

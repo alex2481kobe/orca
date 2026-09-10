@@ -40,15 +40,27 @@ Roles are exactly four: `orchestrator`, `executor`, `auditor`, `dashboard`
 - **The server is authoritative.** Pairing, live links, tool leases, executor
   lifecycle, cleanup, and route authorization are decided server-side. A client must
   never be able to grant itself a tool the server did not lease it.
+- **One daemon per working directory — there is no instance lock yet.** A second
+  `npm start` against a directory whose daemon is running loads the same `.orca/`
+  state and runs startup recovery before it binds the port, and that recovery can
+  kill the running daemon's executors and fail their lanes. When an Orca daemon is
+  running from this checkout, develop in a separate worktree or clone, keep tests and
+  smokes on their own temp state and ephemeral ports, and never point them at port
+  3000 or this checkout's `.orca/`.
 
 External MCP clients drive Orca as the orchestrator over `src/mcp-server.js`. It is a
 plain stdio MCP server with no client-specific behavior, so any MCP-capable agent can
-wire it — `claude mcp add orca -- node "$PWD/src/mcp-server.js"`,
+wire it — `claude mcp add -s user orca -- node "$PWD/src/mcp-server.js"`,
 `codex mcp add orca -- node "$PWD/src/mcp-server.js"`, or the equivalent
-`{"command": "node", "args": ["<abs>/src/mcp-server.js"]}` entry. The bare wiring
-defaults to the orchestrator role; spawned executors get their role and ids injected
-by the lane runtime. A scoped off-origin orchestrator lease is minted by
-`POST /api/mcp/orchestrator-bootstrap`, which is admin-gated on purpose.
+`{"command": "node", "args": ["<abs>/src/mcp-server.js"]}` entry. Keep `-s user` on
+the Claude form: `claude mcp add` defaults to local scope, which registers Orca for one
+directory only. Codex has no scope flag. The bare wiring defaults to the orchestrator
+role; spawned executors get their role and ids injected by the lane runtime. A scoped
+off-origin orchestrator lease is minted by `POST /api/mcp/orchestrator-bootstrap`,
+which is admin-gated on purpose; the lease expires (12 hours unless `ttlMs` is set,
+24 hours at most) and nothing renews it. `test/agent-tools.test.js` checks that the
+docs and the bootstrap text name only live tools and that documented Claude installs
+carry user scope.
 
 ## Public / Private Boundary
 
