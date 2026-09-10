@@ -217,3 +217,21 @@ test('instance lock: an owner in a DIFFERENT timezone and locale is still recogn
     }
   });
 });
+
+test('instance lock: inspect is read-only — reports a live owner as held, a stale or missing lock as free, and creates nothing', async () => {
+  const { inspectInstanceLock } = await import('../src/instance-lock.js');
+  await withStateDir(async ({ stateDir, lockPath }) => {
+    assert.equal(inspectInstanceLock(stateDir).held, false, 'no state dir: not held');
+    assert.equal(fs.existsSync(stateDir), false, 'inspect did not create the state dir');
+    const owned = acquireInstanceLock(stateDir);
+    const live = inspectInstanceLock(stateDir);
+    assert.equal(live.held, true);
+    assert.equal(live.reason, 'running');
+    assert.match(live.message, /Refusing to open this state directory/);
+    owned.release();
+    writeForeignLock(stateDir, { pid: await exitedPid(), processStart: EPOCH_START });
+    const before = fs.readFileSync(lockPath, 'utf8');
+    assert.equal(inspectInstanceLock(stateDir).held, false, 'an exited owner does not hold the state');
+    assert.equal(fs.readFileSync(lockPath, 'utf8'), before, 'inspect never takes over or rewrites a lock');
+  });
+});

@@ -310,6 +310,28 @@ async function waitForQuietState(fixture) {
   }, 10_000, 'a quiet state directory');
 }
 
+// Lane artifacts are written asynchronously after the lane finishes. A "before"
+// picture must wait until every file has landed, is non-empty, and has stopped
+// changing — otherwise a late write reads as the restart altering artifacts.
+const EMPTY_FILE_HASH = crypto.createHash('sha256').update('').digest('hex').slice(0, 16);
+async function waitForSettledArtifacts(dir, ms = 15_000) {
+  let previous = null;
+  let settled = null;
+  await waitUntil(async () => {
+    const current = await snapshotTree(dir);
+    const files = current.filter((entry) => !entry.endsWith('/'));
+    const complete = files.length > 0 && files.every((entry) => !entry.endsWith(` ${EMPTY_FILE_HASH}`));
+    if (complete && previous !== null && JSON.stringify(current) === JSON.stringify(previous)) {
+      settled = current;
+      return true;
+    }
+    previous = complete ? current : null;
+    await delay(300);
+    return false;
+  }, ms, 'lane artifacts to settle');
+  return settled;
+}
+
 function commandOf(pid) {
   try {
     return execFileSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8' }).trim();
@@ -524,8 +546,7 @@ test('exclusive startup: a normal stop releases ownership, and a restart retains
       return ['done', 'ready_for_audit'].includes(laneBefore?.state);
     }, 15_000, 'the lane to finish');
     const artifactDir = path.join(fixture, 'artifacts', orchestrator.body.id, lane.body.id);
-    await waitUntil(async () => (await snapshotTree(artifactDir)).some((entry) => !entry.endsWith('/')), 10_000, 'lane artifacts');
-    const artifactsBefore = await snapshotTree(artifactDir);
+    const artifactsBefore = await waitForSettledArtifacts(artifactDir);
     const countsBefore = (await httpJson(port, '/api/health')).body.counts;
 
     assert.deepEqual(await stopDaemon(first), { code: 0, signal: null }, first.output());
@@ -547,6 +568,55 @@ test('exclusive startup: a normal stop releases ownership, and a restart retains
 
     assert.deepEqual(await stopDaemon(second), { code: 0, signal: null }, second.output());
     assert.equal(await exists(lockPath(fixture)), false);
+  } finally {
+    await runCleanups(cleanups, [fixture]);
+  }
+});
+
+test('exclusive startup: a process that IMPORTS the server inside a running daemon\'s state (as `npm test` does) opens nothing — no state change, no signal', { timeout: 120_000 }, async () => {
+  const fixture = await makeFixture('importer');
+  const cleanups = [];
+  try {
+    const daemon = startDaemon(fixture, await freePort());
+    cleanups.push(() => stopDaemon(daemon));
+    await waitForHealthy(daemon);
+    await waitForQuietState(fixture);
+    const worker = await startFakeWorker(fixture);
+    cleanups.push(worker.cleanup);
+    const state = await readJson(statePath(fixture));
+    state.lanes = [...(state.lanes || []), runningLaneRecord(worker)];
+    await writeState(fixture, state);
+    const before = await snapshotTree(fixture);
+
+    // What test/agent-tools-contract.test.js does from whatever checkout `npm test` runs in.
+    // The module goes in via env, NOT argv: with its path in argv[1] the child
+    // would pass for the daemon entrypoint (`node src/server.js`), not an importer.
+    const importer = spawn(process.execPath, ['--input-type=module', '-e', 'await import(process.env.ORCA_IMPORT_UNDER_TEST); process.exit(0);'], {
+      cwd: fixture,
+      env: {
+        PATH: process.env.PATH,
+        HOME: path.join(fixture, 'home'),
+        PORT: String(await freePort()),
+        ORCA_AUTO_AUDIT: 'false',
+        ORCA_IMPORT_UNDER_TEST: new URL('../src/server.js', import.meta.url).href,
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let output = '';
+    importer.stdout.on('data', (chunk) => { output += chunk; });
+    importer.stderr.on('data', (chunk) => { output += chunk; });
+    const importerExit = await Promise.race([
+      new Promise((resolve) => importer.once('exit', (code, signal) => resolve({ code, signal }))),
+      delay(15_000).then(() => null),
+    ]);
+    if (!importerExit) importer.kill('SIGKILL');
+    await delay(500);
+
+    assert.equal(worker.exit(), null, `importing the server KILLED the running daemon's worker ${JSON.stringify(worker.exit())}\n--- importer ---\n${output}`);
+    assert.deepEqual(await snapshotTree(fixture), before, `importing the server CHANGED the running daemon's state\n--- importer ---\n${output}`);
+    assert.match(output, /Refusing to open this state directory: another Orca daemon already owns this state directory/, 'the IMPORTER path refused (not the entrypoint path)');
+    assert.equal(daemon.exit(), null, 'the daemon is still running');
+    assert.equal((await httpJson(daemon.port, '/api/health')).status, 200);
   } finally {
     await runCleanups(cleanups, [fixture]);
   }

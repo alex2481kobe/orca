@@ -3,7 +3,7 @@ import { timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { OrcaRegistry } from './registry.js';
-import { acquireInstanceLock } from './instance-lock.js';
+import { acquireInstanceLock, inspectInstanceLock } from './instance-lock.js';
 import { PrivateAccessStore } from './private-access/store.js';
 import { AuthSessionStore } from './auth-sessions/store.js';
 import { SESSION_COOKIE_NAME } from './auth-sessions/crypto.js';
@@ -31,25 +31,24 @@ const PUBLIC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '.
 const thisModulePath = fileURLToPath(import.meta.url);
 // Running as the daemon (`node src/server.js`), as opposed to being imported.
 const IS_ENTRYPOINT = Boolean(process.argv[1]) && path.resolve(process.argv[1]) === path.resolve(thisModulePath);
-// The daemon must not read, migrate or recover state it does not own. A second
-// start used to restore state — and reap the process groups its lanes point at
-// — before discovering that the state or the port was already taken. So the
-// entrypoint constructs WITHOUT touching disk, and startServer opens state only
-// after it holds the instance lock AND the listener. An importer (tests,
-// tooling) drives routeRequest with no listener and keeps the eager open.
-const DEFER_STATE = IS_ENTRYPOINT;
+// Nothing may read, migrate or recover state it does not own. A second start
+// used to restore state — and reap the process groups its lanes point at —
+// before discovering that the state or the port was already taken. So state is
+// never opened at construction: the entrypoint opens it in startServer, only
+// after it holds the instance lock AND the listener; an importer opens it at
+// import (below), unless a live daemon owns it.
 const registry = new OrcaRegistry({
   // Optional tuning (mainly for tests/smokes): speed up the scheduler heartbeat
   // and the mock executor's auto-complete. Unset -> registry defaults.
   heartbeatIntervalMs: Number.parseInt(process.env.ORCA_HEARTBEAT_MS, 10) || undefined,
   autoCompleteMs: Number.parseInt(process.env.ORCA_AUTO_COMPLETE_MS, 10) || undefined,
-  deferOpen: DEFER_STATE,
+  deferOpen: true,
 });
 const privateAccess = new PrivateAccessStore();
 // Let the registry auto-fill a dev-server preview's tailnet URL (http://<magicDNS>:<port>)
 // from the live Tailscale identity, so an agent only has to register a port.
 registry.magicDnsResolver = () => privateAccess.magicDnsName();
-const authSessions = new AuthSessionStore({ autoLoad: !DEFER_STATE });
+const authSessions = new AuthSessionStore({ autoLoad: false });
 const rateLimiter = createRateLimiter({
   disabled: process.env.ORCA_RATE_LIMIT_DISABLED === 'true',
 });
@@ -855,15 +854,34 @@ async function handleApi(req, res, pathname, method, parts) {
 // This process's ownership. `stateOpen` is false only between binding the
 // listener and opening state (entrypoint). `shuttingDown` flips first thing in
 // stopServer, so nothing new starts while workers stop and writes drain.
-let stateOpen = !DEFER_STATE;
+let stateOpen = false;
 let shuttingDown = false;
 let activeServer = null;
 let instanceLock = null;
+let stateOwnedElsewhere = false;
+
+// An importer (tests, tooling) drives routeRequest with no listener and keeps
+// the eager open it always had — but never over a state directory a LIVE daemon
+// owns. `npm test` imports this module from the checkout it runs in, and
+// opening that state would run interrupted-lane recovery against the running
+// daemon's workers. Read-only: this check creates no lock and signals nothing.
+if (!IS_ENTRYPOINT) {
+  const owner = inspectInstanceLock(registry.storageDir);
+  if (owner.held) {
+    stateOwnedElsewhere = true;
+    console.error(owner.message);
+  } else {
+    openOwnedState();
+  }
+}
 
 function routeRequest(req, res) {
   applySecurityHeaders(res, req); // req → adds HSTS when the request is HTTPS
   if (shuttingDown || !stateOpen) {
-    sendJson(res, 503, { error: shuttingDown ? 'Orca is shutting down.' : 'Orca is starting.' });
+    const error = shuttingDown
+      ? 'Orca is shutting down.'
+      : (stateOwnedElsewhere ? 'This state directory is owned by another running Orca daemon.' : 'Orca is starting.');
+    sendJson(res, 503, { error });
     return Promise.resolve();
   }
   // Anti-DNS-rebinding: a direct request whose Host header is not a recognized

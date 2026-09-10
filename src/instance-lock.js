@@ -177,7 +177,7 @@ function ownedLock(lockPath, record, tookOver) {
   };
 }
 
-function describeRefusal(reason, holder, lockPath, stateDir) {
+function describeRefusal(reason, holder, lockPath, stateDir, action = 'start') {
   const listen = holder?.listen?.port ? `, listening on http://${holder.listen.host}:${holder.listen.port}` : '';
   const who = holder ? `pid ${holder.pid}, started ${holder.processStart || 'at an unknown time'} UTC${listen}` : 'owner unknown';
   const detail = {
@@ -189,7 +189,7 @@ function describeRefusal(reason, holder, lockPath, stateDir) {
     contended: 'another Orca start took the lock at the same moment.',
   }[reason] || `the state directory is locked (${reason}).`;
   const lines = [
-    `[orca] Refusing to start: ${detail}`,
+    `[orca] Refusing to ${action}: ${detail}`,
     `[orca] State directory: ${stateDir}`,
     '[orca] No state was restored, migrated or recovered, and no process was signaled.',
   ];
@@ -245,4 +245,32 @@ export function acquireInstanceLock(stateDir, { probe = probeProcess, hostname =
     // 'contended': the lock changed under us. Assess it again from the top.
   }
   return refuse('contended', lastHolder);
+}
+
+// Read-only: does a LIVE daemon own this state directory right now? Creates
+// nothing and signals nothing. For a process that would open state without a
+// listener (an importer, a test): it must never open state a running daemon
+// owns. A missing lock, or one whose owner is provably gone, reads as not held.
+export function inspectInstanceLock(stateDir, { probe = probeProcess, hostname = os.hostname() } = {}) {
+  let canonicalDir;
+  try {
+    canonicalDir = fs.realpathSync(stateDir);
+  } catch (error) {
+    if (error?.code === 'ENOENT') return { held: false, reason: 'no-lock' };
+    throw error;
+  }
+  const lockPath = path.join(canonicalDir, INSTANCE_LOCK_FILE);
+  const raw = readRaw(lockPath);
+  if (raw === null) return { held: false, reason: 'no-lock' };
+  const holder = parseLock(raw);
+  const verdict = assessHolder(holder, { self: probe(process.pid), probe, hostname });
+  if (verdict.stale) return { held: false, reason: verdict.reason, holder };
+  return {
+    held: true,
+    reason: verdict.reason,
+    holder,
+    lockPath,
+    stateDir: canonicalDir,
+    message: describeRefusal(verdict.reason, holder, lockPath, canonicalDir, 'open this state directory'),
+  };
 }
