@@ -851,9 +851,11 @@ async function handleApi(req, res, pathname, method, parts) {
   return sendJson(res, 404, { error: 'API route not found.' });
 }
 
-// This process's ownership. `stateOpen` is false only between binding the
-// listener and opening state (entrypoint). `shuttingDown` flips first thing in
-// stopServer, so nothing new starts while workers stop and writes drain.
+// This process's ownership. `stateOpen` stays false until state is opened: in
+// the entrypoint, between binding the listener and opening state; in an
+// importer, for good when a live daemon owns the state. `shuttingDown` flips
+// first thing in stopServer, so nothing new starts while workers stop and
+// writes drain.
 let stateOpen = false;
 let shuttingDown = false;
 let activeServer = null;
