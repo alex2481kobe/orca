@@ -86,7 +86,8 @@ export async function handleLaneRoutes(ctx, req, res, method, parts) {
     }
 
     if (parts.length === 3 && method === 'GET') {
-      return sendJson(res, 200, lane);
+      // Full lane, streams included: a restored lane's come from its journal.
+      return sendJson(res, 200, registry.laneForRead(lane));
     }
 
     if (parts.length === 4 && parts[3] === 'terminal-tail' && method === 'GET') {

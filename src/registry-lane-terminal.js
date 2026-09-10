@@ -273,11 +273,12 @@ Stop result: ${lane.processMeta?.stopResult ?? ''}
 Changed files: ${changedFiles.length}
 `,
     );
+    const streams = this.laneForRead(lane);
     await fs.writeFile(path.join(laneArtifactDir, 'transcript.json'), JSON.stringify({
       laneId: lane.id,
       title: lane.title,
-      logs: lane.logs,
-      agentEvents: lane.agentEvents || [],
+      logs: streams.logs,
+      agentEvents: streams.agentEvents || [],
       terminalArtifacts: ['terminal.log', 'stdout.log', 'stderr.log'],
       completedAt: lane.completedAt,
       status,

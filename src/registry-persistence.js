@@ -11,11 +11,16 @@ import { defaultPolicy } from './registry-policy.js';
 import { normalizeAgentQueueForRestore } from './registry-agent-queue.js';
 import { readJsonFileWithRecoverySync } from './state-store/recovery.js';
 import { writeJsonFileAtomic } from './state-store/io.js';
+import { STATE_FORMAT_VERSION } from './state-paths.js';
+
+// v3 and v4 share the orchestrator-only model. v4 moves lane streams to journal
+// files; a v3 lane's inline streams are journaled on the first persist.
+const CURRENT_MODEL_VERSIONS = [3, STATE_FORMAT_VERSION];
 
 export const persistenceMethods = {
   restoreFromDisk() {
     const fallback = {
-      version: 3,
+      version: STATE_FORMAT_VERSION,
       projects: [],
       lanes: [],
       tasks: [],
@@ -36,7 +41,7 @@ export const persistenceMethods = {
       // container). Back up before any migration (never silently delete), then
       // persist the migrated store immediately so it STICKS (writes are otherwise
       // debounced+unref'd; a crash right after would re-migrate on every restart).
-      if (parsed && parsed.version !== 3) {
+      if (parsed && !CURRENT_MODEL_VERSIONS.includes(parsed.version)) {
         if (parsed.version === 2) {
           // v2 -> v3: the session container is removed and the orchestrator record
           // is the only container. Carry over projects/orchestrators + lanes that
@@ -211,13 +216,17 @@ export const persistenceMethods = {
   },
 
   snapshotState() {
+    // Journal every new log line and agent event FIRST: the snapshot below drops
+    // lane streams, so they must already be on disk (a lane whose append failed
+    // keeps its streams inline instead).
+    const failedJournalLaneIds = this._flushLaneJournals();
     return {
-      version: 3,
+      version: STATE_FORMAT_VERSION,
       savedAt: nowIso(),
       policies: this.policies,
       projects: this.projects,
       orchestrators: this.orchestrators,
-      lanes: this.lanes,
+      lanes: this.lanes.map((lane) => this._laneForSnapshot(lane, failedJournalLaneIds)),
       auditEvents: this.auditEvents,
       toolLeases: this.toolLeases,
       agentQueue: normalizeAgentQueueForRestore(this.agentQueue),

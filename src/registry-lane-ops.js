@@ -135,7 +135,7 @@ export const laneOpsMethods = {
     this.persistState();
     // Guide the agent to the next step (audit.queue_one) so a successful submit
     // doesn't force a separate status round-trip.
-    return { lane: clonePayload(lane), nextAction: this._laneNextAction(lane) };
+    return { lane: clonePayload(this.laneForRead(lane)), nextAction: this._laneNextAction(lane) };
   },
 
   // --- Permission-approval relay (Codex-app-style approval loop) -----------
@@ -177,7 +177,7 @@ export const laneOpsMethods = {
       evidence: { approval },
     });
     this.persistState();
-    return { lane: clonePayload(lane), approval: clonePayload(approval) };
+    return { lane: clonePayload(this.laneForRead(lane)), approval: clonePayload(approval) };
   },
 
   decideLaneApproval(laneLocator, approvalId, { decision, actor = 'dashboard' } = {}) {
@@ -212,7 +212,7 @@ export const laneOpsMethods = {
       evidence: { approval },
     });
     this.persistState();
-    return { lane: clonePayload(lane), approval: clonePayload(approval) };
+    return { lane: clonePayload(this.laneForRead(lane)), approval: clonePayload(approval) };
   },
 
   getLaneApprovals(laneLocator) {
@@ -326,7 +326,7 @@ export const laneOpsMethods = {
       },
     });
     this.persistState();
-    return clonePayload(lane);
+    return clonePayload(this.laneForRead(lane));
   },
 
   async stopLane(laneLocator, context = {}) {
@@ -356,7 +356,7 @@ export const laneOpsMethods = {
       }
       this.laneRuntimeEnv?.delete(String(lane.id));
       this.persistState();
-      return clonePayload(lane);
+      return clonePayload(this.laneForRead(lane));
     }
 
     const executor = this.getExecutorForLane(lane);
@@ -418,7 +418,7 @@ export const laneOpsMethods = {
     }
     this.laneRuntimeEnv?.delete(String(lane.id));
     this.persistState();
-    return clonePayload(lane);
+    return clonePayload(this.laneForRead(lane));
   },
 
   retryLane(laneLocator, context = {}) {
@@ -488,7 +488,7 @@ export const laneOpsMethods = {
       status: 'passed',
     });
     this.persistState();
-    return clonePayload(lane);
+    return clonePayload(this.laneForRead(lane));
   },
 
 
@@ -527,7 +527,7 @@ export const laneOpsMethods = {
         },
       });
     }
-    return { lane: clonePayload(lane), result };
+    return { lane: clonePayload(this.laneForRead(lane)), result };
   },
 
   resizeLaneTerminal(laneLocator, { cols, rows, actor = 'dashboard' } = {}) {
@@ -554,7 +554,7 @@ export const laneOpsMethods = {
       status: 'passed',
       evidence: { laneId: lane.id, cols: result.cols, rows: result.rows },
     });
-    return { lane: clonePayload(lane), result };
+    return { lane: clonePayload(this.laneForRead(lane)), result };
   },
 
   async touchHeartbeat(laneLocator, context = {}) {
@@ -566,12 +566,12 @@ export const laneOpsMethods = {
     const executor = this.getExecutorForLane(lane);
     const updated = executor.touchHeartbeat(lane.id, context.actor || 'mock-worker');
     if (!updated) {
-      return clonePayload(lane);
+      return clonePayload(this.laneForRead(lane));
     }
     const beatAt = nowIso();
     lane.heartbeatAt = beatAt;
     lane.lastActivityAt = beatAt; // a heartbeat is liveness → resets idle-shutdown
-    return clonePayload(lane);
+    return clonePayload(this.laneForRead(lane));
   },
 
   async listArtifactFiles(laneLocator) {

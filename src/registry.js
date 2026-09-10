@@ -18,6 +18,8 @@ import { artifactMethods } from './registry-artifacts.js';
 import { agentMethods } from './registry-agents.js';
 import { overviewMethods } from './registry-overview.js';
 import { lifecycleMethods } from './registry-lifecycle.js';
+import { laneJournalMethods } from './registry-lane-journal.js';
+import { resolveStateDir } from './state-paths.js';
 import {
   parseBooleanEnv,
   clonePayload,
@@ -51,7 +53,7 @@ export class OrcaRegistry {
     this.agentQueue = [];
     this.artifactRoot = path.join(process.cwd(), 'artifacts');
     this.workspacesRoot = path.join(process.cwd(), '.orca', 'workspaces');
-    this.storageDir = path.join(process.cwd(), '.orca');
+    this.storageDir = resolveStateDir();
     this.stateFile = path.join(this.storageDir, 'state.json');
 
     this.heartbeatIntervalMs = heartbeatIntervalMs;
@@ -75,6 +77,11 @@ export class OrcaRegistry {
     this.stateLoadStatus = null;
     this._starting = true;
     this._pendingWrites = new Set();
+    // Lane journal bookkeeping (registry-lane-journal.js): entries already on
+    // disk, the debounced append timer, and restored lanes' preview tails.
+    this._journaled = new WeakSet();
+    this._journalTimer = null;
+    this._laneTailCache = new Map();
     this.laneRuntimeEnv = new Map();
     // CLI executors may run a lane in the session's vetted repoRoot (an approved
     // ORCA_REPO_ROOTS path) or in a per-lane git worktree under workspacesRoot —
@@ -131,7 +138,7 @@ export class OrcaRegistry {
     if (!session) {
       throw { status: 404, message: 'Session not found.' };
     }
-    return clonePayload(this.lanes.filter((lane) => lane.sessionId === session.id));
+    return clonePayload(this.lanes.filter((lane) => lane.sessionId === session.id).map((lane) => this.laneForRead(lane)));
   }
 
   // Lightweight lane list for the dashboard poll: drops `logs` entirely (no list
@@ -151,12 +158,12 @@ export class OrcaRegistry {
       .filter((lane) => lane.sessionId === session.id)
       .map((lane) => {
         const { logs, agentEvents, ...rest } = lane;
-        const events = Array.isArray(agentEvents) ? agentEvents : [];
+        const counts = this.laneStreamCounts(lane);
         return clonePayload({
           ...rest,
-          agentEvents: events.slice(-TAIL),
-          agentEventCount: events.length,
-          logCount: Array.isArray(logs) ? logs.length : 0,
+          agentEvents: this.laneAgentEventTail(lane, TAIL),
+          agentEventCount: counts.agentEvents,
+          logCount: counts.logs,
         });
       });
   }
@@ -184,6 +191,7 @@ Object.assign(OrcaRegistry.prototype, laneCreateMethods);
 Object.assign(OrcaRegistry.prototype, schedulerMethods);
 Object.assign(OrcaRegistry.prototype, workspaceMethods);
 Object.assign(OrcaRegistry.prototype, auditLogMethods);
+Object.assign(OrcaRegistry.prototype, laneJournalMethods);
 Object.assign(OrcaRegistry.prototype, persistenceMethods);
 Object.assign(OrcaRegistry.prototype, artifactMethods);
 Object.assign(OrcaRegistry.prototype, lifecycleMethods);

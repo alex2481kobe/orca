@@ -109,12 +109,9 @@ export const lifecycleMethods = {
       if (!lane.artifactPath || lane.artifactPath === '/artifacts') {
         lane.artifactPath = `/artifacts/${lane.sessionId || 'orphan'}/${lane.id}`;
       }
-      if (!Array.isArray(lane.logs)) {
-        lane.logs = [];
-      }
-      if (!Array.isArray(lane.agentEvents)) {
-        lane.agentEvents = [];
-      }
+      // No empty logs/agentEvents defaults here: a restored lane's streams live in
+      // its journal and load on demand (registry-lane-journal.js). An empty array
+      // would read as "loaded, and empty" and hide them.
       if (typeof lane.runProfile?.autoCompleteMs !== 'number') {
         lane.runProfile = { ...lane.runProfile, autoCompleteMs: this.autoCompleteMs };
       }
