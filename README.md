@@ -62,11 +62,21 @@ is any good — without sitting in a terminal watching.
 npm install
 
 # Recommended: bound where agents are allowed to register and work.
-# Unset, an agent can register any folder under your home directory.
+# Unset, an agent can register any folder under your home directory. Orca also
+# always allows its own working directory, even when this is set.
 export ORCA_REPO_ROOTS="$HOME/code"     # comma-separated absolute paths
 
 npm start          # daemon + dashboard on http://127.0.0.1:3000
 ```
+
+**Run one daemon per working directory.** Orca keeps its state in `.orca/` under
+the directory you start it from. Before `npm start`, check that nothing is
+already serving it — a terminal you forgot, or the
+[LaunchAgent](docs/macos-launchd-runbook.md): `curl -s http://127.0.0.1:3000/api/health`.
+Today a second start against the same directory loads that state *before* it
+discovers the port is taken, and its startup recovery can kill the running
+daemon's executor processes and mark their lanes failed. There is no instance
+lock yet, so stop the existing daemon first.
 
 Point your agent at it over MCP. Orca is a plain stdio MCP server, so **any
 MCP-capable client works** — register it however that client registers MCP servers:
@@ -74,9 +84,15 @@ MCP-capable client works** — register it however that client registers MCP ser
 ```bash
 # Run from your Orca checkout — the package isn't published to npm, so point the
 # client at the bundled bridge by absolute path.
-claude mcp add orca -- node "$PWD/src/mcp-server.js"
+claude mcp add -s user orca -- node "$PWD/src/mcp-server.js"
 codex  mcp add orca -- node "$PWD/src/mcp-server.js"
 ```
+
+Keep `-s user` on the Claude command. `claude mcp add` defaults to **local**
+scope, which records the server for the one directory you ran it in — so adding
+it from the Orca checkout leaves your agent with no Orca tools in every other
+project, with no error to tell you why. Codex has no scope flag; `codex mcp add`
+already writes your user config.
 
 For any other client, the equivalent config is:
 
@@ -98,22 +114,45 @@ token:
 ```bash
 curl -sX POST http://127.0.0.1:3000/api/mcp/orchestrator-bootstrap \
   -H "x-orca-token: $ORCA_API_TOKEN" -H 'content-type: application/json' \
-  -d '{"actor":"my-agent"}'
+  -d '{"actor":"my-agent","ttlMs":86400000}'
 ```
 
 That returns paste-ready MCP config for Claude Code, Codex, and any other client,
 each carrying an `ORCA_TOOL_LEASE_TOKEN` scoped to the orchestrator role. Your API
-token never reaches the agent, and the lease can be revoked on its own.
+token never reaches the agent, and the lease can be revoked on its own. Before
+you paste it:
+
+- **The lease expires, and nothing renews it.** This endpoint mints 12 hours when
+  `ttlMs` is omitted; `86400000` (24 hours) is the maximum. The response's
+  `lease.expiresAt` says when. After that every call fails with
+  `Tool lease has expired.` until you mint a new lease, put it in your client
+  config, and restart the client — see
+  [the two clocks](docs/agent-orchestrator-skill.md#two-clocks-orchestrator-staleness-vs-lease-expiry).
+- **Add `-s user` to the returned Claude command.** `claudeCli.command` is emitted
+  without a scope today, so as-is it registers Orca for the current directory only.
+- **Use `clients`, not `globalInstall`.** `globalInstall` launches through an
+  `orca-mcp` command on your PATH, which exists only after `npm link` in an Orca
+  checkout. It has nothing to do with install scope.
+- **Give each separate client configuration its own `actor`.** Minting again with
+  the same `actor` revokes that actor's previous live lease.
 
 Then, from inside that agent:
 
 ```
 register me in Orca for my current directory, titled "Auth refactor"
-spawn a read-only scout executor to summarize src/, then report back
+spawn a read-only codex scout on model <a model your codex CLI accepts> to summarize src/, then report back
 ```
 
+Each lane chooses its own CLI and model (`executorType` and `model` on
+`executor.spawn`), so an orchestrator never has to launch an agent outside Orca
+to get a different model. How to drive the loop: the
+[orchestrator skill](docs/agent-orchestrator-skill.md) and the
+[executor skill](docs/agent-executor-skill.md).
+
 Watch it at `http://127.0.0.1:3000`, or from your phone once Tailscale is set up
-(see [`docs/tailscale-mobile-access.md`](docs/tailscale-mobile-access.md)).
+(see [`docs/tailscale-mobile-access.md`](docs/tailscale-mobile-access.md)). To keep
+Orca running after the terminal closes on macOS, use the
+[LaunchAgent runbook](docs/macos-launchd-runbook.md).
 
 ## The loop
 

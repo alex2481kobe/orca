@@ -113,7 +113,7 @@ function buildClientConfigs(launcher, env) {
   return {
     claudeCli: {
       label: 'Claude Code CLI',
-      merge: 'Run this once; it registers the "orca" MCP server for Claude Code, then restart your session.',
+      merge: 'Run this once; it registers the "orca" MCP server for Claude Code, then restart your session. As emitted it carries no --scope, so Claude Code records it at its default local scope (this directory only): insert "-s user" right after "mcp add" to make Orca available from every directory.',
       command: buildCliCommand('claude', '-e', launcher, env),
       snippet: buildCliCommand('claude', '-e', launcher, env),
     },
@@ -184,10 +184,11 @@ export function buildOrchestratorMcpConfigs({
     // Way A — visual: open the dashboard in the desktop app's in-app browser.
     // Way B — programmatic: wire one of the MCP configs below for full tooling.
     instructions: [
-      `Fastest path (Claude Code CLI / Codex CLI): run the one-line "claude mcp add"/"codex mcp add" command below, then restart your session.`,
+      `Fastest path (Claude Code CLI / Codex CLI): run the one-line "claude mcp add"/"codex mcp add" command below, then restart your session. For Claude Code, first insert "-s user" right after "mcp add": as emitted the command has no scope, and Claude Code's default local scope registers Orca for the current directory only. Codex needs no scope flag.`,
       `Otherwise paste the Claude Desktop JSON or Codex TOML into that client's config and restart it. The config uses an absolute node + bundled mcp-server.js path, so no Orca source checkout is required (Orca is not published to npm; the 'orca-mcp' bin variant only works after 'npm link' in a checkout).`,
       `Open ${dashboardUrl || baseUrl || 'the Orca dashboard URL'} in the desktop app's in-app browser to drive Orca visually.`,
-      `The server exposes Orca's orchestrator tools. Call orchestrator__register with your working directory first (Orca binds you to the project keyed by that cwd), then orchestrator__update to set your title + focus, executor__spawn to launch executors under contract, lane__list / lane__get / lane__terminal__tail to monitor them, and audit__queue_one + audit__accept / audit__request_fix to enforce the completion contract before resigning with orchestrator__resign. The server enforces the workflow.`,
+      `The server exposes Orca's orchestrator tools. Call orchestrator__register with your working directory first (Orca binds you to the project keyed by that cwd; re-call it with the same cwd to refresh your title + focus), executor__spawn to launch executors under contract (choose each lane's model there), lane__list / lane__get / lane__terminal__tail to monitor them, and audit__queue_one + one verdict call (audit__accept / audit__request_fix / audit__block) to enforce the completion contract before resigning with orchestrator__resign. The server enforces the workflow.`,
+      `The lease in this config expires and nothing renews it: 12 hours unless the bootstrap request set ttlMs, 24 hours at most. When calls fail with "Tool lease has expired.", mint a new bootstrap, replace the token in this config, and restart the client session.`,
     ],
     clients,
     // Same configs but launched via the PATH-resolved 'orca-mcp' command instead

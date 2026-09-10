@@ -30,6 +30,14 @@ PORT=3000 ORCA_HOST=127.0.0.1 \
 
 The server binds to `127.0.0.1`. The dashboard is at <http://127.0.0.1:3000/>.
 
+**Run one daemon per working directory.** If Orca may already be running from
+this checkout — another terminal, or the LaunchAgent below — check first with
+`curl -s http://127.0.0.1:3000/api/health`. Today a second start against the same
+directory loads the shared `.orca/` state before it discovers the port is taken,
+and its startup recovery can kill the running daemon's executor processes and
+mark their lanes failed. There is no instance lock yet: stop the existing daemon
+before you start another.
+
 For durable Mac operation after the current terminal exits, use
 [`macos-launchd-runbook.md`](macos-launchd-runbook.md). It keeps the API token
 in a local `chmod 600` env file and keeps the launchd plist secret-free.
@@ -37,6 +45,8 @@ in a local `chmod 600` env file and keeps the launchd plist secret-free.
 Set `ORCA_REPO_ROOTS` (comma-separated absolute paths) to restrict which
 directories agents may register and work in. Without it the approved root
 defaults to your home directory, and the server warns about that at startup.
+The server's own working directory is always approved as well, even when
+`ORCA_REPO_ROOTS` is set.
 Per-executor overrides follow the pattern `ORCA_<EXECUTOR>_BINARY` and
 `ORCA_<EXECUTOR>_WORKDIR_ROOTS` — for example `ORCA_CODEX_BINARY` or
 `ORCA_CLAUDE_BINARY`.
@@ -54,11 +64,15 @@ Other env vars worth knowing on this process:
   host, every agent's MCP client must have this set to match, or its tool calls
   go nowhere. Orca exports it automatically into spawned lanes; you set it by
   hand only for the top-level agent you wire up yourself.
-- `ORCA_LANE_CONCURRENCY` — how many lanes one orchestrator runs at once
-  (default 4, clamped to 64). This is the only way to change lane capacity, and
-  it does not retro-apply to orchestrators already in `.orca/state.json`.
+- `ORCA_LANE_CONCURRENCY` — the lane capacity (default 4, clamped to 64) an
+  orchestrator gets when it registers without one. It is not the only way to set
+  capacity: an orchestrator can pass `approvedCapacity` to `orchestrator.register`.
+  The env var is read when the server starts and does not retro-apply to
+  orchestrators already in `.orca/state.json`.
 - `ORCA_LANE_IDLE_TIMEOUT_MS` — stop a running lane after this long with no
-  output or tool activity (default `900000` = 15 min; `0` disables).
+  output or tool activity (default `900000` = 15 min). `0` does **not** disable
+  it today: it falls back to the 15-minute default. To exempt one lane, spawn it
+  with `idleShutdown: false`.
 - `ORCA_AUTO_AUDIT` — set to `false` to stop Orca from auto-queuing audits for
   finished lanes. On by default.
 
@@ -173,7 +187,10 @@ If you do not want a device to be able to stop your agents, do not pair it.
 
 ## 7. Shutdown
 
-- `Ctrl-C` the `npm run dev` process.
+- `Ctrl-C` the `npm run dev` process. Orca stops its running executor lanes as
+  it exits. If Orca runs under launchd instead, unload it with
+  `launchctl bootout` ([runbook](macos-launchd-runbook.md), section 6) — killing
+  the process only makes launchd start it again.
 - If you used HTTP Serve:
 
 ```bash

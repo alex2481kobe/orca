@@ -55,6 +55,16 @@ Your tools are: `lane.get`, `lane.list`, `orchestrator.status`,
   Do not write evidence relative to your own repo or worktree — the daemon looks
   only in `ORCA_ARTIFACT_DIR`. Always confirm the file landed with
   `lane.artifacts.list` before you `lane.submit`.
+- **In an isolated worktree, commit before you submit.** If `lane.get` shows
+  `worktreeMode: "isolated"`, your working directory is a git worktree on its own
+  lane `branch`, and `lane.integrate` merges that branch's **commits** only: it
+  refuses a worktree that still has uncommitted changes, so work you never
+  committed cannot be landed. Commit exactly your scoped changes on the lane
+  branch — no unrelated files — then submit. If you cannot commit, say so in
+  `handoff` and list the files, so the orchestrator can commit them before it
+  integrates. A lane that runs directly in the project checkout is never
+  integrated (`lane.integrate` refuses direct lanes); its edits are already in
+  place, so follow your task prompt on whether to commit.
 - When the work is complete, call `lane.submit { summary, changedFiles, handoff }`
   — it only works while your lane is still starting/running, so submit before you
   exit. Then **exit promptly**: submit records your handoff, but your process

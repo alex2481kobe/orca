@@ -37,7 +37,7 @@ export const TOOL_DEFINITIONS = [
     route: '/api/orchestrators/{orchestratorId}/status',
     implemented: true,
     mutating: false,
-    summary: 'The canonical "what is happening" call: who owns this orchestrator, the lane tree, and the next required tool. Also refreshes your lease\'s lastSeenAt, so polling it keeps ownership from going stale.',
+    summary: 'The canonical "what is happening" call for the lanes Orca manages: who owns this orchestrator, the lane tree, and the next required tool. It cannot see agents started outside Orca. Polling it with the owning lease refreshes the orchestrator\'s lastSeenAt, so ownership does not go stale; it does NOT extend the lease itself, whose expiresAt is fixed when it is minted and never renewed.',
   },
   {
     id: 'orchestrator.resign',
@@ -57,7 +57,7 @@ export const TOOL_DEFINITIONS = [
     route: '/api/orchestrators/{orchestratorId}/executors',
     implemented: true,
     mutating: true,
-    summary: 'Spawn an executor lane under your orchestrator (runs in your project\'s cwd). Body: {title, executorType, taskPrompt, approved?, model?, permissionsProfile?, worktreeMode?, idleShutdown?}. approved: pass true to satisfy the spawn-approval gate when the orchestrator policy requires explicit approval — without it the call is refused with requiresApproval:true. worktreeMode: auto (default — read-only/sole-writer lanes run directly in the checkout, overlapping writers get a dedicated worktree) or isolated (always give this lane its own worktree). idleShutdown: true (default — reap the lane after the idle window with no output or tool activity) or false (never auto-reap).',
+    summary: 'Spawn an executor lane under your orchestrator (runs in your project\'s cwd). Body: {title, executorType, taskPrompt, approved?, model?, permissionsProfile?, intelligenceProfile?, worktreeMode?, idleShutdown?, targetUrl?, verificationCommand?}. executorType: codex, claude, gemini-cli, composer-cli, or mock (the default when omitted; it runs no real agent). model: chosen per lane and passed to that CLI as --model; omit it for the CLI\'s own default. Orca does not validate it — the CLI does. permissionsProfile is mapped per CLI: "read-only" gives Codex --sandbox read-only and marks the lane a non-writer, but Claude receives it verbatim as --permission-mode, which current Claude CLIs reject (use plan there). intelligenceProfile: reasoning effort (Codex minimal|low|medium|high|xhigh; Claude low|medium|high|xhigh|max|ultracode). approved: pass true to satisfy the spawn-approval gate when the orchestrator policy requires explicit approval — without it the call is refused with requiresApproval:true. A spawn past the orchestrator\'s capacity is refused with 409, not queued. worktreeMode: auto (default — read-only/sole-writer lanes run directly in the checkout, overlapping writers get a dedicated worktree) or isolated (always give this lane its own worktree); any other value is treated as auto. idleShutdown: true (default — reap the lane after the idle window with no output or tool activity) or false (never auto-reap).',
   },
 
   // --- lane observation + control -------------------------------------------
@@ -129,7 +129,7 @@ export const TOOL_DEFINITIONS = [
     route: '/api/lanes/{laneId}/controls',
     implemented: true,
     mutating: true,
-    summary: 'Update a lane\'s controls: model, permissions mode, intelligence, and — when the user left them blank — the targetUrl (dev/preview URL) and verificationCommand the agent has learned for this work.',
+    summary: 'Update a lane\'s controls: model, permissions mode, intelligence, and — when the user left them blank — the targetUrl (dev/preview URL) and verificationCommand the agent has learned for this work. This changes the stored settings only; it does not reconfigure a CLI that is already running. Approval-gated by the default policy.',
   },
   {
     id: 'lane.terminal.tail',
@@ -229,7 +229,7 @@ export const TOOL_DEFINITIONS = [
     route: '/api/lanes/{laneId}/audit/findings',
     implemented: true,
     mutating: true,
-    summary: 'Record audit findings and choose accept, request-fix, or block verdict. Body REQUIRES `verdict` (accepted | fix_requested | blocked) plus findings and/or reviewedFiles; entries may be strings or objects carrying a summary/message/path field. What is recorded here is remembered on the lane and satisfies the review gate on a later audit.accept — you do not have to repeat it inline.',
+    summary: 'Record audit findings AND apply the verdict immediately. Body REQUIRES `verdict` (accepted | fix_requested | blocked) plus findings and/or reviewedFiles; entries may be strings or objects carrying a summary/message/path field. This is a verdict call, not a staging step: verdict accepted accepts the lane at once, and a following audit.accept is refused (409) because an accepted lane is no longer in an auditable state. Use it OR audit.accept / audit.request_fix / audit.block, not both. The review recorded here stays on the lane and counts toward the review gate if the lane comes back for audit.',
   },
   {
     id: 'audit.accept',
@@ -239,7 +239,7 @@ export const TOOL_DEFINITIONS = [
     route: '/api/lanes/{laneId}/audit/accept',
     implemented: true,
     mutating: true,
-    summary: 'Accept audited lane work.',
+    summary: 'Accept audited lane work; applies immediately. Body: {findings?, reviewedFiles?} — at least one is required unless a review is already recorded on this lane (otherwise 409). A lane with a targetUrl also needs a captured evidence artifact.',
   },
   {
     id: 'audit.request_fix',
@@ -249,7 +249,7 @@ export const TOOL_DEFINITIONS = [
     route: '/api/lanes/{laneId}/audit/request-fix',
     implemented: true,
     mutating: true,
-    summary: 'Request a fix pass after audit.',
+    summary: 'Request a fix pass after audit; applies immediately. Body: {findings, nextTask}.',
   },
   {
     id: 'audit.block',
@@ -259,7 +259,7 @@ export const TOOL_DEFINITIONS = [
     route: '/api/lanes/{laneId}/audit/block',
     implemented: true,
     mutating: true,
-    summary: 'Block an audit with a reason.',
+    summary: 'Block an audit; applies immediately. Body: {reason (required), findings?}.',
   },
 
   // --- integrate or discard --------------------------------------------------
@@ -271,7 +271,7 @@ export const TOOL_DEFINITIONS = [
     route: '/api/lanes/{laneId}/integrate',
     implemented: true,
     mutating: true,
-    summary: 'Merge an ISOLATED, audit-accepted lane\'s branch back into the container base branch in the repo root. Reports merged / conflicts / nothing-to-merge. Does not push unless body.push:true. Rejects direct lanes (their work already lives in the checkout).',
+    summary: 'Merge an ISOLATED, audit-accepted lane\'s branch back into the container base branch in the repo root. Merges the lane branch\'s COMMITS only: it refuses while the executor process is still live, and refuses a worktree with uncommitted changes (409, dirty:true, with changedFiles/worktreePath/branch) — commit them on the lane branch first. Reports merged / conflicts / nothing-to-merge. Does not push unless body.push:true, which requires workstation admin auth. Rejects direct lanes (their work already lives in the checkout).',
   },
   {
     id: 'lane.worktree.discard',
