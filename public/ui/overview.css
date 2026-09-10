@@ -243,3 +243,39 @@ body.app-offline .ops-main { padding: 0; }
   .step-main { gap: 2px; }
   .step-qr { margin-top: var(--space-1); }
 }
+
+/* Fence banner (src/fence.js): Orca not set up, invalid roots, or a whole-home
+   fence. Sits above #content on every screen; hidden by the [hidden] attribute
+   when the fence is fine. Tokens only (smoke:no-hardcoded-colors). */
+.fence-banner {
+  display: grid;
+  gap: var(--space-1);
+  max-width: 980px;
+  margin: 0 auto var(--space-5);
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--warn) 38%, var(--line));
+  background: color-mix(in srgb, var(--warn) 14%, var(--panel));
+  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+.fence-banner[hidden] { display: none; }
+.fence-banner.is-blocking {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--line));
+  background: color-mix(in srgb, var(--danger) 12%, var(--panel));
+}
+.fence-banner-label { color: var(--muted); font-size: 0.82rem; margin-top: var(--space-1); }
+.fence-banner code {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: all;
+  background: var(--panel-soft);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-xs);
+  font-size: 0.82rem;
+}
+body.home-canvas .fence-banner { max-width: none; margin: 0 0 var(--space-3); }
+body.access-gated .fence-banner,
+body.app-offline .fence-banner { display: none; }
