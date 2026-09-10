@@ -16,7 +16,14 @@
 //       carries a refresh credential, so the client reconnects by itself from then
 //       on. --print only prints the command.
 //
-// Neither command starts, stops or signals Orca.
+//   gc [--apply] [--older-than-days N] [--purge-archive --purge-older-than-days N]
+//      [--state-dir DIR] [--json]
+//       State retention (src/orca-gc-cli.js, docs/state-retention.md). A dry run
+//       unless --apply; --apply only MOVES into the state directory's archive/,
+//       refuses while a daemon owns the state directory, and holds its lock
+//       while it works. Deleting from the archive needs --purge-archive AND an age.
+//
+// No command starts, stops or signals Orca.
 
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -24,6 +31,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { resolveMcpLauncher } from './mcp-orchestrator-bootstrap.js';
+import { GC_BOOLEAN_FLAGS, GC_USAGE, runGcCommand } from './orca-gc-cli.js';
 import {
   DEFAULT_BASE_URL,
   LEASE_HEADER,
@@ -37,7 +45,8 @@ import {
 
 const USAGE = `Usage:
   node ${shellQuote(path.join(ORCA_DIR, 'src', 'orca-cli.js'))} doctor [--json] [--url URL]
-  node ${shellQuote(path.join(ORCA_DIR, 'src', 'orca-cli.js'))} connect <claude|codex> [--actor NAME] [--url URL] [--node PATH] [--print]`;
+  node ${shellQuote(path.join(ORCA_DIR, 'src', 'orca-cli.js'))} connect <claude|codex> [--actor NAME] [--url URL] [--node PATH] [--print]
+  node ${shellQuote(path.join(ORCA_DIR, 'src', 'orca-cli.js'))} ${GC_USAGE}`;
 
 const CLIENT_LABELS = { claude: 'Claude Code', codex: 'Codex' };
 const HTTP_TIMEOUT_MS = 5000;
@@ -53,7 +62,7 @@ function parseArgs(argv) {
     }
     const [key, inline] = arg.slice(2).split(/=(.*)/s, 2);
     if (inline !== undefined) flags[key] = inline;
-    else if (key === 'json' || key === 'print') flags[key] = true;
+    else if (key === 'json' || key === 'print' || GC_BOOLEAN_FLAGS.includes(key)) flags[key] = true;
     else {
       flags[key] = argv[index + 1];
       index += 1;
@@ -468,6 +477,8 @@ if (command === 'doctor') {
   await doctor(flags);
 } else if (command === 'connect') {
   await connect(rest, flags);
+} else if (command === 'gc') {
+  process.exitCode = await runGcCommand(flags);
 } else {
   process.stderr.write(`${USAGE}\n`);
   process.exitCode = command ? 2 : 0;

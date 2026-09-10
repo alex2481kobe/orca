@@ -81,3 +81,29 @@ that removes each one safely: `lane__worktree__discard` (it refuses uncommitted 
 directory. It holds each lane's raw terminal output and captured evidence, which
 `lane.terminal.tail`, the live lane stream, `lane.artifacts.list` and `lane.artifacts.get` read. The lane record and
 its logs do not depend on it. Garbage collection reports its size and never touches it.
+
+## Cleaning up: `orca gc`
+
+```sh
+node src/orca-cli.js gc                                                     # dry run: what would move, and why
+node src/orca-cli.js gc --apply                                             # move it into archive/
+node src/orca-cli.js gc --older-than-days 30                                # another lane threshold (default 14)
+node src/orca-cli.js gc --purge-archive --purge-older-than-days 30          # what a purge would delete
+node src/orca-cli.js gc --purge-archive --purge-older-than-days 30 --apply  # delete it
+```
+
+`--state-dir DIR` points it at another state directory; `--json` prints the plan and the
+results as JSON, for an agent to read.
+
+- **Without `--apply`, gc changes nothing.** It is safe beside a running daemon, and then
+  reads the last state that daemon persisted. Every line names what would move and the rule
+  that moves it, so an agent can run it at any time and act on it.
+- **`--apply` refuses while any process owns the state directory** (its instance lock,
+  `src/instance-lock.js`): stop the daemon first. While it works it holds that lock itself,
+  so no daemon can start halfway through. It exits 1 when it refuses, 2 on a usage error.
+- **`--apply` only moves**: lanes into `archive/lanes/`, legacy files into
+  `archive/legacy/`. It rewrites `state.json` without the lanes it archived, and removes a
+  lane's journal only after that lane's archive has been written, read back and verified.
+- **Purging is the only deletion.** It needs both `--purge-archive` and
+  `--purge-older-than-days N`, deletes only inside `archive/`, and never touches a hot lane
+  or a worktree.
