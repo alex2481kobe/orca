@@ -71,7 +71,7 @@ test('TOOL_DEFINITIONS exposes exactly the current tool set including the core v
   // visible change rather than silent drift. The surface is deliberately small:
   // a tool earns a row only if the core loop (register -> spawn -> read -> audit
   // -> integrate/discard) needs it, or a runtime path breaks without it.
-  assert.equal(TOOL_DEFINITIONS.length, 28);
+  assert.equal(TOOL_DEFINITIONS.length, 29);
 
   const byId = new Map(TOOL_DEFINITIONS.map((tool) => [tool.id, tool]));
   for (const id of Object.keys(CORE_V2_TOOLS)) {
@@ -106,7 +106,7 @@ test('MCP tools/list advertises the core v2 tools to an orchestrator with unders
   const orchestratorCallable = TOOL_DEFINITIONS.filter(
     (tool) => tool.implemented && tool.route && tool.roles.includes('orchestrator'),
   ).length;
-  assert.equal(orchestratorCallable, 28);
+  assert.equal(orchestratorCallable, 29);
   assert.equal(names.includes('permission_prompt'), true, 'permission gateway is always advertised');
   assert.equal(tools.length, orchestratorCallable + 1, 'orchestrator surface = callable tools + permission gateway');
 });
