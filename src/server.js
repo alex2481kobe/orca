@@ -6,6 +6,7 @@ import { OrcaRegistry } from './registry.js';
 import { acquireInstanceLock, inspectInstanceLock } from './instance-lock.js';
 import { STATE_SOURCE_LABELS, readConfig, resolveStateDir } from './orca-paths.js';
 import { FENCE_STATUS, resolveFence } from './fence.js';
+import { resolveApiToken } from './api-token.js';
 import { PrivateAccessStore } from './private-access/store.js';
 import { AuthSessionStore } from './auth-sessions/store.js';
 import { SESSION_COOKIE_NAME } from './auth-sessions/crypto.js';
@@ -77,7 +78,21 @@ const authSessions = new AuthSessionStore({ autoLoad: false, stateFile: path.joi
 const rateLimiter = createRateLimiter({
   disabled: process.env.ORCA_RATE_LIMIT_DISABLED === 'true',
 });
-const API_TOKEN = process.env.ORCA_API_TOKEN || '';
+// ORCA_API_TOKEN, or for the daemon ORCA_API_TOKEN_FILE (src/api-token.js): the
+// same token from an owner-only file, so a LaunchAgent plist never holds it. A
+// token file that is set but unusable refuses the start rather than running
+// without a token. The loopback-is-admin policy with no token is unchanged. An
+// importer reads ORCA_API_TOKEN only.
+const API_TOKEN = (() => {
+  if (!IS_ENTRYPOINT) return process.env.ORCA_API_TOKEN || '';
+  const { token, error } = resolveApiToken(process.env);
+  if (error) {
+    console.error(`[orca] Refusing to start: ${error}`);
+    console.error('[orca] No state was restored, migrated or recovered, and no process was signaled.');
+    process.exit(1);
+  }
+  return token;
+})();
 const MAX_JSON_BODY_BYTES = (() => {
   const raw = Number.parseInt(process.env.ORCA_MAX_JSON_BYTES || '', 10);
   if (Number.isFinite(raw) && raw > 0) return raw;

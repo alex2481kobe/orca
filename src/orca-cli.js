@@ -52,6 +52,7 @@ import {
   stop,
 } from './cli-lifecycle.js';
 import { setup } from './cli-setup.js';
+import { resolveApiToken } from './api-token.js';
 import {
   DEFAULT_BASE_URL,
   LEASE_HEADER,
@@ -70,7 +71,7 @@ const USAGE = `Usage:
   ${CLI} stop [--force] [--wait SECONDS]
   ${CLI} status [--json]
   ${CLI} logs [--lines N]
-  ${CLI} service install [--dry-run] [--no-load] [--replace] [--node PATH] [--port N]
+  ${CLI} service install [--dry-run] [--no-load] [--replace] [--token-file PATH] [--node PATH] [--port N]
   ${CLI} service uninstall [--force]
   ${CLI} doctor [--json] [--url URL]
   ${CLI} connect <claude|codex> [--actor NAME] [--url URL] [--node PATH] [--print]`;
@@ -475,7 +476,13 @@ async function connect(positional, flags) {
   const baseUrl = trimUrl(flags.url || process.env.ORCA_AGENT_TOOLS_BASE_URL);
   const actor = String(flags.actor || `${client}-user-config`);
   const headers = {};
-  if (process.env.ORCA_API_TOKEN) headers['x-orca-token'] = process.env.ORCA_API_TOKEN;
+  const apiToken = resolveApiToken(process.env);
+  if (apiToken.error) {
+    process.stderr.write(`${apiToken.error}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  if (apiToken.token) headers['x-orca-token'] = apiToken.token;
   const body = { actor };
   if (flags.node) body.nodePath = String(flags.node);
   const res = await httpJson(`${baseUrl}/api/mcp/orchestrator-bootstrap`, { method: 'POST', headers, body });
