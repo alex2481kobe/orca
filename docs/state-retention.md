@@ -107,3 +107,21 @@ results as JSON, for an agent to read.
 - **Purging is the only deletion.** It needs both `--purge-archive` and
   `--purge-older-than-days N`, deletes only inside `archive/`, and never touches a hot lane
   or a worktree.
+
+## Upgrading an old state directory
+
+The first v4 daemon to open a v3 state directory converts it before it serves anything: lane
+logs and agent events move to journals, audit evidence becomes references, and a lane that
+survived only inside an audit event's evidence (an older daemon had dropped its record) gets
+its own lane archive, readable with `lane.get`. The `state.json` it replaced, and
+`state.json.bak`, are kept byte for byte in
+`archive/migrations/<time>-v3-to-v4-<sha256 prefix>/` with a `manifest.json` of sizes,
+sha256 and counts. If the conversion fails, the daemon does not open state and writes
+nothing. `orca gc --apply` performs the same conversion on a stopped state directory.
+
+Do not downgrade: an Orca from before v4 treats a v4 file as a legacy format and starts
+empty, keeping the file only as `state.json.v1.bak`.
+
+`node scripts/state-lifecycle-proof.mjs` reproduces the upgrade, a gc run and a purge on a
+synthetic state shaped like the 525 MB one measured on 2026-09-10, in a fresh temp
+directory, and checks that no log line or agent event is lost.

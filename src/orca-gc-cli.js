@@ -18,6 +18,7 @@ import path from 'node:path';
 import { acquireInstanceLock, inspectInstanceLock } from './instance-lock.js';
 import { resolveStateDir } from './state-paths.js';
 import { applyGc, DEFAULT_LANE_ARCHIVE_AGE_DAYS, formatGcPlan, planGc } from './state-gc.js';
+import { migrateStateDir } from './state-migrate.js';
 
 export const GC_USAGE = 'gc [--apply] [--older-than-days N] [--purge-archive --purge-older-than-days N] [--state-dir DIR] [--json]';
 export const GC_BOOLEAN_FLAGS = ['apply', 'purge-archive'];
@@ -39,7 +40,7 @@ export async function runGcCommand(flags, {
   stdout = process.stdout,
   stderr = process.stderr,
   now = Date.now(),
-  migrate = null,
+  migrate = migrateStateDir,
   cwd = process.cwd(),
 } = {}) {
   const usageError = (message) => {

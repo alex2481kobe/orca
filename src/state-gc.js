@@ -236,7 +236,11 @@ export function planGc({
     });
   }
 
-  const lanes = Array.isArray(state?.lanes) ? state.lanes : [];
+  // A v3 state is converted first; its lanes are planned against the result
+  // (--apply re-plans after migrating).
+  const migrating = plan.actions.some((action) => action.kind === 'migrate-state');
+  const lanes = migrating ? [] : (Array.isArray(state?.lanes) ? state.lanes : []);
+  if (migrating) plan.note = 'Lane retention is decided after the migration; --apply migrates, then plans and applies it.';
   if (!Number.isFinite(olderThanDays) || olderThanDays < 0) {
     plan.blocked = plan.blocked || '--older-than-days must be a number of days, 0 or more.';
   }
@@ -463,6 +467,7 @@ export function formatGcPlan(plan, { apply = false, results = null } = {}) {
   out.push(`  state directory: ${plan.stateDir}`);
   out.push(`  state.json ${kb(plan.sizes.stateJson)} · state.json.bak ${kb(plan.sizes.stateJsonBak)} · lanes/ ${kb(plan.sizes.lanes)} · archive/ ${kb(plan.sizes.archive)}${plan.sizes.artifactsOutsideStateDir !== undefined ? ` · artifacts/ (outside the state dir, not managed) ${kb(plan.sizes.artifactsOutsideStateDir)}` : ''}`);
   if (plan.blocked) out.push(`  BLOCKED: ${plan.blocked}`);
+  if (plan.note) out.push(`  note: ${plan.note}`);
   const verb = apply ? '' : 'would ';
   const lines = {
     'migrate-state': (a) => `${verb}migrate state.json v${a.from} -> v${a.to}: ${a.reason}`,
