@@ -12,6 +12,7 @@ export async function handleMiscRoutes(ctx, req, res, method, parts) {
     parseJsonBody,
     getSearchParams,
     hasOperatorAuth,
+    hasAdminAuth,
     buildMobileManifest,
   } = ctx;
   if (parts[1] === 'health' && method === 'GET') {
@@ -32,15 +33,25 @@ export async function handleMiscRoutes(ctx, req, res, method, parts) {
   }
 
   if (parts[1] === 'emergency-stop' && method === 'POST') {
-    // Break-glass infrastructure control (not a workflow tool): the read-only
-    // dashboard's only mutating action. Operator-gated. Kills a runaway executor
-    // (or all) that the reaper's 30-min silence window wouldn't catch in time.
+    // Break-glass infrastructure control (not a workflow tool). Kills a runaway
+    // executor that the reaper's 30-min silence window wouldn't catch in time.
+    // {laneId} is operator-level (a paired device may stop one executor);
+    // {all:true} is fleet-wide and admin-only, per AGENTS.md's authority split.
     if (!hasOperatorAuth(req)) {
       return sendJson(res, 401, { error: 'Operator authentication required.' });
     }
     const body = await parseJsonBody(req).catch(() => ({}));
     try {
       if (body && body.all) {
+        // Same gate as the orchestrator-scoped route's {all:true}: a paired
+        // device is an operator, not an admin, so it cannot fan a stop out
+        // fleet-wide. Checked before anything is stopped; fails closed.
+        const privileged = typeof hasAdminAuth === 'function' && hasAdminAuth(req);
+        if (!privileged) {
+          return sendJson(res, 403, {
+            error: 'Stopping ALL executors fleet-wide requires workstation admin auth. Pass {laneId} to stop one executor.',
+          });
+        }
         const count = await registry.stopAllExecutors('emergency stop (operator break-glass)');
         return sendJson(res, 200, { stopped: 'all', count: count ?? null });
       }
