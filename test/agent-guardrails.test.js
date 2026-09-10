@@ -11,11 +11,13 @@ import test from 'node:test';
 import { OrcaRegistry } from '../src/registry.js';
 import { buildNextActionEnvelope } from '../src/agent-tools/next-action.js';
 import { chooseNextTool } from '../src/agent-tools/next-action.js';
+import { approveFixtureRoot, restoreFixtureRoot } from './helpers/fence-root.js';
 
 async function withRegistry(callback) {
   const previousCwd = process.cwd();
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-guardrails-'));
   process.chdir(tempDir);
+  approveFixtureRoot(tempDir);
   const registry = new OrcaRegistry({ autoCompleteMs: 60 * 60 * 1000 });
   registry.stopScheduler();
   try {
@@ -23,6 +25,7 @@ async function withRegistry(callback) {
   } finally {
     registry.stopScheduler();
     if (typeof registry.drainPendingWrites === 'function') await registry.drainPendingWrites();
+    restoreFixtureRoot();
     process.chdir(previousCwd);
     await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
   }

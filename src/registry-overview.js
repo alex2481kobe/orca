@@ -128,6 +128,8 @@ export const overviewMethods = {
       revision: typeof this.getStreamRevision === 'function' ? this.getStreamRevision() : 0,
       generatedAt: nowIso(),
       projects,
+      // Setup-required, invalid and whole-home fences are shown on the dashboard.
+      fence: typeof this.describeFence === 'function' ? this.describeFence() : null,
     };
   },
 };

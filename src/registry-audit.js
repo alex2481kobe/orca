@@ -275,7 +275,7 @@ export const auditMethods = {
     if (!lane) return false;
     if (lane.lastEvidence && lane.lastEvidenceCaptureAt) return true;
     try {
-      const dir = path.join(process.cwd(), 'artifacts', String(lane.sessionId), String(lane.id));
+      const dir = path.join(this.artifactRoot, String(lane.sessionId), String(lane.id));
       for (const name of fs.readdirSync(dir)) {
         if (EVIDENCE_ARTIFACT_EXTENSIONS.has(path.extname(name).toLowerCase())) return true;
       }

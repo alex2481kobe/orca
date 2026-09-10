@@ -9,12 +9,14 @@ import {
   validateEvidenceUrl,
   validateNetworkUrl,
 } from '../src/url-policy.js';
+import { approveFixtureRoot, restoreFixtureRoot } from './helpers/fence-root.js';
 
 async function withRegistry(callback) {
   const previousCwd = process.cwd();
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-url-policy-'));
   let registry = null;
   process.chdir(tempDir);
+  approveFixtureRoot(tempDir);
   try {
     registry = new OrcaRegistry();
     await callback(registry);
@@ -25,6 +27,7 @@ async function withRegistry(callback) {
     if (registry && typeof registry.drainPendingWrites === 'function') {
       await registry.drainPendingWrites();
     }
+    restoreFixtureRoot();
     process.chdir(previousCwd);
     await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
   }

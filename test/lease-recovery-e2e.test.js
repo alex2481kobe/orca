@@ -36,6 +36,8 @@ async function startDaemon({ cwd, home, port }) {
       ORCA_HOST: '127.0.0.1',
       ORCA_API_TOKEN: ADMIN,
       ORCA_REPO_ROOTS: cwd,
+      // Pinned: the daemon resolves its state dir without looking at its cwd.
+      ORCA_STATE_DIR: path.join(cwd, '.orca'),
       ORCA_RATE_LIMIT_DISABLED: 'true',
       ORCA_AUTO_AUDIT: 'false',
       ORCA_CREDENTIAL_BACKEND: 'memory',

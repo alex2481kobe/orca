@@ -49,8 +49,10 @@ export function shellQuote(value) {
 
 // The commands a message can hand an agent. Absolute paths only: an agent's
 // shell may have no `node` on PATH and may be in any directory.
+const cli = (args) => `${shellQuote(process.execPath)} ${shellQuote(CLI_PATH)} ${args}`;
 export const fixCommands = {
   start: () => `cd ${shellQuote(ORCA_DIR)} && npm start`,
+  setup: (roots = null) => cli(`setup --roots ${Array.isArray(roots) && roots.length ? shellQuote(roots.join(',')) : '<dir>[,<dir>...]'}`),
   doctor: () => `${shellQuote(process.execPath)} ${shellQuote(CLI_PATH)} doctor`,
   connect: (client = 'claude', extra = '') => `${shellQuote(process.execPath)} ${shellQuote(CLI_PATH)} connect ${client}${extra ? ` ${extra}` : ''}`,
 };

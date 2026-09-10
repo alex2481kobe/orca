@@ -12,11 +12,13 @@ import {
   effectiveQuickLinkUrl,
 } from '../src/registry-quick-links.js';
 import { OrcaRegistry } from '../src/registry.js';
+import { approveFixtureRoot, restoreFixtureRoot } from './helpers/fence-root.js';
 
 async function withIsolatedRegistry(callback) {
   const previousCwd = process.cwd();
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-port-preview-'));
   process.chdir(tempDir);
+  approveFixtureRoot(tempDir);
   const registry = new OrcaRegistry({ autoCompleteMs: 60 * 60 * 1000 });
   try {
     return await callback(registry, tempDir);
@@ -25,6 +27,7 @@ async function withIsolatedRegistry(callback) {
     if (typeof registry.drainPendingWrites === 'function') {
       await registry.drainPendingWrites();
     }
+    restoreFixtureRoot();
     process.chdir(previousCwd);
     await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
   }

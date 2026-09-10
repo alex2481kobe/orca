@@ -8,6 +8,7 @@ import test from 'node:test';
 
 import { OrcaRegistry } from '../src/registry.js';
 import { buildOrchestratorMcpConfigs, MCP_SERVER_PATH } from '../src/mcp-orchestrator-bootstrap.js';
+import { approveFixtureRoot, restoreFixtureRoot } from './helpers/fence-root.js';
 
 // The runtime-layout tests build stand-in executables with a #!/bin/sh line.
 const POSIX_ONLY = process.platform === 'win32' ? 'needs /bin/sh stand-in executables' : false;
@@ -16,10 +17,12 @@ async function withIsolatedRegistry() {
   const previousCwd = process.cwd();
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-mcp-bootstrap-'));
   process.chdir(tempDir);
+  approveFixtureRoot(tempDir);
   const registry = new OrcaRegistry();
   const cleanup = async () => {
     registry.stopScheduler();
     if (typeof registry.drainPendingWrites === 'function') await registry.drainPendingWrites();
+    restoreFixtureRoot();
     process.chdir(previousCwd);
     await fs.rm(tempDir, { force: true, recursive: true, maxRetries: 5, retryDelay: 25 });
   };

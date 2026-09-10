@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { OrcaRegistry } from '../src/registry.js';
+import { approveFixtureRoot, restoreFixtureRoot } from './helpers/fence-root.js';
 
 // Auto-audit is opt-in via autoAudit:true (production defaults it on; the test
 // suite runs with ORCA_AUTO_AUDIT=false). These tests exercise it explicitly.
@@ -11,6 +12,7 @@ async function withAutoAuditRegistry(callback) {
   const previousCwd = process.cwd();
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-auto-audit-'));
   process.chdir(tempDir);
+  approveFixtureRoot(tempDir);
   const registry = new OrcaRegistry({ autoCompleteMs: 60 * 60 * 1000, autoAudit: true });
   registry.stopScheduler();
   try {
@@ -18,6 +20,7 @@ async function withAutoAuditRegistry(callback) {
   } finally {
     registry.stopScheduler();
     if (typeof registry.drainPendingWrites === 'function') await registry.drainPendingWrites();
+    restoreFixtureRoot();
     process.chdir(previousCwd);
     await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
   }
@@ -130,6 +133,7 @@ test('auto-audit: disabled when autoAudit is off', async () => {
   const previousCwd = process.cwd();
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-no-auto-audit-'));
   process.chdir(tempDir);
+  approveFixtureRoot(tempDir);
   const registry = new OrcaRegistry({ autoCompleteMs: 60 * 60 * 1000, autoAudit: false });
   registry.stopScheduler();
   try {
@@ -143,6 +147,7 @@ test('auto-audit: disabled when autoAudit is off', async () => {
   } finally {
     registry.stopScheduler();
     if (typeof registry.drainPendingWrites === 'function') await registry.drainPendingWrites();
+    restoreFixtureRoot();
     process.chdir(previousCwd);
     await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
   }

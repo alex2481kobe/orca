@@ -105,6 +105,9 @@ export class CliExecutorAdapter {
     this.defaultBinary = options.defaultBinary || options.binary || label;
     this.defaultArgs = normalizeArgs(options.defaultArgs);
     this.defaultWorkingDir = options.workingDir || process.cwd();
+    // Where lane artifacts live: the registry's artifact root (it follows the
+    // state directory). Standalone adapters keep the old <cwd>/artifacts.
+    this.artifactRoot = options.artifactRoot ? path.resolve(options.artifactRoot) : path.join(process.cwd(), 'artifacts');
     this.allowedBinaries = normalizeAllowedBinaries([this.defaultBinary, ...(options.allowedBinaries || [])]);
     this.enforceAllowedBinary = options.enforceAllowedBinary !== false;
     this.maxCommandArgs = Number.parseInt(options.maxCommandArgs, 10) || MAX_ARGS;
@@ -156,10 +159,15 @@ export class CliExecutorAdapter {
     }
 
     const resolved = path.isAbsolute(workdir) ? path.resolve(workdir) : path.resolve(this.defaultWorkingDir, workdir);
+    // Roots are real paths (src/fence.js), so compare the request's real path too:
+    // /var/x and /private/var/x are one directory. A symlink that leads out of the
+    // roots is still refused by the real-path check below.
+    let canonical = resolved;
+    try { canonical = await fs.realpath(resolved); } catch { /* reported below */ }
     const within = this.workdirRoots.some((root) => {
       const normalizedRoot = path.resolve(root);
       const withSep = normalizedRoot.endsWith(path.sep) ? normalizedRoot : `${normalizedRoot}${path.sep}`;
-      return resolved === normalizedRoot || resolved.startsWith(withSep);
+      return [resolved, canonical].some((candidate) => candidate === normalizedRoot || candidate.startsWith(withSep));
     });
 
     if (!within) {
@@ -248,7 +256,7 @@ export class CliExecutorAdapter {
     // never landed where the reader looks (<cwd>/artifacts/...), so `audit.accept`
     // permanently refused targetUrl lanes for "no captured evidence".
     baseEnv.ORCA_ARTIFACT_DIR = lane.sessionId && lane.id
-      ? path.join(process.cwd(), 'artifacts', String(lane.sessionId), String(lane.id))
+      ? path.join(this.artifactRoot, String(lane.sessionId), String(lane.id))
       : '';
     if (lane.mcpConfigPath) {
       baseEnv.ORCA_MCP_CONFIG = lane.mcpConfigPath;
@@ -331,7 +339,7 @@ export class CliExecutorAdapter {
     // Build the per-lane MCP config (including the built-in Orca server) before
     // args so executors that derive a command from the task prompt get the
     // --mcp-config flag pointing at it.
-    const runtimeDir = path.join(process.cwd(), 'artifacts', String(lane.sessionId || 'orphan'), String(lane.id));
+    const runtimeDir = path.join(this.artifactRoot, String(lane.sessionId || 'orphan'), String(lane.id));
     await fs.mkdir(runtimeDir, { recursive: true });
     const mcpResult = await this._buildMcpConfig(runtimeDir, lane);
     lane.mcpConfigPath = mcpResult.configPath;

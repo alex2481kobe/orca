@@ -4,6 +4,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { OrcaRegistry } from './registry.js';
 import { acquireInstanceLock, inspectInstanceLock } from './instance-lock.js';
+import { STATE_SOURCE_LABELS, readConfig, resolveStateDir } from './orca-paths.js';
+import { FENCE_STATUS, resolveFence } from './fence.js';
 import { PrivateAccessStore } from './private-access/store.js';
 import { AuthSessionStore } from './auth-sessions/store.js';
 import { SESSION_COOKIE_NAME } from './auth-sessions/crypto.js';
@@ -37,18 +39,41 @@ const IS_ENTRYPOINT = Boolean(process.argv[1]) && path.resolve(process.argv[1]) 
 // never opened at construction: the entrypoint opens it in startServer, only
 // after it holds the instance lock AND the listener; an importer opens it at
 // import (below), unless a live daemon owns it.
+// Only the daemon itself (`node src/server.js`) resolves where its state lives
+// and which roots it may work in: ORCA_STATE_DIR / ORCA_REPO_ROOTS, else the
+// user's Orca config file (src/orca-paths.js, src/fence.js) — never from the
+// directory it was launched in. An importer (tests, tooling) keeps the
+// <cwd>/.orca state and the ORCA_REPO_ROOTS-only fence it always had, and never
+// reads the user's config file: a test must not open, or be fenced by, a real
+// install.
+function resolveDaemonSetup() {
+  try {
+    const { config, path: configPath, error: configError } = readConfig();
+    const state = resolveStateDir({ config: configError ? null : config });
+    return { state, fence: resolveFence({ env: process.env, config, configPath, configError }) };
+  } catch (error) {
+    console.error(`[orca] Refusing to start: ${error.message}`);
+    console.error('[orca] No state was restored, migrated or recovered, and no process was signaled.');
+    process.exit(1);
+  }
+  return null;
+}
+const daemonSetup = IS_ENTRYPOINT ? resolveDaemonSetup() : null;
 const registry = new OrcaRegistry({
   // Optional tuning (mainly for tests/smokes): speed up the scheduler heartbeat
   // and the mock executor's auto-complete. Unset -> registry defaults.
   heartbeatIntervalMs: Number.parseInt(process.env.ORCA_HEARTBEAT_MS, 10) || undefined,
   autoCompleteMs: Number.parseInt(process.env.ORCA_AUTO_COMPLETE_MS, 10) || undefined,
   deferOpen: true,
+  stateDir: daemonSetup?.state.dir,
+  fence: daemonSetup?.fence,
 });
-const privateAccess = new PrivateAccessStore();
+// Every store lives in the one state directory the registry owns.
+const privateAccess = new PrivateAccessStore({ stateFile: path.join(registry.storageDir, 'private-access.json') });
 // Let the registry auto-fill a dev-server preview's tailnet URL (http://<magicDNS>:<port>)
 // from the live Tailscale identity, so an agent only has to register a port.
 registry.magicDnsResolver = () => privateAccess.magicDnsName();
-const authSessions = new AuthSessionStore({ autoLoad: false });
+const authSessions = new AuthSessionStore({ autoLoad: false, stateFile: path.join(registry.storageDir, 'auth-sessions.json') });
 const rateLimiter = createRateLimiter({
   disabled: process.env.ORCA_RATE_LIMIT_DISABLED === 'true',
 });
@@ -1001,10 +1026,26 @@ async function startServer(port = PORT, host = HOST) {
   console.log(`Orca listening at http://${host}:${effectivePort}`);
   console.log(`Dashboard route root: /`);
   console.log(`Health: /api/health`);
-  if (!process.env.ORCA_REPO_ROOTS) {
-    console.warn('[orca] ORCA_REPO_ROOTS is not set — agents may register/work in any folder under your HOME. Set ORCA_REPO_ROOTS to restrict this (recommended for adopters).');
-  }
+  reportStartup();
   return server;
+}
+
+// What an operator reads at every start, in the terminal or the daemon log:
+// where the state is, what the fence allows, and what still needs doing.
+function reportStartup() {
+  const source = daemonSetup ? ` (${STATE_SOURCE_LABELS[daemonSetup.state.source] || daemonSetup.state.source})` : '';
+  console.log(`State directory: ${registry.storageDir}${source}`);
+  const fence = registry.getFence();
+  if (fence.status === FENCE_STATUS.CONFIGURED) {
+    console.log(`Approved roots: ${fence.roots.join(', ')} (from ${fence.source === 'config' ? fence.configPath : fence.source})`);
+    for (const warning of fence.warnings) console.warn(`[orca] WARNING: ${warning}`);
+  } else {
+    console.warn(`[orca] SETUP REQUIRED: ${fence.summary}`);
+    console.warn(`[orca] Run: ${fence.fix}`);
+  }
+  if (!API_TOKEN) {
+    console.warn('[orca] ORCA_API_TOKEN is not set, so any process on this machine is Orca admin and role scoping is advisory. Recommended, and required before you pair a phone: run Orca with ORCA_API_TOKEN set to a long random value (openssl rand -hex 32).');
+  }
 }
 
 if (IS_ENTRYPOINT) {

@@ -1,6 +1,7 @@
 // Project CRUD + quick-link methods, as a prototype mixin for OrcaRegistry.
 //
 
+import { fixCommands } from './mcp-connection.js';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { nowIso, clonePayload, normalizeSlug, realpathSyncSafe, isRealPathWithinBoundarySync } from './registry-utils.js';
@@ -59,10 +60,10 @@ export const projectMethods = {
       if (!directoryExists(candidate)) {
         throw { status: 422, message: `Project folder does not exist: ${candidate}` };
       }
-      const approved = this.getApprovedRepoRoots();
+      const approved = this.assertFenceConfigured().roots;
       const within = approved.some((root) => isRealPathWithinBoundarySync(candidate, root));
       if (!within) {
-        throw { status: 422, message: `Project folder ${candidate} is outside the approved repo roots. Add it to ORCA_REPO_ROOTS or run the server from its parent.` };
+        throw { status: 422, message: `Project folder ${candidate} is outside the approved repo roots. An operator adds it with: ${fixCommands.setup([...approved, candidate])}` };
       }
       validatedRepoRoot = realpathSyncSafe(candidate) || candidate;
     }

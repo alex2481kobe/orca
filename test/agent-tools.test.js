@@ -11,11 +11,13 @@ import { ROLE_INSTRUCTIONS } from '../src/agent-tools/role-instructions.js';
 import { chooseNextTool } from '../src/agent-tools/next-action.js';
 import { OrcaRegistry } from '../src/registry.js';
 import { buildOrchestratorMcpConfigs } from '../src/mcp-orchestrator-bootstrap.js';
+import { approveFixtureRoot, restoreFixtureRoot } from './helpers/fence-root.js';
 
 async function withIsolatedRegistry(callback) {
   const previousCwd = process.cwd();
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-agent-tools-'));
   process.chdir(tempDir);
+  approveFixtureRoot(tempDir);
   const registry = new OrcaRegistry({ autoCompleteMs: 60 * 60 * 1000 });
   registry.stopScheduler();
   try {
@@ -25,6 +27,7 @@ async function withIsolatedRegistry(callback) {
     if (typeof registry.drainPendingWrites === 'function') {
       await registry.drainPendingWrites();
     }
+    restoreFixtureRoot();
     process.chdir(previousCwd);
     await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
   }

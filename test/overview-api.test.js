@@ -10,6 +10,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { PassThrough } from 'node:stream';
 import { pathToFileURL } from 'node:url';
+import { approveFixtureRoot, restoreFixtureRoot } from './helpers/fence-root.js';
 
 const SERVER_ENTRYPOINT = path.join(process.cwd(), 'src', 'server.js');
 
@@ -52,6 +53,8 @@ async function isolateEnvironment(token, env = {}) {
 
   process.chdir(tempDir);
 
+  approveFixtureRoot(tempDir);
+
   const restore = async () => {
     Object.keys(process.env).forEach((key) => {
       if (!(key in previousEnv)) delete process.env[key];
@@ -63,6 +66,7 @@ async function isolateEnvironment(token, env = {}) {
         process.env[key] = value;
       }
     });
+    restoreFixtureRoot();
     process.chdir(previousCwd);
     await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
   };

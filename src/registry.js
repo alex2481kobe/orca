@@ -1,3 +1,4 @@
+import { artifactDirFor } from './orca-paths.js';
 import fsSync from 'node:fs';
 import path from 'node:path';
 import { toolLeaseMethods } from './registry-tool-leases.js';
@@ -42,6 +43,12 @@ export class OrcaRegistry {
     // holds the state directory — the daemon entrypoint does, after taking the
     // instance lock and binding its listener. Default: open now, as before.
     deferOpen = false,
+    // Where state lives (src/orca-paths.js resolves it for the daemon). Omitted,
+    // it is <cwd>/.orca, which is what tests and tooling rely on.
+    stateDir = null,
+    // The effective fence (src/fence.js), resolved once by the daemon at start.
+    // Omitted, getFence() reads ORCA_REPO_ROOTS on each call.
+    fence = null,
   } = {}) {
     this.projects = [];
     this.orchestrators = [];
@@ -49,10 +56,11 @@ export class OrcaRegistry {
     this.auditEvents = [];
     this.toolLeases = [];
     this.agentQueue = [];
-    this.artifactRoot = path.join(process.cwd(), 'artifacts');
-    this.workspacesRoot = path.join(process.cwd(), '.orca', 'workspaces');
-    this.storageDir = path.join(process.cwd(), '.orca');
+    this.storageDir = stateDir ? path.resolve(stateDir) : path.join(process.cwd(), '.orca');
+    this.artifactRoot = artifactDirFor(this.storageDir);
+    this.workspacesRoot = path.join(this.storageDir, 'workspaces');
     this.stateFile = path.join(this.storageDir, 'state.json');
+    this.fence = fence || null;
 
     this.heartbeatIntervalMs = heartbeatIntervalMs;
     this.autoCompleteMs = autoCompleteMs;
@@ -76,15 +84,16 @@ export class OrcaRegistry {
     this._starting = true;
     this._pendingWrites = new Set();
     this.laneRuntimeEnv = new Map();
-    // CLI executors may run a lane in the session's vetted repoRoot (an approved
-    // ORCA_REPO_ROOTS path) or in a per-lane git worktree under workspacesRoot —
-    // both must be allowed EXECUTION roots, not just process.cwd().
+    // CLI executors may run a lane in the session's vetted repoRoot (a fence root)
+    // or in a per-lane git worktree under workspacesRoot. Those are the only
+    // EXECUTION roots: the daemon's working directory is never one.
     const extraWorkdirRoots = [
       this.workspacesRoot,
       ...(typeof this.getApprovedRepoRoots === 'function' ? this.getApprovedRepoRoots() : []),
     ].filter(Boolean);
     const baseExecutorCallbacks = {
       extraWorkdirRoots,
+      artifactRoot: this.artifactRoot,
       onLog: (lane, message) => this.appendLaneLog(lane, message, { persist: false }),
       onAgentEvent: (lane, agentEvent) => this.appendLaneAgentEvent(lane, agentEvent, { persist: false }),
       onComplete: async (lane) => this.markLaneCompleted(lane),

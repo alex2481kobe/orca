@@ -8,16 +8,19 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { OrcaRegistry } from '../src/registry.js';
+import { approveFixtureRoot, restoreFixtureRoot } from './helpers/fence-root.js';
 
 async function withRegistry(callback) {
   const previousCwd = process.cwd();
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-lifecycle-'));
   process.chdir(tempDir);
+  approveFixtureRoot(tempDir);
   const registry = new OrcaRegistry({ autoCompleteMs: 60 * 60 * 1000, autoAudit: false });
   registry.stopScheduler();
   try { return await callback(registry); } finally {
     registry.stopScheduler();
     await registry.drainPendingWrites();
+    restoreFixtureRoot();
     process.chdir(previousCwd);
     await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
   }
@@ -211,6 +214,8 @@ function startDaemon(cwd, port, { heartbeatMs = QUIET_HEARTBEAT_MS, env = {} } =
     ORCA_HOST: '127.0.0.1',
     ORCA_API_TOKEN: DAEMON_TOKEN,
     ORCA_REPO_ROOTS: cwd,
+    // Pinned: the daemon resolves its state dir without looking at its cwd.
+    ORCA_STATE_DIR: path.join(cwd, '.orca'),
     ORCA_AUTO_AUDIT: 'false',
     ORCA_CREDENTIAL_BACKEND: 'memory',
     ORCA_RATE_LIMIT_DISABLED: 'true',

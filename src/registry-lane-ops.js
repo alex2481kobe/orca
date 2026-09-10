@@ -579,7 +579,7 @@ export const laneOpsMethods = {
       throw { status: 404, message: 'Lane not found.' };
     }
 
-    const laneDir = path.join(process.cwd(), 'artifacts', lane.sessionId, lane.id);
+    const laneDir = path.join(this.artifactRoot, lane.sessionId, lane.id);
     try {
       const entries = await fs.readdir(laneDir, { withFileTypes: true });
       const files = [];
@@ -614,7 +614,7 @@ export const laneOpsMethods = {
     if (!rawName || rawName !== path.basename(rawName) || rawName === '.' || rawName === '..' || rawName.includes('/') || rawName.includes('\\')) {
       throw { status: 422, message: 'Invalid artifact name.' };
     }
-    const laneDir = path.join(process.cwd(), 'artifacts', String(lane.sessionId), String(lane.id));
+    const laneDir = path.join(this.artifactRoot, String(lane.sessionId), String(lane.id));
     const target = path.join(laneDir, rawName);
     let stat;
     try {

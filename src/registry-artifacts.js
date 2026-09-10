@@ -36,7 +36,7 @@ export const artifactMethods = {
       throw { status: 400, message: 'Invalid artifact filename.' };
     }
 
-    const laneDir = path.join(process.cwd(), 'artifacts', lane.sessionId, lane.id);
+    const laneDir = path.join(this.artifactRoot, lane.sessionId, lane.id);
     const filePath = path.join(laneDir, decoded);
     if (!isPathWithinBoundary(filePath, laneDir)) {
       throw { status: 400, message: 'Artifact path escapes lane boundary.' };
