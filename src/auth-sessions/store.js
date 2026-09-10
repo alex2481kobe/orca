@@ -43,6 +43,9 @@ export class AuthSessionStore {
     stateFile = path.join(process.cwd(), '.orca', 'auth-sessions.json'),
     pairingTtlMs = parsePositiveMs(process.env.ORCA_PAIRING_CODE_TTL_MS, DEFAULT_PAIRING_TTL_MS),
     sessionTtlMs = parsePositiveMs(process.env.ORCA_BROWSER_SESSION_TTL_MS, DEFAULT_SESSION_TTL_MS),
+    // false: construct without touching disk (a recovered load rewrites the
+    // file); the owner calls load() once it holds the state directory.
+    autoLoad = true,
   } = {}) {
     this.stateFile = stateFile;
     this.pairingTtlMs = pairingTtlMs;
@@ -54,7 +57,7 @@ export class AuthSessionStore {
       sessions: [],
       auditEvents: [],
     };
-    this.load();
+    if (autoLoad) this.load();
   }
 
   load() {

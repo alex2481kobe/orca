@@ -2704,3 +2704,75 @@ test('two auto-mode writer lanes spawned before any scheduler tick do not both r
     await server.stop();
   }
 });
+
+// --- Exclusive startup and orderly teardown ---------------------------------
+// In-process: the exported startServer/stopServer against a temp cwd (so the
+// state dir is <temp>/.orca) on port 0.
+
+async function importFreshServer(label) {
+  const moduleUrl = `${pathToFileURL(SERVER_ENTRYPOINT).href}?${label}=${Date.now()}-${++harnessCounter}`;
+  return import(moduleUrl);
+}
+
+function probeListener(port) {
+  return new Promise((resolve) => {
+    const req = http.get({ host: '127.0.0.1', port, path: '/api/health' }, (res) => {
+      res.resume();
+      resolve(`status ${res.statusCode}`);
+    });
+    req.on('error', (error) => resolve(error.code || 'error'));
+    req.setTimeout(2000, () => { req.destroy(); resolve('timeout'); });
+  });
+}
+
+test('exclusive startup: startServer takes ownership of the state directory and stopServer gives it back', async () => {
+  const { restore, tempDir } = await isolateEnvironment('exclusive-lock-token', { PORT: '0' });
+  const lockFile = path.join(await fs.realpath(tempDir), '.orca', 'daemon.lock');
+  let server = null;
+  try {
+    const mod = await importFreshServer('exclusive-lock');
+    server = await mod.startServer(0, '127.0.0.1');
+    const lock = JSON.parse(await fs.readFile(lockFile, 'utf8'));
+    assert.equal(lock.pid, process.pid);
+    assert.equal(lock.listen?.port, server.address().port, 'the lock records where this instance listens');
+    await mod.stopServer();
+    await assert.rejects(fs.access(lockFile), 'stopServer releases the state lock');
+  } finally {
+    if (server?.listening) await new Promise((resolve) => server.close(resolve));
+    await restore();
+  }
+});
+
+test('exclusive startup: stopServer closes the listener', async () => {
+  const { restore } = await isolateEnvironment('exclusive-listener-token', { PORT: '0' });
+  let server = null;
+  try {
+    const mod = await importFreshServer('exclusive-listener');
+    server = await mod.startServer(0, '127.0.0.1');
+    const port = server.address().port;
+    assert.equal(await probeListener(port), 'status 200');
+    await mod.stopServer();
+    assert.equal(server.listening, false, 'stopServer closed the listener');
+    assert.equal(await probeListener(port), 'ECONNREFUSED', 'nothing accepts connections after stop');
+  } finally {
+    if (server?.listening) await new Promise((resolve) => server.close(resolve));
+    await restore();
+  }
+});
+
+test('exclusive startup: new work that arrives while the daemon is stopping is refused (503), not started', async () => {
+  const token = 'exclusive-teardown-token';
+  const server = await startServer({ token });
+  const stopping = server.stop(); // teardown begins synchronously
+  let late;
+  try {
+    late = await server.requestJson('/api/agent-tools/leases', {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { role: 'orchestrator', actor: 'late-arrival', ttlMs: 60_000 },
+    });
+  } finally {
+    await stopping;
+  }
+  assert.equal(late.status, 503, `a mutation accepted mid-teardown: ${JSON.stringify(late.body)}`);
+});

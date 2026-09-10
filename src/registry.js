@@ -38,6 +38,10 @@ export class OrcaRegistry {
     // that is alive but idle. 0 disables. 15min default.
     laneIdleTimeoutMs = Number(process.env.ORCA_LANE_IDLE_TIMEOUT_MS ?? '') || 900000,
     autoAudit,
+    // true: construct WITHOUT touching disk. The owner calls openState() once it
+    // holds the state directory — the daemon entrypoint does, after taking the
+    // instance lock and binding its listener. Default: open now, as before.
+    deferOpen = false,
   } = {}) {
     this.projects = [];
     this.orchestrators = [];
@@ -99,7 +103,16 @@ export class OrcaRegistry {
     };
     this.laneExecutorMap = new Map();
     this.unknownExecutorAdapters = new Map();
+    this._stateOpened = false;
+    if (!deferOpen) this.openState();
+  }
 
+  // Everything that reads or changes persisted state: directory creation, the
+  // restore (which migrates, and recovers interrupted lanes — SIGKILLing the
+  // process groups they point at), seeding, and scheduling. Runs once.
+  openState() {
+    if (this._stateOpened) return;
+    this._stateOpened = true;
     try { fsSync.mkdirSync(this.artifactRoot, { recursive: true }); } catch { /* best-effort startup path */ }
     try { fsSync.mkdirSync(this.workspacesRoot, { recursive: true }); } catch { /* best-effort startup path */ }
     this.restoreFromDisk();

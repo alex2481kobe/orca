@@ -3,6 +3,7 @@ import { timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { OrcaRegistry } from './registry.js';
+import { acquireInstanceLock } from './instance-lock.js';
 import { PrivateAccessStore } from './private-access/store.js';
 import { AuthSessionStore } from './auth-sessions/store.js';
 import { SESSION_COOKIE_NAME } from './auth-sessions/crypto.js';
@@ -27,17 +28,28 @@ import { fileURLToPath } from 'node:url';
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.ORCA_HOST || '127.0.0.1';
 const PUBLIC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
+const thisModulePath = fileURLToPath(import.meta.url);
+// Running as the daemon (`node src/server.js`), as opposed to being imported.
+const IS_ENTRYPOINT = Boolean(process.argv[1]) && path.resolve(process.argv[1]) === path.resolve(thisModulePath);
+// The daemon must not read, migrate or recover state it does not own. A second
+// start used to restore state — and reap the process groups its lanes point at
+// — before discovering that the state or the port was already taken. So the
+// entrypoint constructs WITHOUT touching disk, and startServer opens state only
+// after it holds the instance lock AND the listener. An importer (tests,
+// tooling) drives routeRequest with no listener and keeps the eager open.
+const DEFER_STATE = IS_ENTRYPOINT;
 const registry = new OrcaRegistry({
   // Optional tuning (mainly for tests/smokes): speed up the scheduler heartbeat
   // and the mock executor's auto-complete. Unset -> registry defaults.
   heartbeatIntervalMs: Number.parseInt(process.env.ORCA_HEARTBEAT_MS, 10) || undefined,
   autoCompleteMs: Number.parseInt(process.env.ORCA_AUTO_COMPLETE_MS, 10) || undefined,
+  deferOpen: DEFER_STATE,
 });
 const privateAccess = new PrivateAccessStore();
 // Let the registry auto-fill a dev-server preview's tailnet URL (http://<magicDNS>:<port>)
 // from the live Tailscale identity, so an agent only has to register a port.
 registry.magicDnsResolver = () => privateAccess.magicDnsName();
-const authSessions = new AuthSessionStore();
+const authSessions = new AuthSessionStore({ autoLoad: !DEFER_STATE });
 const rateLimiter = createRateLimiter({
   disabled: process.env.ORCA_RATE_LIMIT_DISABLED === 'true',
 });
@@ -840,8 +852,20 @@ async function handleApi(req, res, pathname, method, parts) {
   return sendJson(res, 404, { error: 'API route not found.' });
 }
 
+// This process's ownership. `stateOpen` is false only between binding the
+// listener and opening state (entrypoint). `shuttingDown` flips first thing in
+// stopServer, so nothing new starts while workers stop and writes drain.
+let stateOpen = !DEFER_STATE;
+let shuttingDown = false;
+let activeServer = null;
+let instanceLock = null;
+
 function routeRequest(req, res) {
   applySecurityHeaders(res, req); // req → adds HSTS when the request is HTTPS
+  if (shuttingDown || !stateOpen) {
+    sendJson(res, 503, { error: shuttingDown ? 'Orca is shutting down.' : 'Orca is starting.' });
+    return Promise.resolve();
+  }
   // Anti-DNS-rebinding: a direct request whose Host header is not a recognized
   // loopback/allowlisted name is rejected before any auth or handler runs. This
   // closes the rebinding path that would otherwise hand implicit local admin to
@@ -881,45 +905,97 @@ async function handleRequest(req, res, pathname, method, parts) {
   return serveStaticOrIndex(pathname, res, req);
 }
 
-function startServer(port = PORT, host = HOST) {
-  const server = createServer(routeRequest);
+// A start that was refused before it touched anything: it read no state,
+// changed no state and signaled no process.
+class StartupRefusedError extends Error {}
+
+function listenOn(server, port, host) {
   return new Promise((resolve, reject) => {
-    const onError = (error) => {
-      reject(error);
-    };
+    const onError = (error) => { reject(error); };
     server.once('error', onError);
     server.listen(port, host, () => {
       server.off('error', onError);
-      const address = server.address();
-      const effectivePort = typeof address === 'string' ? address : (address?.port || port);
-      // Tell the registry the port we ACTUALLY bound. serverBaseUrl() otherwise
-      // reports the configured PORT, which is wrong whenever the daemon binds an
-      // ephemeral port (PORT=0) — and that URL is handed to agents, both in the
-      // MCP bootstrap config and in every executor lane's runtime env.
-      if (registry && typeof effectivePort === 'number') registry.boundPort = effectivePort;
-      console.log(`Orca listening at http://${host}:${effectivePort}`);
-      console.log(`Dashboard route root: /`);
-      console.log(`Health: /api/health`);
-      if (!process.env.ORCA_REPO_ROOTS) {
-        console.warn('[orca] ORCA_REPO_ROOTS is not set — agents may register/work in any folder under your HOME. Set ORCA_REPO_ROOTS to restrict this (recommended for adopters).');
-      }
-      resolve(server);
+      resolve();
     });
   });
 }
 
-const thisModulePath = fileURLToPath(import.meta.url);
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(thisModulePath)) {
+function openOwnedState() {
+  if (stateOpen) return;
+  registry.openState();
+  authSessions.load();
+  stateOpen = true;
+}
+
+// The startup ORDER is the fix for a destructive duplicate start:
+//   1. take exclusive ownership of the canonical state directory,
+//   2. bind the listener,
+//   3. only then restore, migrate, recover interrupted lanes and schedule.
+// Refused at 1 or 2, it releases what it took and rejects with
+// StartupRefusedError, having changed nothing and signaled nothing.
+async function startServer(port = PORT, host = HOST) {
+  const lock = acquireInstanceLock(registry.storageDir);
+  if (!lock.acquired) throw new StartupRefusedError(lock.message);
+  if (lock.tookOver) {
+    const previous = lock.tookOver.previous || {};
+    console.warn(`[orca] Took over a stale state lock (${lock.tookOver.reason}): pid ${previous.pid}, started ${previous.processStart || 'at an unknown time'} UTC, is no longer running. No process was signaled.`);
+  }
+  const server = createServer(routeRequest);
+  try {
+    await listenOn(server, port, host);
+  } catch (error) {
+    lock.release();
+    if (error?.code === 'EADDRINUSE') {
+      throw new StartupRefusedError([
+        `[orca] Refusing to start: port ${port} on ${host} is already in use (EADDRINUSE).`,
+        `[orca] State directory: ${lock.stateDir}`,
+        '[orca] No state was restored, migrated or recovered, and no process was signaled.',
+      ].join('\n'));
+    }
+    throw error;
+  }
+  activeServer = server;
+  instanceLock = lock;
+  const address = server.address();
+  const effectivePort = typeof address === 'string' ? address : (address?.port || port);
+  // Tell the registry the port we ACTUALLY bound. serverBaseUrl() otherwise
+  // reports the configured PORT, which is wrong whenever the daemon binds an
+  // ephemeral port (PORT=0) — and that URL is handed to agents, both in the
+  // MCP bootstrap config and in every executor lane's runtime env.
+  if (typeof effectivePort === 'number') registry.boundPort = effectivePort;
+  // Recorded so a refused duplicate can say where this instance is.
+  try { lock.update({ listen: { host, port: effectivePort } }); } catch { /* reporting detail only */ }
+  try {
+    openOwnedState();
+  } catch (error) {
+    await stopServer().catch(() => {});
+    throw error;
+  }
+  console.log(`Orca listening at http://${host}:${effectivePort}`);
+  console.log(`Dashboard route root: /`);
+  console.log(`Health: /api/health`);
+  if (!process.env.ORCA_REPO_ROOTS) {
+    console.warn('[orca] ORCA_REPO_ROOTS is not set — agents may register/work in any folder under your HOME. Set ORCA_REPO_ROOTS to restrict this (recommended for adopters).');
+  }
+  return server;
+}
+
+if (IS_ENTRYPOINT) {
+  // Best-effort: an exit that skips stopServer still drops the lock (only while
+  // it carries this process's nonce). A missed release is safe too: the next
+  // start sees the owner is gone and takes the lock over.
+  process.once('exit', () => { instanceLock?.release(); });
   startServer().catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
+    console.error(error instanceof StartupRefusedError ? error.message : error);
+    // A refused start opened nothing, so there is nothing to tear down.
+    process.exit(1);
   });
   // Graceful shutdown: on Ctrl-C / kill, stop the scheduler AND kill live executor
   // children before exiting, so detached agent process groups aren't orphaned.
-  let shuttingDown = false;
+  let signaled = false;
   const gracefulShutdown = (signal) => {
-    if (shuttingDown) return;
-    shuttingDown = true;
+    if (signaled) return;
+    signaled = true;
     console.error(`Received ${signal}; stopping Orca and its executor agents…`);
     stopServer().finally(() => process.exit(0));
   };
@@ -927,7 +1003,15 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(thisModule
   process.once('SIGTERM', () => gracefulShutdown('SIGTERM'));
 }
 
+// Orderly teardown, the reverse of startup: stop intake, stop scheduling, stop
+// workers, drain writes, close the listener — and give up the state lock LAST,
+// so a restart can never begin recovery while this process has writes in flight.
 async function stopServer() {
+  shuttingDown = true;
+  const server = activeServer;
+  activeServer = null;
+  const closed = server ? new Promise((resolve) => server.close(() => resolve())) : null;
+  server?.closeIdleConnections?.();
   registry.stopScheduler();
   // Kill live executor children BEFORE we exit, or detached CLI process groups get
   // orphaned to launchd/init (the "codex/claude left running" leak).
@@ -937,6 +1021,13 @@ async function stopServer() {
   if (typeof registry.drainPendingWrites === 'function') {
     await registry.drainPendingWrites();
   }
+  if (server) {
+    // Event streams never end on their own; they must not hold the stop open.
+    server.closeAllConnections?.();
+    await Promise.race([closed, new Promise((resolve) => setTimeout(resolve, 5000).unref())]);
+  }
+  instanceLock?.release();
+  instanceLock = null;
 }
 
 export {
