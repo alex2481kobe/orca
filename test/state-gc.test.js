@@ -8,7 +8,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { appendJournalEntries, readJournalAll } from '../src/lane-journal.js';
 import { archiveLane, readLaneArchive } from '../src/lane-archive.js';
-import { applyGc, planGc, renderRetentionMarkdown, RETENTION } from '../src/state-gc.js';
+import { applyGc, ARCHIVED_ARTIFACTS_MARKER, planGc, renderRetentionMarkdown, RETENTION } from '../src/state-gc.js';
 import { laneJournalDir, statePaths } from '../src/state-paths.js';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -204,4 +204,145 @@ test('the retention doc renders exactly the retention table the code enforces', 
   assert.ok(match, 'docs/state-retention.md carries the generated retention table');
   assert.equal(match[1], renderRetentionMarkdown(), 'regenerate the table: node -e "import(\'./src/state-gc.js\').then((m) => process.stdout.write(m.renderRetentionMarkdown()))"');
   for (const entry of RETENTION) assert.ok(doc.includes(entry.path), `doc names ${entry.path}`);
+});
+
+// ---------------------------------------------------------------------------
+// Artifacts. gc used to report artifacts/ size and manage nothing in it: 808 MB
+// against a 1.2 GB state directory on the owner's machine, holding per-lane
+// stdout.log / terminal.log / transcript.json of 1-2 MB each that no retention
+// rule touched. A lane's artifacts now follow the same rule its journals do —
+// moved into archive/ when the lane is archived, deleted only by the explicit
+// two-flag purge — with one extra guarantee: result.txt, the only complete copy
+// of a long agent report, is the LAST thing to go.
+// ---------------------------------------------------------------------------
+
+// The artifacts tree sits beside the state dir: <daemon cwd>/artifacts/<orc>/<lane>/.
+function seedArtifacts(stateDir, laneIds = ['old-done', 'old-integrated', 'recent-failed']) {
+  const artifactsDir = path.join(path.dirname(stateDir), 'artifacts');
+  for (const id of laneIds) {
+    const dir = path.join(artifactsDir, 'orc_1', id);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'stdout.log'), 'x'.repeat(2048));
+    fs.writeFileSync(path.join(dir, 'terminal.log'), 'y'.repeat(2048));
+    fs.writeFileSync(path.join(dir, 'transcript.json'), '{"lane":"' + id + '"}');
+    fs.writeFileSync(path.join(dir, 'result.txt'), `the whole report for ${id}\n`);
+  }
+  return artifactsDir;
+}
+
+test('gc plan: a lane being archived takes its artifacts with it, and says how big they are', async () => {
+  await withStateDir(async (stateDir) => {
+    seed(stateDir);
+    const artifactsDir = seedArtifacts(stateDir);
+    const before = snapshotTree(path.dirname(stateDir));
+    const plan = planGc({ stateDir, now: NOW, olderThanDays: 14, artifactsDir });
+    assert.deepEqual(snapshotTree(path.dirname(stateDir)), before, 'a dry run still changes nothing');
+
+    const moves = byKind(plan, 'archive-artifacts');
+    assert.deepEqual(moves.map((action) => action.laneId).sort(), ['old-done', 'old-integrated'],
+      'exactly the lanes being archived — a lane that stays hot keeps its artifacts');
+    // Carried on the plan, so a re-plan after a v3->v4 migration still decides
+    // artifacts instead of quietly leaving them behind.
+    assert.equal(plan.artifactsDir, artifactsDir);
+    const one = moves.find((action) => action.laneId === 'old-done');
+    assert.ok(one.bytes > 4000, 'the plan says how much it would move');
+    assert.equal(one.hasResult, true, 'and flags the lane whose complete report is in there');
+    assert.match(one.reason, /archived/);
+    // recent-failed stays hot, so its artifacts are untouched and unplanned.
+    assert.equal(moves.some((action) => action.laneId === 'recent-failed'), false);
+  });
+});
+
+test('gc apply: artifacts are MOVED into the archive beside the lane, never deleted', async () => {
+  await withStateDir(async (stateDir) => {
+    seed(stateDir);
+    const artifactsDir = seedArtifacts(stateDir);
+    const plan = planGc({ stateDir, now: NOW, olderThanDays: 14, artifactsDir });
+    applyGc(plan, { now: NOW });
+
+    const archived = path.join(statePaths(stateDir).archivedArtifactsDir, 'orc_1', 'old-done');
+    assert.equal(fs.existsSync(path.join(artifactsDir, 'orc_1', 'old-done')), false, 'gone from the hot artifacts tree');
+    assert.equal(fs.readFileSync(path.join(archived, 'result.txt'), 'utf8'), 'the whole report for old-done\n',
+      'and whole in the archive — the report is moved, never destroyed');
+    for (const name of ['stdout.log', 'terminal.log', 'transcript.json']) {
+      assert.ok(fs.existsSync(path.join(archived, name)), `${name} moved with it`);
+    }
+    // A marker records when and why, so the purge has an age to work from and the
+    // lane it belongs to can be checked before anything is deleted.
+    const marker = JSON.parse(fs.readFileSync(path.join(archived, ARCHIVED_ARTIFACTS_MARKER), 'utf8'));
+    assert.equal(marker.laneId, 'old-done');
+    assert.equal(marker.sessionId, 'orc_1');
+    assert.ok(marker.archivedAt);
+    assert.equal(marker.hasResult, true);
+    // The lane that stayed hot kept everything.
+    assert.ok(fs.existsSync(path.join(artifactsDir, 'orc_1', 'recent-failed', 'result.txt')));
+  });
+});
+
+test('gc purge: archived artifacts need the same two flags, and go only with their lane', async () => {
+  await withStateDir(async (stateDir) => {
+    seed(stateDir);
+    const artifactsDir = seedArtifacts(stateDir);
+    applyGc(planGc({ stateDir, now: NOW, olderThanDays: 14, artifactsDir }), { now: NOW });
+    const archived = path.join(statePaths(stateDir).archivedArtifactsDir, 'orc_1', 'old-done');
+    assert.ok(fs.existsSync(archived));
+
+    // Neither flag alone deletes anything.
+    const later = NOW + 40 * DAY;
+    assert.equal(byKind(planGc({ stateDir, now: later, artifactsDir }), 'purge-artifacts').length, 0);
+    const blocked = planGc({ stateDir, now: later, purgeArchive: true, artifactsDir });
+    assert.match(blocked.blocked, /--purge-older-than-days/);
+
+    // Too young for the threshold: nothing planned.
+    assert.equal(byKind(planGc({ stateDir, now: NOW + 5 * DAY, purgeArchive: true, purgeOlderThanDays: 30, artifactsDir }), 'purge-artifacts').length, 0);
+
+    const plan = planGc({ stateDir, now: later, purgeArchive: true, purgeOlderThanDays: 30, artifactsDir });
+    const artifactPurges = byKind(plan, 'purge-artifacts');
+    assert.deepEqual(artifactPurges.map((action) => action.laneId).sort(), ['old-done', 'old-integrated']);
+    assert.equal(artifactPurges[0].hasResult, true, 'the plan says out loud that a complete report is about to go');
+    // A dry run of a purge still deletes nothing.
+    assert.ok(fs.existsSync(path.join(archived, 'result.txt')));
+
+    applyGc(plan, { now: later });
+    assert.equal(fs.existsSync(archived), false, 'purged with its lane');
+    // By now `recent-failed` is 42 days old too, so the same run ARCHIVES its
+    // artifacts — and leaves them there. A folder archived this instant is
+    // nowhere near the 30-day purge threshold, which is the point: the purge
+    // takes only what is past its own threshold, never everything in archive/.
+    const freshlyArchived = path.join(statePaths(stateDir).archivedArtifactsDir, 'orc_1', 'recent-failed');
+    assert.equal(fs.readFileSync(path.join(freshlyArchived, 'result.txt'), 'utf8'), 'the whole report for recent-failed\n');
+  });
+});
+
+test('gc purge: a lane whose archive survives keeps its artifacts, result.txt last of all', async () => {
+  await withStateDir(async (stateDir) => {
+    seed(stateDir);
+    const artifactsDir = seedArtifacts(stateDir);
+    applyGc(planGc({ stateDir, now: NOW, olderThanDays: 14, artifactsDir }), { now: NOW });
+    const archived = path.join(statePaths(stateDir).archivedArtifactsDir, 'orc_1', 'old-done');
+
+    // Hand-build a purge that would take the artifacts while the lane's own
+    // archive stays: the artifacts must refuse to go first. result.txt is the
+    // only complete copy of a long report, and a lane record that still exists
+    // points at it — orphaning it is exactly what must not happen.
+    const later = NOW + 40 * DAY;
+    const plan = planGc({ stateDir, now: later, purgeArchive: true, purgeOlderThanDays: 30, artifactsDir });
+    plan.actions = plan.actions.filter((action) => action.kind !== 'purge');
+    const results = applyGc(plan, { now: later });
+
+    assert.ok(fs.existsSync(path.join(archived, 'result.txt')), 'the complete report outlives a purge its lane did not join');
+    const kept = results.find((item) => item.kind === 'keep-artifacts' && item.laneId === 'old-done');
+    assert.ok(kept, 'and the refusal is reported, not silent');
+    assert.match(kept.reason, /lane archive/);
+  });
+});
+
+test('the retention doc covers artifacts as gc actually treats them', () => {
+  const doc = fs.readFileSync(path.join(ROOT, 'docs', 'state-retention.md'), 'utf8');
+  // The generated table must still match the code exactly (the test above), and
+  // it must no longer claim artifacts are merely size-reported.
+  assert.match(doc, /archive\/artifacts\/<orchestrator>\/<lane>\//);
+  assert.equal(/Size reported only\./.test(renderRetentionMarkdown()), false,
+    'artifacts are managed now; the table must not still say gc only reports their size');
+  assert.match(renderRetentionMarkdown(), /result\.txt/);
 });

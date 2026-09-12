@@ -27,6 +27,9 @@ A lane leaves hot state when:
   (default 14 days), unless its audit is still queued, in progress or escalated, or it still
   holds an un-integrated worktree.
 
+When a lane is archived its artifacts folder moves with it (see *Artifacts follow the lane
+they belong to*, below).
+
 An archived lane is still readable with `lane.get`. The response is the lane as it was, with
 the same capped log and event view a hot lane shows, plus
 `archived: { at, reason, file, totalLogs, totalAgentEvents }`. It no longer appears in
@@ -52,13 +55,14 @@ Under the state directory:
 | `archive/lanes/<lane>/logs.NNNNNN.jsonl, events.NNNNNN.jsonl` | Journal segments rotated out of a lane that is still hot. | The daemon. | Never while the lane is hot: they are the oldest part of its journal. | Folded into the lane's .json.gz when the lane is archived. |
 | `archive/migrations/<time>-v3-to-v4-<sha>/` | The state.json (and state.json.bak) a v4 daemon found at its first boot, kept byte for byte, plus manifest.json with sizes, sha256 and what was converted. | The daemon at its first v4 boot, or `orca gc --apply` on a v3 state. | Once the migrated state has been checked. | Purged only by `--purge-archive --purge-older-than-days N --apply`. |
 | `archive/legacy/<time>/` | Legacy backups, crashed-write temp files and quarantined corrupt files moved here by gc. | `orca gc --apply`. | Once inspected. | Purged only by `--purge-archive --purge-older-than-days N --apply`. |
+| `archive/artifacts/<orchestrator>/<lane>/` | The artifacts of an archived lane, moved here whole: result.txt (the complete captured report, the only copy — lane.resultText is capped), outcome.txt, transcript.json, terminal.log, stdout.log, stderr.log, mcp-tools.json and screenshots, plus a .orca-archived.json marker recording when and from which lane. | `orca gc --apply`, when it archives the lane. | Once the lane archive it belongs to is no longer needed. Its raw output is not readable through the API from here. | Purged only by `--purge-archive --purge-older-than-days N --apply`, and only once the lane's own archive goes in the same run; result.txt is deleted last. |
 | `workspaces/<orchestrator>/worktrees/<lane>` | The git worktree of an isolated lane. | The daemon, when it creates an isolated lane. | After the lane is integrated, or its work is deliberately discarded. | LISTED, never removed. Remove one with lane__worktree__discard (it refuses uncommitted work unless force:true). |
 
-Outside the state directory (not managed by `orca gc`):
+Outside the state directory (gc does not sweep it; it follows the lane it belongs to):
 
 | path | what it is | who writes it | safe to delete when | what `orca gc` does |
 | --- | --- | --- | --- | --- |
-| `<daemon cwd>/artifacts/<orchestrator>/<lane>/` | Per-lane artifacts: outcome.txt, result.txt (the complete captured report for that lane, whole even when lane.resultText was capped), transcript.json, terminal.log, stdout.log, stderr.log, mcp-tools.json, and captured screenshots. lane.terminal.tail, the live lane stream, lane.artifacts.list and lane.artifacts.get read them. | The daemon and the executors it runs. | When the lane's raw output and evidence are no longer needed. The lane record and its logs do not depend on them. | Size reported only. |
+| `<daemon cwd>/artifacts/<orchestrator>/<lane>/` | Per-lane artifacts: outcome.txt, result.txt (the complete captured report for that lane, whole even when lane.resultText was capped), transcript.json, terminal.log, stdout.log, stderr.log, mcp-tools.json, and captured screenshots. lane.terminal.tail, the live lane stream, lane.artifacts.list and lane.artifacts.get read them. | The daemon and the executors it runs. | When the lane's raw output and evidence are no longer needed. The lane record and its logs do not depend on them. | Size reported. When the lane is archived, its folder is MOVED to archive/artifacts/<orchestrator>/<lane>/; a hot lane's artifacts are never touched. |
 <!-- retention-table:end -->
 
 ## Backups
@@ -75,12 +79,40 @@ worktrees — those of terminal or merged lanes, and folders no lane points at �
 that removes each one safely: `lane__worktree__discard` (it refuses uncommitted work unless
 `force: true`), or `lane__integrate` to keep the work first.
 
-## Artifacts are outside the state directory
+## Artifacts follow the lane they belong to
 
 `artifacts/<orchestrator>/<lane>/` sits under the daemon's working directory, not the state
 directory. It holds each lane's raw terminal output and captured evidence, which
 `lane.terminal.tail`, the live lane stream, `lane.artifacts.list` and `lane.artifacts.get` read. The lane record and
-its logs do not depend on it. Garbage collection reports its size and never touches it.
+its logs do not depend on it.
+
+Garbage collection used to report this tree's size and manage nothing in it, which is how
+808 MB accumulated against a 1.2 GB state directory: `stdout.log`, `terminal.log` and
+`transcript.json` run 1-2 MB per lane and no retention rule touched them. **A lane's
+artifacts now follow the same rule its journals do.** When gc archives a lane it MOVES that
+lane's folder to `archive/artifacts/<orchestrator>/<lane>/`, in the same place in the order
+the journals are removed — only after the lane's `.json.gz` has been written, verified and
+committed to `state.json`. A move is a rename, so an interrupted run loses nothing. A hot
+lane's artifacts are never touched, and gc never walks `artifacts/` looking for work: it
+only ever moves the folder of a lane it is archiving anyway.
+
+A marker file, `.orca-archived.json`, is written into the moved folder recording the lane
+id, the orchestrator and when it moved. That is what gives the purge an age to work from,
+and what lets it find the lane a folder belongs to.
+
+### `result.txt` is the last thing to go
+
+`result.txt` is the **only complete copy** of a long agent report — the lane record's
+`resultText` is capped at 32,000 characters and says so when it was cut. Three rules keep it:
+
+1. **Archiving never deletes it.** The folder is renamed into `archive/`, whole.
+2. **A purge takes it only with its lane.** Archived artifacts are deleted only once the
+   lane's own archive is going in the same run. While that `.json.gz` is still on disk the
+   artifacts refuse to go, and gc reports the refusal (`keep-artifacts`) with the reason —
+   it does not skip in silence.
+3. **Within the folder, it is unlinked last.** Every other file goes first, then
+   `result.txt`, then the folder itself. A purge that dies half way through has still not
+   destroyed the report.
 
 ## Cleaning up: `orca gc`
 
@@ -101,12 +133,14 @@ results as JSON, for an agent to read.
 - **`--apply` refuses while any process owns the state directory** (its instance lock,
   `src/instance-lock.js`): stop the daemon first. While it works it holds that lock itself,
   so no daemon can start halfway through. It exits 1 when it refuses, 2 on a usage error.
-- **`--apply` only moves**: lanes into `archive/lanes/`, legacy files into
-  `archive/legacy/`. It rewrites `state.json` without the lanes it archived, and removes a
-  lane's journal only after that lane's archive has been written, read back and verified.
+- **`--apply` only moves**: lanes into `archive/lanes/`, an archived lane's artifacts into
+  `archive/artifacts/`, legacy files into `archive/legacy/`. It rewrites `state.json`
+  without the lanes it archived, and removes a lane's journal — and moves its artifacts —
+  only after that lane's archive has been written, read back and verified.
 - **Purging is the only deletion.** It needs both `--purge-archive` and
-  `--purge-older-than-days N`, deletes only inside `archive/`, and never touches a hot lane
-  or a worktree.
+  `--purge-older-than-days N`, deletes only inside `archive/`, and never touches a hot lane,
+  a hot lane's artifacts, or a worktree. An archived lane's artifacts are purged only
+  alongside that lane's own archive, and `result.txt` is unlinked last of all.
 
 ## Upgrading an old state directory
 

@@ -24,6 +24,14 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const STALE_TEMP_MS = 60 * 60 * 1000;
 // Audit states that still need someone to act on the lane.
 const PENDING_AUDIT_STATES = ['queued', 'auditing', 'escalated'];
+// Dropped into an archived artifacts folder so the purge has an age to work from
+// and can find the lane the folder belongs to before deleting anything.
+export const ARCHIVED_ARTIFACTS_MARKER = '.orca-archived.json';
+// A lane's result.txt is the ONLY complete copy of a long agent report (the lane
+// record's resultText is capped). It is moved with everything else, and when a
+// purge finally does delete a folder it is unlinked LAST, so a purge that dies
+// half way through has still not destroyed the report.
+const LANE_RESULT_FILE = 'result.txt';
 
 // path: relative to the state directory. `gc`: what `orca gc` does with it.
 export const RETENTION = Object.freeze([
@@ -119,6 +127,13 @@ export const RETENTION = Object.freeze([
     gc: 'Purged only by `--purge-archive --purge-older-than-days N --apply`.',
   },
   {
+    path: 'archive/artifacts/<orchestrator>/<lane>/',
+    what: 'The artifacts of an archived lane, moved here whole: result.txt (the complete captured report, the only copy — lane.resultText is capped), outcome.txt, transcript.json, terminal.log, stdout.log, stderr.log, mcp-tools.json and screenshots, plus a .orca-archived.json marker recording when and from which lane.',
+    writer: '`orca gc --apply`, when it archives the lane.',
+    safeToDelete: 'Once the lane archive it belongs to is no longer needed. Its raw output is not readable through the API from here.',
+    gc: 'Purged only by `--purge-archive --purge-older-than-days N --apply`, and only once the lane\'s own archive goes in the same run; result.txt is deleted last.',
+  },
+  {
     path: 'workspaces/<orchestrator>/worktrees/<lane>',
     what: 'The git worktree of an isolated lane.',
     writer: 'The daemon, when it creates an isolated lane.',
@@ -127,14 +142,16 @@ export const RETENTION = Object.freeze([
   },
 ]);
 
-// Outside the state directory, and therefore not managed by gc.
+// Outside the state directory. gc does not sweep this tree on its own — it never
+// walks artifacts/ looking for things to tidy — but a lane's folder is no longer
+// stranded here: it moves into archive/ with the lane, under the same rules.
 export const OUTSIDE_STATE_DIR = Object.freeze([
   {
     path: '<daemon cwd>/artifacts/<orchestrator>/<lane>/',
     what: 'Per-lane artifacts: outcome.txt, result.txt (the complete captured report for that lane, whole even when lane.resultText was capped), transcript.json, terminal.log, stdout.log, stderr.log, mcp-tools.json, and captured screenshots. lane.terminal.tail, the live lane stream, lane.artifacts.list and lane.artifacts.get read them.',
     writer: 'The daemon and the executors it runs.',
     safeToDelete: 'When the lane\'s raw output and evidence are no longer needed. The lane record and its logs do not depend on them.',
-    gc: 'Size reported only.',
+    gc: 'Size reported. When the lane is archived, its folder is MOVED to archive/artifacts/<orchestrator>/<lane>/; a hot lane\'s artifacts are never touched.',
   },
 ]);
 
@@ -154,7 +171,7 @@ export function renderRetentionMarkdown() {
     ...header,
     ...RETENTION.map(row),
     '',
-    'Outside the state directory (not managed by `orca gc`):',
+    'Outside the state directory (gc does not sweep it; it follows the lane it belongs to):',
     '',
     ...header,
     ...OUTSIDE_STATE_DIR.map(row),
@@ -210,6 +227,9 @@ export function planGc({
     generatedAt: new Date(now).toISOString(),
     olderThanDays,
     purgeOlderThanDays: purgeArchive ? purgeOlderThanDays : null,
+    // Recorded so a re-plan (after a migration) decides artifacts the same way
+    // the first plan would have, instead of silently leaving them behind.
+    artifactsDir: artifactsDir || null,
     blocked: null,
     state: null,
     actions: [],
@@ -281,6 +301,23 @@ export function planGc({
       ageDays: roundDays(age),
       reason: `terminal (${lane.state}) and unchanged for ${roundDays(age)} days (threshold ${olderThanDays}).`,
     });
+
+    // Artifacts follow the lane. gc used to report this folder's size and manage
+    // nothing in it, which is how 808 MB of per-lane stdout.log / terminal.log /
+    // transcript.json accumulated against a 1.2 GB state directory. It is MOVED,
+    // like everything else gc touches, and only the explicit purge deletes it.
+    const artifactDir = laneArtifactDir(artifactsDir, lane);
+    if (artifactDir && fs.existsSync(artifactDir)) {
+      add({
+        kind: 'archive-artifacts',
+        ...label,
+        sessionId: lane.sessionId || 'orphan',
+        from: artifactDir,
+        bytes: dirBytes(artifactDir),
+        hasResult: fs.existsSync(path.join(artifactDir, LANE_RESULT_FILE)),
+        reason: 'its lane is being archived; artifacts move with it into archive/artifacts/ (nothing is deleted).',
+      });
+    }
   }
 
   // Journals no lane in state.json points at.
@@ -340,6 +377,20 @@ export function planGc({
         if (age === null || age < purgeOlderThanDays) continue;
         add({ kind: 'purge', target: path.relative(stateDir, archive.file), bytes: archive.bytes, ageDays: roundDays(age), reason: `lane archive older than ${purgeOlderThanDays} days.` });
       }
+      for (const entry of listArchivedArtifacts(stateDir)) {
+        const age = ageDaysOf(entry.archivedAt, now);
+        if (age === null || age < purgeOlderThanDays) continue;
+        add({
+          kind: 'purge-artifacts',
+          target: path.relative(stateDir, entry.dir),
+          laneId: entry.laneId,
+          sessionId: entry.sessionId,
+          bytes: entry.bytes,
+          ageDays: roundDays(age),
+          hasResult: entry.hasResult,
+          reason: `archived artifacts older than ${purgeOlderThanDays} days${entry.hasResult ? ', INCLUDING result.txt — the only complete copy of that lane\'s report' : ''}.`,
+        });
+      }
       for (const [dir, label] of [[paths.migrationsDir, 'migration archive'], [paths.legacyDir, 'legacy files']]) {
         let names = [];
         try { names = fs.readdirSync(dir); } catch { continue; }
@@ -363,6 +414,43 @@ export function planGc({
     ...(artifactsDir ? { artifactsOutsideStateDir: dirBytes(artifactsDir) } : {}),
   };
   return plan;
+}
+
+// The hot artifacts folder of one lane: <artifactsDir>/<orchestrator>/<lane>/.
+// The daemon lays it out this way (registry-lane-terminal.js, executor/cli-adapter.js).
+function laneArtifactDir(artifactsDir, lane) {
+  if (!artifactsDir || !lane?.id) return null;
+  return path.join(artifactsDir, laneKey(lane.sessionId || 'orphan'), laneKey(lane.id));
+}
+
+// Every archived artifacts folder, with the marker gc wrote when it moved it.
+// A folder with no readable marker still lists (with a null age) so it can never
+// become invisible; it simply never satisfies an age threshold.
+function listArchivedArtifacts(stateDir) {
+  const paths = statePaths(stateDir);
+  const out = [];
+  let sessions = [];
+  try { sessions = fs.readdirSync(paths.archivedArtifactsDir); } catch { return out; }
+  for (const session of sessions) {
+    const sessionDir = path.join(paths.archivedArtifactsDir, session);
+    let lanes = [];
+    try { lanes = fs.readdirSync(sessionDir); } catch { continue; }
+    for (const laneId of lanes) {
+      const dir = path.join(sessionDir, laneId);
+      try { if (!fs.statSync(dir).isDirectory()) continue; } catch { continue; }
+      let marker = null;
+      try { marker = JSON.parse(fs.readFileSync(path.join(dir, ARCHIVED_ARTIFACTS_MARKER), 'utf8')); } catch { /* unmarked */ }
+      out.push({
+        dir,
+        sessionId: session,
+        laneId: marker?.laneId || laneId,
+        archivedAt: marker?.archivedAt || null,
+        hasResult: fs.existsSync(path.join(dir, LANE_RESULT_FILE)),
+        bytes: dirBytes(dir),
+      });
+    }
+  }
+  return out;
 }
 
 function moveInto(dir, source) {
@@ -389,7 +477,7 @@ export function applyGc(plan, { now = Date.now(), migrate = null } = {}) {
     if (typeof migrate !== 'function') throw new Error('This state needs migrating first and no migration is available.');
     results.push({ kind: 'migrate-state', ...migrate({ stateDir, now }) });
     // A migration changes the lanes; decide again on the migrated state.
-    const replanned = planGc({ stateDir, now, olderThanDays: plan.olderThanDays, purgeArchive: plan.purgeOlderThanDays !== null, purgeOlderThanDays: plan.purgeOlderThanDays });
+    const replanned = planGc({ stateDir, now, olderThanDays: plan.olderThanDays, purgeArchive: plan.purgeOlderThanDays !== null, purgeOlderThanDays: plan.purgeOlderThanDays, artifactsDir: plan.artifactsDir });
     return [...results, ...applyGc(replanned, { now })];
   }
 
@@ -420,6 +508,30 @@ export function applyGc(plan, { now = Date.now(), migrate = null } = {}) {
     for (const lane of retiring) removeJournalFiles(stateDir, lane.id);
   }
 
+  // Artifacts move in the same place in the order the journals are removed: only
+  // once the lane's archive has been written, verified and committed to
+  // state.json. A move is a rename, so nothing is destroyed even if this dies.
+  for (const action of plan.actions.filter((item) => item.kind === 'archive-artifacts')) {
+    if (!fs.existsSync(action.from)) continue;
+    const target = path.join(paths.archivedArtifactsDir, laneKey(action.sessionId), laneKey(action.laneId));
+    fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
+    if (fs.existsSync(target)) {
+      // Never overwrite an existing archived folder: park the newcomer beside it.
+      fs.renameSync(action.from, `${target}.${stamp}`);
+      results.push({ kind: 'archive-artifacts', laneId: action.laneId, to: path.relative(stateDir, `${target}.${stamp}`), bytes: action.bytes });
+      continue;
+    }
+    fs.renameSync(action.from, target);
+    fs.writeFileSync(path.join(target, ARCHIVED_ARTIFACTS_MARKER), `${JSON.stringify({
+      laneId: action.laneId,
+      sessionId: action.sessionId,
+      archivedAt,
+      reason: action.reason,
+      hasResult: action.hasResult,
+    }, null, 2)}\n`, { mode: 0o600 });
+    results.push({ kind: 'archive-artifacts', laneId: action.laneId, to: path.relative(stateDir, target), bytes: action.bytes, hasResult: action.hasResult });
+  }
+
   for (const action of plan.actions.filter((item) => item.kind === 'archive-orphan-journal')) {
     const info = archiveOrphanJournal(stateDir, action.key, { archivedAt });
     results.push({ kind: 'archive-orphan-journal', key: action.key, file: info.relativeFile, bytes: info.bytes });
@@ -436,7 +548,7 @@ export function applyGc(plan, { now = Date.now(), migrate = null } = {}) {
   }
 
   const purges = plan.actions.filter((item) => item.kind === 'purge');
-  if (purges.length) {
+  if (purges.length || plan.actions.some((item) => item.kind === 'purge-artifacts')) {
     const purged = new Set();
     for (const action of purges) {
       const target = path.join(stateDir, action.target);
@@ -446,6 +558,40 @@ export function applyGc(plan, { now = Date.now(), migrate = null } = {}) {
       purged.add(action.target);
       results.push({ kind: 'purge', target: action.target, bytes: action.bytes });
     }
+    // Archived artifacts are deleted only AFTER the lane archives above, and only
+    // when this run is taking the lane's own archive too. result.txt is the only
+    // complete copy of that lane's report; while the lane archive it belongs to
+    // is still on disk, deleting it would orphan the record's pointer to it. So
+    // the artifacts refuse to go first, and say so.
+    const survivingLaneArchive = (laneId) => {
+      const dir = path.join(paths.archivedLanesDir, laneKey(laneId));
+      try { return fs.readdirSync(dir).some((name) => name.endsWith('.json.gz')); } catch { return false; }
+    };
+    for (const action of plan.actions.filter((item) => item.kind === 'purge-artifacts')) {
+      const target = path.join(stateDir, action.target);
+      if (!path.resolve(target).startsWith(`${path.resolve(paths.archiveDir)}${path.sep}`)) continue;
+      if (survivingLaneArchive(action.laneId)) {
+        results.push({
+          kind: 'keep-artifacts',
+          laneId: action.laneId,
+          target: action.target,
+          reason: `its lane archive is still on disk, so result.txt stays with it: purge the lane archive too (it is younger than the threshold) before these artifacts can go.`,
+        });
+        continue;
+      }
+      // Everything else first, result.txt last, THEN the folder. A purge
+      // interrupted half way has still not destroyed the complete report.
+      let names = [];
+      try { names = fs.readdirSync(target); } catch { continue; }
+      for (const name of names) {
+        if (name === LANE_RESULT_FILE) continue;
+        fs.rmSync(path.join(target, name), { recursive: true, force: true });
+      }
+      fs.rmSync(path.join(target, LANE_RESULT_FILE), { force: true });
+      fs.rmSync(target, { recursive: true, force: true });
+      results.push({ kind: 'purge-artifacts', laneId: action.laneId, target: action.target, bytes: action.bytes });
+    }
+
     // Drop index entries whose archive is gone, so lane.get says so plainly.
     let state = null;
     try { state = readJsonSync(paths.stateFile); } catch { /* no state */ }
@@ -477,6 +623,8 @@ export function formatGcPlan(plan, { apply = false, results = null } = {}) {
     'move-legacy': (a) => `${verb}move ${a.file} (${kb(a.bytes)}) to archive/legacy/: ${a.reason}`,
     'list-worktree': (a) => `stale worktree ${a.worktreePath}${a.exists ? '' : ' (already gone from disk)'} of lane ${a.laneId}: ${a.reason} -> ${a.hint}`,
     'list-orphan-worktree': (a) => `unreferenced worktree folder ${a.worktreePath}: ${a.reason}`,
+    'archive-artifacts': (a) => `${verb}move artifacts of lane ${a.laneId} (${kb(a.bytes)}${a.hasResult ? ', includes result.txt' : ''}) to archive/artifacts/: ${a.reason}`,
+    'purge-artifacts': (a) => `${apply ? 'DELETE' : 'would DELETE'} ${a.target} (${kb(a.bytes)}, ${a.ageDays} days old): ${a.reason}`,
     purge: (a) => `${apply ? 'DELETE' : 'would DELETE'} ${a.target} (${kb(a.bytes)}, ${a.ageDays} days old): ${a.reason}`,
   };
   if (!plan.actions.length) out.push('  nothing to do.');

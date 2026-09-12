@@ -21,6 +21,9 @@ export function statePaths(stateDir) {
     lanesDir: path.join(stateDir, 'lanes'),
     archiveDir,
     archivedLanesDir: path.join(archiveDir, 'lanes'),
+    // Where a lane's artifacts go when the lane is archived. Same archive/, same
+    // "moved, never deleted" rule, same purge — see RETENTION in state-gc.js.
+    archivedArtifactsDir: path.join(archiveDir, 'artifacts'),
     migrationsDir: path.join(archiveDir, 'migrations'),
     legacyDir: path.join(archiveDir, 'legacy'),
     workspacesDir: path.join(stateDir, 'workspaces'),
