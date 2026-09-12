@@ -19,6 +19,10 @@ const STROKE_ICONS = {
   // Refresh / regenerate (new pairing code) — the standard rotate-cw glyph: a
   // circular arc with a clear gap and a proper arrowhead at the top-right.
   refresh: { vb: '0 0 20 20', sw: 1.6, inner: '<path d="M17.5 10a7.5 7.5 0 1 1-7.5-7.5c2.1 0 4.11 0.83 5.62 2.28L17.5 6.67"/><path d="M17.5 2.5v4.17h-4.17"/>' },
+  // Rename: a project's display name is editable in place, in the left panel.
+  pencil: { vb: '0 0 20 20', sw: 1.6, inner: '<path d="M13.4 3.6a1.7 1.7 0 0 1 2.4 2.4L7.3 14.5l-3.2.8.8-3.2Z"/><path d="M12.2 4.8l3 3"/>' },
+  // Confirm (the rename editor's save; `close` is its cancel).
+  check: { vb: '0 0 20 20', sw: 1.9, inner: '<path d="M4.5 10.5l3.5 3.5 7.5-8"/>' },
 };
 
 export function icon(name, { cls = '', size = 16 } = {}) {

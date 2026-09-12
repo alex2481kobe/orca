@@ -10,12 +10,21 @@
 // agents and the dropdown picker thing you made, thats why we have the panel on
 // the left".
 //
+// A later pass put a HEADER LINE in the canvas in the dropdown's place
+// ("realm-shaper \u00b7 1 agent \u00b7 0 lanes") and the owner threw that out too:
+// "get rid of this i already told you, its bloat, thats the whole point of whats
+// below it and the panel already shows what project you are working in." So the
+// panel and the topbar are now the only places a project is NAMED — and the name
+// in the panel is where it is RENAMED ("the project name in the panel needs to be
+// renamable").
+//
 // So this seeds TWO projects and asserts: `/` is a welcome with no graph; a
 // project page draws its own work and none of the other project's; the sidebar
 // lists both, marks the open one, and CROSSES OVER when you click the other; the
 // scope is in the URL so a reload keeps it; a stale project id says so instead of
-// silently showing a different project; and neither removed control exists
-// anywhere on the page.
+// silently showing a different project; the panel renames a project without
+// moving its identity; every count agrees with its noun; and none of the three
+// removed controls (dropdown, retired toggle, header line) exists anywhere.
 //
 // Isolated .orca state (temp cwd), ephemeral port, bootstrap-admin on loopback —
 // the same harness shape as the other verify-* screens.
@@ -87,17 +96,21 @@ await page.waitForFunction(() => document.querySelectorAll('#ov-canvas .ov-node'
   .catch(() => { /* asserted explicitly below */ });
 const view = await page.evaluate(() => ({
   nodeTitles: [...document.querySelectorAll('.ov-node-title')].map((n) => n.textContent),
-  scopeName: document.querySelector('.ov-scope-name')?.textContent || '',
-  scopeNote: document.querySelector('.ov-scope-note')?.textContent || '',
+  topbar: document.getElementById('topbar-title')?.textContent || '',
   sidebarSelected: [...document.querySelectorAll('.sidebar-project.is-selected')].map((n) => n.textContent.replace(/\s+/g, ' ').trim()),
   // Neither removed control may exist, in any state.
   hasDropdown: Boolean(document.querySelector('[data-canvas="projects"], .ov-projects, .ov-project-row, .ov-scope-btn')),
   hasRetiredToggle: Boolean(document.querySelector('[data-canvas="retired"], .ov-retired-btn')),
+  // Nor the header line that replaced the dropdown. The owner, with a
+  // screenshot of "realm-shaper \u00b7 1 agent \u00b7 0 lanes": "get rid of this i
+  // already told you, its bloat, thats the whole point of whats below it and the
+  // panel already shows what project you are working in."
+  hasCanvasHeader: Boolean(document.querySelector('.ov-scope, .ov-scope-name, .ov-scope-note')),
 }));
 check('project.showsItsOwnWork', view.nodeTitles.some((t) => t.toLowerCase().includes(first.name)), view.nodeTitles);
 check('project.hidesTheOtherProject', !view.nodeTitles.some((t) => t.toLowerCase().includes(other.name)), view.nodeTitles);
-check('project.namesItself', view.scopeName === first.name, view.scopeName);
-check('project.reportsItsSize', /agent/.test(view.scopeNote) && /lane/.test(view.scopeNote), view.scopeNote);
+check('project.namedByTheTopbar', view.topbar === first.name, view.topbar);
+check('project.noCanvasHeaderLine', !view.hasCanvasHeader);
 check('project.noDropdownPicker', !view.hasDropdown);
 check('project.noRetiredToggle', !view.hasRetiredToggle);
 check('sidebar.marksTheOpenProject', view.sidebarSelected.length === 1 && view.sidebarSelected[0].includes(first.name), view.sidebarSelected);
@@ -105,30 +118,121 @@ check('sidebar.marksTheOpenProject', view.sidebarSelected.length === 1 && view.s
 // ---- The LEFT PANEL is the switcher, and it actually crosses over -----------
 await page.click(`.sidebar-project[data-pid="${other.id}"]`);
 await page.waitForFunction(
-  (name) => document.querySelector('.ov-scope-name')?.textContent === name,
+  (name) => document.getElementById('topbar-title')?.textContent === name,
   other.name,
   { timeout: 5000 },
 ).catch(() => { /* asserted below */ });
 const after = await page.evaluate(() => ({
   nodeTitles: [...document.querySelectorAll('.ov-node-title')].map((n) => n.textContent),
-  scopeName: document.querySelector('.ov-scope-name')?.textContent || '',
+  topbar: document.getElementById('topbar-title')?.textContent || '',
   hash: location.hash,
   sidebarSelected: [...document.querySelectorAll('.sidebar-project.is-selected')].map((n) => n.textContent.replace(/\s+/g, ' ').trim()),
 }));
-check('switch.scopeFollows', after.scopeName === other.name, after.scopeName);
+check('switch.scopeFollows', after.topbar === other.name, after.topbar);
 check('switch.treeFollows', !after.nodeTitles.some((t) => t.toLowerCase().includes(first.name)), after.nodeTitles);
 check('switch.sidebarFollows', after.sidebarSelected.length === 1 && after.sidebarSelected[0].includes(other.name), after.sidebarSelected);
 // The URL IS the scope: bookmarkable, shareable, and it survives a reload. There
 // is no remembered id in localStorage that could drift out of sync with it.
 check('switch.urlIsTheScope', after.hash === `#/project/${encodeURIComponent(other.id)}`, after.hash);
 await page.reload({ waitUntil: 'domcontentloaded' });
-await page.waitForFunction((name) => document.querySelector('.ov-scope-name')?.textContent === name, other.name, { timeout: 5000 }).catch(() => {});
+await page.waitForFunction((name) => document.getElementById('topbar-title')?.textContent === name, other.name, { timeout: 5000 }).catch(() => {});
 const reloaded = await page.evaluate(() => ({
-  scopeName: document.querySelector('.ov-scope-name')?.textContent || '',
+  topbar: document.getElementById('topbar-title')?.textContent || '',
   remembered: (() => { try { return localStorage.getItem('orca.project'); } catch { return null; } })(),
 }));
-check('reload.keepsTheProject', reloaded.scopeName === other.name, reloaded.scopeName);
+check('reload.keepsTheProject', reloaded.topbar === other.name, reloaded.topbar);
 check('reload.noSecondSourceOfTruth', reloaded.remembered === null, reloaded.remembered);
+
+// ---- The project name in the PANEL is renameable ----------------------------
+// The owner: "the project name in the panel needs to be renamable" \u2014 and,
+// separately, "i think in orca we should be able to rename the projects, and so
+// can the orch agents, like for example since you know we are working on truss
+// engine you could name it truss engine". A project was called whatever its
+// folder was called, with no way to say otherwise. This is the operator's half;
+// an orchestrator agent reaches the same capability over MCP as project.rename.
+//
+// It must change the DISPLAY NAME and nothing else: identity is realpath(cwd),
+// so the id, the folder and the lanes all stay where they were.
+const RENAMED = 'Truss Engine';
+const beforeRename = await page.evaluate((id) => ({
+  hasRenameControl: Boolean(document.querySelector(`[data-rename="${id}"]`)),
+  editorOpen: Boolean(document.querySelector('.sidebar-project-edit')),
+  onEveryRow: document.querySelectorAll('.sidebar-rename-btn').length,
+  rows: document.querySelectorAll('.sidebar-project').length,
+}), other.id);
+check('rename.controlIsInThePanel', beforeRename.hasRenameControl);
+check('rename.onEveryProjectRow', beforeRename.onEveryRow === beforeRename.rows, beforeRename);
+check('rename.startsClosed', !beforeRename.editorOpen);
+
+await page.click(`[data-rename="${other.id}"]`);
+await page.waitForSelector('#sidebar-rename-input', { timeout: 5000 }).catch(() => { /* asserted below */ });
+const opened = await page.evaluate(() => ({
+  value: document.getElementById('sidebar-rename-input')?.value ?? null,
+  focused: document.activeElement?.id === 'sidebar-rename-input',
+  hash: location.hash,
+}));
+check('rename.opensWithTheCurrentName', opened.value === other.name, opened.value);
+check('rename.focusesTheField', opened.focused);
+// Opening the editor is not navigation: the pencil must not double as the switcher.
+check('rename.openingIsNotASwitch', opened.hash === `#/project/${encodeURIComponent(other.id)}`, opened.hash);
+
+await page.fill('#sidebar-rename-input', RENAMED);
+await page.click(`[data-rename-save="${other.id}"]`);
+// No reload: the 2s poll picks the new name up from /api/overview, which it can
+// only do if the write reached the registry AND bumped what the dashboard diffs.
+await page.waitForFunction(
+  (name) => [...document.querySelectorAll('.sidebar-project')].some((n) => n.textContent.includes(name)),
+  RENAMED,
+  { timeout: 8000 },
+).catch(() => { /* asserted below */ });
+const renamed = await page.evaluate(() => ({
+  sidebar: [...document.querySelectorAll('.sidebar-project')].map((n) => n.textContent.replace(/\s+/g, ' ').trim()),
+  topbar: document.getElementById('topbar-title')?.textContent || '',
+  editorOpen: Boolean(document.querySelector('.sidebar-project-edit')),
+  nodes: document.querySelectorAll('.ov-node').length,
+}));
+check('rename.panelShowsTheNewName', renamed.sidebar.some((row) => row.includes(RENAMED)), renamed.sidebar);
+check('rename.topbarFollowsWithoutAReload', renamed.topbar === RENAMED, renamed.topbar);
+check('rename.editorClosesOnSave', !renamed.editorOpen);
+check('rename.keepsTheAgentsItHad', renamed.nodes > 0, renamed.nodes);
+
+// Identity did NOT move: same id, same cwd, same lanes, one project \u2014 and the
+// OTHER project is untouched.
+const afterRename = await fetch(`${base}/api/overview`).then((r) => r.json());
+const renamedProject = afterRename.projects.find((p) => p.id === other.id);
+check('rename.sameProjectId', Boolean(renamedProject), afterRename.projects.map((p) => p.id));
+check('rename.identityIsStillTheCwd', renamedProject?.cwd === other.cwd, { was: other.cwd, now: renamedProject?.cwd });
+check('rename.didNotSplitTheProject', afterRename.projects.length === 2, afterRename.projects.length);
+check('rename.keptItsLanes', renamedProject?.executorCount === 1, renamedProject?.executorCount);
+check(
+  'rename.leftTheOtherProjectAlone',
+  afterRename.projects.find((p) => p.id === first.id)?.name === first.name,
+  afterRename.projects.find((p) => p.id === first.id)?.name,
+);
+check('rename.didNotNavigate', (await page.evaluate(() => location.hash)) === `#/project/${encodeURIComponent(other.id)}`);
+
+// Escape abandons an edit rather than committing it.
+await page.click(`[data-rename="${other.id}"]`);
+await page.waitForSelector('#sidebar-rename-input', { timeout: 5000 }).catch(() => {});
+await page.fill('#sidebar-rename-input', 'Discarded');
+await page.keyboard.press('Escape');
+await page.waitForFunction(() => !document.getElementById('sidebar-rename-input'), null, { timeout: 5000 }).catch(() => {});
+const cancelled = await page.evaluate(() => [...document.querySelectorAll('.sidebar-project')].map((n) => n.textContent.replace(/\s+/g, ' ').trim()));
+check('rename.escapeDiscardsTheEdit', cancelled.some((row) => row.includes(RENAMED)) && !cancelled.some((row) => row.includes('Discarded')), cancelled);
+
+// ---- Counts agree with their nouns ("if there is 1 it needs to be agent") ----
+// Every project here holds exactly one lane and one agent, which is the case that
+// used to read "1 lanes" / "1 agents".
+const singulars = await page.evaluate(() => ({
+  sidebarTitles: [...document.querySelectorAll('.sidebar-count')].map((n) => n.getAttribute('title') || ''),
+  nodeSubs: [...document.querySelectorAll('.ov-node-sub')].map((n) => n.textContent || ''),
+  bodyText: document.body.innerText,
+}));
+const plurals = /\b1 (agents|lanes|projects|devices|mins|hours|days)\b/;
+check('plural.noOneAgents', !plurals.test(singulars.bodyText), (singulars.bodyText.match(plurals) || [])[0]);
+check('plural.noOneAgentsInTooltips', !singulars.sidebarTitles.some((t) => plurals.test(t)), singulars.sidebarTitles);
+check('plural.noOneAgentsOnNodes', !singulars.nodeSubs.some((t) => plurals.test(t)), singulars.nodeSubs);
+check('plural.sidebarTooltipReadsSingular', singulars.sidebarTitles.some((t) => /\b1 lane\b/.test(t)), singulars.sidebarTitles);
 
 // ---- A stale link says so; it never shows a different project ---------------
 await page.goto(`${base}/#/project/does-not-exist`, { waitUntil: 'domcontentloaded' });
@@ -142,7 +246,7 @@ check('stale.saysTheProjectIsGone', /not in Orca/i.test(missing.title), missing.
 check('stale.pointsAtThePanel', /panel on the left/i.test(missing.sub), missing.sub);
 check('stale.showsNoOtherProject', missing.nodes === 0, missing.nodes);
 
-console.log(`[verify] project-scope: ${JSON.stringify({ ...results, _measured: { first: first.name, other: other.name, nodesOnProject: view.nodeTitles.length, note: view.scopeNote } }, null, 2)}`);
+console.log(`[verify] project-scope: ${JSON.stringify({ ...results, _measured: { first: first.name, other: other.name, renamedTo: RENAMED, nodesOnProject: view.nodeTitles.length } }, null, 2)}`);
 await browser.close();
 server.close();
 if (failed) { console.error('[verify] project-scope FAILED'); process.exit(1); }

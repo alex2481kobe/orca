@@ -36,6 +36,35 @@ export async function handleProjectRoutes(ctx, req, res, method, parts) {
       return sendJson(res, 404, { error: 'Project not found.' });
     }
 
+    // POST /api/projects/{projectId}/name — rename the DISPLAY NAME.
+    //
+    // A dedicated sub-route, not a field on PATCH /api/projects/{id}: that one is
+    // operator-only and approval-gated, and it can also change the slug (and so
+    // the route). This capability is deliberately narrower than that, so it gets
+    // its own address the tool-lease map can scope (server.js
+    // toolLeaseRequirementForRoute -> project.rename).
+    //
+    // WHO the registry sees. req._toolLease is set only when the caller presented
+    // a valid tool lease for THIS route; an operator (workstation token, paired
+    // device, dashboard session) has none, and gets the 'dashboard' pseudo-id that
+    // renameProject treats as operator authority. A lease acts as its owner, so a
+    // lease obtained from a refresh credential still owns what that credential
+    // registered.
+    if (parts.length === 4 && parts[3] === 'name' && method === 'POST') {
+      const body = await parseJsonBody(req);
+      if (body === null) return sendBodyError(req, res);
+      if (rejectSpoofedActor(body, res)) return;
+      try {
+        const renamed = registry.renameProject(project.id, { name: body.name }, {
+          actor: req._toolLease?.actor || body.actor || 'dashboard',
+          leaseId: req._toolLease ? (req._toolLease.ownerId || req._toolLease.id) : 'dashboard',
+        });
+        return sendJson(res, 200, renamed);
+      } catch (error) {
+        return sendJson(res, error.status || 500, { error: error.message || 'Could not rename project.' });
+      }
+    }
+
     if (parts.length === 4 && (parts[3] === 'archive' || parts[3] === 'restore') && method === 'POST') {
       const body = await parseJsonBody(req);
       if (body === null) return sendBodyError(req, res);

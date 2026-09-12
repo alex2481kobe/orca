@@ -6,7 +6,62 @@
 .sidebar-pair-button { text-align: left; }
 /* ---- sidebar project rows (extend .sidebar-link from styles.css) ---- */
 .sidebar-project { grid-template-columns: auto minmax(0, 1fr) auto; }
-.sidebar-project.is-selected { background: var(--active, var(--hover)); border-color: var(--line-soft); font-weight: 600; }
+/* The row is the switcher PLUS the rename affordance, so selection and hover
+   paint the pair as one unit (they used to sit on the button, which is now only
+   part of the row). The button keeps the weight, so the selected NAME still
+   reads as selected. */
+.sidebar-project-row { display: flex; align-items: center; gap: 2px; border: 1px solid transparent; border-radius: var(--radius); }
+.sidebar-project-row > .sidebar-project { flex: 1 1 auto; min-width: 0; }
+.sidebar-project-row.is-selected { background: var(--active, var(--hover)); border-color: var(--line-soft); }
+.sidebar-project.is-selected { font-weight: 600; }
+@media (hover: hover) { .sidebar-project-row:hover { background: var(--hover); } }
+
+/* "the project name in the panel needs to be renamable" — the owner. The pencil
+   is the only pixel this adds at rest, and it appears on hover/focus so the
+   panel still reads as a list of names. Display name only: the row's tooltip is
+   still the project's real identity, its cwd. */
+.sidebar-rename-btn {
+  display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  width: 1.5rem; height: 1.5rem; margin-right: 0.2rem; padding: 0;
+  color: var(--muted); background: transparent; border: 0; border-radius: var(--radius-sm);
+  cursor: pointer; opacity: 0; transition: opacity 120ms ease;
+}
+.sidebar-rename-btn svg { display: block; }
+@media (hover: hover) {
+  .sidebar-project-row:hover .sidebar-rename-btn { opacity: 1; }
+  .sidebar-rename-btn:hover { color: var(--text); background: var(--hover); }
+}
+/* No hover on a touch screen, and this dashboard is meant to be read on a phone:
+   an affordance that only appears on hover would not exist there at all. */
+@media (hover: none) { .sidebar-rename-btn { opacity: 1; } }
+.sidebar-rename-btn:focus-visible { opacity: 1; outline: 1px solid var(--accent-blue); outline-offset: -1px; }
+
+/* The editor REPLACES the row while it is open, so the row being renamed cannot
+   also be clicked as a switcher mid-edit. */
+.sidebar-project-edit {
+  display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+  padding: 0.3rem 0.2rem 0.3rem 0.55rem;
+}
+.sidebar-rename-input {
+  flex: 1 1 5rem; min-width: 0; font: inherit; font-size: 0.88rem;
+  padding: 0.16rem 0.35rem; color: var(--text); background: var(--panel);
+  border: 1px solid var(--accent-blue); border-radius: var(--radius-sm);
+}
+.sidebar-rename-input:focus { outline: none; }
+.sidebar-rename-act {
+  display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  width: 1.4rem; height: 1.4rem; padding: 0; cursor: pointer;
+  color: var(--muted); background: transparent;
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+}
+.sidebar-rename-act svg { display: block; }
+@media (hover: hover) { .sidebar-rename-act:hover { color: var(--text); background: var(--hover); } }
+/* A refusal has to be readable on the device that hit it — a paired phone can be
+   told it may not do this, and silence would read as a dead button. */
+.sidebar-rename-error { flex: 1 0 100%; font-size: 0.72rem; line-height: 1.35; color: var(--danger); }
+/* Collapsed to icons there is no name on screen, so there is nothing to rename. */
+body.sidebar-collapsed .sidebar-rename-btn,
+body.sidebar-collapsed .sidebar-project-edit { display: none; }
 .sidebar-folder { display: inline-flex; width: 17px; height: 14px; color: var(--muted); }
 .sidebar-folder svg { width: 17px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.4; }
 .sidebar-project .pill { justify-self: end; color: var(--accent-blue); background: color-mix(in srgb, var(--accent-blue) 14%, transparent); }
@@ -280,22 +335,6 @@ body.home-canvas .fence-banner { max-width: none; margin: 0 0 var(--space-3); }
 body.access-gated .fence-banner,
 body.app-offline .fence-banner { display: none; }
 
-/* ---- project header: which project this PAGE is, and what it is not drawing ----
-   A label, not a control. The dropdown that used to live here duplicated the
-   sidebar and is gone ("thats why we have the panel on the left"), and so is the
-   "hide retired" toggle beside it. What survives is the honest-count contract:
-   the name, what the project HAS, and anything the per-agent lane window did not
-   draw — never dropped in silence. */
-.ov-scope { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; min-width: 0; }
-.ov-scope-title {
-  display: inline-flex; align-items: center; gap: 6px; min-width: 0;
-  font-size: 0.92rem; font-weight: 650; color: var(--text);
-}
-.ov-scope-folder { display: inline-flex; color: var(--muted); flex: 0 0 auto; }
-.ov-scope-folder svg { display: block; }
-.ov-scope-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ov-scope-note { font-size: 0.76rem; color: var(--muted); min-width: 0; }
-
 /* A project with nothing to draw is still a project. This sits IN the canvas and
    names it, instead of the daemon-level "no agents registered" screen — the two
    states mean different things (docs/audits/2026-09-11-overview-empty.md). */
@@ -308,14 +347,10 @@ body.app-offline .fence-banner { display: none; }
 .ov-project-empty .ov-empty-title { font-size: 0.98rem; font-weight: 600; color: var(--text); }
 .ov-project-empty .ov-empty-sub { font-size: 0.82rem; color: var(--muted); max-width: 42ch; }
 
-@media (max-width: 880px) {
-  /* The fixed drawer button floats over the top-left corner. The project header
-     is the FIRST row, so it takes that indent and the stat cards give it back.
-     The counts wrap away before the project name does. */
-  .ov-scope { gap: var(--space-2); padding-left: 2.6rem; flex-wrap: nowrap; overflow-x: auto; }
-  .ov-statbar { padding-left: 0; }
-  .ov-scope-note { display: none; }
-}
+/* (No phone override for .ov-statbar here any more. The project header used to be
+   the first row and took the drawer-button indent, so this block gave it back
+   with padding-left: 0. With the header gone the stat cards are the first row
+   again, and the phone block far above already indents them.) */
 
 
 /* ================= Home: the WELCOME =================

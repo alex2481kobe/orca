@@ -49,6 +49,41 @@ let failed = false;
 const check = (name, cond) => { results[name] = Boolean(cond); if (!cond) { failed = true; console.error(`  FAIL ${name}`); } };
 const post = (p, body) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
 
+// ---- EMPTY FIRST: a freshly wiped Orca must read as a WORKING daemon ---------
+// The owner is looking at exactly this right now — state deliberately wiped, no
+// projects, no agents. An empty dashboard is the state most likely to be read as
+// "Orca is broken", and it was: the audit that produced this screen
+// (docs/audits/2026-09-11-overview-empty.md) was a dashboard that said nothing
+// over a state that was full. So the empty case has to SAY it is empty, say the
+// daemon is alive, say WHICH state directory it is looking at, and say what to do
+// next — never blank, never an error, never the offline/pairing takeover.
+const emptyCtx = await b.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: 'dark' });
+const emptyPage = await emptyCtx.newPage();
+await emptyPage.goto(`${base}/`, { waitUntil: 'domcontentloaded' });
+await emptyPage.waitForFunction(() => Boolean(document.querySelector('.wel-wrap')), null, { timeout: 8000 }).catch(() => {});
+const empty = await emptyPage.evaluate(() => ({
+  hasWelcome: Boolean(document.querySelector('.wel-wrap')),
+  title: document.querySelector('.wel-title')?.textContent || '',
+  stats: [...document.querySelectorAll('.wel-stat')].map((n) => `${n.querySelector('.wel-stat-n')?.textContent} ${n.querySelector('.wel-stat-l')?.textContent}`),
+  stateDir: [...document.querySelectorAll('.wel-facts dd')].map((n) => n.textContent.trim())[0] || '',
+  text: document.getElementById('content')?.textContent || '',
+  sidebarEmpty: document.querySelector('.sidebar-empty')?.textContent || '',
+  sidebarProjects: document.querySelectorAll('.sidebar-project').length,
+  // The two takeovers that would make an idle daemon look like a dead one.
+  offline: document.body.classList.contains('app-offline'),
+  gated: document.body.classList.contains('access-gated'),
+}));
+check('empty.saysOrcaIsRunning', /running/i.test(empty.title));
+check('empty.notOfflineOrGated', !empty.offline && !empty.gated);
+check('empty.countsAreZeroNotMissing', empty.stats.length === 4 && empty.stats.every((line) => /^\d/.test(line)));
+// "0 projects", not "0 project" — the pluralisation rule holds at zero too.
+check('empty.countsAgreeWithTheirNouns', empty.stats.some((line) => /^0 projects\b/.test(line)) && !empty.stats.some((line) => /^1 \w+s\b/.test(line)));
+check('empty.namesItsStateDir', empty.stateDir.length > 0);
+check('empty.saysWhatToDoNext', /orchestrator\.register/.test(empty.text) && /panel on the left/.test(empty.text));
+check('empty.panelSaysEmptyNotBlank', /no projects yet/i.test(empty.sidebarEmpty) && empty.sidebarProjects === 0);
+await emptyPage.screenshot({ path: path.join(outDir, 'welcome-empty.png') });
+await emptyCtx.close();
+
 // ---- Seed: a project (via its orchestrator) + a mock-executor lane under it ----
 const projDir = await fs.realpath(await (async () => { const d = path.join(realTemp, 'Demo Project'); await fs.mkdir(d, { recursive: true }); return d; })());
 const orch = await post('/api/orchestrators', { actor: 'demo', cwd: projDir, title: 'Demo orchestrator' });
@@ -131,17 +166,31 @@ check('canvas.executorCli', view.execCli === 'mock');
 check('canvas.edgesPath', view.edgeD.length > 0);
 check('canvas.statCards', view.statCount === 3);
 check('canvas.statNumbersSane', view.statNums.length === 3 && view.statNums.every((n) => Number.isFinite(n) && n >= 0) && view.statNums.reduce((a, c) => a + c, 0) === 2);
-check('canvas.statLabels', JSON.stringify(view.statLabels) === JSON.stringify(['Active agents', 'Queued agents', 'Idle / complete']));
+// Derived from the numbers beside them, not hardcoded: the owner's rule is "if
+// there is 1 it needs to be agent not agents", and these cards print a count.
+const expectedStatLabels = [
+  `Active agent${view.statNums[0] === 1 ? '' : 's'}`,
+  `Queued agent${view.statNums[1] === 1 ? '' : 's'}`,
+  'Idle / complete',
+];
+check('canvas.statLabels', JSON.stringify(view.statLabels) === JSON.stringify(expectedStatLabels));
+check('canvas.statLabelsAgreeAtOne', view.statNums[0] !== 1 || view.statLabels[0] === 'Active agent');
 
-// The project page names itself and reports its size, with no switcher on it.
+// The project page is named by the PANEL and the topbar, and carries no header
+// line of its own. A sister lane put one in the canvas ("Demo Project \u00b7 1
+// agent \u00b7 1 lane") and the owner threw it out with a screenshot: "get rid of
+// this i already told you, its bloat, thats the whole point of whats below it and
+// the panel already shows what project you are working in."
 const header = await p.evaluate(() => ({
-  name: document.querySelector('.ov-scope-name')?.textContent || '',
-  note: document.querySelector('.ov-scope-note')?.textContent || '',
+  topbar: document.getElementById('topbar-title')?.textContent || '',
+  panelSelected: [...document.querySelectorAll('.sidebar-project.is-selected')].map((n) => n.textContent.replace(/\s+/g, ' ').trim()),
+  hasCanvasHeader: Boolean(document.querySelector('.ov-scope, .ov-scope-name, .ov-scope-note')),
   hasDropdown: Boolean(document.querySelector('[data-canvas="projects"], .ov-project-row')),
   hasRetiredToggle: Boolean(document.querySelector('[data-canvas="retired"]')),
 }));
-check('project.namesItself', header.name === 'Demo Project');
-check('project.reportsItsSize', /agent/.test(header.note) && /lane/.test(header.note));
+check('project.namedByTheTopbar', header.topbar === 'Demo Project');
+check('project.namedByThePanel', header.panelSelected.length === 1 && header.panelSelected[0].includes('Demo Project'));
+check('project.noCanvasHeaderLine', !header.hasCanvasHeader);
 check('project.hasNoDropdownPicker', !header.hasDropdown);
 check('project.hasNoRetiredToggle', !header.hasRetiredToggle);
 

@@ -2,13 +2,14 @@
 // Bump BOTH together via `node scripts/sync-asset-version.mjs <version>`; the
 // pwa-cache smoke fails if they drift. (The suffix after 'orca-static-' is the
 // shared token.)
-const CACHE_NAME = 'orca-static-v2-31';
+const CACHE_NAME = 'orca-static-v2-32';
 const STATIC_ASSETS = [
   '/',
   '/styles.css',
   '/ui/overview.css',
   '/ui/overview.js',
   '/ui/scope.js',
+  '/ui/text.js',
   '/ui/icons.js',
   '/ui/qr.js',
   '/theme-init.js',

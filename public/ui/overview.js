@@ -24,6 +24,7 @@
 import { icon, FOLDER_ICON } from './icons.js';
 import { qrSvgForText } from './qr.js';
 import { resolveProject, projectView } from './scope.js';
+import { countOf, isAre, plural } from './text.js';
 
 const body = document.body;
 const sideProjects = document.getElementById('sidebar-projects');
@@ -52,6 +53,13 @@ let accessBlocked = false;
 // Any successful HTTP response clears it and the poll loop reconnects on its own.
 let offline = false;
 let sawFirstResponse = false;
+// The open project-name editor in the left panel, if any: { projectId, error }.
+// A project's display name was the basename of its folder and nothing could
+// change it ("the project name in the panel needs to be renamable"). This is the
+// operator's half of it; an orchestrator agent has project.rename. It lives in
+// module state because the 2s poll rebuilds the panel and would otherwise type
+// over whoever is editing it — see renderSidebar's force flag.
+let renaming = null;
 function route() { return (location.hash.replace(/^#\/?/, '') || 'home'); }
 const PROJECT_ROUTE = 'project/';
 // Which SCREEN the address names, and (for a project page) which project.
@@ -119,25 +127,58 @@ document.addEventListener('click', (e) => {
 document.getElementById('brand-home').addEventListener('click', (e) => { e.preventDefault(); closeMobileNav(); location.hash = ''; renderScreen(); });
 
 // ---- sidebar project list ----
-function renderSidebar(data) {
+//
+// THE switcher, and — since 2026-09-12 — where a project is NAMED. The owner:
+// "the project name in the panel needs to be renamable". A project used to be
+// called whatever its folder was called, with no way to say otherwise, so the
+// panel showed `realm-shaper` for work everyone calls the Truss engine.
+//
+// The rename changes the DISPLAY NAME only. A project's identity is
+// realpath(cwd) — still this row's tooltip — so it can never re-key the project,
+// split it, or move its lanes, and it does not touch the folder on disk. It is
+// the same capability an orchestrator agent reaches over MCP as project.rename.
+function renderSidebar(data, { force = false } = {}) {
+  // The poll rebuilds this list every 2 seconds. While a name is being edited,
+  // rewriting it would throw away what is half-typed (and the caret with it), so
+  // the OPEN EDITOR owns the list until it is saved or cancelled; the rename
+  // handlers redraw it themselves with force.
+  if (!force && renaming && document.getElementById('sidebar-rename-input')) return;
   const r = route();
-  // THE switcher. Not one of two: the in-canvas dropdown that used to duplicate
-  // it is gone. It marks the project the URL currently names and says how big
-  // each one is — a live count when something is running, otherwise the total
-  // lane count. A project with nothing in it still gets a row: an empty project
-  // is a visible project.
+  // It marks the project the URL currently names and says how big each one is —
+  // a live count when something is running, otherwise the total lane count. A
+  // project with nothing in it still gets a row: an empty project is a visible
+  // project.
   const current = routeProjectId();
   sideProjects.innerHTML = data.projects.map((p) => {
     const sel = (p.id === current) ? ' is-selected' : '';
     const live = Number(p.liveExecutorCount) || 0;
+    const lanes = Number(p.executorCount) || 0;
     const count = live
-      ? `<span class="sidebar-count is-live" title="${live} running">${live}</span>`
-      : `<span class="sidebar-count" title="${Number(p.executorCount) || 0} lanes, none running">${Number(p.executorCount) || 0}</span>`;
-    return `<button class="sidebar-link sidebar-project${sel}" data-pid="${esc(p.id)}" type="button" title="${esc(p.cwd)}">
-      <span class="sidebar-folder" aria-hidden="true">${FOLDER_ICON}</span>
-      <span>${esc(p.name)}</span>
-      ${count}
-    </button>`;
+      ? `<span class="sidebar-count is-live" title="${esc(countOf(live, 'lane'))} running">${live}</span>`
+      : `<span class="sidebar-count" title="${esc(countOf(lanes, 'lane'))}, none running">${lanes}</span>`;
+    if (renaming && renaming.projectId === p.id) {
+      // The editor REPLACES the row while it is open, so the row it edits cannot
+      // also be clicked as a switcher mid-edit. Enter saves, Escape cancels; the
+      // two buttons are the discoverable form of the same thing.
+      return `<div class="sidebar-project-edit">
+        <span class="sidebar-folder" aria-hidden="true">${FOLDER_ICON}</span>
+        <input class="sidebar-rename-input" id="sidebar-rename-input" type="text" maxlength="120" spellcheck="false"
+          value="${esc(p.name)}" aria-label="Project display name" />
+        <button class="sidebar-rename-act" data-rename-save="${esc(p.id)}" type="button" title="Save" aria-label="Save the new name">${icon('check', { size: 14 })}</button>
+        <button class="sidebar-rename-act" data-rename-cancel="1" type="button" title="Cancel" aria-label="Cancel renaming">${icon('close', { size: 14 })}</button>
+        ${renaming.error ? `<span class="sidebar-rename-error">${esc(renaming.error)}</span>` : ''}
+      </div>`;
+    }
+    return `<div class="sidebar-project-row${sel}">
+      <button class="sidebar-link sidebar-project${sel}" data-pid="${esc(p.id)}" type="button" title="${esc(p.cwd)}">
+        <span class="sidebar-folder" aria-hidden="true">${FOLDER_ICON}</span>
+        <span class="sidebar-project-name">${esc(p.name)}</span>
+        ${count}
+      </button>
+      <button class="sidebar-rename-btn" data-rename="${esc(p.id)}" type="button"
+        title="Rename this project (display name only — the folder on disk is not touched)"
+        aria-label="Rename ${esc(p.name)}">${icon('pencil', { size: 13 })}</button>
+    </div>`;
   }).join('') || '<div class="sidebar-empty">No projects yet.</div>';
   // Nav active state (Remote devices pair-button + Settings footer row)
   document.querySelectorAll('#sidebar [data-nav]').forEach((b) => b.classList.toggle('is-selected', b.dataset.nav === r));
@@ -210,7 +251,7 @@ function buildForest(orchestrators) {
     // never mistaken for the whole history — see projectView in scope.js.
     const omitted = Number(o.olderExecutorCount) || 0;
     const sub = omitted
-      ? `${o.focus || 'Orchestrator'} · ${omitted} older lane${omitted === 1 ? '' : 's'} not shown`
+      ? `${o.focus || 'Orchestrator'} · ${countOf(omitted, 'older lane')} not shown`
       : (o.focus || 'Orchestrator');
     roots.push({
       id: o.id, kind: 'orchestrator', title: o.title || 'Orchestrator',
@@ -351,8 +392,12 @@ function renderStats(orchestrators) {
       else active++;
     });
   });
+  // The number and its label are separate elements but read as one phrase, so the
+  // label agrees with the number: "1 Active agent", never "1 Active agents".
   const card = (n, label, cls) => `<div class="ov-stat"><div class="ov-stat-n ${cls}">${n}</div><div class="ov-stat-l">${label}</div></div>`;
-  return card(active, 'Active agents', 'st-run') + card(queued, 'Queued agents', 'st-queue') + card(done, 'Idle / complete', 'st-idle');
+  return card(active, plural(active, 'Active agent'), 'st-run')
+    + card(queued, plural(queued, 'Queued agent'), 'st-queue')
+    + card(done, 'Idle / complete', 'st-idle');
 }
 
 // ---- per-node ⋯ action menu: ONE shared element positioned at SCREEN coords
@@ -394,7 +439,6 @@ function closeNodeMenu() {
 function buildCanvas() {
   content.innerHTML = `
     <div class="ov-workspace">
-      <div class="ov-scope" id="ov-scope"></div>
       <div class="ov-topbar">
         <div class="ov-statbar" id="ov-statbar"></div>
         <div class="ov-controls">
@@ -421,9 +465,8 @@ function buildCanvas() {
   const statbar = document.getElementById('ov-statbar');
   const links = document.getElementById('ov-links');
   const menu = document.getElementById('ov-node-menu');
-  const scope = document.getElementById('ov-scope');
   const projectEmpty = document.getElementById('ov-project-empty');
-  canvasEls = { workspace, canvas, scene, edges, statbar, links, menu, scope, projectEmpty };
+  canvasEls = { workspace, canvas, scene, edges, statbar, links, menu, projectEmpty };
 
   // Pan: drag the canvas background (not a node/menu/link). rAF-coalesced → one
   // transform write per frame. Pointer capture so the drag survives leaving the box.
@@ -462,32 +505,24 @@ function zoomAt(cx, cy, factor) {
   applyViewport();
 }
 
-// The project header: which project this page IS, and what it is not drawing.
+// (There is no project header on the canvas any more.)
 //
-// It is a LABEL, not a control. The switcher it used to be — a dropdown listing
-// every project, in the canvas, next to a sidebar already listing every project
-// — was the owner's "the dropdown picker thing you made, thats why we have the
-// panel on the left". Its whole job now is to keep the honest-count contract:
-// what this project HAS, beside what is on the canvas, so a bounded window can
-// never be mistaken for the whole history.
-function renderProjectHeader(project, view) {
-  const facts = [];
-  const agents = view.orchestratorCount;
-  facts.push(`${agents} agent${agents === 1 ? '' : 's'}`);
-  if (view.retiredOrchestratorCount) facts.push(`${view.retiredOrchestratorCount} retired`);
-  facts.push(view.olderExecutorCount
-    ? `${view.shownExecutorCount} of ${view.totalExecutorCount} lanes shown`
-    : `${view.totalExecutorCount} lane${view.totalExecutorCount === 1 ? '' : 's'}`);
-  const older = view.olderExecutorCount
-    ? `<span class="ov-scope-note">${view.olderExecutorCount} older finished lane${view.olderExecutorCount === 1 ? '' : 's'} not drawn (newest ${view.laneWindow} per agent)</span>`
-    : '';
-  return `<span class="ov-scope-title">
-      <span class="ov-scope-folder" aria-hidden="true">${FOLDER_ICON}</span>
-      <span class="ov-scope-name">${esc(project.name || 'Project')}</span>
-    </span>
-    <span class="ov-scope-note">${esc(facts.join(' \u00b7 '))}</span>
-    ${older}`;
-}
+// A sister lane added one when it removed the dropdown picker: a line above the
+// graph reading "realm-shaper \u00b7 1 agent \u00b7 0 lanes". The owner, with a
+// screenshot: "get rid of this i already told you, its bloat, thats the whole
+// point of whats below it and the panel already shows what project you are
+// working in."
+//
+// He is right, and nothing was lost with it. Everything that line said is said
+// once already, closer to the thing it describes:
+//   - WHICH project        the left panel marks it, and the topbar names it;
+//   - how many agents/lanes the stat cards count them and the canvas draws them;
+//   - what is NOT drawn     each agent node carries its own "N older lanes not
+//                           shown" (buildForest), which is the honest-count
+//                           contract that actually matters — the project-level
+//                           total was a second statement of the same number.
+// So the rule for any future count on this screen: it goes where nothing else
+// already says it, not stacked above the thing it counts.
 
 // ================= Home: the WELCOME =================
 // Deliberately NOT a dashboard. No agent graph, no project cards, and no list
@@ -518,7 +553,7 @@ function renderWelcome(data) {
     orientation = `<p class="wel-line">No projects yet. One appears the moment an agent registers from its directory
       (<code>orchestrator.register</code>), and it shows up in the panel on the left.</p>`;
   } else if (live) {
-    orientation = `<p class="wel-line"><strong>${live} lane${live === 1 ? ' is' : 's are'} running right now.</strong>
+    orientation = `<p class="wel-line"><strong>${countOf(live, 'lane')} ${isAre(live)} running right now.</strong>
       Open a project in the panel on the left to watch it.</p>`;
   } else if (named) {
     orientation = `<p class="wel-line">Nothing is running. The most recent work was in <strong>${esc(named.name)}</strong> —
@@ -535,13 +570,13 @@ function renderWelcome(data) {
         the work itself lives in the projects.</p>
     </section>
     <section class="wel-stats" aria-label="What Orca is holding">
-      ${stat(projectCount, `project${projectCount === 1 ? '' : 's'}`)}
-      ${stat(counts.orchestrators ?? 0, `agent${(counts.orchestrators ?? 0) === 1 ? '' : 's'}`)}
-      ${stat(counts.lanes ?? 0, `lane${(counts.lanes ?? 0) === 1 ? '' : 's'}`)}
+      ${stat(projectCount, plural(projectCount, 'project'))}
+      ${stat(counts.orchestrators ?? 0, plural(counts.orchestrators ?? 0, 'agent'))}
+      ${stat(counts.lanes ?? 0, plural(counts.lanes ?? 0, 'lane'))}
       ${stat(live, 'running now')}
     </section>
     ${orientation}
-    ${archived ? `<p class="wel-line wel-aside">${archived} archived project${archived === 1 ? ' is' : 's are'} kept out of the panel.</p>` : ''}
+    ${archived ? `<p class="wel-line wel-aside">${countOf(archived, 'archived project')} ${isAre(archived)} kept out of the panel.</p>` : ''}
     <dl class="wel-facts">
       <dt>State directory</dt><dd><code>${esc(daemon.stateDir || 'unknown')}</code></dd>
       <dt>Artifacts</dt><dd><code>${esc(daemon.artifactRoot || 'unknown')}</code></dd>
@@ -568,7 +603,7 @@ function renderProject(data) {
       ${icon('agent', { size: 26 })}
       <div class="ov-empty-title">${missing ? 'That project is not in Orca’s state' : 'No project selected'}</div>
       <div class="ov-empty-sub">${missing
-        ? `Orca is holding ${held} project${held === 1 ? '' : 's'} right now and this link names none of them. Pick one from the panel on the left.`
+        ? `Orca is holding ${countOf(held, 'project')} right now and this link names none of them. Pick one from the panel on the left.`
         : 'Pick a project from the panel on the left.'}</div>
     </div></div>`;
     return;
@@ -589,7 +624,6 @@ function renderProject(data) {
 
   // Stat cards: cheap, every render.
   canvasEls.statbar.innerHTML = renderStats(shownOrchestrators);
-  canvasEls.scope.innerHTML = renderProjectHeader(project, view);
   // Live-links popover contents (kept in sync; visibility toggled by the button).
   const previews = collectPreviews(project);
   canvasEls.links.innerHTML = previews.length ? previews.map(previewChip).join('') : '<span class="tiny muted">No live links yet.</span>';
@@ -650,12 +684,11 @@ function formatRelative(iso) {
   const diff = t - Date.now();
   const abs = Math.abs(diff);
   const MIN = 60000, HR = 3600000, DAY = 86400000;
-  const unit = (n, u) => `${n} ${u}${n === 1 ? '' : 's'}`;
   let s;
   if (abs < MIN) return 'just now';
-  else if (abs < HR) s = unit(Math.round(abs / MIN), 'min');
-  else if (abs < DAY) s = unit(Math.round(abs / HR), 'hour');
-  else s = unit(Math.round(abs / DAY), 'day');
+  else if (abs < HR) s = countOf(Math.round(abs / MIN), 'min');
+  else if (abs < DAY) s = countOf(Math.round(abs / HR), 'hour');
+  else s = countOf(Math.round(abs / DAY), 'day');
   return diff < 0 ? `${s} ago` : `in ${s}`;
 }
 
@@ -778,7 +811,7 @@ function renderPairPanel(ctx) {
           <div class="device-cards">
             ${cardBtn('serve', tailnetStatus, 'Tailnet')}
             ${cardBtn('https', accessModeSummary, 'Access mode')}
-            ${cardBtn('devices', `${pairedCount} device${pairedCount === 1 ? '' : 's'}`, 'Paired devices')}
+            ${cardBtn('devices', countOf(pairedCount, 'device'), 'Paired devices')}
           </div>
           ${openDeviceCard && detailFor[openDeviceCard] ? `<div class="device-detail">${detailFor[openDeviceCard]}</div>` : ''}
         </div>
@@ -1102,6 +1135,9 @@ async function poll() {
 // is a real URL, so it can be bookmarked, shared and reloaded, and the sidebar
 // highlight can never disagree with what is on screen.
 sideProjects.addEventListener('click', (e) => {
+  // A click inside the open rename editor is not a switch. (The rename listener
+  // stops propagation on its own controls; this covers the input and the row.)
+  if (e.target.closest('.sidebar-project-edit, [data-rename]')) return;
   const btn = e.target.closest('.sidebar-project');
   if (!btn || !btn.dataset.pid) return;
   fitPending = true;
@@ -1126,6 +1162,81 @@ function remoteNote(text) {
   }
   note.textContent = text;
 }
+
+// ---- rename a project's DISPLAY NAME, from the panel ----
+// The owner: "the project name in the panel needs to be renamable". This is the
+// operator's half of the capability an orchestrator agent reaches over MCP as
+// project.rename (POST /api/projects/{id}/name). Display name ONLY: a project's
+// identity is realpath(cwd) — still the row's tooltip — so renaming cannot
+// re-key it, split it or move its lanes, and the folder on disk is untouched.
+function focusRenameInput() {
+  const input = document.getElementById('sidebar-rename-input');
+  if (!input) return;
+  input.focus();
+  input.select();
+}
+// force: the poll's renderSidebar refuses to redraw over an open editor, so the
+// editor's own transitions have to say they mean it.
+function redrawSidebar() {
+  renderSidebar(lastData, { force: true });
+}
+function openRenameEditor(projectId) {
+  renaming = { projectId, error: '' };
+  redrawSidebar();
+  focusRenameInput();
+}
+function closeRenameEditor() {
+  renaming = null;
+  redrawSidebar();
+}
+function failRename(projectId, error) {
+  renaming = { projectId, error };
+  redrawSidebar();
+  focusRenameInput();
+}
+async function saveRename(projectId) {
+  const name = (document.getElementById('sidebar-rename-input')?.value || '').trim();
+  if (!name) return failRename(projectId, 'A project needs a name.');
+  try {
+    const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/name`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ actor: 'dashboard', name }),
+    });
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({}));
+      // Say what the daemon said. A paired phone without the authority, and a
+      // project that has since gone, both land here and mean different things.
+      return failRename(projectId, detail.error || `Could not rename this project (${res.status}).`);
+    }
+  } catch {
+    return failRename(projectId, 'Could not reach Orca.');
+  }
+  renaming = null;
+  await poll();
+  renderScreen();
+  return undefined;
+}
+// The panel owns the rename: opening it, saving it, cancelling it. The switcher
+// listener above shares this element and runs FIRST (listeners fire in
+// registration order), so it is the guard up there — not the stopPropagation
+// here — that keeps a click on the pencil from also opening the project. The
+// stopPropagation is for the ancestor handlers (#sidebar nav, the document-level
+// menu closer), which have no business seeing an edit.
+sideProjects.addEventListener('click', async (e) => {
+  const open = e.target.closest('[data-rename]');
+  if (open) { e.preventDefault(); e.stopPropagation(); openRenameEditor(open.dataset.rename); return; }
+  const save = e.target.closest('[data-rename-save]');
+  if (save) { e.preventDefault(); e.stopPropagation(); await saveRename(save.dataset.renameSave); return; }
+  if (e.target.closest('[data-rename-cancel]')) { e.preventDefault(); e.stopPropagation(); closeRenameEditor(); }
+});
+// Enter saves, Escape cancels. The editor is one field, so the keyboard is the
+// fastest way through it; the two buttons are the discoverable form of the same.
+sideProjects.addEventListener('keydown', (e) => {
+  if (!renaming || e.target.id !== 'sidebar-rename-input') return;
+  if (e.key === 'Enter') { e.preventDefault(); saveRename(renaming.projectId); }
+  else if (e.key === 'Escape') { e.preventDefault(); closeRenameEditor(); }
+});
 
 content.addEventListener('click', async (e) => {
   // ---- Settings / Remote data-action handlers ----

@@ -331,6 +331,21 @@ export const TOOL_DEFINITIONS = [
     policyAction: 'updateProject',
     summary: 'Register (or update) the live preview link for a project so it shows on the dashboard and on your phone. Body: {approved, label, localUrl (e.g. http://127.0.0.1:5173), port?, kind?, id? (to update an existing link), actor?}. Orca derives the tailnet URL. Approval-gated by the default policy: without "approved": true the call is refused with 409 and requiresApproval:true.',
   },
+
+  // --- name the work ---------------------------------------------------------
+  // A project's display name was the basename of its directory and nothing could
+  // change it. The owner asked for a rename an ORCHESTRATOR AGENT can make for
+  // its own project, not an operator-only one — hence roles: orchestrator.
+  {
+    id: 'project.rename',
+    group: 'projects',
+    roles: ['orchestrator', 'dashboard'],
+    method: 'POST',
+    route: '/api/projects/{projectId}/name',
+    implemented: true,
+    mutating: true,
+    summary: 'Rename the project you are registered on, so the dashboard calls it what the work is called instead of the folder it lives in ("realm-shaper" -> "Truss Engine"). Body: {name, actor?} — name is required, is collapsed to one line and bounded at 120 characters, and an empty one is refused with 422. It changes the DISPLAY NAME only: a project\'s identity is realpath(cwd), so renaming never re-keys it, splits it, or moves its lanes, and it does not rename the folder on disk (a folder you later move registers as a SEPARATE project, which you can then rename too). Gated on REGISTRATION, not on approval: the calling lease must own a live, unresigned orchestrator on this project, or the call is refused with 403 "Only an orchestrator registered on this project (or an operator) may rename it." — call orchestrator.register with that project\'s cwd first. An operator on the Orca workstation may rename any project. projectId comes from your orchestrator.register response or from orchestrator.status.',
+  },
 ];
 
 function publicTool(tool) {

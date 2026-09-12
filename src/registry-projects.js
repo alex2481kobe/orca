@@ -14,6 +14,19 @@ import {
 } from './registry-quick-links.js';
 import { detectTailnetState } from './private-access/tailnet.js';
 
+// A project display name is rendered as text in the left panel and the topbar.
+// Collapse whitespace (a newline would otherwise let one name occupy several rows
+// of the panel and misrepresent the list), drop control characters, and bound it
+// at the same 120 chars the other project display fields use.
+const MAX_PROJECT_NAME = 120;
+function normalizeProjectDisplayName(value) {
+  return String(value ?? '')
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, MAX_PROJECT_NAME);
+}
+
 export const projectMethods = {
   createProject({
     name,
@@ -108,6 +121,82 @@ export const projectMethods = {
 
   getProject(locator) {
     return this.projects.find((project) => project.id === locator || project.slug === locator);
+  },
+
+  // Rename a project's DISPLAY NAME, and nothing else.
+  //
+  // A project's IDENTITY is realpath(cwd) — registerOrchestrator keys it as
+  // prj_<sha256(cwd)> and finds it again by matching `cwd`. So `id`, `cwd`,
+  // `slug` and `route` are never touched here: a rename cannot re-key a project,
+  // cannot split one in two, and cannot orphan the lanes hanging off it. That is
+  // the difference between this and updateProject, which may also change the slug
+  // (and therefore the route) and is an operator-only, approval-gated call.
+  //
+  // Renaming the FOLDER on disk is a separate thing and this does not follow it:
+  // the next register from the new path is a NEW project (new realpath, new key),
+  // the old record keeps its name and its lanes, and both show on the dashboard
+  // with their own cwd. Merging them is an operator decision, never something a
+  // register call may do silently.
+  //
+  // WHO MAY RENAME
+  //   - An OPERATOR always may: the workstation token, a paired device, the
+  //     dashboard. They reach the registry with no lease, or with the shared
+  //     'dashboard' pseudo-lease that every token-authed caller gets.
+  //   - An AGENT may rename the project it is REGISTERED on, and only that one.
+  //     That is the whole ask ("so can the orch agents … you could name it truss
+  //     engine"), and registration is the only thing that confines an agent to
+  //     one project: an orchestrator lease is typically UNSCOPED, so
+  //     validateToolLease's project-scope check passes it through to any project
+  //     id. The check therefore has to live here, and it is the same rule
+  //     assertOrchestratorOwnership uses — live, not resigned, not stale.
+  //
+  // Deliberately NOT approval-gated. The effect is one display string on one
+  // project the caller already works in; it changes no routing, no identity, no
+  // execution, and it is reversible by anyone who could set it. Putting a
+  // `approved: true` gate on something cosmetic trains agents to send that field
+  // reflexively, which is exactly what would devalue it on the calls where it
+  // means something (spawn, stop, discard). The guardrails are narrowness,
+  // normalization and an audit record instead.
+  renameProject(locator, { name } = {}, { actor = 'dashboard', leaseId = null } = {}) {
+    const project = this.getProject(locator);
+    if (!project) {
+      throw { status: 404, message: 'Project not found.' };
+    }
+    const displayName = normalizeProjectDisplayName(name);
+    if (!displayName) {
+      throw { status: 422, message: 'Project name is required (a non-empty display name).' };
+    }
+    if (leaseId && leaseId !== 'dashboard') {
+      const registered = (this.orchestrators || []).some((orchestrator) => orchestrator.projectId === project.id
+        && orchestrator.leaseId === leaseId
+        && !orchestrator.resignedAt
+        && !this._orchestratorStale(orchestrator));
+      if (!registered) {
+        throw {
+          status: 403,
+          message: 'Only an orchestrator registered on this project (or an operator) may rename it. Call orchestrator.register with this project\'s cwd first.',
+        };
+      }
+    }
+
+    const previousName = project.name;
+    project.name = displayName;
+    project.nameUpdatedAt = nowIso();
+    project.nameSetBy = String(actor || 'dashboard').slice(0, 120);
+    project.updatedAt = project.nameUpdatedAt;
+    this.recordAudit({
+      type: 'project_renamed',
+      actor,
+      projectId: project.id,
+      summary: `Project "${previousName}" renamed to "${displayName}"`,
+      evidence: { projectId: project.id, cwd: project.cwd || null, previousName, name: displayName, leaseId: leaseId || null },
+      status: 'passed',
+    });
+    // recordAudit persists, but the write is the guarantee the caller is owed —
+    // and it is what bumps the SSE revision the dashboard diffs, so the new name
+    // appears without a reload.
+    this.persistState();
+    return clonePayload(project);
   },
 
   updateProject(locator, patch = {}, context = {}) {

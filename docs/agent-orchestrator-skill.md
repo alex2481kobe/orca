@@ -470,6 +470,27 @@ existing link's `id` to update it instead of adding another. `projectId` comes
 from your `orchestrator.register` response (a lane's MCP connection fills it in
 automatically).
 
+## Naming the project
+
+Orca calls a project whatever its directory is called (`realm-shaper`), because
+that is all it knows when the project is created for you. If the work has a name,
+give it one — you are the one who knows:
+
+```
+project.rename { projectId, body: { name } }
+```
+
+It changes the DISPLAY NAME and nothing else. A project's identity is
+`realpath(cwd)`, so renaming can never re-key it, split it into two, or move its
+lanes, and it does not rename the folder on disk. (Move the folder and the next
+registration from the new path is a SEPARATE project — rename that one too.)
+
+You may rename the project you are registered on, and only that one: a lease with
+no live orchestrator on the project is refused with 403. An operator at the
+workstation may rename any project, and can also do it by hand from the left
+panel of the dashboard. `projectId` comes from your `orchestrator.register`
+response or from `orchestrator.status`.
+
 ## Server-side knobs that change your behavior
 
 These are env vars on the Orca server process, not tools. Know them because they

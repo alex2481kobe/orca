@@ -353,6 +353,13 @@ export function toolLeaseRequirementForRoute(method, parts) {
   if (parts[1] === 'projects' && parts[2] && parts[3] === 'quick-links' && parts.length === 4 && method === 'POST') {
     return { toolId: 'project.preview.set', projectId: parts[2] };
   }
+  // The display-name rename. Project-scoped so a lease bound to another project is
+  // refused at the gate; a lease with NO project scope still reaches here, which is
+  // why renameProject itself requires the caller to be a registered orchestrator on
+  // this project (an unscoped orchestrator lease is the normal case).
+  if (parts[1] === 'projects' && parts[2] && parts[3] === 'name' && parts.length === 4 && method === 'POST') {
+    return { toolId: 'project.rename', projectId: parts[2] };
+  }
   if (parts[1] === 'orchestrators' && parts.length === 2 && method === 'POST') {
     return { toolId: 'orchestrator.register' };
   }
