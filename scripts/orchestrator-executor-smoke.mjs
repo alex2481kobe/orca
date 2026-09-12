@@ -101,6 +101,14 @@ try {
     process.env.ORCA_CLAUDE_BINARY = claudeBinary;
     process.env.ORCA_CLAUDE_ALLOWED_BINARIES = claudeBinary;
     process.env.ORCA_CLAUDE_WORKDIR_ROOTS = [tempDir, realTempDir].join(',');
+    // This proof launches a REAL binary with `--version`, which is caller-supplied
+    // argv. Orca builds the argv for every first-class CLI type and now refuses
+    // args/commandArgs on them outright (a raw argv there is a sandbox-escape
+    // primitive), so the lane below uses the generic `cli` executor type — the
+    // documented bring-your-own-argv escape hatch — pointed at the same binary.
+    process.env.ORCA_CLI_BINARY = claudeBinary;
+    process.env.ORCA_CLI_ALLOWED_BINARIES = claudeBinary;
+    process.env.ORCA_CLI_WORKDIR_ROOTS = [tempDir, realTempDir].join(',');
   }
 
   const serverModule = await import('../src/server.js');
@@ -163,10 +171,10 @@ try {
     const claudeLane = await req('POST', `/api/orchestrators/${orchestratorId}/executors`, {
       actor: 'orchestrator',
       approved: true,
-      title: 'Claude executor version lane from orchestrator',
+      title: 'Real CLI binary version lane from orchestrator',
       owner: 'claude-smoke',
       role: 'executor',
-      executorType: 'claude',
+      executorType: 'cli',
       commandArgs: ['--version'],
     }, withLease(leaseToken));
     if (claudeLane.status !== 201) fail('claude executor lane create', JSON.stringify(claudeLane));
