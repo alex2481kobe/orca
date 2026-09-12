@@ -47,7 +47,7 @@ export const TOOL_DEFINITIONS = [
     route: '/api/orchestrators/{orchestratorId}/resign',
     implemented: true,
     mutating: true,
-    summary: 'Release the orchestrator role you hold (mark your orchestrator resigned) so another chat or a human can register/take over.',
+    summary: 'Release the orchestrator role you hold (mark your orchestrator resigned) so another chat or a human can register/take over. Body: {reason?} — defaults to "resigned". Only the lease that owns the orchestrator may resign it; another lease is refused with 403 "Lease does not own this orchestrator." Resigning does not stop the lanes you spawned.',
   },
   {
     id: 'executor.spawn',
@@ -57,6 +57,7 @@ export const TOOL_DEFINITIONS = [
     route: '/api/orchestrators/{orchestratorId}/executors',
     implemented: true,
     mutating: true,
+    policyAction: 'createLane',
     summary: 'Spawn an executor lane under your orchestrator (runs in your project\'s cwd). Body: {title, executorType, taskPrompt, approved?, model?, permissionsProfile?, intelligenceProfile?, worktreeMode?, idleShutdown?, targetUrl?, verificationCommand?}. executorType: codex, claude, gemini-cli, composer-cli, or mock (the default when omitted; it runs no real agent). model: chosen per lane and passed to that CLI as --model; omit it for the CLI\'s own default. Orca does not validate it — the CLI does. permissionsProfile is mapped per CLI: "read-only" gives Codex --sandbox read-only and marks the lane a non-writer, but Claude receives it verbatim as --permission-mode, which current Claude CLIs reject (use plan there). intelligenceProfile: reasoning effort (Codex minimal|low|medium|high|xhigh; Claude low|medium|high|xhigh|max|ultracode). approved: pass true to satisfy the spawn-approval gate when the orchestrator policy requires explicit approval — without it the call is refused with requiresApproval:true. A spawn past the orchestrator\'s capacity is refused with 409, not queued. worktreeMode: auto (default — read-only/sole-writer lanes run directly in the checkout, overlapping writers get a dedicated worktree) or isolated (always give this lane its own worktree); any other value is treated as auto. idleShutdown: true (default — reap the lane after the idle window with no output or tool activity) or false (never auto-reap).',
   },
 
@@ -89,7 +90,7 @@ export const TOOL_DEFINITIONS = [
     route: '/api/lanes/{laneId}/submit',
     implemented: true,
     mutating: true,
-    summary: 'Submit lane handoff (summary + changed files) and mark ready for audit.',
+    summary: 'Submit lane handoff and move the lane to ready_for_audit. Body: {summary?, changedFiles? (array of paths), handoff?, actor?} — all optional, but a submit with no summary and no changedFiles gives the auditor nothing to review and audit.accept then refuses. Only a starting or running lane can be submitted; from any other state this is refused with 409 "Lane cannot be submitted from state ...".',
   },
   {
     id: 'lane.shutdown',
@@ -99,7 +100,8 @@ export const TOOL_DEFINITIONS = [
     route: '/api/lanes/{laneId}/stop',
     implemented: true,
     mutating: true,
-    summary: 'Stop or shut down a lane worker.',
+    policyAction: 'stopLane',
+    summary: 'Stop a lane worker and its process group; in-flight work that the lane has not submitted is lost. Body: {approved, actor?, reason?}. Approval-gated by the default policy: without "approved": true the call is refused with 409 and requiresApproval:true. To stop every lane at once use fleet.emergency_stop instead.',
   },
   {
     id: 'lane.retry',
@@ -109,7 +111,8 @@ export const TOOL_DEFINITIONS = [
     route: '/api/lanes/{laneId}/retry',
     implemented: true,
     mutating: true,
-    summary: 'Retry a failed, stopped, or fix-requested lane.',
+    policyAction: 'retryLane',
+    summary: 'Retry a lane from its last terminal state, clearing its audit state. Retryable states: failed, stopped, fix_requested, blocked — any other state is refused with 409 "Lane state ... is not retryable". Body: {actor?}; not approval-gated. A lane whose executor process is still alive (it can be fix_requested while the child still runs) is also refused with 409 and processLive:true — call lane.shutdown first, then retry.',
   },
   {
     id: 'lane.delete',
@@ -119,7 +122,7 @@ export const TOOL_DEFINITIONS = [
     route: '/api/lanes/{laneId}',
     implemented: true,
     mutating: true,
-    summary: 'Delete a terminal lane (done/failed/stopped/accepted/blocked) and its worktree. The lane record and its logs move to the state archive, where lane.get still reads them until the archive is purged. Refuses a live lane.',
+    summary: 'Delete a terminal lane (done/failed/stopped/accepted/blocked/archived) and its worktree. The lane record and its logs move to the state archive, where lane.get still reads them until the archive is purged. Body: {actor?}. A non-terminal lane is refused with 422 "Stop the lane before deleting it." A terminal state does not mean a dead process — an accepted lane can still have a live child — so a lane whose executor is still running is refused with 409 and processLive:true; call lane.shutdown first.',
   },
   {
     id: 'lane.controls.update',
@@ -129,7 +132,8 @@ export const TOOL_DEFINITIONS = [
     route: '/api/lanes/{laneId}/controls',
     implemented: true,
     mutating: true,
-    summary: 'Update a lane\'s controls: model, permissions mode, intelligence, and — when the user left them blank — the targetUrl (dev/preview URL) and verificationCommand the agent has learned for this work. This changes the stored settings only; it does not reconfigure a CLI that is already running. Approval-gated by the default policy.',
+    policyAction: 'updateLaneControls',
+    summary: 'Update a lane\'s controls: model, permissions mode, intelligence, and — when the user left them blank — the targetUrl (dev/preview URL) and verificationCommand the agent has learned for this work. This changes the stored settings only; it does not reconfigure a CLI that is already running. Body: {approved, model?, permissionsProfile?, intelligenceProfile?, targetUrl?, verificationCommand?, actor?} — the same value sets executor.spawn documents, including the caveat that permissionsProfile "read-only" is a real Codex sandbox but reaches Claude verbatim as --permission-mode, which current Claude CLIs reject (use plan there), and that model is passed to the CLI unvalidated. Approval-gated by the default policy: without "approved": true the call is refused with 409 and requiresApproval:true. Reclassifying a sole-writer lane as a reader (or the reverse) can be refused when it would break lane isolation.',
   },
   {
     id: 'lane.terminal.tail',
@@ -187,7 +191,7 @@ export const TOOL_DEFINITIONS = [
     route: '/api/lanes/{laneId}/approvals',
     implemented: true,
     mutating: true,
-    summary: 'Request human/orchestrator approval for a command, patch, or tool action.',
+    summary: 'Request human/orchestrator approval for a command, patch, or tool action, and mark the lane awaitingApproval. Body: {kind? (defaults to "command"), detail? (what you want approved — the text the decider sees), requestId?, actor?}. Returns the created approval; poll approval.list for its status. This asks for permission — it does not grant it, and it is not the "approved": true field that the spawn/stop/controls policy gate reads.',
   },
   {
     id: 'approval.list',
@@ -207,7 +211,7 @@ export const TOOL_DEFINITIONS = [
     route: '/api/lanes/{laneId}/approvals/{approvalId}/decide',
     implemented: true,
     mutating: true,
-    summary: 'Approve or deny a pending approval on behalf of the user. A governed Claude executor blocks on this decision.',
+    summary: 'Approve or deny a pending approval on behalf of the user. A governed Claude executor blocks on this decision. Body REQUIRES `decision`: approve | approved | allow | yes to approve, deny | denied | reject | no to deny; anything else is refused with 422 "Decision must be approve or deny." Also takes {actor?}. The approvalId comes from approval.list; an approval that is not still pending is refused with 409 "Approval already approved/denied."',
   },
 
   // --- audit ----------------------------------------------------------------
@@ -219,7 +223,8 @@ export const TOOL_DEFINITIONS = [
     route: '/api/lanes/{laneId}/audit',
     implemented: true,
     mutating: true,
-    summary: 'Queue an audit for one lane.',
+    policyAction: 'auditLane',
+    summary: 'Queue ONE named lane for review: laneId is required and is not inferred, even when orchestrator.status names audit.queue_one as the next required tool — take the lane id from that lane tree or from lane.list. Body: {actor?}; not approval-gated. Queueing only creates the review task: record the outcome with audit.findings.record (or audit.accept / audit.request_fix / audit.block), which you may call without queueing first.',
   },
   {
     id: 'audit.findings.record',
@@ -281,7 +286,8 @@ export const TOOL_DEFINITIONS = [
     route: '/api/lanes/{laneId}/worktree/discard',
     implemented: true,
     mutating: true,
-    summary: 'Discard an isolated lane\'s git worktree. SAFE by default: refuses when the worktree has uncommitted changes. Pass body.force:true to discard them anyway, body.removeBranch:true to also delete the branch.',
+    policyAction: 'cleanupArtifacts',
+    summary: 'Discard an isolated lane\'s git worktree. SAFE by default: refuses when the worktree has uncommitted changes. Body: {approved, force? (discard uncommitted changes anyway), removeBranch? (also delete the branch), actor?}. Approval-gated by the default policy: without "approved": true the call is refused with 409 and requiresApproval:true — that gate is separate from force, so a dirty worktree needs both.',
   },
 
   // --- break glass + wakeups -------------------------------------------------
@@ -322,7 +328,8 @@ export const TOOL_DEFINITIONS = [
     route: '/api/projects/{projectId}/quick-links',
     implemented: true,
     mutating: true,
-    summary: 'Register (or update) the live preview link for a project so it shows on the dashboard and on your phone. Body: {label, localUrl (e.g. http://127.0.0.1:5173), port?, kind?, id? (to update an existing link)}. Orca derives the tailnet URL.',
+    policyAction: 'updateProject',
+    summary: 'Register (or update) the live preview link for a project so it shows on the dashboard and on your phone. Body: {approved, label, localUrl (e.g. http://127.0.0.1:5173), port?, kind?, id? (to update an existing link), actor?}. Orca derives the tailnet URL. Approval-gated by the default policy: without "approved": true the call is refused with 409 and requiresApproval:true.',
   },
 ];
 
