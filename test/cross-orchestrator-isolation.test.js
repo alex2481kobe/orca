@@ -236,8 +236,6 @@ test('a non-git folder has no worktree to fall back to, so the second writer is 
   }
 });
 
-
-
 test('promoting a read-only lane to a writer respects the other orchestrator holding the tree', async () => {
   const previousCwd = process.cwd();
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-stage7-controls-'));
@@ -277,6 +275,36 @@ test('promoting a read-only lane to a writer respects the other orchestrator hol
       },
     );
     assert.equal(registry.getLane(reader.id).permissionsProfile, 'read-only');
+  } finally {
+    await registry.drainPendingWrites().catch(() => {});
+    restoreFixtureRoot();
+    process.chdir(previousCwd);
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('orchestrator.status names the other orchestrators bound to the same project', async () => {
+  const previousCwd = process.cwd();
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-stage7-status-'));
+  process.chdir(tempDir);
+  approveFixtureRoot(tempDir);
+  const registry = new OrcaRegistry();
+  try {
+    const repoDir = await makeRepo(tempDir);
+    const { alpha, beta } = await twoOrchestrators(registry, repoDir);
+
+    const alphaStatus = registry.orchestratorStatus(alpha.id);
+    assert.equal(alphaStatus.activeOrchestrator.active, true);
+    assert.deepEqual(alphaStatus.coOrchestrators.map((item) => item.orchestratorId), [beta.id]);
+    assert.equal(alphaStatus.coOrchestrators[0].title, 'Beta');
+    assert.equal(alphaStatus.coOrchestrators[0].stale, false);
+
+    const betaStatus = registry.orchestratorStatus(beta.id);
+    assert.deepEqual(betaStatus.coOrchestrators.map((item) => item.orchestratorId), [alpha.id]);
+
+    // A resigned peer stops being reported.
+    registry.resignOrchestrator(beta.id, {}, { leaseId: registry.orchestrators.find((item) => item.id === beta.id).leaseId });
+    assert.deepEqual(registry.orchestratorStatus(alpha.id).coOrchestrators, []);
   } finally {
     await registry.drainPendingWrites().catch(() => {});
     restoreFixtureRoot();
