@@ -54,6 +54,7 @@ import { STATE_SOURCE_LABELS } from './orca-paths.js';
 import {
   lifecycleContext,
   logs,
+  resolveDaemonUrl,
   serviceInstall,
   serviceUninstall,
   start,
@@ -388,7 +389,20 @@ async function doctor(flags) {
   }
 
   // 3. daemon
-  const baseUrl = trimUrl(flags.url || env.ORCA_AGENT_TOOLS_BASE_URL || process.env.ORCA_AGENT_TOOLS_BASE_URL);
+  //
+  // Two URLs matter and they are not always the same one. `owned` is the daemon
+  // this installation runs — what start/stop/status act on, found through the
+  // state directory's instance lock. `baseUrl` is what the CLIENT is wired to.
+  // doctor checks the client's, because that is the connection under test, but
+  // it must say when the two disagree: reporting a healthy daemon that is not
+  // the one you manage is a true answer to the wrong question, and it is how
+  // this check previously printed "Nothing is failing" about someone else's
+  // daemon while the reader's own was misconfigured.
+  const owned = resolveDaemonUrl(
+    { ...flags, url: undefined },
+    { env: { ...process.env, ORCA_AGENT_TOOLS_BASE_URL: '' }, home },
+  );
+  const baseUrl = trimUrl(flags.url || env.ORCA_AGENT_TOOLS_BASE_URL || process.env.ORCA_AGENT_TOOLS_BASE_URL || owned.url);
   const health = await httpJson(`${baseUrl}/api/health`);
   let daemonUp = false;
   if (health.networkError) {
@@ -404,6 +418,18 @@ async function doctor(flags) {
   } else {
     daemonUp = true;
     add('daemon', { status: 'pass', summary: `Orca is answering at ${baseUrl}.` });
+  }
+
+  // 3b. is the client wired to the daemon this machine actually manages?
+  const sameUrl = (a, b) => String(a).replace(/\/$/, '') === String(b).replace(/\/$/, '');
+  if (!flags.url && owned.stateDir && !sameUrl(baseUrl, owned.url)) {
+    add('target', {
+      status: 'warn',
+      summary: `${client === 'claude' ? 'Claude Code' : 'Codex'} is wired to Orca at ${baseUrl}, but the daemon this machine manages is ${owned.url} (${owned.source}; ${owned.running ? 'running now' : 'not running'}). start, stop, status and gc act on ${owned.stateDir}, so the checks above describe a different daemon than the one you control.`,
+      fix: `point the client at your own daemon: ${fixCommands.connect(client)}   (it now targets ${owned.url} by default)`,
+    });
+  } else if (owned.stateDir) {
+    add('target', { status: 'pass', summary: `The checks above describe the daemon this machine manages (${owned.url}, state in ${owned.stateDir}).` });
   }
 
   // 4. credential, plus the daemon facts the last two checks read
@@ -521,7 +547,11 @@ async function connect(positional, flags) {
     return;
   }
   const label = CLIENT_LABELS[client];
-  const baseUrl = trimUrl(flags.url || process.env.ORCA_AGENT_TOOLS_BASE_URL);
+  // The daemon this installation owns, not whatever answers on the default port:
+  // the bootstrap below replaces the credential for this actor on whichever
+  // daemon serves it, so aiming at the wrong one breaks that one's clients.
+  const target = resolveDaemonUrl(flags);
+  const baseUrl = trimUrl(target.url);
   const actor = String(flags.actor || `${client}-user-config`);
   const headers = {};
   const apiToken = resolveApiToken(process.env);
@@ -575,7 +605,7 @@ async function connect(positional, flags) {
   }
   const replaced = bootstrap.leaseLifecycle?.replacedCredentialIds || [];
   process.stdout.write([
-    `Registered "orca" for ${label} at user scope: refresh credential ${res.json.credential?.id} (actor "${actor}"), launching ${bootstrap.nodePath}.`,
+    `Registered "orca" for ${label} at user scope against Orca at ${baseUrl} (${target.source}): refresh credential ${res.json.credential?.id} (actor "${actor}"), launching ${bootstrap.nodePath}.`,
     `Restart your ${label} sessions to load it. From then on they obtain and renew their own leases; nothing needs re-running.`,
     ...(replaced.length ? [`This replaced the previous credential for actor "${actor}" (${replaced.join(', ')}); sessions still running on it must restart too.`] : []),
     ...warnings,

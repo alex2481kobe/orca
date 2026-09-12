@@ -63,8 +63,11 @@ Other env vars worth knowing on this process:
 - `ORCA_AGENT_TOOLS_BASE_URL` — the base URL the MCP bridge calls back on,
   default `http://127.0.0.1:3000`. If you run the server on any other port or
   host, every agent's MCP client must have this set to match, or its tool calls
-  go nowhere. Orca exports it automatically into spawned lanes; you set it by
-  hand only for the top-level agent you wire up yourself.
+  go nowhere. Orca exports it automatically into spawned lanes, and
+  `orca-cli.js connect` writes the URL of the daemon your state directory
+  actually owns into the client config it generates — so you set this by hand
+  only to point a client, `connect` or `doctor` at a daemon this machine does
+  not manage. Setting it in the environment overrides what they would resolve.
 - `ORCA_LANE_CONCURRENCY` — the lane capacity (default 4, clamped to 64) an
   orchestrator gets when it registers without one. It is not the only way to set
   capacity: an orchestrator can pass `approvedCapacity` to `orchestrator.register`.

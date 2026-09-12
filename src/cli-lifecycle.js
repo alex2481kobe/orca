@@ -28,7 +28,7 @@ import {
   resolveStateDir,
 } from './orca-paths.js';
 import { FENCE_STATUS, resolveFence } from './fence.js';
-import { fixCommands, shellQuote } from './mcp-connection.js';
+import { DEFAULT_BASE_URL, fixCommands, shellQuote } from './mcp-connection.js';
 import { readApiTokenFile, resolveApiToken } from './api-token.js';
 import { nodeRuntimeWarnings, resolveMcpLauncher } from './mcp-orchestrator-bootstrap.js';
 
@@ -117,6 +117,49 @@ function inspectDaemon(ctx) {
   const holder = lock.holder || null;
   const url = lock.held && holder?.listen?.port ? urlFor(holder.listen.host, holder.listen.port) : null;
   return { lock, holder, url, running: Boolean(lock.held && lock.reason === 'running') };
+}
+
+// The daemon THIS installation owns — the one `start`, `stop` and `status` act
+// on — found the same way they find it: through the resolved state directory's
+// instance lock, never a fixed port.
+//
+// `connect` and `doctor` must reach that daemon. They used to default to
+// DEFAULT_BASE_URL, so on a machine where another Orca answers on the default
+// port they silently targeted it instead: `setup --state-dir … ` started a
+// daemon on the chosen port and then handed the client a config naming the
+// OTHER daemon and the OTHER daemon's checkout. Worse, the bootstrap that issues
+// that config REVOKES the previous credential for the same actor, so connecting
+// one installation broke the other's already-connected clients.
+//
+// -> { url, source, running, stateDir }
+export function resolveDaemonUrl(flags = {}, { env = process.env, home = os.homedir() } = {}) {
+  const explicit = flags.url || env.ORCA_AGENT_TOOLS_BASE_URL;
+  if (explicit) {
+    return {
+      url: String(explicit).replace(/\/$/, ''),
+      source: flags.url ? '--url' : 'ORCA_AGENT_TOOLS_BASE_URL',
+      running: null,
+      stateDir: null,
+    };
+  }
+  let ctx;
+  try {
+    ctx = lifecycleContext(flags, { env, home });
+  } catch {
+    // An unusable state/config path is reported by the caller's own checks; fall
+    // back to the documented default rather than failing to produce a URL here.
+    return { url: DEFAULT_BASE_URL, source: 'the default', running: null, stateDir: null };
+  }
+  const daemon = inspectDaemon(ctx);
+  if (daemon.running && daemon.url) {
+    return { url: daemon.url, source: `the daemon holding ${ctx.state.dir}`, running: true, stateDir: ctx.state.dir };
+  }
+  return {
+    url: urlFor(ctx.host, ctx.port),
+    source: 'the port this installation would start on',
+    running: false,
+    stateDir: ctx.state.dir,
+  };
 }
 
 // -> 'ok' | 'starting' | 'not-orca' | 'down'
