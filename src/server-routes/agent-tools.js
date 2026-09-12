@@ -55,10 +55,8 @@ export async function handleAgentCredentialRoutes(ctx, req, res, method, parts) 
     credential,
     daemon: {
       apiTokenConfigured: Boolean(ctx.apiTokenConfigured),
-      fence: {
-        configured: Boolean(String(process.env.ORCA_REPO_ROOTS || '').trim()),
-        roots: registry.getApprovedRepoRoots(),
-      },
+      stateDir: registry.storageDir,
+      fence: registry.describeFence(),
     },
   });
 }

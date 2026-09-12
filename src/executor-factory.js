@@ -33,13 +33,11 @@ export function getExecutorProfile(type, callbacks = {}) {
     ...(defaults.allowedBinaries || []),
   ]);
   const defaultArgs = parseEnvList(process.env[`ORCA_${upper}_DEFAULT_ARGS`], []);
-  // Allowed EXECUTION roots = the env override (or cwd) PLUS any extra roots the
-  // registry supplies (the approved repo roots + the per-lane worktree base).
-  // Without this, a lane running in a session's vetted repoRoot (an approved
-  // ORCA_REPO_ROOTS path, but not necessarily under cwd) is rejected with
-  // "workdir is outside allowed execution roots" — the remote-chat failure.
+  // Allowed EXECUTION roots = the env override PLUS the extra roots the registry
+  // supplies (the fence's roots + the per-lane worktree base). The daemon's
+  // working directory is not one: it carries no authority (src/fence.js).
   const workdirRoots = [
-    ...parseEnvList(process.env[`ORCA_${upper}_WORKDIR_ROOTS`], [process.cwd()]),
+    ...parseEnvList(process.env[`ORCA_${upper}_WORKDIR_ROOTS`], []),
     ...(Array.isArray(callbacks.extraWorkdirRoots) ? callbacks.extraWorkdirRoots : []),
   ].filter(Boolean);
   const defaultWorkingDir = callbacks.defaultWorkingDir || process.cwd();

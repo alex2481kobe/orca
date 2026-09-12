@@ -4,11 +4,13 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { OrcaRegistry } from '../src/registry.js';
+import { approveFixtureRoot, restoreFixtureRoot } from './helpers/fence-root.js';
 
 async function withRegistry(callback, options = {}) {
   const previousCwd = process.cwd();
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-agent-queue-'));
   process.chdir(tempDir);
+  approveFixtureRoot(tempDir);
   const registry = new OrcaRegistry({ autoCompleteMs: 60 * 60 * 1000, autoAudit: false, ...options });
   registry.stopScheduler();
   try {
@@ -18,6 +20,7 @@ async function withRegistry(callback, options = {}) {
     if (typeof registry.drainPendingWrites === 'function') {
       await registry.drainPendingWrites();
     }
+    restoreFixtureRoot();
     process.chdir(previousCwd);
     await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
   }
@@ -256,6 +259,8 @@ test('agent queue: ack state persists and remains scoped per consumer after relo
     await registry.drainPendingWrites();
 
     process.chdir(tempDir);
+
+    approveFixtureRoot(tempDir);
     const reloaded = new OrcaRegistry({ autoAudit: false });
     reloaded.stopScheduler();
     try {

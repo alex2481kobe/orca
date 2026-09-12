@@ -1,6 +1,7 @@
 // Executor-adapter management + the scheduler run loop (lane lifecycle engine)
 // as a prototype mixin for OrcaRegistry.
 
+import { FENCE_STATUS } from './fence.js';
 import { LANE_STATES, isRunningLaneState, isLiveLaneState } from './worker-contract.js';
 import { laneEvidenceRef } from './audit-evidence.js';
 import { nowIso } from './registry-utils.js';
@@ -27,6 +28,7 @@ export const schedulerMethods = {
     }
 
     const callbackBundle = {
+      artifactRoot: this.artifactRoot,
       extraWorkdirRoots: [
         this.workspacesRoot,
         ...(typeof this.getApprovedRepoRoots === 'function' ? this.getApprovedRepoRoots() : []),
@@ -213,6 +215,11 @@ export const schedulerMethods = {
 
     // Launch queued lanes per v2 orchestrator container (the orchestrator record
     // IS the container; there are no session records). Capacity lives on the record.
+    // The fence is checked again here, at launch: work queued under an earlier
+    // fence, or restored from state, never starts while Orca is not set up, and
+    // never starts outside the roots in force now.
+    let fence = null;
+    const currentFence = () => (fence ||= this.getFence());
     for (const orchestrator of (this.orchestrators || [])) {
       const containerId = orchestrator.id;
       const sessionLanes = this.lanes.filter((lane) => lane.sessionId === containerId);
@@ -236,6 +243,15 @@ export const schedulerMethods = {
       for (const lane of queued) {
         if (availableSlots <= 0) break;
         if (lane.state !== QUEUED_STATE) continue;
+        if (currentFence().status !== FENCE_STATUS.CONFIGURED) {
+          this.noteLaneHeldByFence(lane, currentFence());
+          continue;
+        }
+        if (!this.laneInsideFence(lane)) {
+          await this.markLaneFailed(lane, `Not launched: it works in ${lane.repoRoot || lane.workdir}, which is outside Orca's approved roots (${currentFence().roots.join(', ')}). The fence changed after this lane was queued.`, 'scheduler', false);
+          this.persistState();
+          continue;
+        }
         availableSlots -= 1;
         const now = nowIso();
         lane.state = STARTING_STATE;

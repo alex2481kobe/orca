@@ -13,17 +13,17 @@ export const FALL_THROUGH = Symbol('orca-route-fall-through');
 const TERMINAL_TAIL_DEFAULT_BYTES = 32 * 1024;
 const TERMINAL_TAIL_MAX_BYTES = 128 * 1024;
 
-function laneTerminalLogPath(lane) {
-  return path.join(process.cwd(), 'artifacts', String(lane.sessionId || 'orphan'), String(lane.id), 'terminal.log');
+function laneTerminalLogPath(lane, artifactRoot) {
+  return path.join(artifactRoot, String(lane.sessionId || 'orphan'), String(lane.id), 'terminal.log');
 }
 
-async function readLaneTerminalTail(lane, { offset = null, maxBytes = TERMINAL_TAIL_DEFAULT_BYTES } = {}) {
+async function readLaneTerminalTail(lane, { offset = null, maxBytes = TERMINAL_TAIL_DEFAULT_BYTES, artifactRoot } = {}) {
   const parsedMax = Number.parseInt(maxBytes, 10);
   const limit = Math.max(1, Math.min(TERMINAL_TAIL_MAX_BYTES, Number.isFinite(parsedMax) ? parsedMax : TERMINAL_TAIL_DEFAULT_BYTES));
   const parsedOffset = offset === null || offset === undefined || offset === ''
     ? null
     : Number.parseInt(offset, 10);
-  const logPath = laneTerminalLogPath(lane);
+  const logPath = laneTerminalLogPath(lane, artifactRoot);
   let fh;
   try {
     fh = await fsp.open(logPath, 'r');
@@ -106,6 +106,7 @@ export async function handleLaneRoutes(ctx, req, res, method, parts) {
         const tail = await readLaneTerminalTail(lane, {
           offset: searchParams.get('offset'),
           maxBytes: searchParams.get('maxBytes'),
+          artifactRoot: ctx.registry.artifactRoot,
         });
         return sendJson(res, 200, tail);
       } catch (error) {

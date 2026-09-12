@@ -16,6 +16,7 @@ function mockRegistry(root, liveLeases) {
       orchestrators: [],
       lanes: [],
       getApprovedRepoRoots: () => [fs.realpathSync(root)],
+      assertFenceConfigured() { return { roots: this.getApprovedRepoRoots() }; },
       _leaseActiveById: (id) => ({ active: liveLeases.has(id) }),
       getStreamRevision: () => 7,
     },

@@ -4,11 +4,13 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { OrcaRegistry } from '../src/registry.js';
+import { approveFixtureRoot, restoreFixtureRoot } from './helpers/fence-root.js';
 
 async function withRegistry(callback) {
   const previousCwd = process.cwd();
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-orch-'));
   process.chdir(tempDir);
+  approveFixtureRoot(tempDir);
   const registry = new OrcaRegistry({ autoCompleteMs: 60 * 60 * 1000, autoAudit: false });
   registry.stopScheduler();
   try {
@@ -16,6 +18,7 @@ async function withRegistry(callback) {
   } finally {
     registry.stopScheduler();
     await registry.drainPendingWrites();
+    restoreFixtureRoot();
     process.chdir(previousCwd);
     await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
   }
@@ -257,6 +260,7 @@ test('orchestrator (Model-B register path): owning lease may audit + accept its 
   } finally {
     if (stopServer) await stopServer();
     if (server) await new Promise((resolve) => server.close(resolve));
+    restoreFixtureRoot();
     process.chdir(previousCwd);
     await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
     for (const key of Object.keys(process.env)) {

@@ -223,7 +223,7 @@ export const laneTerminalMethods = {
   },
 
   async writeLaneArtifacts(lane, status = DONE_STATE) {
-    const laneArtifactDir = path.join(process.cwd(), 'artifacts', lane.sessionId, lane.id);
+    const laneArtifactDir = path.join(this.artifactRoot, lane.sessionId, lane.id);
     await fs.mkdir(laneArtifactDir, { recursive: true });
     // Capture changed-files via git status when the lane lives in a git worktree.
     let changedFiles = Array.isArray(lane.changedFiles) ? lane.changedFiles : [];

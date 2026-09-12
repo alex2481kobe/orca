@@ -208,6 +208,8 @@ export const overviewMethods = {
         shownOrchestrators,
         shownExecutors,
       },
+      // Setup-required, invalid and whole-home fences are shown on the dashboard.
+      fence: typeof this.describeFence === 'function' ? this.describeFence() : null,
     };
   },
 };

@@ -1,7 +1,23 @@
 #!/usr/bin/env node
-// Orca's command line, for the two things done outside the MCP bridge.
+// Orca's command line: everything done outside the MCP bridge.
 //
-//   doctor [--json] [--url URL]
+//   setup --roots <dir>[,<dir>...] [--allow-home-root] [--state-dir DIR] [--no-start] [--connect claude|codex]
+//       The one first-run command (src/cli-setup.js). Records the directories
+//       agents may work in (the fence) in the user's Orca config file, keeps an
+//       existing install's state where it is, starts Orca, and optionally
+//       connects agent CLIs.
+//
+//   start | stop [--force] | status [--json] | logs [--lines N]
+//       The daemon's lifecycle (src/cli-lifecycle.js). One daemon per machine,
+//       owned by no agent session: start runs it detached, stop signals only the
+//       process its instance lock proves owns the state, and refuses while
+//       executors are running unless --force.
+//
+//   service install [--dry-run] [--no-load] [--replace] | service uninstall
+//       A per-user macOS LaunchAgent for the same daemon: start at login, restart
+//       after a crash.
+//
+//   doctor [--json] [--url URL] [--node PATH]
 //       Read-only. Checks that the MCP server is registered at user scope, that its
 //       launcher Node is valid, that Orca is reachable, that the client's
 //       credential is live, and how the daemon is fenced. Every failed check
@@ -22,15 +38,30 @@
 //       unless --apply; --apply only MOVES into the state directory's archive/,
 //       refuses while a daemon owns the state directory, and holds its lock
 //       while it works. Deleting from the archive needs --purge-archive AND an age.
+//       It acts on the same state directory start/stop/status do.
 //
-// No command starts, stops or signals Orca.
+// doctor, connect and gc never start, stop or signal Orca; start, stop, status,
+// logs and service are the only commands that do.
 
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { resolveMcpLauncher } from './mcp-orchestrator-bootstrap.js';
+import { nodeRuntimeWarnings, resolveMcpLauncher } from './mcp-orchestrator-bootstrap.js';
+import { inspectInstanceLock } from './instance-lock.js';
+import { STATE_SOURCE_LABELS } from './orca-paths.js';
+import {
+  lifecycleContext,
+  logs,
+  serviceInstall,
+  serviceUninstall,
+  start,
+  status,
+  stop,
+} from './cli-lifecycle.js';
+import { setup } from './cli-setup.js';
+import { resolveApiToken } from './api-token.js';
 import { GC_BOOLEAN_FLAGS, GC_USAGE, runGcCommand } from './orca-gc-cli.js';
 import {
   DEFAULT_BASE_URL,
@@ -43,13 +74,25 @@ import {
   shellQuote,
 } from './mcp-connection.js';
 
+const CLI = `node ${shellQuote(path.join(ORCA_DIR, 'src', 'orca-cli.js'))}`;
 const USAGE = `Usage:
-  node ${shellQuote(path.join(ORCA_DIR, 'src', 'orca-cli.js'))} doctor [--json] [--url URL]
-  node ${shellQuote(path.join(ORCA_DIR, 'src', 'orca-cli.js'))} connect <claude|codex> [--actor NAME] [--url URL] [--node PATH] [--print]
-  node ${shellQuote(path.join(ORCA_DIR, 'src', 'orca-cli.js'))} ${GC_USAGE}`;
+  ${CLI} setup --roots <dir>[,<dir>...] [--allow-home-root] [--state-dir DIR] [--no-start] [--connect claude|codex]
+  ${CLI} start [--port N] [--host H] [--wait SECONDS]
+  ${CLI} stop [--force] [--wait SECONDS]
+  ${CLI} status [--json]
+  ${CLI} logs [--lines N]
+  ${CLI} service install [--dry-run] [--no-load] [--replace] [--token-file PATH] [--node PATH] [--port N]
+  ${CLI} service uninstall [--force]
+  ${CLI} doctor [--json] [--url URL] [--node PATH]
+  ${CLI} connect <claude|codex> [--actor NAME] [--url URL] [--node PATH] [--print]
+  ${CLI} ${GC_USAGE}`;
 
 const CLIENT_LABELS = { claude: 'Claude Code', codex: 'Codex' };
 const HTTP_TIMEOUT_MS = 5000;
+
+const BOOLEAN_FLAGS = new Set(['json', 'print', 'force', 'dry-run', 'allow-home-root', 'no-start', 'no-load', 'replace', ...GC_BOOLEAN_FLAGS]);
+// May repeat; each value may also be a comma-separated list.
+const LIST_FLAGS = new Set(['roots', 'connect']);
 
 function parseArgs(argv) {
   const positional = [];
@@ -61,12 +104,15 @@ function parseArgs(argv) {
       continue;
     }
     const [key, inline] = arg.slice(2).split(/=(.*)/s, 2);
-    if (inline !== undefined) flags[key] = inline;
-    else if (key === 'json' || key === 'print' || GC_BOOLEAN_FLAGS.includes(key)) flags[key] = true;
+    let value;
+    if (inline !== undefined) value = inline;
+    else if (BOOLEAN_FLAGS.has(key)) value = true;
     else {
-      flags[key] = argv[index + 1];
+      value = argv[index + 1];
       index += 1;
     }
+    if (LIST_FLAGS.has(key)) (flags[key] ||= []).push(value);
+    else flags[key] = value;
   }
   return { positional, flags };
 }
@@ -301,8 +347,45 @@ async function doctor(flags) {
   const entry = primary?.entry || null;
   const env = entry?.env || {};
 
-  // 2. launcher
-  add('launcher', entry ? checkLauncher(entry, client) : { status: 'skip', summary: 'Not checked: nothing is registered.' });
+  // 2. launcher — every registered client, not just the first: a second client
+  // can point at a different Node, and only checking one hides that.
+  if (!registered.length) {
+    add('launcher', { status: 'skip', summary: 'Not checked: nothing is registered.' });
+  } else {
+    for (const item of registered) {
+      add(registered.length > 1 ? `launcher:${item.client}` : 'launcher', checkLauncher(item.entry, item.client));
+    }
+  }
+
+  // 2b. the Node Orca would BAKE IN next. `connect` and `service install` write
+  // a Node path into files Orca does not own — a client's MCP config, and a
+  // LaunchAgent that starts Orca at every login. Orca installs and manages no
+  // toolchain; what it owes the user is to say when the Node it found belongs to
+  // something else, BEFORE it is written down and long before it silently stops
+  // resolving. `--node PATH` asks the same question about a Node you are about
+  // to pass to connect or service install.
+  const proposed = flags.node === undefined ? null : String(flags.node);
+  if (proposed !== null && !proposed.trim()) {
+    add('node', { status: 'fail', summary: '--node needs a path.', fix: `${CLI} doctor --node /path/to/node` });
+  } else {
+    // Both paths that get written down: what connect/service install choose, and
+    // this process's own Node. They are normally the same; if they ever diverge,
+    // reporting only one would hide the worse of the two.
+    const chosen = (() => {
+      try { return resolveMcpLauncher({}).runtime.nodePath; } catch { return process.execPath; }
+    })();
+    const candidates = proposed ? [path.resolve(proposed.trim())] : [...new Set([chosen, process.execPath])];
+    const candidate = candidates[0];
+    const who = proposed ? `The Node you asked about, ${candidate},` : `The Node connect and service install would write down, ${candidate},`;
+    const notes = [...new Set(candidates.flatMap((item) => nodeRuntimeWarnings(item)))];
+    add('node', notes.length
+      ? {
+        status: 'warn',
+        summary: `${notes.join(' ')} Orca keeps running on it either way; what breaks is what Orca writes down — ${fixCommands.connect(client)} bakes it into your client's MCP config, and \`${CLI} service install\` bakes it into the LaunchAgent that starts Orca at every login, where nothing is watching when it stops resolving.`,
+        fix: `point both at a Node you maintain: ${fixCommands.connect(client, '--node /path/to/node')} and ${CLI} service install --node /path/to/node --replace`,
+      }
+      : { status: 'pass', summary: `${who} is not inside another tool's directory or one installed Node version, so connect and service install can write it down safely.` });
+  }
 
   // 3. daemon
   const baseUrl = trimUrl(flags.url || env.ORCA_AGENT_TOOLS_BASE_URL || process.env.ORCA_AGENT_TOOLS_BASE_URL);
@@ -367,25 +450,48 @@ async function doctor(flags) {
     }
   }
 
-  // 5. fence, and 6. whether role scoping is enforced at all
-  if (!facts) {
-    add('fence', { status: 'skip', summary: 'Not checked: it needs a reachable Orca and a credential it accepts.' });
-  } else if (facts.fence?.configured) {
-    add('fence', { status: 'pass', summary: `ORCA_REPO_ROOTS is set; agents may work under ${(facts.fence.roots || []).join(', ')}.` });
-  } else {
-    add('fence', {
-      status: 'warn',
-      summary: `ORCA_REPO_ROOTS is not set, so agents may register any folder under ${(facts.fence?.roots || []).join(', ') || 'your home directory'}.`,
-      fix: `when no lanes are running, stop Orca and start it fenced: cd ${shellQuote(ORCA_DIR)} && ORCA_REPO_ROOTS="$HOME/code" npm start`,
-    });
+  // 5. fence: the running daemon's own view when it can be read (that is what it
+  // enforces), else what this machine's config resolves to.
+  let local = null;
+  try { local = lifecycleContext({}); } catch (error) { add('state', { status: 'fail', summary: error.message, fix: 'set ORCA_STATE_DIR / ORCA_CONFIG_DIR to absolute paths, or unset them' }); }
+  const daemonFence = facts?.fence?.status ? facts.fence : null;
+  const fence = daemonFence || local?.fence || null;
+  if (fence) {
+    const where = daemonFence ? '' : ` (read from ${fence.source === 'ORCA_REPO_ROOTS' ? 'ORCA_REPO_ROOTS in this environment' : fence.configPath}: the running daemon's own view could not be read)`;
+    if (fence.status !== 'configured') {
+      add('fence', { status: 'fail', summary: `${fence.summary}${where}`, fix: fence.fix });
+    } else if (fence.homeWide) {
+      add('fence', { status: 'warn', summary: `${fence.summary}${where} ${fence.warnings.join(' ')}`, fix: fixCommands.setup() });
+    } else {
+      add('fence', { status: 'pass', summary: `${fence.summary}${where}` });
+    }
   }
+
+  // 6. the state directory start, stop and status act on, and who owns it
+  if (local) {
+    let owner = null;
+    try { owner = inspectInstanceLock(local.state.dir); } catch { owner = null; }
+    const label = STATE_SOURCE_LABELS[local.state.source] || local.state.source;
+    const realOr = (dir) => { try { return fs.realpathSync(dir); } catch { return path.resolve(dir); } };
+    if (facts?.stateDir && realOr(facts.stateDir) !== realOr(local.state.dir)) {
+      add('state', {
+        status: 'warn',
+        summary: `The daemon at ${baseUrl} keeps its state in ${facts.stateDir}, but this machine resolves ${local.state.dir} (${label}), which start, stop and status act on.`,
+        fix: `${fixCommands.setup(['<your roots>'])} --state-dir ${shellQuote(facts.stateDir)}   (or set ORCA_STATE_DIR)`,
+      });
+    } else {
+      add('state', { status: 'pass', summary: `State in ${local.state.dir} (${label}); ${owner?.held && owner.reason === 'running' ? `owned by the running daemon, pid ${owner.holder.pid}` : 'no daemon owns it right now'}.` });
+    }
+  }
+
+  // 7. whether role scoping is enforced at all
   if (facts) {
     add('api-token', facts.apiTokenConfigured
       ? { status: 'pass', summary: 'ORCA_API_TOKEN is set: only credentials Orca issued can act, each within its role.' }
       : {
         status: 'warn',
         summary: 'ORCA_API_TOKEN is not set, so every process on this machine is Orca admin and role scoping is advisory.',
-        fix: `when no lanes are running, stop Orca and start it with a token: cd ${shellQuote(ORCA_DIR)} && ORCA_API_TOKEN="$(openssl rand -hex 32)" npm start`,
+        fix: `when no executors are running: ${fixCommands.stop()}, then ORCA_API_TOKEN="$(openssl rand -hex 32)" ${fixCommands.start()} (keep the token out of git and plists)`,
       });
   }
 
@@ -418,7 +524,13 @@ async function connect(positional, flags) {
   const baseUrl = trimUrl(flags.url || process.env.ORCA_AGENT_TOOLS_BASE_URL);
   const actor = String(flags.actor || `${client}-user-config`);
   const headers = {};
-  if (process.env.ORCA_API_TOKEN) headers['x-orca-token'] = process.env.ORCA_API_TOKEN;
+  const apiToken = resolveApiToken(process.env);
+  if (apiToken.error) {
+    process.stderr.write(`${apiToken.error}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  if (apiToken.token) headers['x-orca-token'] = apiToken.token;
   const body = { actor };
   if (flags.node) body.nodePath = String(flags.node);
   const res = await httpJson(`${baseUrl}/api/mcp/orchestrator-bootstrap`, { method: 'POST', headers, body });
@@ -471,15 +583,44 @@ async function connect(positional, flags) {
   ].join('\n') + '\n');
 }
 
+const out = {
+  log: (text) => process.stdout.write(`${text}\n`),
+  err: (text) => process.stderr.write(`${text}\n`),
+};
 const { positional, flags } = parseArgs(process.argv.slice(2));
 const [command, ...rest] = positional;
-if (command === 'doctor') {
-  await doctor(flags);
-} else if (command === 'connect') {
-  await connect(rest, flags);
-} else if (command === 'gc') {
-  process.exitCode = await runGcCommand(flags);
+const connectClient = async (client) => {
+  process.exitCode = 0;
+  await connect([client], flags);
+  return process.exitCode || 0;
+};
+const COMMANDS = {
+  doctor: () => doctor(flags),
+  connect: () => connect(rest, flags),
+  setup: () => setup(flags, out, { start, connect: connectClient }),
+  start: () => start(flags, out),
+  stop: () => stop(flags, out),
+  status: () => status(flags, out),
+  logs: () => logs(flags, out),
+  service: () => {
+    if (rest[0] === 'install') return serviceInstall(flags, out);
+    if (rest[0] === 'uninstall') return serviceUninstall(flags, out);
+    out.err(`service needs install or uninstall.\n${USAGE}`);
+    return 2;
+  },
+  gc: () => runGcCommand(flags),
+};
+if (!command) {
+  process.stdout.write(`${USAGE}\n`);
+} else if (!Object.hasOwn(COMMANDS, command)) {
+  process.stderr.write(`Unknown command "${command}".\n${USAGE}\n`);
+  process.exitCode = 2;
 } else {
-  process.stderr.write(`${USAGE}\n`);
-  process.exitCode = command ? 2 : 0;
+  try {
+    const code = await COMMANDS[command]();
+    if (typeof code === 'number') process.exitCode = code;
+  } catch (error) {
+    out.err(`orca-cli ${command}: ${error?.message || error}`);
+    process.exitCode = 2;
+  }
 }

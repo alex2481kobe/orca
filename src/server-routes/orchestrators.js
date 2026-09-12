@@ -5,6 +5,17 @@
 import { FALL_THROUGH } from './lanes.js';
 import { makeUnsandboxedGate, UNSANDBOXED_DENIAL } from './permission-gate.js';
 
+
+// A fence refusal (src/fence.js) carries a stable code and the one command that
+// fixes it; keep both in the response so the agent can relay them.
+function fenceFields(error) {
+  const fields = {};
+  if (error?.code) fields.code = error.code;
+  if (error?.setupRequired) fields.setupRequired = true;
+  if (error?.fix) fields.fix = error.fix;
+  return fields;
+}
+
 export async function handleOrchestratorRoutes(ctx, req, res, method, parts) {
   const {
     registry, sendJson, sendBodyError, parseJsonBody, rejectSpoofedActor,
@@ -84,7 +95,7 @@ export async function handleOrchestratorRoutes(ctx, req, res, method, parts) {
       );
       return sendJson(res, 200, orchestrator);
     } catch (error) {
-      return sendJson(res, error.status || 500, { error: error.message || 'Could not register orchestrator.' });
+      return sendJson(res, error.status || 500, { error: error.message || 'Could not register orchestrator.', ...fenceFields(error) });
     }
   }
 
@@ -145,6 +156,7 @@ export async function handleOrchestratorRoutes(ctx, req, res, method, parts) {
       return sendJson(res, error.status || 500, {
         error: error.message || 'Could not spawn executor.',
         requiresApproval: error.requiresApproval || false,
+        ...fenceFields(error),
       });
     }
   }

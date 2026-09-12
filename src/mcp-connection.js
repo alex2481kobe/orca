@@ -48,9 +48,15 @@ export function shellQuote(value) {
 }
 
 // The commands a message can hand an agent. Absolute paths only: an agent's
-// shell may have no `node` on PATH and may be in any directory.
+// shell may have no `node` on PATH and may be in any directory. `start` runs Orca
+// as a daemon no session owns (orca-cli.js start). A foreground `npm start` run
+// by an agent would belong to that agent's session and die with it.
+const cli = (args) => `${shellQuote(process.execPath)} ${shellQuote(CLI_PATH)} ${args}`;
 export const fixCommands = {
-  start: () => `cd ${shellQuote(ORCA_DIR)} && npm start`,
+  start: () => cli('start'),
+  status: () => cli('status'),
+  stop: () => cli('stop'),
+  setup: (roots = null) => cli(`setup --roots ${Array.isArray(roots) && roots.length ? shellQuote(roots.join(',')) : '<dir>[,<dir>...]'}`),
   doctor: () => `${shellQuote(process.execPath)} ${shellQuote(CLI_PATH)} doctor`,
   connect: (client = 'claude', extra = '') => `${shellQuote(process.execPath)} ${shellQuote(CLI_PATH)} connect ${client}${extra ? ` ${extra}` : ''}`,
 };
@@ -79,7 +85,7 @@ export function explainNetworkError(error, {
     return lines(
       `Orca is not running at ${baseUrl}: the connection was refused, so nothing is listening on that port.`,
       `Fix: ${fixCommands.start()}`,
-      `If Orca is already running there, that start is refused safely and changes nothing. If Orca runs on another port, run ${fixCommands.doctor()} to see what this client points at.`,
+      `If Orca is already running, start reports it and changes nothing. If Orca runs on another port, run ${fixCommands.doctor()} to see what this client points at.`,
       'This call never reached Orca, so repeating it once Orca is up is safe.',
     );
   }

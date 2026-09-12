@@ -24,7 +24,7 @@ export function createLaneStream(deps) {
   function laneTerminalLogPath(lane) {
     // Mirror the executor's runtimeDir (cli-adapter.js). lane.id/sessionId come
     // from the registry (not raw URL), so the path can't be traversal-controlled.
-    return path.join(process.cwd(), 'artifacts', String(lane.sessionId || 'orphan'), String(lane.id), 'terminal.log');
+    return path.join(registry.artifactRoot, String(lane.sessionId || 'orphan'), String(lane.id), 'terminal.log');
   }
 
   // Read the newly-appended bytes from an already-open handle. `fh.stat()` is an

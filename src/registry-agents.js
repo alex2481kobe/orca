@@ -1,6 +1,8 @@
 // Agent and orchestrator registration, ownership, and liveness behavior as a
 // prototype mixin for OrcaRegistry.
 
+import { OUTSIDE_FENCE_CODE } from './fence.js';
+import { fixCommands } from './mcp-connection.js';
 import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -52,6 +54,9 @@ export const agentMethods = {
       throw { status: 400, message: 'cwd is required.' };
     }
 
+    // Not set up: refuse before looking at the directory, and say how to set up.
+    const { roots } = this.assertFenceConfigured();
+
     let realCwd;
     try {
       realCwd = await fs.realpath(cwd);
@@ -59,9 +64,14 @@ export const agentMethods = {
       throw { status: 422, message: 'cwd must be an existing directory.' };
     }
 
-    const roots = this.getApprovedRepoRoots();
     if (!roots.some((root) => realCwd === root || isPathWithinBoundary(realCwd, root))) {
-      throw { status: 422, message: 'cwd is outside the approved repo roots.' };
+      const fix = fixCommands.setup([...roots, realCwd]);
+      throw {
+        status: 422,
+        code: OUTSIDE_FENCE_CODE,
+        fix,
+        message: `cwd is outside the approved repo roots: ${realCwd} is not under ${roots.join(', ')}. Agents cannot widen the fence. An operator adds it on the Orca workstation with: ${fix} — and then restarts Orca.`,
+      };
     }
 
     const existing = this.projects.find((project) => project.cwd === realCwd);

@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { spawnSync } from 'node:child_process';
 import { OrcaRegistry } from '../src/registry.js';
+import { approveFixtureRoot, restoreFixtureRoot } from './helpers/fence-root.js';
 
 // Portable MCP config path for command-arg assertions (no hardcoded /tmp).
 const MCP_CONFIG_PATH = path.join(os.tmpdir(), 'orca-mcp.json');
@@ -13,6 +14,7 @@ async function withIsolatedRegistry() {
   const previousCwd = process.cwd();
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-registry-test-'));
   process.chdir(tempDir);
+  approveFixtureRoot(tempDir);
 
   const registry = new OrcaRegistry();
   const cleanup = async () => {
@@ -24,6 +26,7 @@ async function withIsolatedRegistry() {
       await registry.drainPendingWrites();
     }
     await new Promise((resolve) => setTimeout(resolve, 10));
+    restoreFixtureRoot();
     process.chdir(previousCwd);
     await fs.rm(tempDir, { force: true, recursive: true, maxRetries: 5, retryDelay: 25 });
   };
@@ -1793,18 +1796,20 @@ test('deleteProject requires approval and archived state before permanent remova
   }
 });
 
-test('approved repo roots default to HOME, and the dir picker opens into it', async () => {
+test('with no roots configured nothing is approved: not HOME, not the cwd, and the dir picker offers nothing', async () => {
   const { registry, cleanup } = await withIsolatedRegistry();
   const savedEnv = process.env.ORCA_REPO_ROOTS;
   delete process.env.ORCA_REPO_ROOTS;
   try {
-    const home = os.homedir();
-    const roots = registry.getApprovedRepoRoots();
-    assert.ok(roots.includes(path.resolve(home)), 'HOME is an approved browse root by default');
-    // The picker opens INTO a directory (lists folders), not a bare roots chooser.
+    assert.deepEqual(registry.getApprovedRepoRoots(), [], 'no root is approved by default (src/fence.js)');
+    assert.equal(registry.describeFence().status, 'setup-required');
     const view = await registry.listWorkstationDirs({});
-    assert.ok(view.path, 'picker opens into a directory by default');
-    assert.ok(Array.isArray(view.entries), 'picker returns folder entries');
+    assert.deepEqual(view.roots, []);
+    assert.deepEqual(view.entries, []);
+    // With the fence set to one root, the picker opens into it.
+    process.env.ORCA_REPO_ROOTS = process.cwd();
+    const opened = await registry.listWorkstationDirs({});
+    assert.equal(opened.path, await fs.realpath(process.cwd()));
   } finally {
     if (savedEnv === undefined) delete process.env.ORCA_REPO_ROOTS; else process.env.ORCA_REPO_ROOTS = savedEnv;
     await cleanup();

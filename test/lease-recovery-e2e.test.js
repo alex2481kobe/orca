@@ -36,6 +36,8 @@ async function startDaemon({ cwd, home, port }) {
       ORCA_HOST: '127.0.0.1',
       ORCA_API_TOKEN: ADMIN,
       ORCA_REPO_ROOTS: cwd,
+      // Pinned: the daemon resolves its state dir without looking at its cwd.
+      ORCA_STATE_DIR: path.join(cwd, '.orca'),
       ORCA_RATE_LIMIT_DISABLED: 'true',
       ORCA_AUTO_AUDIT: 'false',
       ORCA_CREDENTIAL_BACKEND: 'memory',
@@ -167,7 +169,7 @@ test('e2e: an agent day on one shared config needs no manual step', { timeout: 2
       assert.equal(down.isError, true);
       assert.ok(down.text.includes(base), down.text);
       assert.match(down.text, /not running|connection refused/i);
-      assert.match(down.text, /Fix: .*npm start/);
+      assert.match(down.text, /Fix: .*orca-cli\.js'? start/);
     });
 
     await t.test('the daemon comes back on the same port: both sessions carry on with no restart', async () => {

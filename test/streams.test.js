@@ -6,6 +6,7 @@ import test from 'node:test';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { pathToFileURL } from 'node:url';
+import { approveFixtureRoot, restoreFixtureRoot } from './helpers/fence-root.js';
 
 const PROJECT_ROOT = process.cwd();
 const SERVER_ENTRYPOINT = path.join(PROJECT_ROOT, 'src', 'server.js');
@@ -50,6 +51,7 @@ async function startServer(env = {}) {
   const previousEnv = { ...process.env };
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-streams-'));
   process.chdir(tempDir);
+  approveFixtureRoot(tempDir);
   for (const [key, value] of Object.entries(env)) {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
@@ -95,6 +97,7 @@ async function startServer(env = {}) {
         if (value === undefined) delete process.env[key];
         else process.env[key] = value;
       });
+      restoreFixtureRoot();
       process.chdir(previousCwd);
       await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
     },

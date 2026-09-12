@@ -12,6 +12,7 @@ import { pathToFileURL } from 'node:url';
 import { OrcaRegistry } from '../src/registry.js';
 import { appendJournalEntries, readJournalAll, readJournalTail } from '../src/lane-journal.js';
 import { laneArchivedSegmentsDir, laneJournalDir, laneKey } from '../src/state-paths.js';
+import { approveFixtureRoot, restoreFixtureRoot } from './helpers/fence-root.js';
 
 const roundTrip = (value) => JSON.parse(JSON.stringify(value));
 
@@ -36,10 +37,14 @@ async function withEnv(vars, fn) {
   }
 }
 
+// A fixture that registers an orchestrator declares its directory as the fence,
+// the way a real install does with `setup --roots`: Orca never treats the
+// directory it runs in as an approved root (src/fence.js).
 async function inDir(dir, fn) {
   const previousCwd = process.cwd();
   process.chdir(dir);
-  try { return await fn(); } finally { process.chdir(previousCwd); }
+  approveFixtureRoot(process.cwd());
+  try { return await fn(); } finally { restoreFixtureRoot(); process.chdir(previousCwd); }
 }
 
 function openRegistry() {

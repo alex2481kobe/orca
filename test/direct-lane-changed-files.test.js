@@ -5,11 +5,13 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { OrcaRegistry } from '../src/registry.js';
+import { approveFixtureRoot, restoreFixtureRoot } from './helpers/fence-root.js';
 
 test('direct lane completion excludes pre-existing and concurrently-added dirty files', async () => {
   const previousCwd = process.cwd();
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-direct-changes-'));
   process.chdir(tempDir);
+  approveFixtureRoot(tempDir);
   const registry = new OrcaRegistry();
 
   try {
@@ -88,6 +90,7 @@ test('direct lane completion excludes pre-existing and concurrently-added dirty 
   } finally {
     registry.stopScheduler();
     await registry.drainPendingWrites();
+    restoreFixtureRoot();
     process.chdir(previousCwd);
     await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
   }

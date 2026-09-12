@@ -9,6 +9,7 @@ const body = document.body;
 const sideProjects = document.getElementById('sidebar-projects');
 const topbarTitle = document.getElementById('topbar-title');
 const content = document.getElementById('content');
+const fenceBanner = document.getElementById('fence-banner');
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -28,6 +29,26 @@ let accessBlocked = false;
 let offline = false;
 let sawFirstResponse = false;
 function route() { return (location.hash.replace(/^#\/?/, '') || 'home'); }
+
+// The fence (src/fence.js): the directories agents may work in. While Orca is
+// not set up (or its roots are invalid) no agent can register and no executor
+// launches, and a whole-home fence stays flagged even once acknowledged. Shown
+// on every screen with the one workstation command that fixes it: the dashboard
+// itself cannot change the fence.
+function renderFenceBanner(fence) {
+  if (!fenceBanner) return;
+  const blocking = Boolean(fence) && fence.status !== 'configured';
+  const warning = Boolean(fence) && fence.status === 'configured' && fence.homeWide;
+  fenceBanner.hidden = !(blocking || warning);
+  if (fenceBanner.hidden) { fenceBanner.innerHTML = ''; return; }
+  const title = blocking
+    ? (fence.status === 'invalid' ? 'Orca’s approved roots are invalid' : 'Orca is not set up')
+    : 'Agents may work anywhere in your home directory';
+  const text = blocking ? fence.summary : (fence.warnings || []).join(' ');
+  fenceBanner.classList.toggle('is-blocking', blocking);
+  fenceBanner.innerHTML = `<strong>${esc(title)}</strong><span>${esc(text)}</span>`
+    + (blocking && fence.fix ? `<span class="fence-banner-label">Run on the Orca workstation:</span><code>${esc(fence.fix)}</code>` : '');
+}
 
 // ---- sidebar collapse (desktop: body.sidebar-collapsed; mobile: body.nav-open drawer) ----
 const isMobile = () => window.matchMedia('(max-width: 880px)').matches;
@@ -850,10 +871,12 @@ async function poll() {
       // "opens then wipes" ephemeral-state bug class). It clears when the pair
       // handler sets the cookie and the next poll gets a 200.
       if (!accessBlocked) { accessBlocked = true; renderScreen(); }
+      renderFenceBanner(null);
       return;
     }
     if (!res.ok) return;
     lastData = await res.json();
+    renderFenceBanner(lastData.fence);
     if (accessBlocked) { accessBlocked = false; renderScreen(); } // just got paired → leave the gate
     renderSidebar(lastData);
     if (route() === 'home') renderHome(lastData); // only the tree auto-refreshes
@@ -862,6 +885,7 @@ async function poll() {
     // reconnect "Start Orca" screen ONCE on transition, so a hard reload with the
     // server down never falls through to a cached/legacy shell.
     if (!offline) { offline = true; renderScreen(); }
+    renderFenceBanner(null);
     return;
   }
   // On the Remote screen, watch paired sessions so a code being accepted flips

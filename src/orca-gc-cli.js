@@ -16,7 +16,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { acquireInstanceLock, inspectInstanceLock } from './instance-lock.js';
-import { resolveStateDir } from './state-paths.js';
+import { artifactDirFor, resolveStateDir } from './orca-paths.js';
 import { applyGc, DEFAULT_LANE_ARCHIVE_AGE_DAYS, formatGcPlan, planGc } from './state-gc.js';
 import { migrateStateDir } from './state-migrate.js';
 
@@ -55,10 +55,15 @@ export async function runGcCommand(flags, {
   if (purgeOlderThanDays !== null && !purgeArchive) return usageError('--purge-older-than-days only applies with --purge-archive.');
   if (flags['state-dir'] === true || flags['state-dir'] === '') return usageError('--state-dir needs a directory.');
 
-  const stateDir = path.resolve(cwd, flags['state-dir'] || resolveStateDir({ cwd }));
+  // The same directory `orca start`, `stop`, `status` and `doctor` act on
+  // (src/orca-paths.js), so gc never collects a state dir the daemon does not
+  // use. --state-dir still overrides it, resolved against the caller's cwd.
+  const stateDir = flags['state-dir']
+    ? path.resolve(cwd, flags['state-dir'])
+    : resolveStateDir().dir;
   const apply = flags.apply === true;
   const json = flags.json === true;
-  const artifactsDir = path.join(cwd, 'artifacts');
+  const artifactsDir = artifactDirFor(stateDir);
   const options = {
     stateDir,
     now,

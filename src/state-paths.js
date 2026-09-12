@@ -1,6 +1,10 @@
-// Where Orca's state lives. Every path the daemon, the migration and `orca gc`
-// use is derived here from ONE state directory, so changing how that directory
-// is chosen changes all of them together.
+// The LAYOUT of Orca's state directory: every path the daemon, the migration and
+// `orca gc` use is derived here from one state directory, so changing the layout
+// changes all of them together.
+//
+// WHICH directory that is, is not decided here. src/orca-paths.js is the single
+// resolver (ORCA_STATE_DIR > the Orca config file > an existing checkout .orca >
+// the per-user default), and the daemon, the CLI and `gc` all call it.
 
 import { createHash } from 'node:crypto';
 import path from 'node:path';
@@ -8,12 +12,6 @@ import path from 'node:path';
 // v4: lane logs and agent events live in per-lane journal files, not in
 // state.json, and audit evidence references lanes instead of embedding them.
 export const STATE_FORMAT_VERSION = 4;
-
-// The state directory. Today it is `.orca` under the directory the daemon was
-// started from; this is the single place that decides it.
-export function resolveStateDir({ cwd = process.cwd() } = {}) {
-  return path.join(cwd, '.orca');
-}
 
 export function statePaths(stateDir) {
   const archiveDir = path.join(stateDir, 'archive');

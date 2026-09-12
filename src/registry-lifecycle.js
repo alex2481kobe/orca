@@ -67,7 +67,7 @@ export const lifecycleMethods = {
       if (!lane.workdir) {
         lane.workdir = session
           ? this.resolveLaneWorkdir(session, null)
-          : path.join(process.cwd(), 'artifacts', lane.sessionId || 'orphan', lane.id);
+          : path.join(this.artifactRoot, lane.sessionId || 'orphan', lane.id);
       } else if (session) {
         try {
           lane.workdir = this.resolveLaneWorkdir(session, lane.workdir);

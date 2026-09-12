@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { PassThrough } from 'node:stream';
 import { pathToFileURL } from 'node:url';
+import { approveFixtureRoot, restoreFixtureRoot } from './helpers/fence-root.js';
 
 const PROJECT_ROOT = process.cwd();
 const SERVER_ENTRYPOINT = path.join(PROJECT_ROOT, 'src', 'server.js');
@@ -45,6 +46,7 @@ async function startServer({ token }) {
   const previousEnv = { ...process.env };
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-critique-api-'));
   process.chdir(tempDir);
+  approveFixtureRoot(tempDir);
   process.env.ORCA_API_TOKEN = token;
   process.env.PORT = '0';
   const moduleUrl = `${pathToFileURL(SERVER_ENTRYPOINT).href}?critique-api-test=${Date.now()}-${++harnessCounter}`;
@@ -86,6 +88,7 @@ async function startServer({ token }) {
         if (value === undefined) delete process.env[key];
         else process.env[key] = value;
       });
+      restoreFixtureRoot();
       process.chdir(previousCwd);
       await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
     },

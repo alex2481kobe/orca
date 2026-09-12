@@ -12,6 +12,7 @@ import { OrcaRegistry } from '../src/registry.js';
 import { readLaneArchive } from '../src/lane-archive.js';
 import { laneJournalDir } from '../src/state-paths.js';
 import { LEASE_HEADER } from '../src/mcp-connection.js';
+import { approveFixtureRoot, restoreFixtureRoot } from './helpers/fence-root.js';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const roundTrip = (value) => JSON.parse(JSON.stringify(value));
@@ -20,7 +21,10 @@ async function inTempDir(fn) {
   const previousCwd = process.cwd();
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'orca-retire-'));
   process.chdir(dir);
+  // The fixture's own directory is its fence; Orca approves no root by cwd.
+  approveFixtureRoot(process.cwd());
   try { return await fn(dir); } finally {
+    restoreFixtureRoot();
     process.chdir(previousCwd);
     await fsp.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
   }

@@ -108,6 +108,8 @@ export const laneCreateMethods = {
     if (!session) {
       throw { status: 404, message: 'Orchestrator not found.' };
     }
+    // No executor is created while Orca is not set up (src/fence.js).
+    this.assertFenceConfigured();
     const project = (this.projects || []).find((item) => item.id === session.projectId);
 
     const policyCheck = this.evaluateActionPolicy('createLane', context);

@@ -8,16 +8,20 @@ import path from 'node:path';
 import test from 'node:test';
 import { OrcaRegistry } from '../src/registry.js';
 import { compactAuditEvidence, laneDigest } from '../src/audit-evidence.js';
+import { approveFixtureRoot, restoreFixtureRoot } from './helpers/fence-root.js';
 
 async function withRegistry(callback, { cwd = null } = {}) {
   const previousCwd = process.cwd();
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-evidence-'));
   process.chdir(tempDir);
+  // The fixture's own directory is its fence; Orca approves no root by cwd.
+  approveFixtureRoot(process.cwd());
   const registry = new OrcaRegistry({ autoCompleteMs: 60 * 60 * 1000, autoAudit: false });
   registry.stopScheduler();
   try { return await callback(registry, tempDir); } finally {
     registry.stopScheduler();
     await registry.drainPendingWrites();
+    restoreFixtureRoot();
     process.chdir(previousCwd);
     await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
   }

@@ -50,7 +50,7 @@ test('R5: a stopped daemon names the URL it tried, the cause, and the command th
     assert.equal(result.isError, true);
     assert.ok(result.text.includes(base), `names the URL it tried:\n${result.text}`);
     assert.match(result.text, /not running|connection refused/i);
-    assert.match(result.text, /Fix: .*npm start/);
+    assert.match(result.text, /Fix: .*orca-cli\.js'? start/);
     assert.ok(result.text.includes(ROOT), 'the fix names the Orca checkout to start from');
     assert.notEqual(result.text.trim(), 'Orca tool call failed: fetch failed');
   } finally {

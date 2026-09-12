@@ -3,7 +3,6 @@
 
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
@@ -18,6 +17,12 @@ import {
   normalizeWorktreeMode,
   resolveOrchestratorCapacity,
 } from './registry-lane-config.js';
+import {
+  FENCE_STATUS,
+  describeFence as fenceReport,
+  resolveFence,
+  setupRequiredError,
+} from './fence.js';
 
 const MAX_WORKDIR_BYTES = 2048;
 
@@ -83,34 +88,65 @@ export const workspaceMethods = {
     return path.resolve(session.worktreeRoot || path.join(this.workspacesRoot, session.id));
   },
 
+  // The fence (src/fence.js). The daemon resolves it once, at start, from
+  // ORCA_REPO_ROOTS or the Orca config file, and root changes apply at the next
+  // start, because executor adapters snapshot the roots they may run in. A
+  // registry built without one (tests, tooling) reads ORCA_REPO_ROOTS on every
+  // call and never reads the user's config file.
+  getFence() {
+    return this.fence || resolveFence({ env: process.env });
+  },
+
+  describeFence() {
+    return fenceReport(this.getFence());
+  },
+
+  // Exactly the configured roots, or none. No working directory is ever added,
+  // and a fence that is not configured approves nothing.
   getApprovedRepoRoots() {
-    const env = process.env.ORCA_REPO_ROOTS;
-    if (env) {
-      const fromEnv = String(env)
-        .split(/[,\n]/)
-        .map((value) => String(value || '').trim())
-        .filter(Boolean)
-        .map((value) => path.resolve(value));
-      return [...new Set([process.cwd(), ...fromEnv].map((value) => path.resolve(value)))];
-    }
-    // Default (no ORCA_REPO_ROOTS): the operator's HOME directory is the single
-    // browsable root, so the folder picker starts at ~ and can reach any project
-    // (~/Documents/Projects/*). HOME contains the launch dir for normal setups; if
-    // Orca was launched from outside HOME we also include the cwd so it stays
-    // reachable. Set ORCA_REPO_ROOTS to override.
-    const roots = [];
-    try { const home = os.homedir(); if (home) roots.push(path.resolve(home)); } catch { /* no home */ }
-    const cwd = path.resolve(process.cwd());
-    if (!roots.some((root) => cwd === root || isPathWithinBoundary(cwd, root))) roots.push(cwd);
-    return [...new Set(roots)];
+    const fence = this.getFence();
+    return fence.status === FENCE_STATUS.CONFIGURED ? [...fence.roots] : [];
+  },
+
+  // The setup-required refusal every agent-facing entry point shares.
+  assertFenceConfigured() {
+    const fence = this.getFence();
+    if (fence.status !== FENCE_STATUS.CONFIGURED) throw setupRequiredError(fence);
+    return fence;
+  },
+
+  // Launch-time recheck against the fence in force now. The lane may run in its
+  // own worktree under Orca's workspaces, but the project it works on (its repo
+  // root and its project's cwd) must be inside the roots. Real paths when the
+  // directory exists, lexical otherwise.
+  laneInsideFence(lane) {
+    const roots = this.getApprovedRepoRoots();
+    const inside = (dir, allowed) => {
+      const target = String(dir || '').trim();
+      if (!target) return true;
+      if (realpathSyncSafe(target)) return allowed.some((root) => isRealPathWithinBoundarySync(target, root));
+      return allowed.some((root) => isPathWithinBoundary(path.resolve(target), path.resolve(root)));
+    };
+    const project = (this.projects || []).find((item) => item.id === lane?.projectId);
+    return inside(lane?.workdir, [this.workspacesRoot, ...roots])
+      && inside(lane?.repoRoot, roots)
+      && inside(project?.cwd, roots);
+  },
+
+  // A queued lane is held, not failed, while Orca is not set up. Say so once.
+  noteLaneHeldByFence(lane, fence) {
+    if (!this._fenceHeldLanes) this._fenceHeldLanes = new Set();
+    if (this._fenceHeldLanes.has(lane.id)) return;
+    this._fenceHeldLanes.add(lane.id);
+    this.appendLaneLog(lane, `Held in the queue, not launched: ${fence.summary} Fix: ${fence.fix}`, { persist: false });
   },
 
   // Powers the workstation directory picker (desktop + remote). Jailed to the
   // approved repo roots: a remote/paired device can browse the workstation's
   // folders to pick a working directory, but can never escape the allowlist or
   // read file contents. Returns directories only (it is a working-dir chooser),
-  // flags git working trees, and refuses traversal/symlink escapes. Widen the
-  // browsable area with ORCA_REPO_ROOTS.
+  // flags git working trees, and refuses traversal/symlink escapes. The browsable
+  // area is exactly the fence's roots (orca-cli.js setup --roots).
   async listWorkstationDirs({ path: requestedPath = '' } = {}) {
     const roots = [...new Set(this.getApprovedRepoRoots().map((root) => path.resolve(root)))];
     const withinAnyRoot = (target) => roots.some((root) => target === root || isPathWithinBoundary(target, root));
@@ -134,7 +170,7 @@ export const workspaceMethods = {
 
     const resolved = path.resolve(raw);
     if (!withinAnyRoot(resolved)) {
-      throw { status: 403, message: 'Directory is outside the approved workstation roots. Add it to ORCA_REPO_ROOTS.' };
+      throw { status: 403, message: 'Directory is outside the approved workstation roots. An operator widens them with orca-cli.js setup --roots.' };
     }
 
     // Symlink-escape guard: the real path must also stay inside the jail.
@@ -194,7 +230,7 @@ export const workspaceMethods = {
     }
     // Relative workdirs MUST resolve under the session worktreeRoot (no escape).
     // Absolute workdirs may live within the session worktreeRoot OR within an
-    // approved repo root (default: process.cwd()).
+    // approved repo root (the fence's roots; never the daemon's working dir).
     let workdir;
     if (!requested) {
       workdir = sessionWorkdir;

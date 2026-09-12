@@ -19,17 +19,20 @@ import { pathToFileURL } from 'node:url';
 import { OrcaRegistry } from '../src/registry.js';
 import { availableToolIdsForRole } from '../src/agent-tools/roles.js';
 import { ROOT } from './helpers/bridge-client.js';
+import { approveFixtureRoot, restoreFixtureRoot } from './helpers/fence-root.js';
 
 async function withIsolatedRegistry(fn) {
   const previousCwd = process.cwd();
   const tempDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'orca-lease-renewal-')));
   process.chdir(tempDir);
+  approveFixtureRoot(tempDir);
   const registry = new OrcaRegistry();
   try {
     return await fn(registry, tempDir);
   } finally {
     registry.stopScheduler();
     if (typeof registry.drainPendingWrites === 'function') await registry.drainPendingWrites();
+    restoreFixtureRoot();
     process.chdir(previousCwd);
     await fs.rm(tempDir, { force: true, recursive: true, maxRetries: 5, retryDelay: 25 });
   }
@@ -174,6 +177,7 @@ async function withTokenServer(fn) {
   const previousEnv = { ...process.env };
   const tempDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'orca-lease-routes-')));
   process.chdir(tempDir);
+  approveFixtureRoot(tempDir);
   Object.assign(process.env, {
     ORCA_API_TOKEN: 'lease-routes-admin',
     ORCA_AUTO_AUDIT: 'false',
@@ -205,6 +209,7 @@ async function withTokenServer(fn) {
     await stopServer();
     for (const key of Object.keys(process.env)) if (!(key in previousEnv)) delete process.env[key];
     Object.assign(process.env, previousEnv);
+    restoreFixtureRoot();
     process.chdir(previousCwd);
     await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
   }

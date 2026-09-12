@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <script src="/theme-init.js"></script>
-    <script src="/sw-boot.js?v=v2-29"></script>
+    <script src="/sw-boot.js?v=v2-30"></script>
     <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#212121" />
     <meta name="mobile-web-app-capable" content="yes" />
@@ -18,8 +18,8 @@
     <link rel="icon" type="image/png" sizes="256x256" href="/orca-mark.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <link rel="stylesheet" href="/styles.css?v=v2-29" />
-    <link rel="stylesheet" href="/ui/overview.css?v=v2-29" />
+    <link rel="stylesheet" href="/styles.css?v=v2-30" />
+    <link rel="stylesheet" href="/ui/overview.css?v=v2-30" />
   </head>
   <body data-app="orca">
     <header class="app-topbar">
@@ -55,11 +55,12 @@
         </div>
       </aside>
       <section class="ops-main">
+        <div id="fence-banner" class="fence-banner" role="status" hidden></div>
         <div id="content" class="ops-content" aria-busy="true">
           <div class="app-loading" role="status" aria-label="Connecting"><img class="app-loading-logo" src="/orca-mark.png" alt="" width="44" height="44" /><span class="app-loading-spinner" aria-hidden="true"></span><span class="app-loading-text">Connecting…</span></div>
         </div>
       </section>
     </main>
-    <script type="module" src="/ui/overview.js?v=v2-29"></script>
+    <script type="module" src="/ui/overview.js?v=v2-30"></script>
   </body>
 </html>
