@@ -1,5 +1,13 @@
 artifacts/
 .orca/
+# Both spellings on purpose. "node_modules/" matches only a DIRECTORY, so it does
+# not match the node_modules SYMLINK a linked worktree uses to share the primary
+# checkout's install — and an unmatched symlink is one `git add -A` away from
+# being committed. Checking such a commit out in the primary checkout then
+# recreates the link AT its own target, and every worktree pointing at it
+# resolves into an empty loop: dependencies silently vanish for every lane at
+# once, and it only surfaces as one test file that cannot load @lydell/node-pty.
+node_modules
 node_modules/
 *.log
 *.log.*

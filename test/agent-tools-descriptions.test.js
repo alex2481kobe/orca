@@ -180,6 +180,41 @@ test('executor.spawn names mock as the default and says it runs no real agent', 
 
 // The description an agent reads is assembled, not stored. If that ever changes,
 // every rule above stops describing the real surface.
+// A FORWARD GUARD, not a description of today's tree.
+//
+// A sister lane is adding per-lane result truncation: a `result.txt` artifact
+// holding the complete text, a raised `resultText` cap with an explicit
+// truncation marker, and `resultTruncated` / `resultFullLength` /
+// `resultArtifact` fields. lane.get is the tool that hands an agent a lane's
+// result, so on the day that lands, an agent reading `resultText` will silently
+// believe a truncated report is the whole thing unless lane.get says otherwise.
+//
+// Describing those fields before they exist would be its own lie, so this test
+// asserts nothing today and starts failing the moment the fields appear.
+test('lane.get documents result truncation once truncation exists in the source', () => {
+  const sources = fs.readdirSync(srcDir, { recursive: true })
+    .filter((name) => typeof name === 'string' && name.endsWith('.js'))
+    .map((name) => {
+      try { return fs.readFileSync(path.join(srcDir, name), 'utf8'); } catch { return ''; }
+    })
+    .join('\n');
+  const shipped = ['resultTruncated', 'resultFullLength', 'resultArtifact'].filter((field) => sources.includes(field));
+  if (!shipped.length) return; // not landed yet
+
+  const laneGet = byId.get('lane.get');
+  for (const field of shipped) {
+    assert.ok(
+      laneGet.summary.includes(field),
+      `lane.get hands an agent the lane result, and "${field}" now exists in src/ — the summary must name it, or an agent will read a truncated resultText as the complete result`,
+    );
+  }
+  assert.match(
+    laneGet.summary,
+    /result\.txt/,
+    'lane.get must point at the result.txt artifact that holds the complete result text',
+  );
+});
+
 test('the MCP description is still built from the summary and the route', () => {
   const server = fs.readFileSync(path.join(srcDir, 'mcp-server.js'), 'utf8');
   assert.ok(

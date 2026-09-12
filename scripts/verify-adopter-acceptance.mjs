@@ -83,6 +83,25 @@ const runCli = (args, extra = {}) => {
 console.log(`[acceptance] temp root ${root}, port ${port}`);
 
 try {
+  // ---- 0. the install actually resolves -----------------------------------
+  // `npm ci` reporting success is not the same as a usable dependency tree. A
+  // linked worktree shares the primary checkout's node_modules through a
+  // symlink, and that link can resolve into an empty loop (it did: a tracked
+  // node_modules symlink, checked out in the checkout it points AT). Nearly
+  // every suite here uses only Node built-ins, so the tree looks fine until one
+  // file reaches @lydell/node-pty and fails to load. Check the real dependency
+  // before anything else, so a broken install fails loudly and early.
+  const deps = spawnSync(
+    'node',
+    ['-e', "require.resolve('@lydell/node-pty'); process.stdout.write('ok')"],
+    { cwd: repoDir, encoding: 'utf8', timeout: 30000 },
+  );
+  step('runtime dependencies resolve from this checkout', deps.status === 0 && deps.stdout === 'ok',
+    deps.status === 0 ? '@lydell/node-pty' : String(deps.stderr || '').split('\n')[0].slice(0, 120));
+  if (deps.status !== 0) {
+    console.log('\n[acceptance] the dependency tree is broken; run `npm ci` (or repair the node_modules symlink FROM the worktree) before trusting anything below.');
+  }
+
   // ---- 1. the ONE documented command -------------------------------------
   const setup = runCli([
     'setup',
