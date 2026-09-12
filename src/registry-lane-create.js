@@ -11,6 +11,7 @@ import {
   safeArray,
   normalizeExecutorType,
   buildLaneRoute,
+  realpathSyncSafe,
 } from './registry-utils.js';
 import { buildNextActionEnvelope } from './agent-tools/next-action.js';
 import { FIRST_CLASS_CLI_EXECUTOR_TYPES, getExecutorProfile } from './executor-factory.js';
@@ -27,6 +28,8 @@ import {
   commandTargetsExecutorFirstToken,
   normalizeApprovedCapacity,
   normalizeSpawnPolicy,
+  findTreeHolders,
+  describeTreeConflict,
 } from './registry-lane-config.js';
 
 const { QUEUED: QUEUED_STATE } = LANE_STATES;
@@ -184,17 +187,85 @@ export const laneCreateMethods = {
     // the second was classified, so both resolved to `direct` and the scheduler then
     // ran both concurrently in the repository root — exactly the collision this is
     // meant to prevent. A queued writer will overlap, so it has to count as one.
-    const activeWriterLanes = (this.lanes || []).filter((lane) => (
+    const ownWriterLanes = (this.lanes || []).filter((lane) => (
       lane.sessionId === session.id
       && lane.permissionsProfile !== 'read-only'
       && this.laneOccupiesSlot(lane)
     )).length;
+
+    // ...and count the writers under OTHER orchestrators too. Sole-writer
+    // isolation used to be evaluated only within one orchestrator container,
+    // but registry-agents.js binds an orchestrator record per (project, lease),
+    // so one checkout can carry several live orchestrators that cannot see each
+    // other's lanes. Both were therefore granted a "sole writer" direct lane in
+    // the same working tree. The contended resource is the DIRECTORY, so that is
+    // what gets counted.
+    //
+    // `plannedDirectWorkdir` is the tree this lane would occupy if it ran
+    // directly. A relative workdir resolves under this orchestrator's own
+    // workspace root, which no other orchestrator can reach, so only the project
+    // checkout and an absolute workdir can ever be contended.
+    const plannedDirectWorkdir = (() => {
+      const requestedWorkdir = String(workdir || '').trim();
+      if (requestedWorkdir) {
+        if (!path.isAbsolute(requestedWorkdir)) return '';
+        const resolved = path.resolve(requestedWorkdir);
+        return realpathSyncSafe(resolved) || resolved;
+      }
+      if (!sessionRepoRoot) return '';
+      return realpathSyncSafe(sessionRepoRoot) || sessionRepoRoot;
+    })();
+    const foreignTreeHolders = findTreeHolders({
+      lanes: this.lanes || [],
+      directory: plannedDirectWorkdir,
+      isLive: (lane) => this.laneOccupiesSlot(lane),
+    }).filter((lane) => lane.sessionId !== session.id);
+
+    // Would this lane have run directly in the tree, judged on its own
+    // orchestrator's lanes alone? That is exactly the grant the old accounting
+    // handed out, and it is the one that has to be refused rather than quietly
+    // rewritten: the caller cannot see the other orchestrator's lanes, so a
+    // silent switch to an isolated worktree would be unexplainable to it, and on
+    // a non-git folder there is no worktree to switch to at all.
+    const wouldRunDirectAlone = resolveWorktreeMode({
+      requested: requestedWorktreeMode,
+      repoIsGit,
+      isReadOnly: isReadOnlyLane,
+      activeWriterLanes: ownWriterLanes,
+    }) === 'direct';
     const resolvedWorktreeMode = resolveWorktreeMode({
       requested: requestedWorktreeMode,
       repoIsGit,
       isReadOnly: isReadOnlyLane,
-      activeWriterLanes,
+      // A writer under another orchestrator counts exactly like one of ours.
+      activeWriterLanes: ownWriterLanes + foreignTreeHolders.length,
     });
+    // Read-only lanes never hold a tree and are never refused; only a writer
+    // that would land in a tree another orchestrator's writer already holds is.
+    if (!isReadOnlyLane && wouldRunDirectAlone && foreignTreeHolders.length) {
+      const holder = foreignTreeHolders[0];
+      // These holders are never in the caller's own container, so always name an
+      // owner. If the record is gone (an orphaned lane), name the id it points at
+      // rather than falling back to the same-container wording, which would read
+      // as though the caller already held the tree itself.
+      const holderOrchestrator = (this.orchestrators || [])
+        .find((item) => item.id === holder.sessionId)
+        || (holder.sessionId ? { id: holder.sessionId, title: null, actor: null } : null);
+      throw {
+        status: 409,
+        message: describeTreeConflict({
+          holder,
+          holderOrchestrator,
+          directory: plannedDirectWorkdir,
+          repoIsGit,
+          holderStale: holderOrchestrator
+            ? (!!holderOrchestrator.resignedAt || this._orchestratorStale(holderOrchestrator))
+            : false,
+        }),
+        conflictingLaneId: holder.id,
+        conflictingOrchestratorId: holderOrchestrator?.id || holder.sessionId || null,
+      };
+    }
 
     if (sessionRepoRoot && !workdir) {
       if (resolvedWorktreeMode === 'isolated') {

@@ -1,3 +1,5 @@
+import { MAX_RESULT_CAPTURE } from './lane-result.js';
+
 const MAX_EVENT_CONTENT = 12000;
 // Ceiling for the un-flushed partial (newline-free) line buffer. An executor that
 // emits megabytes without a newline would otherwise grow buffers[stream] unbounded;
@@ -8,6 +10,15 @@ function cleanText(value, max = MAX_EVENT_CONTENT) {
   return String(value ?? '')
     .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '')
     .slice(0, max);
+}
+
+// A lane's FINAL report is not a routine event line: it is the thing an
+// orchestrator reads to decide whether to accept the work. Cutting it here at
+// MAX_EVENT_CONTENT is what silently lost 58% of a 28,719-character report on
+// 2026-09-11. The normalizer now hands the whole thing on (up to a runaway
+// ceiling) and src/lane-result.js decides what is stored and says when it cut.
+function finalText(value) {
+  return cleanText(value, MAX_RESULT_CAPTURE);
 }
 
 function event(type, fields = {}) {
@@ -102,7 +113,7 @@ function normalizeCursorEvent(data, source) {
     return [
       event(data.is_error ? 'error' : 'message.assistant.final', {
         source,
-        content: cleanText(data.result || data.error || ''),
+        content: finalText(data.result || data.error || ''),
         externalSessionId: data.session_id,
         durationMs: data.duration_ms,
         usage: usageFrom(data.usage, data.usage_metrics, data.usageMetadata, data.stats),
@@ -151,7 +162,7 @@ function normalizeClaudeEvent(data, source) {
     return [
       event(data.is_error ? 'error' : 'message.assistant.final', {
         source,
-        content: cleanText(data.result || data.error || ''),
+        content: finalText(data.result || data.error || ''),
         externalSessionId: data.session_id,
         durationMs: data.duration_ms,
         usage: usageFrom(data.usage, data.usage_metrics, data.usageMetadata, data.stats),
@@ -172,7 +183,7 @@ function normalizeCodexEvent(data, source) {
   if (type === 'item.completed' && msg.item && typeof msg.item === 'object') {
     const itemType = String(msg.item.type || '').toLowerCase();
     if (itemType === 'agent_message' || itemType === 'assistant_message') {
-      const content = cleanText(msg.item.text || msg.item.content || '');
+      const content = finalText(msg.item.text || msg.item.content || '');
       if (!content) return [];
       return [event('message.assistant.final', {
         source,
@@ -222,7 +233,7 @@ function normalizeCodexEvent(data, source) {
     })];
   }
   if (type === 'turn_complete' || type === 'agent-turn-complete' || type === 'turn.completed') {
-    const finalContent = cleanText(msg.content || data.result || '');
+    const finalContent = finalText(msg.content || data.result || '');
     const usage = usageFrom(msg.usage, msg.usage_metrics, msg.usageMetadata, msg.stats, data.usage, data.usage_metrics, data.usageMetadata, data.stats);
     const done = event('agent.done', {
       source,
@@ -248,7 +259,7 @@ function normalizeGeminiEvent(data, source) {
     return [
       event('message.assistant.final', {
         source,
-        content: cleanText(data.response || ''),
+        content: finalText(data.response || ''),
         usage: usageFrom(data.usage, data.usageMetadata, data.stats),
       }),
       event('agent.done', {

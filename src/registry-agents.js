@@ -405,6 +405,25 @@ export const agentMethods = {
         lastSeenAt: orch.lastSeenAt || null,
         stale,
       },
+      // Every OTHER live orchestrator bound to this same project. A project can
+      // carry more than one orchestrator record (one per lease), and each one's
+      // lane tree shows only its own lanes — so without this an agent polling
+      // status is told it owns the work while a second session holds the same
+      // working tree. A writer lane is sole-writer across the PROJECT, so these
+      // are the records whose writers can refuse your next direct lane, and the
+      // stale ones are the records you may take over.
+      coOrchestrators: (this.orchestrators || [])
+        .filter((item) => item.projectId === orch.projectId
+          && item.id !== orch.id
+          && !item.resignedAt)
+        .map((item) => ({
+          orchestratorId: item.id,
+          actor: item.actor || null,
+          title: item.title || null,
+          registeredAt: item.registeredAt || null,
+          lastSeenAt: item.lastSeenAt || null,
+          stale: this._orchestratorStale(item),
+        })),
       flow: envelope.flow,
       capacity: envelope.capacity,
       nextRequiredTool: envelope.nextRequiredTool,

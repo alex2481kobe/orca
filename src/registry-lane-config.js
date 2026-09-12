@@ -1,5 +1,8 @@
 // Lane/session configuration normalizers (spawn policy, idle-shutdown mode,
-// approved capacity). Pure helpers.
+// approved capacity) plus the pure cross-orchestrator sole-writer predicates.
+// Pure helpers.
+
+import { isPathWithinBoundary } from './registry-utils.js';
 
 const SPAWN_POLICIES = new Set(['never', 'ask', 'within_capacity', 'auto']);
 // Worktree isolation a caller may REQUEST. Only two, because the other two were
@@ -86,4 +89,94 @@ export function commandTargetsExecutorFirstToken(type, commandParts) {
   const first = String(commandParts[0] || '').toLowerCase();
   const aliases = FIRST_CLASS_CLI_TARGET_ALIASES[normalizedType] || [normalizedType];
   return aliases.some((alias) => first.includes(alias));
+}
+
+// ---------------------------------------------------------------------------
+// Sole-writer accounting (cross-orchestrator).
+//
+// "Only one writer per working tree" is a fact about the DIRECTORY, not about a
+// single orchestrator's lane list. registry-agents.js keeps one orchestrator
+// record per (project, lease), so a project can carry several live
+// orchestrators, and each one only ever sees its own lanes. Counting competing
+// writers with `lane.sessionId === session.id` therefore granted BOTH
+// orchestrators on one checkout a "sole writer" direct lane, and both wrote the
+// same tree. The predicate below compares execution directories instead.
+// ---------------------------------------------------------------------------
+
+// Two lanes contend when they run in the SAME canonical execution directory.
+//
+// Deliberately equality and not containment. The guarantee being restored is
+// "sole writer across the whole project", and every direct lane of a project
+// runs in that project's cwd, so equality covers it exactly. Containment would
+// additionally forbid a writer in a nested project (a monorepo root and one of
+// its apps are two legitimate cwd-keyed projects that are routinely worked in
+// parallel), which is a policy Orca has never had. The residual risk is
+// therefore unchanged from before this fix: a writer in a parent directory can
+// still reach into a child project's tree.
+export function sameExecutionDir(left, right) {
+  const a = String(left || '').trim();
+  const b = String(right || '').trim();
+  if (!a || !b) return false;
+  // isPathWithinBoundary path.resolve()s both sides, so this normalizes
+  // trailing separators and `.` segments before comparing.
+  return isPathWithinBoundary(a, b) && isPathWithinBoundary(b, a);
+}
+
+// Live writer lanes that currently hold `directory` — across every
+// orchestrator. `isLive` is supplied by the registry (laneOccupiesSlot: a lane
+// that submitted still has a live child and still holds the tree).
+//
+// Isolated lanes are excluded BY MODE and not by path, deliberately: the state
+// directory can sit inside the checkout (`<cwd>/.orca`, still the default), so a
+// lane's own git worktree under workspacesRoot literally lives inside the
+// project directory and a pure path test would report it as holding the very
+// checkout it was branched from.
+export function findTreeHolders({
+  lanes = [],
+  directory = '',
+  excludeLaneId = null,
+  isLive = () => true,
+} = {}) {
+  const target = String(directory || '').trim();
+  if (!target) return [];
+  return (Array.isArray(lanes) ? lanes : []).filter((lane) => !!lane
+    && lane.id !== excludeLaneId
+    && lane.worktreeMode !== 'isolated'
+    && lane.permissionsProfile !== 'read-only'
+    && sameExecutionDir(lane.workdir, target)
+    && isLive(lane));
+}
+
+// The refusal a second writer sees. It must be actionable on its own: name the
+// lane and the orchestrator that already hold the tree, and give the three ways
+// out — wait, take the abandoned orchestrator over, or ask for an isolated
+// worktree. `worktreeMode: "isolated"` degrades to direct on a non-git folder,
+// so it is only offered when there is a working tree to branch.
+export function describeTreeConflict({
+  holder,
+  holderOrchestrator = null,
+  directory = '',
+  repoIsGit = false,
+  holderStale = false,
+  lead = 'Cannot start this lane as a writer',
+} = {}) {
+  const holderTitle = String(holder?.title || holder?.id || 'unknown lane').trim();
+  // No orchestrator record means the holder is in the CALLER's own container, so
+  // naming an orchestrator would be noise (and "another orchestrator" a lie).
+  const owner = holderOrchestrator
+    ? ` under orchestrator "${holderOrchestrator.title || holderOrchestrator.actor || holderOrchestrator.id}" (${holderOrchestrator.id})`
+    : '';
+  const remedies = ['wait for that lane to finish (or stop it)'];
+  if (repoIsGit) {
+    remedies.push('spawn this lane with worktreeMode "isolated" so it gets its own git worktree');
+  }
+  if (holderOrchestrator) {
+    remedies.push(holderStale
+      ? `take that orchestrator over — it is stale, so orchestrator.register with takeoverOrchestratorId "${holderOrchestrator.id}" will hand you its lanes`
+      : `take that orchestrator over once it is stale or resigned (orchestrator.register with takeoverOrchestratorId "${holderOrchestrator.id}")`);
+  }
+  const scope = holderOrchestrator
+    ? ' A working tree gets exactly one writer across the whole PROJECT, not one per orchestrator.'
+    : '';
+  return `${lead}: ${directory} is already being written by lane "${holderTitle}" (${holder?.id || 'unknown'})${owner}.${scope} To proceed, ${remedies.join('; ')}.`;
 }

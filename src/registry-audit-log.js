@@ -6,6 +6,13 @@ import { nowIso, clonePayload } from './registry-utils.js';
 import { compactAuditEvidence } from './audit-evidence.js';
 
 import { MAX_AGENT_EVENT_ENTRIES, MAX_LANE_LOG_ENTRIES } from './registry-lane-journal.js';
+import { MAX_RESULT_CONTENT, applyLaneResult } from './lane-result.js';
+
+// Routine event lines stay cheap; the events that CARRY a lane's final report
+// get the result budget, so storing an event is never what cuts the report.
+const MAX_EVENT_CONTENT = 12000;
+const RESULT_EVENT_TYPES = new Set(['message.assistant.final', 'agent.done']);
+const eventContentCap = (type) => (RESULT_EVENT_TYPES.has(String(type)) ? MAX_RESULT_CONTENT : MAX_EVENT_CONTENT);
 
 function isOrchestratorStartStub(value) {
   return /^Started\s+.+\s+orchestrator lane\s+"/i.test(String(value || '').trim());
@@ -68,7 +75,7 @@ function promoteOrchestratorThreadOutput(registry, lane, agentEvent, now) {
   }
 
   if (!nextContent || nextContent === current) return;
-  message.content = nextContent.slice(0, 12000);
+  message.content = nextContent.slice(0, MAX_EVENT_CONTENT);
   message.updatedAt = now;
   thread.updatedAt = now;
 }
@@ -111,7 +118,7 @@ export const auditLogMethods = {
       source: String(agentEvent.source || lane.executorType || 'agent').slice(0, 80),
       type: String(agentEvent.type || 'event').slice(0, 120),
       title: agentEvent.title ? String(agentEvent.title).slice(0, 240) : '',
-      content: agentEvent.content ? String(agentEvent.content).slice(0, 12000) : '',
+      content: agentEvent.content ? String(agentEvent.content).slice(0, eventContentCap(agentEvent.type)) : '',
       stream: agentEvent.stream ? String(agentEvent.stream).slice(0, 40) : '',
       command: agentEvent.command ? String(agentEvent.command).slice(0, 2000) : '',
       toolName: agentEvent.toolName ? String(agentEvent.toolName).slice(0, 160) : '',
@@ -129,8 +136,17 @@ export const auditLogMethods = {
     // field, so the orchestrator/audit see the actual outcome — not just exit code
     // + raw logs. Last final message wins; uniform across all executor types.
     if (agentEvent.type === 'message.assistant.final' && agentEvent.content) {
-      lane.resultText = String(agentEvent.content).slice(0, 12000);
-      lane.resultAt = now;
+      // The whole report goes to the lane's result.txt artifact; what stays on
+      // the record is capped, and SAYS SO when it was cut (src/lane-result.js).
+      const fullText = applyLaneResult(lane, agentEvent.content, now);
+      if (typeof this.writeLaneResultArtifact === 'function') {
+        this._trackAsync?.(this.writeLaneResultArtifact(lane, fullText).catch(() => {}));
+      }
+      if (lane.resultTruncated) {
+        // appendLaneLog, not a raw push: the entry must obey the per-lane cap and
+        // reach the journal like every other line.
+        this.appendLaneLog(lane, `[orca] result truncated for storage: ${lane.resultFullLength} chars captured, first ${MAX_RESULT_CONTENT} kept on the lane; full text in the ${lane.resultArtifact} artifact.`);
+      }
       if (usage) lane.tokenUsage = usage;
     } else if (agentEvent.type === 'agent.done' && usage) {
       lane.tokenUsage = usage;
