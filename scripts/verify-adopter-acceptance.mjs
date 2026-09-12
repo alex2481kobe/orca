@@ -57,11 +57,15 @@ await fs.mkdir(stateDir, { recursive: true });
 await fs.writeFile(path.join(workDir, 'README.md'), '# demo\n');
 
 const port = await freePort();
+// A DIFFERENT port in the environment, so `--port` has teeth: if setup ever
+// stopped honouring the flag the daemon would land here (or, with neither, on
+// 3000 — someone's real daemon) and every assertion below would say so.
+const envPort = await freePort();
 // A hermetic environment: no inherited Orca settings, no inherited HOME.
 const env = {
   PATH: process.env.PATH,
   HOME: home,
-  PORT: String(port),
+  PORT: String(envPort),
   ORCA_HOST: '127.0.0.1',
   ORCA_CREDENTIAL_BACKEND: 'memory',
   ORCA_RATE_LIMIT_DISABLED: 'true',
@@ -103,14 +107,22 @@ try {
   }
 
   // ---- 1. the ONE documented command -------------------------------------
+  //
+  // Every flag the README's one command uses is exercised here, because each one
+  // is load-bearing and none of them used to be in the usage line: `--port`
+  // moves the daemon off 3000 (the docs claimed setup had no such flag), and
+  // `--node` is how the one command avoids baking a disposable Node into the
+  // client config it writes.
   const setup = runCli([
     'setup',
     '--roots', projects,
     '--state-dir', stateDir,
+    '--port', String(port),
     '--connect', 'claude',
+    '--node', process.execPath,
   ]);
-  step('setup --roots … --connect claude exits 0', setup.code === 0, setup.code === 0 ? '' : setup.out.trim().split('\n').slice(-4).join(' | '));
-  step('setup starts the daemon on the configured port', setup.out.includes(`127.0.0.1:${port}`), `expected :${port}`);
+  step('setup --roots … --port … --connect claude --node … exits 0', setup.code === 0, setup.code === 0 ? '' : setup.out.trim().split('\n').slice(-4).join(' | '));
+  step('setup honours --port over PORT in the environment', setup.out.includes(`127.0.0.1:${port}`) && !setup.out.includes(`127.0.0.1:${envPort}`), `expected :${port}, PORT said :${envPort}`);
   step('setup records the fence it was given', setup.out.includes(projects));
   step('setup registers the MCP server at user scope', /Registered "orca" for Claude Code at user scope/.test(setup.out));
 
@@ -131,6 +143,10 @@ try {
   step('the client config names the daemon setup started', advertised.replace(/\/$/, '') === `http://127.0.0.1:${port}`, advertised || '(missing)');
   step('the client config carries a refresh credential, never the API token', Boolean(orca?.env?.ORCA_REFRESH_TOKEN));
   step('the client config launches this checkout\'s bridge', String(orca?.args?.[0] || '').startsWith(repoDir), String(orca?.args?.[0] || '(missing)').replace(repoDir, '<repo>'));
+  // The Node trap: connect writes an absolute Node into a file Orca does not
+  // own. `--node` on the one command is what lets an adopter choose a Node their
+  // package manager maintains instead of whatever the CLI happened to run on.
+  step('the client config launches the Node setup --node named', orca?.command === process.execPath, String(orca?.command || '(missing)'));
 
   // ---- 4. doctor reports on the daemon this installation manages ----------
   const doctor = runCli(['doctor']);

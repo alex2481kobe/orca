@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 // Orca's command line: everything done outside the MCP bridge.
 //
-//   setup --roots <dir>[,<dir>...] [--allow-home-root] [--state-dir DIR] [--no-start] [--connect claude|codex]
+//   setup --roots <dir>[,<dir>...] [--allow-home-root] [--state-dir DIR]
+//         [--port N] [--no-start] [--connect claude|codex] [--node PATH]
 //       The one first-run command (src/cli-setup.js). Records the directories
 //       agents may work in (the fence) in the user's Orca config file, keeps an
 //       existing install's state where it is, starts Orca, and optionally
-//       connects agent CLIs.
+//       connects agent CLIs. --port and --node are handed to the start and
+//       connect it performs: --port moves the daemon off 3000 (PORT does the
+//       same), and --node is the Node baked into the client config it writes.
 //
 //   start | stop [--force] | status [--json] | logs [--lines N]
 //       The daemon's lifecycle (src/cli-lifecycle.js). One daemon per machine,
@@ -83,7 +86,7 @@ import {
 
 const CLI = `node ${shellQuote(path.join(ORCA_DIR, 'src', 'orca-cli.js'))}`;
 const USAGE = `Usage:
-  ${CLI} setup --roots <dir>[,<dir>...] [--allow-home-root] [--state-dir DIR] [--no-start] [--connect claude|codex]
+  ${CLI} setup --roots <dir>[,<dir>...] [--allow-home-root] [--state-dir DIR] [--port N] [--no-start] [--connect claude|codex] [--node PATH]
   ${CLI} start [--port N] [--host H] [--wait SECONDS]
   ${CLI} stop [--force] [--wait SECONDS]
   ${CLI} status [--json]

@@ -8,11 +8,13 @@
 // rather than inventing something.
 
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import {
   MACHINE_ID_FILE,
@@ -21,6 +23,8 @@ import {
   resolveMachineIdentity,
   shortMachineId,
 } from '../src/machine-identity.js';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 async function tempDir(label) {
   return fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), `orca-machine-${label}-`)));
@@ -122,4 +126,33 @@ test('an identity is shown short, and always beside the hostname it is not', () 
     'Mac.lan (C20DC899…C944, platform-uuid)',
   );
   assert.equal(describeMachine({ id: null, source: 'unavailable' }, 'Mac.lan'), 'Mac.lan (identity unavailable)');
+});
+
+test('the identity does not depend on the caller PATH: /usr/sbin missing must not invent a second machine', (t) => {
+  if (process.platform !== 'darwin') {
+    t.skip('the PATH-sensitive source (ioreg in /usr/sbin) is macOS-only');
+    return;
+  }
+  // The bug: `ioreg` was looked up on the caller's PATH alone. A LaunchAgent, a
+  // cron job or `env -i PATH=/usr/bin:/bin` has no /usr/sbin, so the lookup
+  // failed, the resolver fell through to the per-config-dir file, and the SAME
+  // Mac then reported two identities. The instance lock compares those, so the
+  // CLI declared its own running daemon "taken on another machine" and refused
+  // to stop it. Resolve it out of process, because the module memoises.
+  const probe = "import('./src/machine-identity.js').then((m) => process.stdout.write(JSON.stringify(m.resolveMachineIdentity({ cached: false }))))";
+  const read = (pathEnv) => {
+    const run = spawnSync(process.execPath, ['--input-type=module', '-e', probe], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      env: { PATH: pathEnv, HOME: process.env.HOME },
+      timeout: 20000,
+    });
+    assert.equal(run.status, 0, run.stderr);
+    return JSON.parse(run.stdout);
+  };
+  const full = read('/usr/sbin:/sbin:/usr/bin:/bin');
+  const stripped = read('/usr/bin:/bin');
+  assert.equal(full.source, 'platform-uuid', 'the full-PATH baseline must reach ioreg, or this proves nothing');
+  assert.equal(stripped.source, 'platform-uuid', 'a PATH without /usr/sbin still reaches ioreg');
+  assert.equal(stripped.id, full.id, 'one machine, one identity, whatever the caller PATH is');
 });
