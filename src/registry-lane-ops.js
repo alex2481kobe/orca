@@ -7,7 +7,12 @@ import { randomUUID } from 'node:crypto';
 import { LANE_STATES, isLiveLaneState } from './worker-contract.js';
 import { laneEvidenceRef } from './audit-evidence.js';
 import { nowIso, clonePayload, safeArray } from './registry-utils.js';
-import { removeLaneWorktree, mergeLaneBranch, worktreeCleanliness } from './worktree-manager.js';
+import {
+  removeLaneWorktree,
+  mergeLaneBranch,
+  worktreeCleanliness,
+  laneBranchIntegration,
+} from './worktree-manager.js';
 import { validateNetworkUrl } from './url-policy.js';
 import { buildNextActionEnvelope } from './agent-tools/next-action.js';
 import { findTreeHolders, describeTreeConflict } from './registry-lane-config.js';
@@ -789,6 +794,131 @@ export const laneOpsMethods = {
     return { removed: true, branchRemoved: result.branchRemoved, forced: Boolean(force) };
   },
 
+  // ---------------------------------------------------------------------------
+  // AUTOMATIC worktree reclaim.
+  //
+  // The owner's question was "why is orca not auto getting rid of stuff? i
+  // thought there was a flow where the work gets accepted and then the worktree
+  // removed". There wasn't. lane__integrate and lane__worktree__discard both
+  // existed, but nothing ever fired either one, so 34 lane worktrees from July
+  // were still on this machine.
+  //
+  // TRIGGERS — two, both meaning "this lane is finished with":
+  //   * audit.accept succeeds, and
+  //   * lane.integrate succeeds (merged, or nothing-to-merge).
+  // Accept is the moment a human or an orchestrator says the work is done, and
+  // for the common shapes — a lane that committed nothing, a scout, a lane whose
+  // branch is already in the base — the worktree at that moment holds nothing
+  // that exists anywhere else, so it goes then. Integrate is the moment the
+  // commits provably reach the base checkout, which is the case that needs the
+  // merge first.
+  //
+  // THE ONE RULE: a worktree may only go when nothing lives ONLY there.
+  //   1. no managed worktree (direct/shared lane, or already discarded) -> nothing to do;
+  //   2. the executor process is still alive -> refuse (it is still writing);
+  //   3. worktreeCleanliness FAILS CLOSED: uncommitted changes, or git that
+  //      cannot be read, both refuse. "Could not tell" is never "clean";
+  //   4. laneBranchIntegration FAILS CLOSED: commits not in the base branch, a
+  //      missing branch, a detached base HEAD, or a git error all refuse;
+  //   5. removeLaneWorktree then re-checks 3 and 4 in its own way, with
+  //      force:false, and refuses any path git does not track as a worktree.
+  // Never force. Never removeBranch — so even in the success case every commit
+  // the lane made stays reachable in the repo as refs/heads/<lane branch>, and
+  // the folder is only ever a redundant second copy of work that is elsewhere.
+  //
+  // A REFUSAL IS LOUD, not silent: the reason lands on lane.worktreeReclaim, in
+  // the lane log, and in the accept/integrate response, naming the tool that
+  // resolves it (lane.integrate to keep the work, lane.worktree.discard
+  // {force:true} to drop it). Nothing is archived elsewhere and nothing is
+  // deleted; the worktree stays exactly where it was.
+  //
+  // ORCA_AUTO_RECLAIM_WORKTREE=false turns the whole thing off.
+  _reclaimLaneWorktree(lane, { trigger, actor = 'orca' } = {}) {
+    const record = (outcome) => {
+      const full = { at: nowIso(), trigger, ...outcome };
+      if (outcome.reason) lane.worktreeReclaim = full;
+      return full;
+    };
+    if (!lane) return { removed: false, applicable: false, reason: 'no lane' };
+    if (String(process.env.ORCA_AUTO_RECLAIM_WORKTREE || '').toLowerCase() === 'false') {
+      return { removed: false, applicable: false, reason: null, disabled: true };
+    }
+    if (!lane.repoRoot || !lane.worktreePath) return { removed: false, applicable: false, reason: null };
+    if (path.resolve(lane.worktreePath) === path.resolve(lane.repoRoot)) {
+      return { removed: false, applicable: false, reason: null };
+    }
+    const keep = (reason, extra = {}) => {
+      this.appendLaneLog(
+        lane,
+        `[orca] worktree kept after ${trigger}: ${reason} — ${lane.worktreePath}. `
+        + 'Integrate it (lane.integrate) to keep the work, or discard it deliberately '
+        + '(lane.worktree.discard {"force":true}). Nothing was removed.',
+        { persist: false },
+      );
+      return record({ removed: false, applicable: true, reason, ...extra });
+    };
+
+    if (typeof this.isLaneProcessLive === 'function' && this.isLaneProcessLive(lane.id)) {
+      return keep('its executor process is still live and may still be writing to it');
+    }
+    const cleanliness = worktreeCleanliness(lane.worktreePath);
+    if (!cleanliness.ok) {
+      return keep(`Orca could not read its git status (${cleanliness.error}), so it cannot prove the worktree holds nothing unique`);
+    }
+    if (cleanliness.files.length) {
+      return keep(
+        `it holds ${cleanliness.files.length} uncommitted change(s) that exist nowhere else`,
+        { uncommittedChanges: cleanliness.files.length, changedFiles: cleanliness.files.slice(0, 50) },
+      );
+    }
+    const integration = laneBranchIntegration({ repoRoot: lane.repoRoot, branch: lane.branch });
+    if (!integration.ok) return keep(integration.reason);
+    if (integration.unmerged > 0) {
+      return keep(
+        `its branch "${integration.branch}" has ${integration.unmerged} commit(s) that are not in ${integration.baseBranch}`,
+        { unmergedCommits: integration.unmerged, branch: integration.branch, baseBranch: integration.baseBranch },
+      );
+    }
+
+    const result = removeLaneWorktree({
+      repoRoot: lane.repoRoot,
+      worktreePath: lane.worktreePath,
+      removeBranch: false,
+      branch: lane.branch || null,
+      force: false,
+    });
+    if (!result.removed) return keep(result.reason || 'git refused to remove it');
+
+    const removedWorktreePath = lane.worktreePath;
+    lane.worktreePath = '';
+    lane.worktreeReclaimedAt = nowIso();
+    lane.worktreeReclaim = { at: lane.worktreeReclaimedAt, trigger, removed: true, worktreePath: removedWorktreePath };
+    lane.updatedAt = lane.worktreeReclaimedAt;
+    this.appendLaneLog(
+      lane,
+      `[orca] worktree reclaimed after ${trigger}: ${removedWorktreePath} was clean and fully integrated, so it was removed. `
+      + `Branch ${lane.branch || '(none)'} was kept.`,
+      { persist: false },
+    );
+    this.recordAudit({
+      type: 'lane_worktree_reclaimed',
+      actor,
+      projectId: lane.projectId,
+      sessionId: lane.sessionId,
+      laneId: lane.id,
+      summary: `Reclaimed worktree for lane ${lane.title} after ${trigger}`,
+      evidence: {
+        ...laneEvidenceRef(lane),
+        worktreePath: removedWorktreePath,
+        branch: lane.branch || null,
+        trigger,
+        branchRemoved: false,
+      },
+      status: 'passed',
+    });
+    return { removed: true, applicable: true, reason: null, worktreePath: removedWorktreePath, trigger };
+  },
+
   // Merge an ISOLATED, audit-accepted lane's branch back into the container's base
   // branch in the repo root. This is the lifecycle op that lets an orchestrator
   // return accepted work WITHOUT shelling out to git. Never auto-pushes unless
@@ -834,7 +964,14 @@ export const laneOpsMethods = {
     // copy under .orca/workspaces with nothing pointing at it.
     // Fail CLOSED: "could not inspect" must not read as "clean", or a broken .git
     // turns a dirty worktree back into the silent-loss case this guard exists for.
-    const cleanliness = worktreeCleanliness(lane.worktreePath);
+    // No worktree left to inspect (an earlier automatic reclaim, or an explicit
+    // lane.worktree.discard) is not "could not tell": there is no working tree
+    // that could be holding uncommitted work, and the branch is all there is to
+    // merge. Refusing here used to make discard-then-integrate fail with a
+    // "could not determine" message about a directory that no longer exists.
+    const cleanliness = lane.worktreePath
+      ? worktreeCleanliness(lane.worktreePath)
+      : { ok: true, files: [], error: null };
     if (!cleanliness.ok) {
       throw {
         status: 409,
@@ -869,15 +1006,21 @@ export const laneOpsMethods = {
         evidence: { ...result, laneId: lane.id },
         status: 'passed',
       });
+      // The commits are in the base checkout now, so the worktree is a redundant
+      // second copy: reclaim it (guarded — see _reclaimLaneWorktree).
+      const worktreeCleanup = this._reclaimLaneWorktree(lane, { trigger: 'lane.integrate', actor });
       this.persistState();
-      return { integrated: true, ...result };
+      return { integrated: true, ...result, worktreeCleanup };
     }
     if (result.nothingToMerge) {
       // Idempotent success-ish: mark integrated so retention can reap the worktree.
       lane.integratedAt = nowIso();
       lane.updatedAt = nowIso();
+      const worktreeCleanup = this._reclaimLaneWorktree(lane, { trigger: 'lane.integrate', actor });
       this.persistState();
-      return { integrated: false, nothingToMerge: true, baseBranch: result.baseBranch, branch: result.branch };
+      return {
+        integrated: false, nothingToMerge: true, baseBranch: result.baseBranch, branch: result.branch, worktreeCleanup,
+      };
     }
     if (result.conflicts) {
       throw {

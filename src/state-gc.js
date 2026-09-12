@@ -14,7 +14,15 @@ import path from 'node:path';
 import { readJsonSync, writeJsonFileAtomicSync } from './state-store/io.js';
 import { STATE_FORMAT_VERSION, laneKey, statePaths } from './state-paths.js';
 import { removeJournalFiles } from './lane-journal.js';
-import { archivedLaneIndexEntry, archiveOrphanJournal, listLaneArchives, writeLaneArchive } from './lane-archive.js';
+import {
+  ARCHIVED_ARTIFACTS_MARKER,
+  archiveLaneArtifacts,
+  archivedLaneIndexEntry,
+  archiveOrphanJournal,
+  hotLaneArtifactDir,
+  listLaneArchives,
+  writeLaneArchive,
+} from './lane-archive.js';
 import { readJournalAll } from './lane-journal.js';
 
 export const TERMINAL_LANE_STATES = Object.freeze(['done', 'failed', 'stopped', 'accepted', 'blocked', 'archived']);
@@ -26,7 +34,7 @@ const STALE_TEMP_MS = 60 * 60 * 1000;
 const PENDING_AUDIT_STATES = ['queued', 'auditing', 'escalated'];
 // Dropped into an archived artifacts folder so the purge has an age to work from
 // and can find the lane the folder belongs to before deleting anything.
-export const ARCHIVED_ARTIFACTS_MARKER = '.orca-archived.json';
+export { ARCHIVED_ARTIFACTS_MARKER };
 // A lane's result.txt is the ONLY complete copy of a long agent report (the lane
 // record's resultText is capped). It is moved with everything else, and when a
 // purge finally does delete a folder it is unlinked LAST, so a purge that dies
@@ -416,11 +424,12 @@ export function planGc({
   return plan;
 }
 
-// The hot artifacts folder of one lane: <artifactsDir>/<orchestrator>/<lane>/.
-// The daemon lays it out this way (registry-lane-terminal.js, executor/cli-adapter.js).
+// The hot artifacts folder of one lane. Shared with the daemon (lane-archive.js)
+// so `orca gc` and runtime retirement can never disagree about where a lane's
+// artifacts live or where they go.
 function laneArtifactDir(artifactsDir, lane) {
-  if (!artifactsDir || !lane?.id) return null;
-  return path.join(artifactsDir, laneKey(lane.sessionId || 'orphan'), laneKey(lane.id));
+  if (!lane?.id) return null;
+  return hotLaneArtifactDir(artifactsDir, { sessionId: lane.sessionId, laneId: lane.id });
 }
 
 // Every archived artifacts folder, with the marker gc wrote when it moved it.
@@ -512,24 +521,28 @@ export function applyGc(plan, { now = Date.now(), migrate = null } = {}) {
   // once the lane's archive has been written, verified and committed to
   // state.json. A move is a rename, so nothing is destroyed even if this dies.
   for (const action of plan.actions.filter((item) => item.kind === 'archive-artifacts')) {
-    if (!fs.existsSync(action.from)) continue;
-    const target = path.join(paths.archivedArtifactsDir, laneKey(action.sessionId), laneKey(action.laneId));
-    fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
-    if (fs.existsSync(target)) {
-      // Never overwrite an existing archived folder: park the newcomer beside it.
-      fs.renameSync(action.from, `${target}.${stamp}`);
-      results.push({ kind: 'archive-artifacts', laneId: action.laneId, to: path.relative(stateDir, `${target}.${stamp}`), bytes: action.bytes });
+    const moved = archiveLaneArtifacts(stateDir, {
+      from: action.from,
+      sessionId: action.sessionId,
+      laneId: action.laneId,
+      reason: action.reason,
+      archivedAt,
+    });
+    if (!moved.moved) {
+      // A folder that could not be moved is REPORTED, not skipped in silence —
+      // the same contract keep-lane keeps for a lane gc leaves alone.
+      if (moved.reason !== 'the lane has no artifacts folder') {
+        results.push({ kind: 'keep-artifacts', laneId: action.laneId, bytes: action.bytes, reason: moved.reason });
+      }
       continue;
     }
-    fs.renameSync(action.from, target);
-    fs.writeFileSync(path.join(target, ARCHIVED_ARTIFACTS_MARKER), `${JSON.stringify({
+    results.push({
+      kind: 'archive-artifacts',
       laneId: action.laneId,
-      sessionId: action.sessionId,
-      archivedAt,
-      reason: action.reason,
-      hasResult: action.hasResult,
-    }, null, 2)}\n`, { mode: 0o600 });
-    results.push({ kind: 'archive-artifacts', laneId: action.laneId, to: path.relative(stateDir, target), bytes: action.bytes, hasResult: action.hasResult });
+      to: moved.relativeTo,
+      bytes: moved.bytes,
+      ...(moved.parked ? {} : { hasResult: moved.hasResult }),
+    });
   }
 
   for (const action of plan.actions.filter((item) => item.kind === 'archive-orphan-journal')) {
@@ -629,6 +642,17 @@ export function formatGcPlan(plan, { apply = false, results = null } = {}) {
   };
   if (!plan.actions.length) out.push('  nothing to do.');
   for (const action of plan.actions) out.push(`  - ${(lines[action.kind] || ((a) => JSON.stringify(a)))(action)}`);
-  if (results) out.push(`  done: ${results.length} change(s) made.`);
+  if (results) {
+    // What a RUN declined to do, and why. The plan above already names what gc
+    // is leaving alone (keep-lane, list-worktree, list-orphan-worktree); this is
+    // the same contract for the apply phase, where a move or a purge can still
+    // refuse after the plan was made. Without it "done: N change(s)" is the only
+    // thing a person sees, and N being smaller than the plan says nothing.
+    const declined = results.filter((item) => String(item.kind || '').startsWith('keep-'));
+    out.push(`  done: ${results.length - declined.length} change(s) made.`);
+    for (const item of declined) {
+      out.push(`  - NOT done: ${item.kind === 'keep-artifacts' ? `artifacts of lane ${item.laneId}` : item.kind} left in place: ${item.reason}`);
+    }
+  }
   return out.join('\n');
 }

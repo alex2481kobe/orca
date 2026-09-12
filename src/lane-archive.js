@@ -196,4 +196,86 @@ export function listLaneArchives(stateDir) {
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// A lane's ARTIFACTS follow the lane out of hot state.
+//
+// Until 2026-09-12 only `orca gc` moved them: `retireLanes` archived the record
+// and left `<artifactRoot>/<session>/<lane>/` — the stdout.log, terminal.log,
+// transcript.json and result.txt, the bulk of the bytes — sitting in the hot
+// tree. That folder is ALREADY unreachable through the API the moment the lane
+// is archived, because readArtifactFile resolves through getLane() and getLane
+// cannot see an archived lane. So it was pure residue until someone happened to
+// run gc: 808 MB of it against a 1.2 GB state directory on this machine.
+//
+// Same rule as everything else in archive/: MOVED, never deleted, and never on
+// top of something already there. Only the explicit `gc --purge` deletes.
+// ---------------------------------------------------------------------------
+export const ARCHIVED_ARTIFACTS_MARKER = '.orca-archived.json';
+
+export function directoryBytes(target) {
+  let total = 0;
+  let stat;
+  try { stat = fs.lstatSync(target); } catch { return 0; }
+  if (!stat.isDirectory()) return stat.size;
+  let names;
+  try { names = fs.readdirSync(target); } catch { return 0; }
+  for (const name of names) total += directoryBytes(path.join(target, name));
+  return total;
+}
+
+// The hot artifacts folder of one lane: <artifactRoot>/<orchestrator>/<lane>/.
+// The daemon lays it out this way (registry-lane-terminal.js writeLaneArtifacts
+// and writeLaneResultArtifact, executor/cli-adapter.js).
+export function hotLaneArtifactDir(artifactRoot, { sessionId, laneId }) {
+  if (!artifactRoot || !laneId) return null;
+  return path.join(artifactRoot, laneKey(sessionId || 'orphan'), laneKey(laneId));
+}
+
+// Move one lane's artifacts under archive/artifacts/ and drop the marker gc's
+// listing reads. Never throws: a failed move leaves the folder exactly where it
+// was and says why, because losing a lane's artifacts is worse than keeping them.
+export function archiveLaneArtifacts(stateDir, {
+  artifactRoot,
+  sessionId,
+  laneId,
+  reason = 'its lane was archived',
+  archivedAt = new Date().toISOString(),
+  from = null,
+} = {}) {
+  const source = from || hotLaneArtifactDir(artifactRoot, { sessionId, laneId });
+  if (!source) return { moved: false, reason: 'no artifact root to move from' };
+  try {
+    if (!fs.existsSync(source)) return { moved: false, reason: 'the lane has no artifacts folder' };
+  } catch { return { moved: false, reason: 'the lane artifacts folder could not be read' }; }
+  const bytes = directoryBytes(source);
+  const hasResult = fs.existsSync(path.join(source, 'result.txt'));
+  const target = path.join(
+    statePaths(stateDir).archivedArtifactsDir,
+    laneKey(sessionId || 'orphan'),
+    laneKey(laneId),
+  );
+  try {
+    fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
+    if (fs.existsSync(target)) {
+      // Never overwrite an archived folder: park the newcomer beside it.
+      const parked = `${target}.${compactStamp(archivedAt)}`;
+      fs.renameSync(source, parked);
+      return { moved: true, to: parked, relativeTo: path.relative(stateDir, parked), bytes, hasResult, parked: true };
+    }
+    fs.renameSync(source, target);
+    try {
+      fs.writeFileSync(path.join(target, ARCHIVED_ARTIFACTS_MARKER), `${JSON.stringify({
+        laneId: String(laneId),
+        sessionId: sessionId || 'orphan',
+        archivedAt,
+        reason,
+        hasResult,
+      }, null, 2)}\n`, { mode: 0o600 });
+    } catch { /* the folder moved; an unwritable marker only costs it an age */ }
+    return { moved: true, to: target, relativeTo: path.relative(stateDir, target), bytes, hasResult };
+  } catch (error) {
+    return { moved: false, reason: error?.message || String(error) };
+  }
+}
+
 export { laneKey };

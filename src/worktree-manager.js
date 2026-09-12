@@ -492,6 +492,43 @@ export function worktreeCleanliness(worktreePath) {
 }
 
 /**
+ * Fail-CLOSED companion to countUnmergedCommits, for the AUTOMATIC reclaim path.
+ *
+ * countUnmergedCommits answers 0 whenever it cannot tell (missing branch,
+ * detached HEAD, git error) — deliberately, so an operator asking for a discard
+ * is never refused on a false positive. An automatic reclaim needs the opposite
+ * bias: "Orca could not tell whether this branch has been integrated" must never
+ * read as "it has". So this returns ok:false with a reason for every case
+ * countUnmergedCommits swallows, and the caller keeps the worktree.
+ *
+ *   { ok:true,  unmerged:0, baseBranch, branch }  nothing lives only on this branch
+ *   { ok:true,  unmerged:n, baseBranch, branch }  n commits are not in the base
+ *   { ok:false, unmerged:null, reason }           could not tell — keep it
+ */
+export function laneBranchIntegration({ repoRoot, branch }) {
+  const safeBranch = validRefText(branch);
+  if (!safeBranch) return { ok: false, unmerged: null, reason: 'the lane has no valid branch name to compare' };
+  const descriptor = describeRepoRoot(repoRoot);
+  if (!descriptor.ok) return { ok: false, unmerged: null, reason: descriptor.reason };
+  const root = descriptor.repoRoot;
+  if (!refExists(root, safeBranch)) {
+    return { ok: false, unmerged: null, reason: `its branch "${safeBranch}" is not in the repository, so Orca cannot tell what is on it` };
+  }
+  const headOut = runGit(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: root });
+  const baseBranch = headOut.status === 0 ? headOut.stdout.trim() : '';
+  if (!baseBranch || baseBranch === 'HEAD') {
+    return { ok: false, unmerged: null, reason: 'the repository root is on a detached HEAD, so Orca cannot tell what has been integrated' };
+  }
+  if (baseBranch === safeBranch) return { ok: true, unmerged: 0, baseBranch, branch: safeBranch };
+  const ahead = runGit(['rev-list', '--count', `${baseBranch}..${safeBranch}`], { cwd: root });
+  const count = ahead.status === 0 ? Number.parseInt(ahead.stdout.trim(), 10) : Number.NaN;
+  if (!Number.isFinite(count)) {
+    return { ok: false, unmerged: null, reason: `git could not compare ${safeBranch} against ${baseBranch}` };
+  }
+  return { ok: true, unmerged: count, baseBranch, branch: safeBranch };
+}
+
+/**
  * Merge an isolated lane's branch back into the container's base branch in the
  * repo-root checkout. Never throws; returns a structured result the caller can
  * report verbatim:

@@ -11,7 +11,12 @@ import path from 'node:path';
 import { LANE_STATES } from './worker-contract.js';
 import { removeLaneWorktree } from './worktree-manager.js';
 import { parsePositiveInteger } from './registry-utils.js';
-import { archivedLaneIndexEntry, readLaneArchive, writeLaneArchive } from './lane-archive.js';
+import {
+  archiveLaneArtifacts,
+  archivedLaneIndexEntry,
+  readLaneArchive,
+  writeLaneArchive,
+} from './lane-archive.js';
 import { readJournalAll, removeJournalFiles } from './lane-journal.js';
 import { MAX_AGENT_EVENT_ENTRIES, MAX_LANE_LOG_ENTRIES } from './registry-lane-journal.js';
 
@@ -126,6 +131,9 @@ export const cleanupMethods = {
     }
     if (!retired.length) return { retired, skipped };
     const ids = new Set(retired.map((item) => item.id));
+    // Which session each retiring lane belonged to, captured BEFORE the records
+    // leave state — the artifact folder is keyed on it.
+    const sessions = new Map(list.filter((lane) => ids.has(lane.id)).map((lane) => [lane.id, lane.sessionId]));
     this.lanes = (this.lanes || []).filter((lane) => !ids.has(lane.id));
     for (const id of ids) this._laneTailCache?.delete(String(id));
     this.persistState();
@@ -133,6 +141,34 @@ export const cleanupMethods = {
     this._trackAsync(Promise.resolve(written).then((ok) => {
       if (!ok) return;
       for (const id of ids) if (!this.getLane(id)) removeJournalFiles(this.storageDir, id);
+      // ARTIFACTS FOLLOW THE LANE. Until 2026-09-12 only `orca gc` moved them, so
+      // a lane retired at runtime (lane.delete, or the terminal-lane cap) left its
+      // stdout.log / terminal.log / transcript.json / result.txt sitting in the hot
+      // artifacts tree — already unreachable through the API, because
+      // readArtifactFile resolves through getLane() and getLane cannot see an
+      // archived lane. Residue with no reader, until someone happened to run gc.
+      //
+      // Ordering matches gc's, and for the same reason: the lane archive is
+      // written and VERIFIED, the record is out of a persisted state.json, its
+      // journals are gone, and only then do the artifacts move. A move is a
+      // rename, so a crash at any point leaves them where they were.
+      for (const item of retired) {
+        const moved = archiveLaneArtifacts(this.storageDir, {
+          artifactRoot: this.artifactRoot,
+          sessionId: sessions.get(item.id),
+          laneId: item.id,
+          reason,
+          archivedAt,
+        });
+        item.artifacts = moved.moved
+          ? { file: moved.relativeTo, bytes: moved.bytes, hasResult: moved.hasResult }
+          : { file: null, reason: moved.reason };
+        // Record it on the index entry too, so lane.get on an archived lane can
+        // say where its artifacts went instead of just 404ing on them.
+        const entry = [...(this.archivedLanes || [])].reverse().find((row) => row.id === item.id);
+        if (entry) entry.artifacts = item.artifacts;
+      }
+      this.persistState();
     }).catch(() => {}));
     return { retired, skipped };
   },
@@ -170,6 +206,10 @@ export const cleanupMethods = {
           file: entry.file,
           totalLogs: archive.logs.length,
           totalAgentEvents: archive.agentEvents.length,
+          // Where this lane's artifacts went when it left hot state. lane.artifacts.*
+          // cannot reach an archived lane (they resolve through getLane), so naming
+          // the folder is the difference between "moved" and "gone".
+          artifacts: entry.artifacts || null,
         },
       },
     };

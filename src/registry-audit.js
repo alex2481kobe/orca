@@ -379,11 +379,27 @@ export const auditMethods = {
       status: 'passed',
       evidence: record,
     });
+    // ACCEPT IS A CLEANUP TRIGGER. This is where "the work gets accepted and then
+    // the worktree removed" actually happens for every lane that has nothing left
+    // only in its worktree — a scout, a lane that committed nothing, a lane whose
+    // branch is already in the base. Guarded and fail-closed
+    // (registry-lane-ops.js _reclaimLaneWorktree): anything it cannot prove is
+    // redundant is KEPT, and the refusal comes back in `worktreeCleanup` and is
+    // written into the lane log, never swallowed.
+    const worktreeCleanup = typeof this._reclaimLaneWorktree === 'function'
+      ? this._reclaimLaneWorktree(lane, { trigger: 'audit.accept', actor: record.actor })
+      : { removed: false, applicable: false, reason: null };
     this.persistState();
     // After accept, an isolated lane's work still needs merging back — point the
-    // agent at lane.integrate; other lanes are done in place.
-    const nextTool = lane.worktreeMode === 'isolated' ? 'lane.integrate' : null;
-    return { lane: clonePayload(this.laneForRead(lane)), audit: clonePayload(record), nextAction: this._auditNextAction(lane, nextTool) };
+    // agent at lane.integrate; other lanes are done in place. A lane whose
+    // worktree was just reclaimed had nothing to merge, so it needs nothing next.
+    const nextTool = (lane.worktreeMode === 'isolated' && lane.worktreePath) ? 'lane.integrate' : null;
+    return {
+      lane: clonePayload(this.laneForRead(lane)),
+      audit: clonePayload(record),
+      worktreeCleanup,
+      nextAction: this._auditNextAction(lane, nextTool),
+    };
   },
 
   requestLaneFix(laneLocator, {
