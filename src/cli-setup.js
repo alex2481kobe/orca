@@ -104,15 +104,18 @@ export async function setup(flags, out, { start, connect }) {
   if (env.ORCA_REPO_ROOTS !== undefined) {
     out.log('  Note: ORCA_REPO_ROOTS is set in this environment and overrides the saved roots for any Orca started with it, including one started from this shell. Unset it to use the saved roots.');
   }
-  const advice = tokenAdvice(env);
-  if (advice) out.log(advice);
-
   const effectiveState = resolveStateDir({ env, home, config });
   let owner = null;
   try { owner = inspectInstanceLock(effectiveState.dir); } catch { owner = null; }
+  // The token advice belongs to whoever reports the daemon. `start` prints it
+  // itself, so printing it here too said the same four lines twice in the one
+  // command a new adopter runs; only the branches that do NOT start say it.
+  const advice = tokenAdvice(env);
   if (owner?.held && owner.reason === 'running') {
+    if (advice) out.log(advice);
     out.log(`Orca is already running (pid ${owner.holder.pid}) with the fence it started with. The saved roots apply when it next starts. When no executors are running: ${fixCommands.stop()} && ${fixCommands.start()}`);
   } else if (flags['no-start']) {
+    if (advice) out.log(advice);
     out.log(`Not started (--no-start). Start it with: ${fixCommands.start()}`);
   } else {
     const code = await start(flags, out);

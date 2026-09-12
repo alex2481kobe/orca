@@ -1,9 +1,14 @@
 # What Orca keeps on disk, and when it is safe to delete
 
-Everything Orca persists lives in one **state directory**: `.orca/` under the directory the
-daemon was started from. `resolveStateDir()` in `src/state-paths.js` decides it, and every
-other path below is derived from it. The retention table in this document is the one the
-code enforces — `RETENTION` in `src/state-gc.js` — and `test/state-gc.test.js` fails when
+Everything Orca persists lives in one **state directory**, and it is a per-user directory,
+never whatever directory the daemon was started from. `resolveStateDir()` in
+`src/orca-paths.js` decides it, first hit wins: `ORCA_STATE_DIR`, then the `stateDir` in the
+Orca config file (`setup --state-dir DIR` writes it), then an existing `<checkout>/.orca` from
+an install that predates the per-user default, then `~/.local/state/orca`.
+`node src/orca-cli.js status` prints the one in use and where it came from. Every other path
+below is relative to it, laid out by `statePaths()` in `src/state-paths.js`.
+
+The retention table in this document is the one the code enforces — `RETENTION` in `src/state-gc.js` — and `test/state-gc.test.js` fails when
 the two disagree.
 
 ## Hot state, journals, and the archive

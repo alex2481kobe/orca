@@ -6,11 +6,6 @@
 
 ### A local harness that lets the coding agents you already run spawn and depend on each other — and watch them from your phone.
 
-Orca is a **local daemon**. It ships **no agent, no model, no API keys, and no chat
-UI**. You keep working in Claude Code, Codex, or any MCP-capable agent; Orca is the
-harness those agents register with so one of them can reliably **spawn a subagent,
-wait on it, and judge the result** — instead of you babysitting terminals.
-
 [![license: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 <img src="docs/assets/hero.png" alt="The Orca dashboard: a live node graph of orchestrator agents and their executor subagents" width="820" />
@@ -19,234 +14,162 @@ wait on it, and judge the result** — instead of you babysitting terminals.
 
 ---
 
-## Status: in development, deliberately scaled back
+## What Orca is
 
-Orca was built out **too aggressively before it was validated** — it grew a chat UI, an
-in-app composer, provider plumbing, and a pile of features that were never proven
-useful. So it was cut back on purpose.
+Orca is a **local daemon**. It ships **no agent, no model, no API keys and no chat
+UI**. You keep working in Claude Code, Codex, or any MCP-capable agent; Orca is the
+harness those agents register with so one of them can **spawn a subagent, wait on it,
+and judge the result** — instead of you babysitting terminals.
 
-What's left is the part that actually earns its place: **a harness around the CLI
-agents you already use.** Not a platform, not an agent, not another place to type
-prompts. If you want a different model or a different CLI, you change nothing here —
-Orca drives whatever you already run.
-
-Expect rough edges and breaking changes. Validated on macOS with phone access.
-Windows/Linux are not validated yet.
-
-## What it does
-
-You are already running coding agents. The hard part is making one agent lean on
-**another** — hand it a scoped task, wait for it to finish, and know whether the work
-is any good — without sitting in a terminal watching.
-
-- **Agent spawns agent.** An orchestrator agent registers with Orca for its working
-  directory, then spawns **executor** subagents — same CLI or a different one. Full MCP
-  passes through, and the contract is enforced by the server, not by prompt text. The
-  orchestrator can wait on a subagent and treat its process exit as the authoritative
-  "done".
+- **Agent spawns agent.** An orchestrator registers with Orca for its working
+  directory, then spawns **executor** subagents — same CLI or a different one, each
+  with its own model. The contract is enforced by the server, not by prompt text, and
+  the subagent's process exit is the authoritative "done".
 - **A review gate, not self-approval.** An executor submits work; it is not accepted
-  automatically. The orchestrator audits it and either accepts, sends it back with
-  required changes, or blocks it. You review outcomes instead of keystrokes.
+  automatically. The orchestrator audits it and accepts, sends it back, or blocks it.
 - **Isolation when it matters.** Lanes default to `auto`: a read-only or sole-writer
-  lane runs directly in the checkout, and Orca only creates a dedicated git worktree
-  when writers would collide. Accepted isolated work can be merged back; rejected work
-  is discarded with its worktree.
+  lane runs directly in the checkout, and Orca creates a dedicated git worktree only
+  when writers would collide.
 - **A window from your phone.** The dashboard is served over your own Tailscale
-  tailnet: a live node graph of your agents, their subagents, their status, and the
-  **preview URLs** of whatever they're building. Plus break-glass controls — stop one
-  executor, stop everything under an agent, or close an agent.
+  tailnet — a live graph of your agents and their subagents, plus break-glass stops.
 
-## Quickstart
+**Status: in development.** Orca was built out too aggressively before it was
+validated, so it was cut back on purpose to the part that earns its place. Expect
+rough edges and breaking changes. Validated on macOS; Linux is untested.
 
-You need Node 18.18+ and the agent CLIs you already use (Claude Code, Codex).
+## What you need before you start
+
+| what | why | how to check |
+| --- | --- | --- |
+| **Node ≥ 18.18.0** | the `engines` range in `package.json` | `node --version` |
+| **git** | Orca creates lane worktrees with it | `git --version` |
+| **macOS or Linux** | Windows is not supported | — |
+| **an agent CLI, installed and logged in** | Claude Code, Codex, Gemini — whichever you intend to drive | `claude --version`, `codex --version` |
+
+**Orca launches your agent CLIs. It does not install them, update them, or log into
+them** — you do that yourself, once, the way that CLI wants. If `claude` runs and
+answers in your terminal, Orca can drive it; if it does not, fix that first.
+
+## Setup
+
+Three commands, in order, on a machine that has never seen Orca.
 
 ```bash
-git clone https://github.com/alex2481kobe/orca.git && cd orca && npm ci
-node src/orca-cli.js setup --roots "$HOME/code" --connect claude
+git clone https://github.com/alex2481kobe/orca.git && cd orca
+npm ci
+node src/orca-cli.js setup --roots "$HOME/code" --connect claude --node /opt/homebrew/bin/node
 ```
 
-That one command does three things, and prints what it did:
+1. **`git clone`** — Orca is not published to npm; you run it from a checkout, and
+   that directory stays put.
+2. **`npm ci`** — installs the one runtime dependency (a PTY binding) from the
+   lockfile. *It worked:* `added 8 packages … found 0 vulnerabilities`.
+3. **`setup`** — the whole first run, in one command. It records the **fence** (the
+   only directories agents may ever work in), starts the daemon in a session of its
+   own, and registers Orca with your agent CLI at user scope so its tools work from
+   every directory. *It worked:* `Orca is running: pid …, http://127.0.0.1:3000.`
+   followed by `Registered "orca" for Claude Code at user scope …`.
 
-1. **Records where agents may work:** exactly the directories you list, and
-   nothing else. Pass absolute paths to existing directories, comma-separated or
-   as repeated `--roots`. They are saved to `~/.config/orca/config.json`
-   (owner-only, never in the repo). To let agents work on Orca itself, include
-   this checkout in `--roots`.
-2. **Starts Orca** as a background daemon that no terminal and no agent session
-   owns: close the terminal or end the session, and Orca keeps running. Its state
-   lives in `~/.local/state/orca`; set `ORCA_STATE_DIR` to put it elsewhere.
-3. **Registers Orca with Claude Code** at user scope, so its tools work from
-   every directory (`--connect codex` for Codex, or both). Restart the client
-   afterwards.
-
-Then check everything with `node src/orca-cli.js doctor`; every failed check
-prints its fix, and its warnings are worth reading once.
-
-The whole path above — clone, setup, register, spawn, audit, stop — is written
-out with its real output in
-[docs/adopter-acceptance.md](docs/adopter-acceptance.md), and
-`npm run smoke:adopter-acceptance` runs it. Two things that page tells you and
-this one does not: `setup` takes its port from `PORT` (there is no `--port` on
-`setup`, so use `PORT=8730 … setup …` when 3000 is taken), and `doctor`'s
-`target` check is the one that confirms it is describing the daemon you actually
-manage.
-
-**One thing `doctor` warns about that is worth fixing now.** `--connect` writes
-the path of *this machine's* Node into your client's MCP config, and
-`service install` writes it into a LaunchAgent that starts Orca at every login.
-If that Node lives inside another tool's directory (`~/.codex`, `~/.claude`) or
-inside one installed version (`.../node-versions/v24.14.1/...`), it can be
-upgraded or deleted out from under you, and what breaks is the file Orca wrote,
-at login, with nothing watching. Orca does not install or manage Node; it names
-the risk and the fix. Point both at a Node you maintain:
+Then **restart your agent CLI sessions** so they load the new MCP server, and check
+the install:
 
 ```bash
-node src/orca-cli.js doctor --node /opt/homebrew/bin/node   # check one before you use it
-node src/orca-cli.js connect claude --node /opt/homebrew/bin/node
-node src/orca-cli.js service install --node /opt/homebrew/bin/node --replace
+node src/orca-cli.js doctor
 ```
 
-### Running Orca
+*It worked:* every line reads `ok` and the last line is `Nothing is failing.` The one
+`warn` you should expect is `api-token` — that is [a security default](#security-defaults),
+not a broken install. Every failing check prints the exact command that fixes it.
+
+The same path with the **real output of every command** is
+**[docs/adopter-acceptance.md](docs/adopter-acceptance.md)**;
+`npm run smoke:adopter-acceptance` runs it hermetically and fails the build when any
+of it stops being true.
+
+### The three arguments to `setup`
+
+- **`--roots`** is the fence. Absolute paths to existing directories, comma-separated
+  or repeated. Agents may register, and executors may run, **only** under these — and
+  no default lets them roam: with no roots Orca still runs and answers, but registers
+  no agent and launches no executor. `$HOME` as a root is refused unless you add
+  `--allow-home-root`. To let agents work on Orca itself, include this checkout. To
+  change the fence later, run `setup --roots …` again; a running daemon keeps the
+  fence it started with until you `stop` and `start` it.
+- **`--connect claude`** registers Orca with that CLI at user scope (`--connect codex`
+  for Codex; pass both to do both). Any MCP-capable client works —
+  [docs/connecting-clients.md](docs/connecting-clients.md).
+- **`--node`** is the Node path Orca writes into your client's config. Read the next
+  section before you drop it.
+
+`setup` also takes `--state-dir DIR` and `--port N` (the port also comes from `PORT`;
+the default is 3000).
+
+### The Node path Orca writes down
+
+`connect` writes an **absolute Node path** into your client's MCP config, and
+`service install` writes it into the LaunchAgent that starts Orca at login. If that
+Node lives inside another tool's private directory (`~/.codex`, `~/.claude`) or inside
+one installed version (`…/node-versions/v24.14.1/…`, `…/Cellar/node/26.8.2/…`), it can
+be upgraded or deleted out from under you — and what breaks is a file Orca wrote, at
+login, with nothing watching.
+
+Orca does not install or manage Node. Pass a path **you** maintain. On macOS with
+Homebrew that is `/opt/homebrew/bin/node`, which keeps pointing at the current Node
+across upgrades; on Linux it is usually `/usr/bin/node`. To ask about a path before
+you commit to it:
 
 ```bash
-node src/orca-cli.js status            # running? pid, URL, state dir, fence
-node src/orca-cli.js start             # reports a running daemon and changes nothing
-node src/orca-cli.js stop              # refuses while executors run; --force stops them too
-node src/orca-cli.js logs              # the daemon's log (<state dir>/logs/daemon.log)
+node src/orca-cli.js doctor --node /opt/homebrew/bin/node
+```
+
+`doctor`'s `node` check asks the same question on every run, about the path `connect`
+and `service install` would write next.
+
+## Running Orca
+
+```bash
+node src/orca-cli.js status   # running? pid, URL, state dir, fence  (exit 3 = not running)
+node src/orca-cli.js stop     # refuses while executors run; --force stops them too
+node src/orca-cli.js logs     # the daemon's log
+node src/orca-cli.js gc       # what state retention would archive (dry run; --apply to do it)
 node src/orca-cli.js service install   # macOS: also start at login, restart after a crash
-node src/orca-cli.js gc                # what state retention would archive (dry run; --apply to do it)
 ```
 
-`gc` acts on the same state directory `start`, `stop` and `status` do, and
-refuses to touch it while a daemon owns it. See [docs/state-retention.md](docs/state-retention.md).
+**One daemon per machine, owned by no session.** `start`, `stop` and `status` find it
+by the instance lock on its state directory and by its port — never by process name —
+so they work from any directory. A second `start` reports the running daemon and
+changes nothing. Closing the terminal, or ending the agent session that ran `setup`,
+does not stop it.
 
-- **One daemon per machine, shared by every agent.** `start`, `stop` and
-  `status` find it by its instance lock and its port, never by process name,
-  from any directory. A second `start` reports the running daemon and changes
-  nothing. Stopping Orca stops the executors it runs, so `stop` refuses while any
-  are running unless you pass `--force`. The lock records the **machine** that
-  took it — a stable machine id, not the hostname, which macOS changes with the
-  network — so a rename never strands the daemon. When Orca still cannot verify a
-  lock it says what this machine can see about the owner's pid, `status` calls it
-  `unreachable-by-lock` rather than stopped, and `stop --force` is the way out.
-- **Not set up yet?** With no roots, Orca still runs and answers, but it
-  registers no agent and launches no executor. The dashboard, `doctor`, `start`
-  and every refused tool call name the setup command.
-- **Changing the roots:** run `setup --roots …` again. A running daemon keeps
-  the fence it started with until you restart it (`stop`, then `start`).
-- **Your whole home directory** as a root is refused unless you add
-  `--allow-home-root`. That choice is recorded, and Orca keeps warning about it.
-- `ORCA_REPO_ROOTS` in Orca's environment overrides the saved roots. It is an
-  exact list too: Orca never adds the directory it was started from.
-- **API token (recommended; required before you pair a phone).** Without one,
-  every process on this machine is Orca admin. Keep it in an owner-only file,
-  `(umask 077; openssl rand -hex 32 > ~/.config/orca/api-token)`, and run Orca
-  with `ORCA_API_TOKEN_FILE=~/.config/orca/api-token` (for the service:
-  `service install --token-file ~/.config/orca/api-token`). Agents never get it.
-- **An install from before this** kept its state in `<checkout>/.orca`. Orca
-  keeps using it in place, never moves or copies it, and `setup` records it.
-- `npm start` still runs Orca in the foreground, for development. That daemon
-  belongs to the terminal that started it, and stops with it.
+**Where the state lives.** One per-user directory, never the directory Orca was
+started from: `~/.local/state/orca` by default, `--state-dir` (on `setup`) or
+`ORCA_STATE_DIR` to move it, and an install from before this keeps its
+`<checkout>/.orca` in place. `status` prints which one is in use and where that came
+from. It holds `state.json`, per-lane journals, paired-device sessions, per-lane
+worktrees, lane artifacts and the daemon log. Clean it with `gc`: it changes nothing
+without `--apply`, only ever *moves* into an archive, and refuses to `--apply` while a
+daemon owns the directory. The full retention table is
+[docs/state-retention.md](docs/state-retention.md).
 
-### Connecting a client by hand
+Watch it at `http://127.0.0.1:3000`, or from your phone once Tailscale is set up
+([docs/tailscale-mobile-access.md](docs/tailscale-mobile-access.md)). To start Orca at
+login and restart it after a crash, see the
+[LaunchAgent runbook](docs/macos-launchd-runbook.md).
 
-`--connect` runs `node src/orca-cli.js connect claude|codex` for you. Orca is a
-plain stdio MCP server, so **any MCP-capable client works**. Register it however
-that client registers MCP servers:
+## Driving it
 
-```bash
-# Run from your Orca checkout — the package isn't published to npm, so point the
-# client at the bundled bridge by absolute path.
-claude mcp add -s user orca -- node "$PWD/src/mcp-server.js"
-codex  mcp add orca -- node "$PWD/src/mcp-server.js"
-```
-
-Keep `-s user` on the Claude command. `claude mcp add` defaults to **local**
-scope, which records the server for the one directory you ran it in — so adding
-it from the Orca checkout leaves your agent with no Orca tools in every other
-project, with no error to tell you why. Codex has no scope flag; `codex mcp add`
-already writes your user config.
-
-For any other client, the equivalent config is:
-
-```jsonc
-{ "command": "node", "args": ["/absolute/path/to/orca/src/mcp-server.js"] }
-```
-
-The connection defaults to the **orchestrator** role. (Executor subagents that Orca
-spawns get their role and ids injected automatically — you never wire those.)
-
-The command above works as-is against a loopback daemon with **no** API token:
-Orca grants local admin when nothing is configured. **Once you set
-`ORCA_API_TOKEN`** — which you must before reaching the dashboard from your phone
-(see [`docs/tailscale-mobile-access.md`](docs/tailscale-mobile-access.md)) — that
-bootstrap is deliberately off, and the bare command above gets `401
-Unauthorized`. Give the agent its own scoped credential rather than your API
-token. One command does it and registers the result at user scope:
-
-```bash
-ORCA_API_TOKEN=<your token> node "$PWD/src/orca-cli.js" connect claude   # or: connect codex
-```
-
-Or ask for the config yourself:
-
-```bash
-curl -sX POST http://127.0.0.1:3000/api/mcp/orchestrator-bootstrap \
-  -H "x-orca-token: $ORCA_API_TOKEN" -H 'content-type: application/json' \
-  -d '{"actor":"my-agent","ttlMs":86400000}'
-```
-
-That returns paste-ready MCP config for Claude Code, Codex, and any other client,
-each carrying an `ORCA_REFRESH_TOKEN`: a credential that can only obtain
-orchestrator leases. Your API token never reaches the agent, and the credential
-can be revoked on its own. Before you paste it:
-
-- **It reconnects by itself.** The bridge exchanges the credential for its own
-  lease, every call renews that lease, and after a long idle the bridge gets a new
-  one and repeats the refused call. No config rewrite, no restart. `ttlMs` sets
-  the lease window (12 hours when omitted, 24 hours at most). See
-  [Connecting and reconnecting](docs/agent-orchestrator-skill.md#connecting-and-reconnecting).
-  When something does fail, `node "$PWD/src/orca-cli.js" doctor` says what and
-  prints the fix.
-- **The returned Claude command already carries `-s user`**, so running it from
-  any directory registers Orca for every directory. The Codex command has no
-  scope flag.
-- **Check which Node it launches.** Every returned config runs an absolute Node
-  plus Orca's bridge, so nothing has to be on your PATH. Without `nodePath`, Orca
-  names the Node it runs on through its PATH entry (for example
-  `/opt/homebrew/bin/node`) instead of the version-pinned install path behind it.
-  Pass `"nodePath"` to choose one; it is kept exactly as given, so an alias keeps
-  following its target. `bootstrap.runtime` reports the choice, and
-  `bootstrap.runtime.warnings` says when that Node sits inside one installed
-  version or inside another tool's private directory such as `~/.codex`. A
-  `nodePath` that is missing, not executable, not Node, or older than Node 18.18
-  is refused with `422`.
-- **Give each separate client configuration its own `actor`.** Minting again with
-  the same `actor` replaces that actor's credential and revokes every lease it
-  issued; the response lists them in `bootstrap.leaseLifecycle.replacedCredentialIds`
-  and `replacedLeaseIds`. A refused request (a bad `nodePath`, say) changes
-  nothing.
-
-Then, from inside that agent:
+Restart your client, then, from a directory inside the fence:
 
 ```
 register me in Orca for my current directory, titled "Auth refactor"
 spawn a read-only codex scout on model <a model your codex CLI accepts> to summarize src/, then report back
 ```
 
-Each lane chooses its own CLI and model (`executorType` and `model` on
-`executor.spawn`), so an orchestrator never has to launch an agent outside Orca
-to get a different model. How to drive the loop: the
+Each lane picks its own CLI and model (`executorType` and `model` on
+`executor.spawn`), so an orchestrator never has to launch an agent outside Orca to get
+a different model. How to drive the loop: the
 [orchestrator skill](docs/agent-orchestrator-skill.md) and the
 [executor skill](docs/agent-executor-skill.md).
-
-Watch it at `http://127.0.0.1:3000`, or from your phone once Tailscale is set up
-(see [`docs/tailscale-mobile-access.md`](docs/tailscale-mobile-access.md)). `start`
-already keeps Orca running after the terminal closes; to also start it at login
-and restart it after a crash on macOS, run `node src/orca-cli.js service install`
-(see the [LaunchAgent runbook](docs/macos-launchd-runbook.md)).
-
-## The loop
 
 ```
 you, in Claude Code / Codex        Orca daemon                    dashboard
@@ -261,66 +184,86 @@ audit.accept / request_fix  ──▶    accept, or send back with         store
 lane.integrate / discard           required changes                 Running   Complete
 ```
 
-## Contracts & security
+## Security defaults
 
-An executor is bounded by server-side gates, not by prompt text:
+Read these as they are, not as you would like them to be:
 
-- **Scoped tool leases** — a SHA-256 token allowlist checked on every MCP/HTTP call.
-  A lease is bound to its role's tool set, so a client can never call a tool the
-  server didn't grant it.
-- **A realpath workspace jail** — the executor runs in its orchestrator's directory
-  (or a per-lane worktree) and cannot escape it.
-- **The CLI's own sandbox** — e.g. codex `--sandbox read-only` (OS-enforced, a real
-  read-only scout) vs `--sandbox workspace-write`.
-- **Deny-by-default routes** — every `/api/*` route refuses unauthenticated callers
-  except two intentionally public, data-free endpoints (`GET /api/health`,
-  `GET /api/auth/status`). A sweep test enforces this.
-- **Tailnet-only, fail-closed pairing** — the dashboard is private to your Tailscale
-  tailnet (never a public Funnel), and a remote device sees nothing until it pairs
-  with a one-time code over an HttpOnly session cookie.
+- **Loopback only.** Orca binds `127.0.0.1`. Nothing is exposed to your network, and
+  Tailscale Funnel is not part of the security model.
+- **No `ORCA_API_TOKEN` means every process on this machine is Orca admin**, and role
+  scoping is advisory. That is what `doctor`'s `api-token` warning is about. To fix
+  it:
+  ```bash
+  (umask 077; openssl rand -hex 32 > ~/.config/orca/api-token)
+  node src/orca-cli.js stop
+  ORCA_API_TOKEN_FILE=~/.config/orca/api-token node src/orca-cli.js start
+  ```
+  Agents never receive that token: `connect` gives each client its own scoped
+  credential, revocable on its own.
+- **A token is required before you pair a phone.** Without one the pairing flow is
+  refused, on purpose.
+- **The fence is exact.** Only the roots you listed; the daemon's own working
+  directory is never added, and no roots means setup-required rather than "anywhere".
+- **A paired phone is an operator, not an admin.** It can read the workflow and use
+  the break-glass stops — so pair only devices you trust. Admin (the workstation, or
+  the API token) is what mints pairing codes, changes network access and revokes
+  devices.
+- **Every `/api/*` route refuses unauthenticated callers** except two deliberately
+  public, data-free ones (`GET /api/health`, `GET /api/auth/status`). A sweep test
+  enforces it.
 
-Two auth tiers: **admin** (the workstation, or an API token) can mint pairing codes,
-change network access, and revoke devices. **Operator** (admin plus any paired
-browser) can read the workflow *and* use the break-glass stops. A paired phone is an
-operator — it can stop a running agent, so pair only devices you trust.
+An executor is bounded by server-side gates, not prompt text: a SHA-256 tool-lease
+allowlist checked on every call, a realpath workspace jail, and the CLI's own sandbox
+(`codex --sandbox read-only` is an OS-enforced read-only scout). More in
+[SECURITY.md](SECURITY.md).
 
-## Remote access
+## Troubleshooting
 
-Install the dashboard as a PWA and reach it from your phone over private Tailscale
-Serve — no public exposure. Setup and teardown:
-[`docs/tailscale-mobile-access.md`](docs/tailscale-mobile-access.md).
+| what you see | what it means | what fixes it |
+| --- | --- | --- |
+| `Orca is not running at http://…: the connection was refused` | the daemon is not up | `node src/orca-cli.js start` |
+| `Orca is not set up: it has no approved roots` | no fence, so nothing can register | `node src/orca-cli.js setup --roots <dir>` |
+| a tool call is refused, or `doctor`'s `credential` check fails | the client's credential was replaced or revoked — leases renew themselves, credentials do not | `node src/orca-cli.js connect claude` |
+| `Port 3000 … is in use by something that is not Orca` | something else owns the port | `node src/orca-cli.js setup --roots <dir> --port 8730` (or `PORT=8730 …`; `start` takes `--port` too) |
+| `An Orca daemon already answers at … but it does not own <state dir>` | a second Orca is on that port | `node src/orca-cli.js status` to see which, then move this one to another port as above |
+| `claude is not on PATH. Run this yourself` | the agent CLI is not installed, or not on this shell's PATH | install and log into the CLI, then `node src/orca-cli.js connect claude` |
+| `gc --apply` refuses because a process owns the state directory | a daemon holds the instance lock | `node src/orca-cli.js stop`, then re-run `gc --apply` |
+| `Orca is unreachable-by-lock … It is NOT known to be stopped` | the lock names a machine this one cannot check | `node src/orca-cli.js stop --force` — only when that state directory is not shared with another machine |
+| the agent has Orca tools in one directory but not others | `claude mcp add` was run without `-s user`, so it registered for one directory | `node src/orca-cli.js connect claude` |
 
-<div align="center">
-<img src="docs/assets/phone-dashboard.png" alt="Orca on a phone: the live agent graph" width="250" />
-<img src="docs/assets/pairing.png" alt="Pairing a device with a one-time code over Tailscale" width="540" />
-</div>
-
-## Roadmap
-
-Today Orca is a simple harness: you drive it from your own agent, and it keeps the
-spawn → audit → integrate loop honest. What's being built and tested next:
-
-- **Always-on agents.** The daemon keeps an agent running and re-prompts it around
-  the clock, so long work continues without you re-launching it.
-- **"What's next" orchestration.** An orchestrator that picks the next task off its
-  own backlog instead of waiting to be told each time.
-- **A supervisor tier.** One agent overseeing your orchestrators, so multiple projects
-  can make progress in parallel and reliably.
-
-Each of these lands only once it's validated end-to-end — that's the lesson that
-produced the current, smaller Orca.
+`doctor` is the first thing to run for anything not in this table: every failing check
+prints its own fix, and the `target` check is the one that says whether it is
+describing the daemon you actually manage.
 
 ## Architecture
 
 A single always-on Node daemon with a hand-rolled stdio MCP bridge and **one runtime
 dependency** (`@lydell/node-pty`, for the PTY). It holds the registry (projects,
-orchestrator agents, executor lanes), the scheduler that launches and reaps
-executors, the tool-lease auth, and the Tailscale/PWA remote surface. State lives
-in one per-user state directory, never in whatever directory Orca was started
-from: `~/.local/state/orca` by default, `ORCA_STATE_DIR` to move it, and an
-install from before this keeps `<checkout>/.orca`. It holds `state.json`,
-paired-device sessions, per-lane worktrees, lane artifacts and the daemon log.
-Nothing leaves the box.
+orchestrator agents, executor lanes), the scheduler that launches and reaps executors,
+the tool-lease auth, and the Tailscale/PWA remote surface. Nothing leaves the box.
+
+## Roadmap
+
+Each of these lands only once it is validated end to end — the lesson that produced
+the current, smaller Orca.
+
+- **Always-on agents.** The daemon keeps an agent running and re-prompts it, so long
+  work continues without you re-launching it.
+- **"What's next" orchestration.** An orchestrator that takes the next task off its
+  own backlog instead of waiting to be told.
+- **A supervisor tier.** One agent overseeing your orchestrators, so several projects
+  progress in parallel.
+
+## Remote access
+
+Install the dashboard as a PWA and reach it from your phone over private Tailscale
+Serve — no public exposure. Setup and teardown:
+[docs/tailscale-mobile-access.md](docs/tailscale-mobile-access.md).
+
+<div align="center">
+<img src="docs/assets/phone-dashboard.png" alt="Orca on a phone: the live agent graph" width="250" />
+<img src="docs/assets/pairing.png" alt="Pairing a device with a one-time code over Tailscale" width="540" />
+</div>
 
 ## License
 
