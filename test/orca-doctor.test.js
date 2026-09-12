@@ -15,6 +15,9 @@ import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 
 import { ROOT, cleanChildEnv, freePort } from './helpers/bridge-client.js';
+import { resolveMcpLauncher } from '../src/mcp-orchestrator-bootstrap.js';
+
+const escapeRegExp = (text) => String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const CLI = path.join(ROOT, 'src', 'orca-cli.js');
 const ADMIN = 'doctor-admin-token';
@@ -268,6 +271,32 @@ test('doctor names a Node that belongs to another tool, before connect or servic
     // A Node the user maintains is not flagged, so the warning still means something.
     const clean = await doctor({ ...ctx, args: ['--node', '/usr/local/bin/node'] });
     assert.equal(clean.byId.node.status, 'pass', JSON.stringify(clean.byId.node));
+  });
+});
+
+test('the node check judges the path that gets written, not the version-pinned binary behind it', async () => {
+  await withDoctorFixture(async ({ entry, writeClaude, ctx }) => {
+    await writeClaude({ mcpServers: { orca: entry } });
+    // Homebrew and every version manager put a stable alias in front of a
+    // version-pinned real binary: /opt/homebrew/bin/node ->
+    // /opt/homebrew/Cellar/node/26.8.2/bin/node. connect and service install
+    // write the alias. doctor used to judge process.execPath as well — always
+    // the realpath — so it warned about a path Orca never writes and told the
+    // reader to fix what was already correct.
+    const run = await doctor(ctx);
+    const check = run.byId.node;
+    assert.ok(check, 'doctor has a "node" check');
+    const written = (() => {
+      try { return resolveMcpLauncher({}).runtime.nodePath; } catch { return process.execPath; }
+    })();
+    assert.match(check.summary, new RegExp(escapeRegExp(written)), `the check must name the path that is written: ${JSON.stringify(check)}`);
+    // The status itself depends on the fixture's HOME (the check asks whether a
+    // path sits inside ~/.codex or ~/.claude), so what is asserted is WHICH path
+    // is judged: only the one that gets written.
+    if (written !== process.execPath) {
+      assert.doesNotMatch(check.summary, new RegExp(escapeRegExp(process.execPath)), `it must not judge process.execPath: ${JSON.stringify(check)}`);
+      assert.doesNotMatch(String(check.fix || ''), new RegExp(escapeRegExp(process.execPath)), JSON.stringify(check));
+    }
   });
 });
 

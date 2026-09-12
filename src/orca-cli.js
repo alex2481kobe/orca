@@ -378,16 +378,20 @@ async function doctor(flags) {
   if (proposed !== null && !proposed.trim()) {
     add('node', { status: 'fail', summary: '--node needs a path.', fix: `${CLI} doctor --node /path/to/node` });
   } else {
-    // Both paths that get written down: what connect/service install choose, and
-    // this process's own Node. They are normally the same; if they ever diverge,
-    // reporting only one would hide the worse of the two.
+    // Exactly the path that gets written down, and nothing else. `connect` and
+    // `service install` both write resolveMcpLauncher's choice — the PATH alias
+    // this Node answers to, when it has one — so judging process.execPath as
+    // well warned about a path Orca never writes: on Homebrew or any version
+    // manager, execPath is the version-pinned realpath BEHIND the stable alias,
+    // so doctor flagged /opt/homebrew/Cellar/node/26.8.2/bin/node and told the
+    // reader to fix what /opt/homebrew/bin/node already had right. A warning
+    // that fires when nothing is wrong is how a reader learns to skip it.
     const chosen = (() => {
       try { return resolveMcpLauncher({}).runtime.nodePath; } catch { return process.execPath; }
     })();
-    const candidates = proposed ? [path.resolve(proposed.trim())] : [...new Set([chosen, process.execPath])];
-    const candidate = candidates[0];
+    const candidate = proposed ? path.resolve(proposed.trim()) : chosen;
     const who = proposed ? `The Node you asked about, ${candidate},` : `The Node connect and service install would write down, ${candidate},`;
-    const notes = [...new Set(candidates.flatMap((item) => nodeRuntimeWarnings(item)))];
+    const notes = nodeRuntimeWarnings(candidate);
     add('node', notes.length
       ? {
         status: 'warn',
