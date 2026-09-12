@@ -279,3 +279,71 @@ body.app-offline .ops-main { padding: 0; }
 body.home-canvas .fence-banner { max-width: none; margin: 0 0 var(--space-3); }
 body.access-gated .fence-banner,
 body.app-offline .fence-banner { display: none; }
+
+/* ---- home scope: which ONE project the canvas is showing ----
+   Home used to draw every project at once (3 projects / 11 orchestrators / 50
+   lanes over the owner's real state). It now shows one, and this row is both the
+   statement of what is on screen and the way to change it. Everything the canvas
+   is not drawing is named here as a count — never dropped in silence. */
+.ov-scope { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; min-width: 0; }
+.ov-scope-btn {
+  display: inline-flex; align-items: center; gap: 6px; min-width: 0;
+  height: 32px; padding: 0 var(--space-3);
+  font: inherit; font-size: 0.86rem; font-weight: 600; line-height: 1;
+  border: 1px solid var(--line); border-radius: var(--radius-pill);
+  background: var(--panel); color: var(--text); cursor: pointer;
+}
+@media (hover: hover) { .ov-scope-btn:hover { border-color: var(--muted); background: var(--panel-soft); } }
+.ov-scope-folder { display: inline-flex; color: var(--muted); flex: 0 0 auto; }
+.ov-scope-folder svg { display: block; }
+.ov-scope-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-scope-caret { color: var(--muted); font-size: 0.7rem; flex: 0 0 auto; }
+.ov-scope-note { font-size: 0.76rem; color: var(--muted); min-width: 0; }
+.ov-ctrl.ov-retired-btn { height: 32px; font-size: 0.76rem; font-weight: 550; border-radius: var(--radius-pill); }
+.ov-ctrl.ov-retired-btn.is-on { border-color: var(--accent-blue); color: var(--accent-blue); }
+
+/* The switcher popover: every project, always listed, with its size — mirrors
+   .ov-links so the two canvas popovers read as one thing. */
+.ov-projects {
+  position: absolute; top: var(--space-3); left: var(--space-3); z-index: 8;
+  display: flex; flex-direction: column; gap: 2px; padding: var(--space-2);
+  border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--panel);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.42); min-width: 240px; max-width: min(360px, 80vw);
+  max-height: 60%; overflow-y: auto;
+}
+.ov-projects[hidden] { display: none; }
+.ov-project-row {
+  display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3);
+  padding: var(--space-2) var(--space-3); border: 0; border-radius: var(--radius-sm);
+  background: transparent; color: var(--text); font: inherit; font-size: 0.84rem;
+  text-align: left; cursor: pointer; width: 100%;
+}
+@media (hover: hover) { .ov-project-row:hover { background: var(--panel-soft); } }
+.ov-project-row.is-selected { background: var(--panel-soft); }
+.ov-project-row.is-selected .ov-project-name { font-weight: 650; }
+.ov-project-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-project-meta { flex: 0 0 auto; font-size: 0.74rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ov-project-meta.is-live { color: var(--accent-blue); }
+
+/* A project with nothing to draw is still a project. This sits IN the canvas and
+   names it, instead of the daemon-level "no agents registered" screen — the two
+   states mean different things (docs/audits/2026-09-11-overview-empty.md). */
+.ov-project-empty {
+  position: absolute; inset: 0; z-index: 2;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--space-2); padding: var(--space-5); text-align: center; pointer-events: none;
+}
+.ov-project-empty[hidden] { display: none; }
+.ov-project-empty .ov-empty-title { font-size: 0.98rem; font-weight: 600; color: var(--text); }
+.ov-project-empty .ov-empty-sub { font-size: 0.82rem; color: var(--muted); max-width: 42ch; }
+
+@media (max-width: 880px) {
+  /* The scope row must survive the narrow canvas: the note wraps away before the
+     project name and the retired toggle do, since those are the controls. */
+  /* The fixed drawer button floats over the top-left corner. The scope row is
+     now the FIRST row, so it takes that indent and the stat cards give it back. */
+  .ov-scope { gap: var(--space-2); padding-left: 2.6rem; flex-wrap: nowrap; overflow-x: auto; }
+  .ov-statbar { padding-left: 0; }
+  .ov-scope-note { display: none; }
+  .ov-projects { left: var(--space-2); right: var(--space-2); max-width: none; }
+}

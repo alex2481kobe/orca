@@ -1,9 +1,18 @@
 // v2 read-only dashboard — rendered on the shared Orca design system (styles.css):
 // app-topbar + .ops-shell grid + .ops-sidebar (full collapse via body.sidebar-collapsed)
-// + .ops-main/.ops-content. Screens: Home (projects→orchestrators→executors tree),
-// Settings, Remote devices. Hash-routed. CSP: script-src 'self' (external module only).
+// + .ops-main/.ops-content. Screens: Home (ONE project → orchestrators → executors
+// tree), Settings, Remote devices. Hash-routed. CSP: script-src 'self'.
+//
+// Home is SCOPED TO ONE PROJECT. It used to draw every project the projection
+// returned, which over the owner's real state is 3 projects, 11 orchestrators
+// and 50 lanes in a single flat tree — a dead animation project and Orca's own
+// project mixed in with the work in hand. The other projects are reached by
+// switching (the scope control in the canvas topbar, or the sidebar), never by
+// being merged into the same tree. The rules that decide the scope are pure and
+// live in scope.js so they can be tested; this file only draws them.
 import { icon, FOLDER_ICON } from './icons.js';
 import { qrSvgForText } from './qr.js';
+import { chooseProjectId, partitionProject, otherProjectCount } from './scope.js';
 
 const body = document.body;
 const sideProjects = document.getElementById('sidebar-projects');
@@ -14,7 +23,32 @@ const fenceBanner = document.getElementById('fence-banner');
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 // ---- state ----
+// The project the viewer picked in THIS session. null means "no explicit pick" —
+// scope.js then falls back to what this browser remembered, then to the
+// projection's own nomination. It never means "show every project".
 let selectedProjectId = null;
+// Retired work inside the scoped project. TRI-STATE, and the null default is the
+// important one: null lets scope.js decide, and it only collapses retired work
+// when there is live work for the collapse to protect — so a project where
+// nothing has run for hours still draws its finished lanes instead of an empty
+// canvas. true/false are the viewer's explicit toggle. Never persisted, so a new
+// tab always opens on the automatic choice.
+let showRetired = null;
+let collapsingRetired = false; // what the last render actually did, for the toggle
+const REMEMBERED_PROJECT_KEY = 'orca.project';
+const rememberedProjectId = () => {
+  try { return localStorage.getItem(REMEMBERED_PROJECT_KEY); } catch { return null; }
+};
+const rememberProjectId = (id) => {
+  try { if (id) localStorage.setItem(REMEMBERED_PROJECT_KEY, id); } catch { /* */ }
+};
+// The one place the scope is decided. Everything that draws Home goes through it,
+// so there is no second path that could resolve to "all projects" or to nothing.
+const scopedProjectId = (data) => chooseProjectId(data, {
+  selected: selectedProjectId,
+  remembered: rememberedProjectId(),
+});
+const scopedProject = (data) => (data.projects || []).find((p) => p.id === scopedProjectId(data)) || null;
 const armed = new Set();
 let lastData = { projects: [] };
 // An unpaired remote device (a phone over Tailscale) gets a 401 from /api/overview.
@@ -64,6 +98,11 @@ try { if (!isMobile() && localStorage.getItem('orca.sidebar') === 'collapsed') b
 document.addEventListener('click', (e) => {
   // A click outside the ⋯ menu (and not on a menu button) closes it.
   if (openMenuId && !e.target.closest('.ov-node-menu, [data-menu]')) closeNodeMenu();
+  // Same for the project switcher popover.
+  if (projectsOpen && !e.target.closest('.ov-projects, [data-canvas="projects"]')) {
+    projectsOpen = false;
+    if (canvasEls) canvasEls.projects.hidden = true;
+  }
   // Backdrop tap closes the mobile drawer.
   if (e.target.closest('#sidebar-backdrop')) { body.classList.remove('nav-open'); return; }
   // A click anywhere outside an open device-card dropdown closes it (not just
@@ -79,17 +118,28 @@ document.addEventListener('click', (e) => {
   body.classList.toggle('sidebar-collapsed');
   try { localStorage.setItem('orca.sidebar', body.classList.contains('sidebar-collapsed') ? 'collapsed' : 'open'); } catch { /* */ }
 });
-document.getElementById('brand-home').addEventListener('click', (e) => { e.preventDefault(); selectedProjectId = null; closeMobileNav(); location.hash = ''; renderScreen(); });
+// The brand returns Home to the project the projection nominates — dropping the
+// session's pick, NOT widening the screen to every project.
+document.getElementById('brand-home').addEventListener('click', (e) => { e.preventDefault(); selectedProjectId = null; showRetired = null; closeMobileNav(); location.hash = ''; renderScreen(); });
 
 // ---- sidebar project list ----
 function renderSidebar(data) {
   const r = route();
+  // The sidebar is how the OTHER projects stay reachable now that Home shows one
+  // of them, so it marks the scoped project and says how big each one is: a live
+  // count when something is running, otherwise the total lane count. A project
+  // with nothing in it still gets a row — an empty project is a visible project.
+  const current = scopedProjectId(data);
   sideProjects.innerHTML = data.projects.map((p) => {
-    const sel = (r === 'home' && p.id === selectedProjectId) ? ' is-selected' : '';
+    const sel = (r === 'home' && p.id === current) ? ' is-selected' : '';
+    const live = Number(p.liveExecutorCount) || 0;
+    const count = live
+      ? `<span class="sidebar-count is-live" title="${live} running">${live}</span>`
+      : `<span class="sidebar-count" title="${Number(p.executorCount) || 0} lanes, none running">${Number(p.executorCount) || 0}</span>`;
     return `<button class="sidebar-link sidebar-project${sel}" data-pid="${esc(p.id)}" type="button" title="${esc(p.cwd)}">
       <span class="sidebar-folder" aria-hidden="true">${FOLDER_ICON}</span>
       <span>${esc(p.name)}</span>
-      <span></span>
+      ${count}
     </button>`;
   }).join('') || '<div class="sidebar-empty">No projects yet.</div>';
   // Nav active state (Remote devices pair-button + Settings footer row)
@@ -133,10 +183,6 @@ const UI_LABEL = { running: 'Running', spawning: 'Spawning', queued: 'Queued', w
 const UI_CLS = { running: 'st-run', spawning: 'st-spawn', queued: 'st-queue', waiting: 'st-wait', complete: 'st-done', idle: 'st-idle', failed: 'st-bad', stopped: 'st-bad' };
 const INFLIGHT = new Set(['running', 'spawning', 'waiting']); // states that show a live runtime
 
-function shownProjects(data) {
-  return selectedProjectId ? data.projects.filter((p) => p.id === selectedProjectId) : data.projects;
-}
-
 // Live URL chip (a registered dev-server port, auto-served over Tailscale).
 function previewChip(v) {
   const href = v.url || v.localUrl || '';
@@ -149,35 +195,36 @@ function previewChip(v) {
   </a>`;
 }
 let linksOpen = false;
-function collectPreviews(projects) {
-  return projects.flatMap((p) => (p.previews || []).filter((v) => v.url || v.localUrl));
+let projectsOpen = false; // the project switcher popover
+function collectPreviews(project) {
+  return ((project && project.previews) || []).filter((v) => v.url || v.localUrl);
 }
 
-// Build the node forest (orchestrator roots → executor lanes) from the projects.
-function buildForest(projects) {
+// Build the node forest (orchestrator roots → executor lanes) for the ONE
+// scoped project. `orchestrators` is what partitionProject decided to draw, so
+// retired agents/lanes are already collapsed out and counted; this only draws.
+function buildForest(orchestrators) {
   const roots = [];
-  projects.forEach((p) => {
-    (p.orchestrators || []).forEach((o) => {
-      const ui = orchUi(o);
-      // The projection bounds how many retired executors it sends and reports the
-      // rest as executorsOmitted; say so on the node rather than quietly showing
-      // a short list (see src/registry-overview.js).
-      const omitted = Number(o.executorsOmitted) || 0;
-      const sub = omitted
-        ? `${o.focus || 'Orchestrator'} · ${omitted} older lane${omitted === 1 ? '' : 's'} not shown`
-        : (o.focus || 'Orchestrator');
-      roots.push({
-        id: o.id, kind: 'orchestrator', title: o.title || 'Orchestrator',
-        sub, cli: o.actor || '', ui, startedAt: null, terminal: false,
-        children: (o.executors || []).map((e) => {
-          const eui = laneUi(e);
-          return {
-            id: e.id, kind: 'executor', title: e.title || 'Executor',
-            sub: e.statusText || 'Executor', cli: e.executorType || '', ui: eui,
-            startedAt: e.startedAt || null, terminal: Boolean(e.terminal), children: [],
-          };
-        }),
-      });
+  (orchestrators || []).forEach((o) => {
+    const ui = orchUi(o);
+    // The projection bounds how many retired executors it sends and reports the
+    // rest as executorsOmitted; say so on the node rather than quietly showing
+    // a short list (see src/registry-overview.js).
+    const omitted = Number(o.executorsOmitted) || 0;
+    const sub = omitted
+      ? `${o.focus || 'Orchestrator'} · ${omitted} older lane${omitted === 1 ? '' : 's'} not shown`
+      : (o.focus || 'Orchestrator');
+    roots.push({
+      id: o.id, kind: 'orchestrator', title: o.title || 'Orchestrator',
+      sub, cli: o.actor || '', ui, startedAt: null, terminal: false,
+      children: (o.executors || []).map((e) => {
+        const eui = laneUi(e);
+        return {
+          id: e.id, kind: 'executor', title: e.title || 'Executor',
+          sub: e.statusText || 'Executor', cli: e.executorType || '', ui: eui,
+          startedAt: e.startedAt || null, terminal: Boolean(e.terminal), children: [],
+        };
+      }),
     });
   });
   return roots;
@@ -293,10 +340,11 @@ function startRuntimeTicker() { if (!runtimeTimer) { tickRuntimes(); runtimeTime
 function stopRuntimeTicker() { if (runtimeTimer) { clearInterval(runtimeTimer); runtimeTimer = null; } }
 
 // Top stat cards — Active / Queued / Idle-or-Complete agents. Pure client
-// reduction over the shown projects; recomputed cheaply every poll.
-function renderStats(projects) {
+// reduction over the agents DRAWN for the scoped project, so the cards always
+// describe the screen; the counts for what is not drawn are on the scope row.
+function renderStats(orchestrators) {
   let active = 0, queued = 0, done = 0;
-  projects.forEach((p) => (p.orchestrators || []).forEach((o) => {
+  (orchestrators || []).forEach((o) => {
     if (orchUi(o) === 'idle') done++; else active++;
     (o.executors || []).forEach((e) => {
       const u = laneUi(e);
@@ -304,7 +352,7 @@ function renderStats(projects) {
       else if (u === 'complete' || u === 'idle' || u === 'failed' || u === 'stopped') done++;
       else active++;
     });
-  }));
+  });
   const card = (n, label, cls) => `<div class="ov-stat"><div class="ov-stat-n ${cls}">${n}</div><div class="ov-stat-l">${label}</div></div>`;
   return card(active, 'Active agents', 'st-run') + card(queued, 'Queued agents', 'st-queue') + card(done, 'Idle / complete', 'st-idle');
 }
@@ -348,6 +396,7 @@ function closeNodeMenu() {
 function buildCanvas() {
   content.innerHTML = `
     <div class="ov-workspace">
+      <div class="ov-scope" id="ov-scope"></div>
       <div class="ov-topbar">
         <div class="ov-statbar" id="ov-statbar"></div>
         <div class="ov-controls">
@@ -360,6 +409,8 @@ function buildCanvas() {
       </div>
       <div class="ov-canvas" id="ov-canvas">
         <div class="ov-links" id="ov-links" hidden></div>
+        <div class="ov-projects" id="ov-projects" role="listbox" aria-label="Switch project" hidden></div>
+        <div class="ov-project-empty" id="ov-project-empty" hidden></div>
         <div class="ov-node-menu" id="ov-node-menu" role="menu" hidden></div>
         <div class="ov-scene" id="ov-scene">
           <svg class="ov-edges" id="ov-edges"><path fill="none"/></svg>
@@ -373,13 +424,16 @@ function buildCanvas() {
   const statbar = document.getElementById('ov-statbar');
   const links = document.getElementById('ov-links');
   const menu = document.getElementById('ov-node-menu');
-  canvasEls = { workspace, canvas, scene, edges, statbar, links, menu };
+  const scope = document.getElementById('ov-scope');
+  const projects = document.getElementById('ov-projects');
+  const projectEmpty = document.getElementById('ov-project-empty');
+  canvasEls = { workspace, canvas, scene, edges, statbar, links, menu, scope, projects, projectEmpty };
 
   // Pan: drag the canvas background (not a node/menu/link). rAF-coalesced → one
   // transform write per frame. Pointer capture so the drag survives leaving the box.
   let drag = null, raf = 0;
   canvas.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('.ov-node, .ov-node-menu, .ov-links, a')) return;
+    if (e.target.closest('.ov-node, .ov-node-menu, .ov-links, .ov-projects, .ov-project-empty, a')) return;
     closeNodeMenu();
     drag = { px: e.clientX, py: e.clientY, x: viewport.x, y: viewport.y };
     canvas.setPointerCapture(e.pointerId); canvas.classList.add('grabbing');
@@ -412,10 +466,57 @@ function zoomAt(cx, cy, factor) {
   applyViewport();
 }
 
+// The scope control: which project Home is showing, and the one obvious way to
+// change it. Rendered into the canvas topbar and re-filled every poll; the
+// project list popover is toggled by the button, mirroring the live-links one.
+function renderScopeBar(data, project, partition) {
+  const others = otherProjectCount(data, project.id);
+  const hidden = partition.hiddenCount;
+  const retiredBits = [];
+  if (partition.retiredOrchestratorCount) retiredBits.push(`${partition.retiredOrchestratorCount} agent${partition.retiredOrchestratorCount === 1 ? '' : 's'}`);
+  if (partition.retiredExecutorCount) retiredBits.push(`${partition.retiredExecutorCount} lane${partition.retiredExecutorCount === 1 ? '' : 's'}`);
+  // Retired work is COLLAPSED, and the count says exactly how much — the same
+  // contract the projection already keeps with executorsOmitted.
+  const expanded = !partition.collapsingRetired;
+  const retiredBtn = (partition.retiredOrchestratorCount || partition.retiredExecutorCount)
+    ? `<button class="ov-ctrl ov-retired-btn${expanded ? ' is-on' : ''}" data-canvas="retired" type="button"
+         title="Retired = finished or stale, with nothing running">${expanded ? `Hide retired (${retiredBits.join(' · ')})` : `Show ${retiredBits.join(' · ') || 'retired'}`}</button>`
+    : '';
+  const omitted = partition.omittedExecutorCount
+    ? `<span class="ov-scope-note">${partition.omittedExecutorCount} older lane${partition.omittedExecutorCount === 1 ? '' : 's'} beyond the projection window</span>`
+    : '';
+  return `<button class="ov-scope-btn" data-canvas="projects" type="button" aria-haspopup="listbox" aria-expanded="${projectsOpen ? 'true' : 'false'}">
+      <span class="ov-scope-folder" aria-hidden="true">${FOLDER_ICON}</span>
+      <span class="ov-scope-name">${esc(project.name || 'Project')}</span>
+      <span class="ov-scope-caret" aria-hidden="true">▾</span>
+    </button>
+    <span class="ov-scope-note">${others ? `${others} other project${others === 1 ? '' : 's'}` : 'the only project'}${hidden ? ` · ${hidden} not shown` : ''}</span>
+    ${omitted}${retiredBtn}`;
+}
+
+// The project switcher itself: every project, always, with its size — so
+// switching is a listed choice, never a guess.
+function renderProjectPicker(data, currentId) {
+  return data.projects.map((p) => {
+    const live = Number(p.liveExecutorCount) || 0;
+    const meta = live
+      ? `${live} running`
+      : `${Number(p.orchestratorCount) || 0} agent${(Number(p.orchestratorCount) || 0) === 1 ? '' : 's'} · ${Number(p.executorCount) || 0} lane${(Number(p.executorCount) || 0) === 1 ? '' : 's'}`;
+    return `<button class="ov-project-row${p.id === currentId ? ' is-selected' : ''}" data-pick-project="${esc(p.id)}" type="button" role="option" aria-selected="${p.id === currentId}" title="${esc(p.cwd || '')}">
+      <span class="ov-project-name">${esc(p.name)}</span>
+      <span class="ov-project-meta${live ? ' is-live' : ''}">${esc(meta)}</span>
+    </button>`;
+  }).join('');
+}
+
 function renderHome(data) {
-  const shown = shownProjects(data);
-  topbarTitle.textContent = selectedProjectId ? (data.projects.find((p) => p.id === selectedProjectId)?.name || '') : '';
-  if (!shown.length) {
+  const project = scopedProject(data);
+  topbarTitle.textContent = project ? (project.name || '') : '';
+  // Nothing to scope TO: no project exists at all. This is the only empty Home,
+  // and it is about the daemon, not about a project. A project that exists but
+  // holds no agent gets the project-level empty state further down — the
+  // difference is the whole point (see docs/audits/2026-09-11-overview-empty.md).
+  if (!project) {
     body.classList.remove('home-canvas');
     canvasBuilt = false; canvasEls = null; lastLayoutSig = null; fitPending = true; stopRuntimeTicker();
     content.innerHTML = `<div class="ov-empty-wrap"><div class="ov-empty">
@@ -429,17 +530,39 @@ function renderHome(data) {
   if (!canvasBuilt || !document.getElementById('ov-canvas')) { buildCanvas(); lastLayoutSig = null; fitPending = true; }
   startRuntimeTicker();
 
+  // ONE project, with its retired work collapsed behind a count. Everything the
+  // canvas does not draw is in partition.hiddenCount and is stated on screen.
+  const partition = partitionProject(project, { showRetired });
+  collapsingRetired = partition.collapsingRetired;
+  const shownOrchestrators = partition.orchestrators;
+
   // Stat cards: cheap, every render.
-  canvasEls.statbar.innerHTML = renderStats(shown);
+  canvasEls.statbar.innerHTML = renderStats(shownOrchestrators);
+  canvasEls.scope.innerHTML = renderScopeBar(data, project, partition);
+  canvasEls.projects.innerHTML = renderProjectPicker(data, project.id);
+  canvasEls.projects.hidden = !projectsOpen;
   // Live-links popover contents (kept in sync; visibility toggled by the button).
-  const previews = collectPreviews(shown);
+  const previews = collectPreviews(project);
   canvasEls.links.innerHTML = previews.length ? previews.map(previewChip).join('') : '<span class="tiny muted">No live links yet.</span>';
   canvasEls.links.hidden = !linksOpen;
 
+  // A project with no agent to draw is still a project: say so with its name and
+  // its counts, in the canvas, rather than falling back to the daemon-level empty
+  // state or silently widening the screen to other projects.
+  canvasEls.projectEmpty.hidden = shownOrchestrators.length > 0;
+  if (!shownOrchestrators.length) {
+    const total = Number(project.orchestratorCount) || 0;
+    canvasEls.projectEmpty.innerHTML = total
+      ? `<div class="ov-empty-title">Nothing running in ${esc(project.name)}</div>
+         <div class="ov-empty-sub">All ${total} agent${total === 1 ? '' : 's'} here are retired, and ${partition.hiddenCount} row${partition.hiddenCount === 1 ? ' is' : 's are'} collapsed. Use “Show retired” above to see them.</div>`
+      : `<div class="ov-empty-title">No agents in ${esc(project.name)} yet</div>
+         <div class="ov-empty-sub">Register an orchestrator from this project’s directory (<code>orchestrator.register</code>).</div>`;
+  }
+
   // Re-layout only when the tree shape/state actually changes (revision + a
   // signature over ids/states/armed) — a mere time tick must NOT relayout.
-  const forest = buildForest(shown);
-  const sig = JSON.stringify(forest.map((r) => [r.id, r.ui, r.children.map((c) => [c.id, c.ui, c.terminal])])) + '|' + [...armed].sort().join(',') + '|' + (data.revision ?? '');
+  const forest = buildForest(shownOrchestrators);
+  const sig = JSON.stringify(forest.map((r) => [r.id, r.ui, r.children.map((c) => [c.id, c.ui, c.terminal])])) + '|' + [...armed].sort().join(',') + '|' + (data.revision ?? '') + '|' + project.id + '|' + (collapsingRetired ? 'c' : 'e');
   if (sig !== lastLayoutSig) {
     lastLayoutSig = sig;
     const pos = layoutForest(forest);
@@ -928,6 +1051,8 @@ sideProjects.addEventListener('click', (e) => {
   const btn = e.target.closest('.sidebar-project');
   if (!btn) return;
   selectedProjectId = btn.dataset.pid || null;
+  rememberProjectId(selectedProjectId);
+  showRetired = null; projectsOpen = false; fitPending = true;
   closeMobileNav();
   if (route() !== 'home') location.hash = ''; else renderScreen();
 });
@@ -1040,6 +1165,23 @@ content.addEventListener('click', async (e) => {
     else if (k === 'fit') { closeNodeMenu(); if (lastPos) fitView(lastPos); }
     else if (k === 'fullscreen') { const el = canvasEls && canvasEls.workspace; if (document.fullscreenElement) document.exitFullscreen(); else if (el && el.requestFullscreen) el.requestFullscreen(); }
     else if (k === 'links') { linksOpen = !linksOpen; if (canvasEls) canvasEls.links.hidden = !linksOpen; ctrl.classList.toggle('is-on', linksOpen); }
+    // Switching project and expanding retired work are the two scope controls.
+    // Both re-render Home rather than patching, because both change the tree.
+    else if (k === 'projects') { projectsOpen = !projectsOpen; if (canvasEls) canvasEls.projects.hidden = !projectsOpen; ctrl.setAttribute('aria-expanded', projectsOpen ? 'true' : 'false'); }
+    else if (k === 'retired') { closeNodeMenu(); showRetired = collapsingRetired; fitPending = true; renderHome(lastData); }
+    return;
+  }
+
+  // ---- project switcher: an explicit, listed choice; remembered per browser --
+  const pick = e.target.closest('[data-pick-project]');
+  if (pick) {
+    e.preventDefault();
+    selectedProjectId = pick.dataset.pickProject;
+    rememberProjectId(selectedProjectId);
+    projectsOpen = false; showRetired = null; fitPending = true;
+    closeNodeMenu();
+    renderSidebar(lastData);
+    renderHome(lastData);
     return;
   }
 

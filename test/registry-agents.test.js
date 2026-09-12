@@ -320,3 +320,112 @@ test('v1 state migrates to a fresh v2 store with a backup and audit, idempotentl
     process.chdir(previousCwd);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Home scope. The owner's complaint: "in home screen you see all the agents from
+// all the projects, that is not right". Over the live shape that is 3 projects,
+// 11 orchestrators and 50 projected lanes in ONE flat screen — including a dead
+// animation project and Orca's own. The projection now NOMINATES one project as
+// the default scope; it still projects every project, so nothing here can hide
+// anything (that was the bug we fixed the day before).
+// ---------------------------------------------------------------------------
+
+test('buildOverview nominates one default project instead of leaving home unscoped', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orca-agents-'));
+  const old = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
+  const newer = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+  const reg = mockRegistry(root, new Set()); // nothing live anywhere
+  reg.projects = [
+    { id: 'p1', name: 'rs-animation', cwd: '/a', lastActivityAt: old },
+    { id: 'p2', name: 'realm-shaper', cwd: '/b', lastActivityAt: newer },
+  ];
+  reg.orchestrators = [
+    { id: 'o1', projectId: 'p1', actor: 'claude', leaseId: 'GONE', registeredAt: old, lastSeenAt: old, resignedAt: null },
+    { id: 'o2', projectId: 'p2', actor: 'claude', leaseId: 'GONE', registeredAt: newer, lastSeenAt: newer, resignedAt: null },
+  ];
+  const ov = reg.buildOverview();
+  // No orchestrator is live, so the honest default is the most recently active
+  // project — and it is named, not left for the client to guess.
+  assert.equal(ov.defaultProjectId, 'p2');
+  assert.equal(ov.defaultProjectReason, 'recent-activity');
+  assert.equal(ov.projects.length, 2, 'nominating a default must not stop projecting the others');
+});
+
+test('a live orchestrator decides the default project over mere recency', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orca-agents-'));
+  const old = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
+  const now = new Date().toISOString();
+  const reg = mockRegistry(root, new Set(['LIVE']));
+  reg.projects = [
+    // p1 holds the live session; p2 was touched more recently by something else.
+    { id: 'p1', name: 'orca', cwd: '/a', lastActivityAt: old },
+    { id: 'p2', name: 'realm-shaper', cwd: '/b', lastActivityAt: now },
+  ];
+  reg.orchestrators = [
+    { id: 'o1', projectId: 'p1', actor: 'claude', leaseId: 'LIVE', registeredAt: old, lastSeenAt: now, resignedAt: null },
+    { id: 'o2', projectId: 'p2', actor: 'claude', leaseId: 'GONE', registeredAt: old, lastSeenAt: now, resignedAt: null },
+  ];
+  const ov = reg.buildOverview();
+  assert.equal(ov.defaultProjectId, 'p1', 'the project whose orchestrator still holds a live lease wins');
+  assert.equal(ov.defaultProjectReason, 'live-orchestrator');
+});
+
+test('the nominated default always exists in the projection, or is explicitly none', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orca-agents-'));
+  const reg = mockRegistry(root, new Set());
+  // Nothing at all: an honest null, never a dangling id.
+  let ov = reg.buildOverview();
+  assert.equal(ov.defaultProjectId, null);
+  assert.equal(ov.defaultProjectReason, 'none');
+
+  // Every project archived: still no default, and `counts` still says the
+  // projects exist — the difference stays visible instead of looking like a
+  // daemon with nothing in it.
+  reg.projects = [{ id: 'p1', name: 'gone', cwd: '/a', lastActivityAt: null, state: 'archived' }];
+  ov = reg.buildOverview();
+  assert.equal(ov.defaultProjectId, null);
+  assert.equal(ov.counts.projects, 1);
+  assert.equal(ov.counts.archivedProjects, 1);
+
+  // A project with no orchestrator at all is still nominated: an empty project
+  // must render as an empty project, never as an empty dashboard.
+  reg.projects = [{ id: 'p2', name: 'fresh', cwd: '/b', lastActivityAt: null }];
+  ov = reg.buildOverview();
+  assert.equal(ov.defaultProjectId, 'p2');
+  assert.ok(ov.projects.some((project) => project.id === ov.defaultProjectId));
+  assert.equal(ov.projects[0].orchestratorCount, 0);
+});
+
+test('buildOverview counts retired work per orchestrator and per project', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orca-agents-'));
+  const now = new Date().toISOString();
+  const old = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
+  const reg = mockRegistry(root, new Set(['L1']));
+  reg.projects = [{ id: 'p1', name: 'orca', cwd: '/x', lastActivityAt: now }];
+  reg.orchestrators = [
+    { id: 'o1', projectId: 'p1', actor: 'claude', leaseId: 'L1', registeredAt: now, lastSeenAt: now, resignedAt: null },
+    { id: 'o2', projectId: 'p1', actor: 'codex', leaseId: 'GONE', registeredAt: old, lastSeenAt: old, resignedAt: null },
+  ];
+  reg.lanes = [
+    { id: 'l1', orchestratorId: 'o1', title: 'live', state: 'running', updatedAt: now },
+    { id: 'l2', orchestratorId: 'o1', title: 'just done', state: 'done', completedAt: now, updatedAt: now },
+    { id: 'l3', orchestratorId: 'o1', title: 'long done', state: 'done', completedAt: old, updatedAt: old },
+    { id: 'l4', orchestratorId: 'o2', title: 'long done', state: 'accepted', completedAt: old, updatedAt: old },
+  ];
+  const project = reg.buildOverview().projects[0];
+  const o1 = project.orchestrators.find((item) => item.id === 'o1');
+  const o2 = project.orchestrators.find((item) => item.id === 'o2');
+  // Retired is the projection's OWN vocabulary, not a second scheme: a lane that
+  // is terminal and no longer `recent`, an orchestrator that is `inactive` with
+  // no live lane left.
+  assert.equal(o1.retiredExecutorCount, 1, 'only the hours-old terminal lane is retired');
+  assert.equal(o1.retired, false, 'an orchestrator with a live lane is never retired');
+  assert.equal(o2.retiredExecutorCount, 1);
+  assert.equal(o2.retired, true);
+  assert.equal(project.retiredExecutorCount, 2);
+  assert.equal(project.retiredOrchestratorCount, 1);
+  assert.equal(project.liveOrchestratorCount, 1);
+  // Nothing was dropped to produce those counts.
+  assert.equal(project.executorCount, 4);
+  assert.equal(o1.executors.length + o2.executors.length, 4);
+});

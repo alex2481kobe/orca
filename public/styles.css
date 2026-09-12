@@ -433,10 +433,22 @@ body.sidebar-collapsed .sidebar-pair-label {
   cursor: pointer;
   display: grid;
   gap: 0.5rem;
-  grid-template-columns: auto minmax(0, 1fr);
+  /* folder | name | count. The third column used to be unnamed, so the trailing
+     span wrapped onto an implicit second row; it now holds the project's size. */
+  grid-template-columns: auto minmax(0, 1fr) auto;
   padding: 0.4rem 0.2rem 0.4rem 0.55rem;
   text-decoration: none;
 }
+/* How much work each project holds — the number that makes switching an informed
+   choice now that Home shows one project at a time. Live count when something is
+   running, total lanes otherwise. */
+.sidebar-count {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+}
+.sidebar-count.is-live { color: var(--accent-blue); font-weight: 600; }
 /* Active-lane count: a quiet "(N)" right after the name — text-sized, not a chip. */
 .sidebar-project .pill {
   flex: 0 0 auto;
