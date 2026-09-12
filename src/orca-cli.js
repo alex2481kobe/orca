@@ -17,7 +17,7 @@
 //       A per-user macOS LaunchAgent for the same daemon: start at login, restart
 //       after a crash.
 //
-//   doctor [--json] [--url URL]
+//   doctor [--json] [--url URL] [--node PATH]
 //       Read-only. Checks that the MCP server is registered at user scope, that its
 //       launcher Node is valid, that Orca is reachable, that the client's
 //       credential is live, and how the daemon is fenced. Every failed check
@@ -48,7 +48,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { resolveMcpLauncher } from './mcp-orchestrator-bootstrap.js';
+import { nodeRuntimeWarnings, resolveMcpLauncher } from './mcp-orchestrator-bootstrap.js';
 import { inspectInstanceLock } from './instance-lock.js';
 import { STATE_SOURCE_LABELS } from './orca-paths.js';
 import {
@@ -83,7 +83,7 @@ const USAGE = `Usage:
   ${CLI} logs [--lines N]
   ${CLI} service install [--dry-run] [--no-load] [--replace] [--token-file PATH] [--node PATH] [--port N]
   ${CLI} service uninstall [--force]
-  ${CLI} doctor [--json] [--url URL]
+  ${CLI} doctor [--json] [--url URL] [--node PATH]
   ${CLI} connect <claude|codex> [--actor NAME] [--url URL] [--node PATH] [--print]
   ${CLI} ${GC_USAGE}`;
 
@@ -347,8 +347,40 @@ async function doctor(flags) {
   const entry = primary?.entry || null;
   const env = entry?.env || {};
 
-  // 2. launcher
-  add('launcher', entry ? checkLauncher(entry, client) : { status: 'skip', summary: 'Not checked: nothing is registered.' });
+  // 2. launcher — every registered client, not just the first: a second client
+  // can point at a different Node, and only checking one hides that.
+  if (!registered.length) {
+    add('launcher', { status: 'skip', summary: 'Not checked: nothing is registered.' });
+  } else {
+    for (const item of registered) {
+      add(registered.length > 1 ? `launcher:${item.client}` : 'launcher', checkLauncher(item.entry, item.client));
+    }
+  }
+
+  // 2b. the Node Orca would BAKE IN next. `connect` and `service install` write
+  // a Node path into files Orca does not own — a client's MCP config, and a
+  // LaunchAgent that starts Orca at every login. Orca installs and manages no
+  // toolchain; what it owes the user is to say when the Node it found belongs to
+  // something else, BEFORE it is written down and long before it silently stops
+  // resolving. `--node PATH` asks the same question about a Node you are about
+  // to pass to connect or service install.
+  const proposed = flags.node === undefined ? null : String(flags.node);
+  if (proposed !== null && !proposed.trim()) {
+    add('node', { status: 'fail', summary: '--node needs a path.', fix: `${CLI} doctor --node /path/to/node` });
+  } else {
+    const candidate = proposed ? path.resolve(proposed.trim()) : (() => {
+      try { return resolveMcpLauncher({}).runtime.nodePath; } catch { return process.execPath; }
+    })();
+    const who = proposed ? `The Node you asked about, ${candidate},` : `The Node connect and service install would write down, ${candidate},`;
+    const notes = nodeRuntimeWarnings(candidate);
+    add('node', notes.length
+      ? {
+        status: 'warn',
+        summary: `${notes.join(' ')} Orca keeps running on it either way; what breaks is what Orca writes down — ${fixCommands.connect(client)} bakes it into your client's MCP config, and \`${CLI} service install\` bakes it into the LaunchAgent that starts Orca at every login, where nothing is watching when it stops resolving.`,
+        fix: `point both at a Node you maintain: ${fixCommands.connect(client, '--node /path/to/node')} and ${CLI} service install --node /path/to/node --replace`,
+      }
+      : { status: 'pass', summary: `${who} is not inside another tool's directory or one installed Node version, so connect and service install can write it down safely.` });
+  }
 
   // 3. daemon
   const baseUrl = trimUrl(flags.url || env.ORCA_AGENT_TOOLS_BASE_URL || process.env.ORCA_AGENT_TOOLS_BASE_URL);

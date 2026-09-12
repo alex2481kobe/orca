@@ -416,3 +416,103 @@ test('service install writes a secret-free per-user LaunchAgent and loads it; st
     await cleanup(dirs, env);
   }
 });
+
+// Two Orca daemons, side by side, on one workstation. Everything that
+// distinguishes them is per-instance: the state directory's lock says which pid
+// owns it and on which port, and the port says who is answering. Nothing may
+// match on the process NAME — every Orca process on the machine has the same
+// argv (`node .../src/server.js`), so a name pattern cannot tell these two apart
+// and would let `stop` kill the wrong one.
+test('start, stop and status find the daemon by state-directory lock and port, never by a process-name pattern', { timeout: 180_000 }, async () => {
+  const mine = await makeFixture('detect-mine');
+  const theirs = await makeFixture('detect-theirs');
+  const minePort = await freePort();
+  const theirsPort = await freePort();
+  const mineEnv = childEnv(mine, { PORT: String(minePort), ORCA_REPO_ROOTS: mine.project });
+  const theirsEnv = childEnv(theirs, { PORT: String(theirsPort), ORCA_REPO_ROOTS: theirs.project });
+  const mineBase = `http://127.0.0.1:${minePort}`;
+  const theirsBase = `http://127.0.0.1:${theirsPort}`;
+  try {
+    // Two daemons whose processes are indistinguishable by name.
+    for (const [env, base] of [[mineEnv, mineBase], [theirsEnv, theirsBase]]) {
+      const run = await runCli(['start', '--wait', '60'], { env, cwd: ROOT });
+      assert.equal(run.code, 0, run.all);
+      assert.equal(await healthStatus(base), 200, run.all);
+    }
+    const minePid = lockHolder(mine.state).pid;
+    const theirsPid = lockHolder(theirs.state).pid;
+    assert.notEqual(minePid, theirsPid);
+
+    // Both really do look the same to a name matcher.
+    const argv = (pid) => spawnSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8' }).stdout.trim();
+    assert.equal(argv(minePid), argv(theirsPid), 'the two daemons are indistinguishable by process name');
+
+    // status answers about the state directory it was given, never the other one.
+    for (const [env, pid, base] of [[mineEnv, minePid, mineBase], [theirsEnv, theirsPid, theirsBase]]) {
+      const run = await runCli(['status', '--json'], { env, cwd: os.tmpdir() });
+      assert.equal(run.code, 0, run.all);
+      const report = JSON.parse(run.stdout);
+      assert.equal(report.state, 'running');
+      assert.equal(report.pid, pid);
+      assert.equal(report.url, base);
+    }
+
+    // A duplicate start reports the daemon that owns THIS state directory and
+    // changes nothing — neither instance.
+    const duplicate = await runCli(['start'], { env: mineEnv, cwd: ROOT });
+    assert.equal(duplicate.code, 0, duplicate.all);
+    assert.match(duplicate.stdout, new RegExp(`already running: pid ${minePid}`), duplicate.all);
+    assert.equal(lockHolder(mine.state).pid, minePid);
+    assert.equal(lockHolder(theirs.state).pid, theirsPid);
+
+    // A third state directory sharing the other daemon's PORT is told exactly
+    // that: an Orca answers there, but it owns a different state directory, so
+    // stop refuses rather than signalling a daemon it cannot prove it owns.
+    const bystander = await makeFixture('detect-bystander');
+    const bystanderEnv = childEnv(bystander, { PORT: String(theirsPort), ORCA_REPO_ROOTS: bystander.project });
+    try {
+      const seen = await runCli(['status', '--json'], { env: bystanderEnv, cwd: ROOT });
+      assert.equal(JSON.parse(seen.stdout).state, 'other-state-dir', seen.all);
+      assert.equal(JSON.parse(seen.stdout).pid, null, 'it claims no pid it cannot prove');
+      const refused = await runCli(['stop'], { env: bystanderEnv, cwd: ROOT });
+      assert.equal(refused.code, 1, refused.all);
+      assert.match(refused.stderr, /another state directory. Not stopping it/, refused.all);
+      assert.equal(await healthStatus(theirsBase), 200, 'the other daemon is untouched');
+    } finally {
+      await fs.rm(bystander.tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
+    }
+
+    // stop kills exactly the one whose lock it holds.
+    const stopped = await runCli(['stop', '--wait', '60'], { env: mineEnv, cwd: os.tmpdir() });
+    assert.equal(stopped.code, 0, stopped.all);
+    assert.equal(await healthStatus(mineBase), null, 'the targeted daemon is gone');
+    assert.equal(await healthStatus(theirsBase), 200, 'the look-alike daemon is still running');
+    assert.equal(lockHolder(theirs.state).pid, theirsPid, 'and still owns its own state directory');
+  } finally {
+    await cleanup(mine, mineEnv);
+    await cleanup(theirs, theirsEnv);
+  }
+});
+
+// The behaviour above must hold because of how the code is written, not by luck:
+// nothing on the lifecycle path may enumerate or pattern-match processes.
+test('no lifecycle code finds Orca by scanning process names', async () => {
+  // A name search looks like one of these. A single-pid `ps -p <pid> -o lstart=`
+  // is not one: it asks about a pid the lock already named, which is the point.
+  const banned = [
+    /\b(pgrep|pkill|killall)\b/,
+    /['"`]ps['"`]\s*,\s*\[[^\]]*['"`]-[aAex]/,
+    /\bcomm=|\bargs=|process_name/,
+  ];
+  for (const file of ['cli-lifecycle.js', 'instance-lock.js', 'orca-cli.js']) {
+    const source = await fs.readFile(path.join(ROOT, 'src', file), 'utf8');
+    const offending = source.split('\n')
+      .map((line, index) => [index + 1, line])
+      .filter(([, line]) => !line.trimStart().startsWith('//') && banned.some((pattern) => pattern.test(line)));
+    assert.deepEqual(offending, [], `src/${file} must not identify Orca by process name`);
+  }
+  // What it uses instead: the lock's pid plus its recorded process start time.
+  const lock = await fs.readFile(path.join(ROOT, 'src', 'cli-lifecycle.js'), 'utf8');
+  assert.match(lock, /inspectInstanceLock/, 'detection reads the instance lock');
+  assert.match(lock, /processStart/, 'and proves the pid by its start time before signalling it');
+});

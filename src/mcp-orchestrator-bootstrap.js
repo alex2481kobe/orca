@@ -184,6 +184,14 @@ function findPathAlias(execPath) {
   return null;
 }
 
+// What is fragile about a Node path Orca is about to WRITE into a config it does
+// not own — a client's MCP entry, or a LaunchAgent plist that runs at every
+// login. Orca never installs or manages a toolchain; it refuses to bake one in
+// silently, and names the flag that points at a Node the user maintains.
+export function nodeRuntimeWarnings(nodePath) {
+  return runtimeWarnings(String(nodePath || ''));
+}
+
 function runtimeWarnings(nodePath) {
   const warnings = [];
   const pinned = nodePath.split(/[\\/]+/).map((segment) => VERSION_IN_SEGMENT.exec(segment)).find(Boolean);

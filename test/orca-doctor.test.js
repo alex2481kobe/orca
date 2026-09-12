@@ -35,7 +35,7 @@ function runCli(args, { home, cwd, env = {} }) {
 }
 
 async function doctor(ctx) {
-  const run = await runCli(['doctor', '--json'], ctx);
+  const run = await runCli(['doctor', '--json', ...(ctx.args || [])], ctx);
   let report = null;
   try { report = JSON.parse(run.stdout); } catch { /* asserted below */ }
   assert.ok(report, `doctor --json printed no JSON (exit ${run.code}):\n${run.stdout}\n${run.stderr}`);
@@ -237,4 +237,60 @@ test('connect: a stopped daemon says where it looked and how to start it', async
   } finally {
     await fs.rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
   }
+});
+
+// ---- the toolchain Orca does not own -------------------------------------------
+//
+// `connect` and `service install` write a Node path into files Orca does not own:
+// a client's MCP config, and a LaunchAgent that starts Orca at every login. On
+// this workstation the Node that would be written lives inside ~/.codex — Codex's
+// private directory, which Codex may upgrade or delete without telling anyone.
+// Orca does not install or manage a toolchain. What it must do instead is say so
+// before it writes the path down, in every place that would write it.
+
+test('doctor names a Node that belongs to another tool, before connect or service install writes it down', async () => {
+  await withDoctorFixture(async ({ entry, writeClaude, ctx, home }) => {
+    await writeClaude({ mcpServers: { orca: entry } });
+
+    // The Node the operator is about to hand to connect: inside Codex's directory.
+    const foreign = path.join(home, '.codex', 'fnm', 'node-versions', 'v24.14.1', 'bin', 'node');
+    const warned = await doctor({ ...ctx, args: ['--node', foreign] });
+    const check = warned.byId.node;
+    assert.ok(check, 'doctor has a "node" check');
+    assert.equal(check.status, 'warn', JSON.stringify(check));
+    assert.match(check.summary, /Codex's private directory/, JSON.stringify(check));
+    assert.match(check.summary, /one installed Node version \(v24\.14\.1\)/, 'it also names the version pin');
+    // It must say what actually breaks: the files Orca writes, not Orca itself.
+    assert.match(check.summary, /LaunchAgent that starts Orca at every login/, JSON.stringify(check));
+    assert.match(String(check.fix), /connect .*--node/, JSON.stringify(check));
+    assert.match(String(check.fix), /service install --node/, JSON.stringify(check));
+
+    // A Node the user maintains is not flagged, so the warning still means something.
+    const clean = await doctor({ ...ctx, args: ['--node', '/usr/local/bin/node'] });
+    assert.equal(clean.byId.node.status, 'pass', JSON.stringify(clean.byId.node));
+  });
+});
+
+test('doctor checks EVERY registered client launcher, not just the first one it finds', async () => {
+  await withDoctorFixture(async ({ entry, writeClaude, ctx, home }) => {
+    // Claude Code points at a Node that is fine; Codex points at one inside its
+    // own private directory. Checking only the first client would miss the second.
+    await writeClaude({ mcpServers: { orca: entry } });
+    const codexNode = path.join(home, '.codex', 'bin', 'node');
+    await fs.mkdir(path.join(home, '.codex'), { recursive: true });
+    await fs.writeFile(path.join(home, '.codex', 'config.toml'), [
+      '[mcp_servers.orca]',
+      `command = ${JSON.stringify(codexNode)}`,
+      `args = [${JSON.stringify(path.join(ROOT, 'src', 'mcp-server.js'))}]`,
+      '',
+    ].join('\n'));
+
+    const run = await doctor(ctx);
+    const launchers = run.report.checks.filter((check) => check.id.startsWith('launcher'));
+    assert.equal(launchers.length, 2, `both clients are checked: ${JSON.stringify(run.report.checks.map((c) => c.id))}`);
+    const codexCheck = launchers.find((check) => check.id.endsWith('codex'));
+    assert.ok(codexCheck, 'the Codex launcher has its own check');
+    assert.notEqual(codexCheck.status, 'pass', JSON.stringify(codexCheck));
+    assert.match(String(codexCheck.summary + codexCheck.fix), /codex|Codex/, JSON.stringify(codexCheck));
+  });
 });
