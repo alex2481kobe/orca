@@ -238,6 +238,53 @@ test('a non-git folder has no worktree to fall back to, so the second writer is 
 
 
 
+test('promoting a read-only lane to a writer respects the other orchestrator holding the tree', async () => {
+  const previousCwd = process.cwd();
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orca-stage7-controls-'));
+  process.chdir(tempDir);
+  approveFixtureRoot(tempDir);
+  const registry = new OrcaRegistry();
+  try {
+    const repoDir = await makeRepo(tempDir);
+    const { alpha, beta } = await twoOrchestrators(registry, repoDir);
+
+    // Beta gets its read-only lane first, so both lanes are legitimately direct.
+    const reader = registry.getLane(registry.createLane(beta.id, {
+      title: 'Beta reader',
+      executorType: 'mock',
+      permissionsProfile: 'read-only',
+    }, { actor: 'session-b', approved: true }).id);
+    const writer = registry.getLane(registry.createLane(alpha.id, {
+      title: 'Alpha writer',
+      executorType: 'mock',
+    }, { actor: 'session-a', approved: true }).id);
+    assert.equal(reader.worktreeMode, 'direct');
+    assert.equal(writer.worktreeMode, 'direct');
+    assert.equal(reader.workdir, writer.workdir);
+    writer.state = 'running';
+
+    // registry-lane-ops.js carried the same per-container restriction, so this
+    // reclassification used to slip a second writer into the same checkout.
+    assert.throws(
+      () => registry.updateLaneControls(reader.id, { permissionsProfile: 'sandboxed' }, { actor: 'session-b', approved: true }),
+      (error) => {
+        assert.equal(error.status, 409);
+        assert.equal(error.conflictingLaneId, writer.id);
+        assert.equal(error.conflictingOrchestratorId, alpha.id);
+        assert.match(error.message, /Alpha writer/);
+        assert.match(error.message, new RegExp(alpha.id));
+        return true;
+      },
+    );
+    assert.equal(registry.getLane(reader.id).permissionsProfile, 'read-only');
+  } finally {
+    await registry.drainPendingWrites().catch(() => {});
+    restoreFixtureRoot();
+    process.chdir(previousCwd);
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 // --- the pure predicates -----------------------------------------------------
 
 test('sameExecutionDir: the same tree collides; a nested project does not', () => {

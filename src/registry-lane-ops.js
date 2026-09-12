@@ -10,6 +10,7 @@ import { nowIso, clonePayload, safeArray } from './registry-utils.js';
 import { removeLaneWorktree, mergeLaneBranch, worktreeCleanliness } from './worktree-manager.js';
 import { validateNetworkUrl } from './url-policy.js';
 import { buildNextActionEnvelope } from './agent-tools/next-action.js';
+import { findTreeHolders, describeTreeConflict } from './registry-lane-config.js';
 
 const {
   QUEUED: QUEUED_STATE,
@@ -284,18 +285,40 @@ export const laneOpsMethods = {
     // the permission gate correctly allows it) would leave two concurrent writers in
     // the same checkout — the collision auto-isolation exists to prevent. Refuse the
     // reclassification while the lane is still direct and another writer occupies it.
+    //
+    // The occupant is looked up by EXECUTION DIRECTORY, not by container: this
+    // check used to require `other.sessionId === lane.sessionId`, so a second
+    // orchestrator registered on the same checkout could promote a read-only lane
+    // to a writer straight into a tree the first orchestrator's writer holds.
     const becomingWriter = before.permissionsProfile === 'read-only' && next.permissionsProfile !== 'read-only';
     if (becomingWriter && lane.worktreeMode !== 'isolated') {
-      const otherDirectWriter = (this.lanes || []).find((other) => other.id !== lane.id
-        && other.sessionId === lane.sessionId
-        && other.worktreeMode !== 'isolated'
-        && other.permissionsProfile !== 'read-only'
-        && (typeof this.laneOccupiesSlot === 'function' ? this.laneOccupiesSlot(other) : isLiveLaneState(other.state)));
+      const [otherDirectWriter] = findTreeHolders({
+        lanes: this.lanes || [],
+        directory: lane.workdir,
+        excludeLaneId: lane.id,
+        isLive: (other) => (typeof this.laneOccupiesSlot === 'function'
+          ? this.laneOccupiesSlot(other)
+          : isLiveLaneState(other.state)),
+      });
       if (otherDirectWriter) {
+        const holderOrchestrator = (this.orchestrators || [])
+          .find((item) => item.id === otherDirectWriter.sessionId) || null;
+        const sameContainer = otherDirectWriter.sessionId === lane.sessionId;
         throw {
           status: 409,
-          message: `Cannot make this lane writable: it runs directly in the repo checkout and lane "${otherDirectWriter.title}" is already writing there. Spawn a new lane with worktreeMode "isolated" instead, or wait for that lane to finish.`,
+          message: describeTreeConflict({
+            holder: otherDirectWriter,
+            holderOrchestrator: sameContainer ? null : holderOrchestrator,
+            directory: lane.workdir,
+            repoIsGit: !!lane.repoRoot,
+            holderStale: !sameContainer && holderOrchestrator
+              ? (!!holderOrchestrator.resignedAt
+                || (typeof this._orchestratorStale === 'function' && this._orchestratorStale(holderOrchestrator)))
+              : false,
+            lead: 'Cannot make this lane writable — it runs directly in the repo checkout',
+          }),
           conflictingLaneId: otherDirectWriter.id,
+          conflictingOrchestratorId: otherDirectWriter.sessionId || null,
         };
       }
     }

@@ -95,15 +95,22 @@ async function startServer({ token }) {
   };
 }
 
-// v2: no session container. Register an orchestrator (keyed by cwd, which the
-// in-process server shares — an approved repo root) and spawn a mock lane under
-// it. The audit-verdict routing behavior under test is on the lane, unchanged.
+// v2: no session container. Register an orchestrator (keyed by cwd, under the
+// fixture's approved repo root) and spawn a mock lane under it. The
+// audit-verdict routing behavior under test is on the lane, unchanged.
+//
+// Each orchestrator gets its OWN directory: a working tree takes one writer
+// across the whole project, so two orchestrators sharing one cwd cannot both
+// hold a direct writer lane (registry-lane-config.js findTreeHolders). These
+// lanes are independent work, not a collision, so give them separate trees.
 async function createOrchestratorLane(server, token, laneBody = {}) {
   const suffix = ++entityCounter;
+  const cwd = path.join(process.cwd(), `critique-project-${suffix}`);
+  await fs.mkdir(cwd, { recursive: true });
   const register = await server.requestJson('/api/orchestrators', {
     method: 'POST',
     headers: { 'x-orca-token': token },
-    body: { cwd: process.cwd(), actor: 'dashboard', title: `Critique API Orchestrator ${suffix}` },
+    body: { cwd, actor: 'dashboard', title: `Critique API Orchestrator ${suffix}` },
   });
   assert.equal(register.status, 200, JSON.stringify(register.body));
   const orchestratorId = register.body.id;
