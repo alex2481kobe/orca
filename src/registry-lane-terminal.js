@@ -80,8 +80,29 @@ export const laneTerminalMethods = {
       status: 'passed',
       followUpQueued: false,
     });
-    // NOTIFIER CHOKE POINT: lane reached a terminal state (completed). A future
-    // push/notifier subsystem hooks in here.
+    // Push a DURABLE, drainable wakeup to the owning orchestrator, exactly as the
+    // failed and stopped paths below already do. THIS PATH WAS THE ONE THAT DID NOT:
+    // a lane that FAILED woke its orchestrator and a lane that SUCCEEDED did not, so
+    // the only completion an orchestrator never heard about was the good one. It had
+    // to re-poll to discover that work it was waiting on had finished, and if it was
+    // not polling at that moment the finish was silent.
+    //
+    // Success is the terminal state most worth pushing, not least: it is the one that
+    // unblocks whatever comes next.
+    if (typeof this.enqueueAgentEvent === 'function') {
+      this.enqueueAgentEvent({
+        type: 'lane_completed',
+        targetRole: 'orchestrator',
+        title: `Executor lane "${lane.title}" completed`.slice(0, 160),
+        body: lane.exitReason || `${executorLabel} execution completed`,
+        severity: 'info',
+        actor: `${executorLabel}-worker`,
+        projectId: lane.projectId,
+        sessionId: lane.sessionId,
+        laneId: lane.id,
+        dedupeKey: `lane-completed:${lane.id}`,
+      });
+    }
     this._trackAsync(this.writeLaneArtifacts(lane, lane.state).catch(() => {}));
     this.clearLaneExecutor(lane.id);
     if (typeof this.revokeToolLeasesForLane === 'function') {
