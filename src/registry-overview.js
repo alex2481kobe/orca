@@ -80,7 +80,15 @@ export const overviewMethods = {
     let shownOrchestrators = 0;
     let shownExecutors = 0;
 
-    const projects = (this.projects || [])
+    // The ONE deliberate exclusion, and it is explicit: a project a person
+    // archived is meant to be out of the way (registry-projects.js listProjects
+    // does the same). Everything else is shown, and `counts.projects` below still
+    // reports the total so an archived project is a visible difference, not a
+    // disappearance. Note the old projection hid these only by accident — as
+    // projects that happened to have no surviving orchestrator.
+    const active = (this.projects || []).filter((project) => project.state !== 'archived');
+
+    const projects = active
       .map((project) => {
         let projectExecutorCount = 0;
         let projectLiveExecutorCount = 0;
@@ -202,6 +210,7 @@ export const overviewMethods = {
       // dashboard just looking empty.
       counts: {
         projects: (this.projects || []).length,
+        archivedProjects: (this.projects || []).length - active.length,
         orchestrators: allOrchestrators.length,
         lanes: lanes.length,
         shownProjects: projects.length,

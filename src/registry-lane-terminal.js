@@ -7,6 +7,7 @@ import { LANE_STATES } from './worker-contract.js';
 import { laneEvidenceRef } from './audit-evidence.js';
 import { nowIso, clonePayload } from './registry-utils.js';
 import { changedFilesIn } from './worktree-manager.js';
+import { LANE_RESULT_ARTIFACT } from './lane-result.js';
 
 const {
   READY_FOR_AUDIT: READY_FOR_AUDIT_STATE,
@@ -222,6 +223,20 @@ export const laneTerminalMethods = {
     this.persistState();
   },
 
+  // The lane's complete captured report, whole, beside its other artifacts.
+  // lane.resultText is capped for hot state; this file never is, so a truncated
+  // resultText has somewhere real to point at. Written when the result is
+  // captured, so it exists even for a lane that never reaches writeLaneArtifacts.
+  async writeLaneResultArtifact(lane, fullText) {
+    const text = String(fullText ?? '');
+    if (!lane || !lane.sessionId || !lane.id || !text) return null;
+    const laneArtifactDir = path.join(process.cwd(), 'artifacts', String(lane.sessionId), String(lane.id));
+    await fs.mkdir(laneArtifactDir, { recursive: true });
+    const file = path.join(laneArtifactDir, LANE_RESULT_ARTIFACT);
+    await fs.writeFile(file, text.endsWith('\n') ? text : `${text}\n`);
+    return file;
+  },
+
   async writeLaneArtifacts(lane, status = DONE_STATE) {
     const laneArtifactDir = path.join(this.artifactRoot, lane.sessionId, lane.id);
     await fs.mkdir(laneArtifactDir, { recursive: true });
@@ -255,6 +270,7 @@ Task: ${lane.taskDescription || 'No task description'}
 Task prompt: ${lane.taskPrompt || ''}
 Status: ${status}
 Exit reason: ${lane.exitReason || ''}
+Result truncated: ${lane.resultTruncated ? `yes — ${lane.resultFullLength} chars captured, whole text in ${lane.resultArtifact || LANE_RESULT_ARTIFACT}` : 'no'}
 Result: ${lane.resultText || ''}
 Executor: ${lane.executorType}
 Model: ${lane.model || ''}
@@ -285,6 +301,9 @@ Changed files: ${changedFiles.length}
       taskDescription: lane.taskDescription,
       taskPrompt: lane.taskPrompt || null,
       resultText: lane.resultText || null,
+      resultTruncated: Boolean(lane.resultTruncated),
+      resultFullLength: lane.resultFullLength ?? (lane.resultText ? lane.resultText.length : 0),
+      resultArtifact: lane.resultTruncated ? (lane.resultArtifact || LANE_RESULT_ARTIFACT) : null,
       resultAt: lane.resultAt || null,
       model: lane.model || null,
       permissionsProfile: lane.permissionsProfile || null,
@@ -310,7 +329,9 @@ Changed files: ${changedFiles.length}
     }, null, 2));
     lane.artifactPath = `/artifacts/${lane.sessionId}/${lane.id}`;
     return clonePayload({
-      files: ['outcome.txt', 'transcript.json'],
+      files: lane.resultText
+        ? ['outcome.txt', 'transcript.json', LANE_RESULT_ARTIFACT]
+        : ['outcome.txt', 'transcript.json'],
       artifactPath: lane.artifactPath,
       changedFiles,
       evidence: evidenceSummary,

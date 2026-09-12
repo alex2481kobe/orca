@@ -131,7 +131,7 @@ export const RETENTION = Object.freeze([
 export const OUTSIDE_STATE_DIR = Object.freeze([
   {
     path: '<daemon cwd>/artifacts/<orchestrator>/<lane>/',
-    what: 'Per-lane artifacts: outcome.txt, transcript.json, terminal.log, stdout.log, stderr.log, mcp-tools.json, and captured screenshots. lane.terminal.tail, the live lane stream, lane.artifacts.list and lane.artifacts.get read them.',
+    what: 'Per-lane artifacts: outcome.txt, result.txt (the complete captured report for that lane, whole even when lane.resultText was capped), transcript.json, terminal.log, stdout.log, stderr.log, mcp-tools.json, and captured screenshots. lane.terminal.tail, the live lane stream, lane.artifacts.list and lane.artifacts.get read them.',
     writer: 'The daemon and the executors it runs.',
     safeToDelete: 'When the lane\'s raw output and evidence are no longer needed. The lane record and its logs do not depend on them.',
     gc: 'Size reported only.',

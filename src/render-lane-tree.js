@@ -6,6 +6,8 @@
 // Output is plain text using light box-drawing glyphs; the caller should wrap it
 // in a Markdown code fence so a chat client preserves the monospace alignment.
 
+import { resultPreviewNotice } from './lane-result.js';
+
 const GLYPH = {
   queued: '◷',
   starting: '◐',
@@ -53,6 +55,9 @@ function detailLines(lane) {
   if (lane.targetUrl) lines.push(`url: ${clip(lane.targetUrl, 60)}`);
   else if (lane.branch) lines.push(`branch: ${clip(lane.branch, 56)}`);
   if (lane.resultText) lines.push(`result: ${clip(lane.resultText, 64)}`);
+  // A 64-char clip of an already-truncated result would read as a complete one.
+  const truncation = resultPreviewNotice(lane);
+  if (truncation) lines.push(`! ${truncation}`);
   return lines.filter(Boolean);
 }
 

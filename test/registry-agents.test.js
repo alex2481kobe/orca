@@ -140,6 +140,7 @@ test('an all-terminal, all-stale state still yields a non-empty overview', () =>
   // the two can be compared instead of silently disagreeing.
   assert.deepEqual(ov.counts, {
     projects: 2,
+    archivedProjects: 0,
     orchestrators: 3,
     lanes: 4,
     shownProjects: 2,
@@ -157,6 +158,15 @@ test('an all-terminal, all-stale state still yields a non-empty overview', () =>
   const o2 = p1.orchestrators.find((orchestrator) => orchestrator.id === 'o2');
   assert.equal(o2.resigned, true);
   assert.equal(o2.executors.length, 1, 'a resigned orchestrator still shows the work it left behind');
+
+  // The one deliberate exclusion, and it is stated rather than emergent: a
+  // project someone archived is out of the way, and the count still says so.
+  reg.projects[1].state = 'archived';
+  const withArchived = reg.buildOverview();
+  assert.deepEqual(withArchived.projects.map((project) => project.id), ['p1']);
+  assert.equal(withArchived.counts.projects, 2);
+  assert.equal(withArchived.counts.archivedProjects, 1);
+  assert.equal(withArchived.counts.shownProjects, 1);
 });
 
 test('buildOverview bounds retired executors per orchestrator and reports what it left out', () => {
