@@ -24,12 +24,16 @@
 // Showing EVERYTHING is not the answer either. Over the same real state the
 // dashboard drew 3 projects, 11 orchestrators and 50 lanes as one flat screen —
 // a dead animation project and Orca's own project mixed in with the work in
-// hand. So the projection also NOMINATES one project as the home screen's
-// default scope (`defaultProjectId`) and says how it picked (`defaultProjectReason`),
-// and it counts the retired work inside each project so the dashboard can
-// collapse it behind a number instead of drawing it. Nominating is not hiding:
-// every project is still projected, the nomination always names a project that
-// is in `projects` (or is an explicit null), and the client is free to switch.
+// hand. The dashboard now answers that by ADDRESS: `#/` is a welcome with no
+// agent graph at all, and `#/project/<id>` draws one project's work. So this
+// projection feeds two different screens:
+//   - the welcome wants to know the daemon is alive, where its state lives, how
+//     much work exists (`daemon`, `counts`) and which project was most recently
+//     active so it can name one (`defaultProjectId` / `defaultProjectReason`);
+//   - a project page wants that one project's orchestrators and lanes.
+// Nominating is not scoping and never was hiding: every project is projected,
+// the nomination always names a project that is in `projects` (or is an
+// explicit null), and the sidebar reaches all of them regardless.
 
 import { nowIso } from './registry-utils.js';
 import { LANE_STATES } from './worker-contract.js';
@@ -82,12 +86,13 @@ const statusTagForState = (state) => {
   }
 };
 
-// Which ONE project the home screen opens on.
+// Which ONE project the welcome NAMES as the most recent piece of work.
 //
-// This NOMINATES, it does not filter: `projects` still carries every project, so
-// no rule here can empty the dashboard, and the client can switch at will. The
-// nomination is always either an id that is present in `projects`, or an
-// explicit null when there is genuinely no project to open.
+// This NOMINATES, it does not filter or scope: `projects` still carries every
+// project, no rule here can empty the dashboard, and the welcome only uses it
+// for one orienting sentence — the left panel is what actually opens a project.
+// The nomination is always either an id that is present in `projects`, or an
+// explicit null when there is genuinely no project.
 //
 // How it picks, honestly. `/api/overview` is fetched by a browser holding an
 // operator session or the admin token — neither carries an orchestrator
@@ -267,9 +272,20 @@ export const overviewMethods = {
       revision: typeof this.getStreamRevision === 'function' ? this.getStreamRevision() : 0,
       generatedAt: nowIso(),
       projects,
-      // The home screen's default scope, and the reason it was picked. A client
-      // that ignores these still gets every project; one that honours them opens
-      // on one project instead of every agent in every project at once.
+      // What the WELCOME screen says about the daemon itself: that it is alive
+      // (this payload arriving at all proves that, and generatedAt dates it) and
+      // where the state it is serving actually lives. A person looking at an
+      // unexpectedly quiet dashboard needs to know WHICH state directory they
+      // are looking at before anything else on the screen means much — Orca can
+      // be pointed at a different one by ORCA_STATE_DIR or its config file. Same
+      // operator gate as `counts` and project `cwd`, which are already here.
+      daemon: {
+        stateDir: this.storageDir || null,
+        artifactRoot: this.artifactRoot || null,
+      },
+      // The most recently active project, and why it was picked. The welcome
+      // names it in one sentence; nothing scopes to it. A client that ignores
+      // these loses a sentence, not a project.
       defaultProjectId: defaultProject.id,
       defaultProjectReason: defaultProject.reason,
       // The same totals /api/health reports, beside what this projection

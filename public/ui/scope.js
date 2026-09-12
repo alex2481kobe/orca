@@ -1,114 +1,118 @@
-// Home-screen scope rules. Pure — no DOM, no fetch, no module state — so they
-// are unit-tested directly (test/dashboard-scope.test.js) while overview.js,
+// What a PROJECT page draws. Pure — no DOM, no fetch, no module state — so it
+// is unit-tested directly (test/dashboard-scope.test.js) while overview.js,
 // which touches `document` at import time, cannot be.
 //
-// Why this file exists. The home screen used to render every project the
-// projection returned: over the owner's real state that is 3 projects, 11
-// orchestrators and 50 lanes as one flat tree, a dead animation project and
-// Orca's own project mixed in with the work in hand. Home now shows ONE project
-// and reaches the others through the sidebar.
+// Why this file exists, and what changed on 2026-09-12.
 //
-// The rule that governs everything here: SCOPING IS NOT HIDING. Every function
-// below falls back to something real and reports what it did not draw as a
-// count. The day before this was written, three recency filters composed to an
-// empty dashboard over a state full of work; a presentation layer that can
-// resolve to nothing would be the same failure wearing different clothes.
+// The home screen used to render every project the projection returned: over
+// the owner's real state that was 3 projects, 11 orchestrators and 50 lanes as
+// one flat tree. The first fix scoped HOME to one project and added two
+// controls — an in-canvas project dropdown and a "hide retired agents" collapse.
+// The owner threw both out: "for the orca dashboard the home page should just
+// show the welcome essentially, and then the projects themselves can show what
+// is running, get rid of that hide retired agents and the dropdown picker thing
+// you made, thats why we have the panel on the left".
+//
+// So the screens now split by ADDRESS, not by a control:
+//   - `#/`                → a welcome. It has no agent graph at all.
+//   - `#/project/<id>`    → that one project's work, and only that project's.
+//   - the left panel      → the switcher. There is exactly one.
+//
+// The rule that still governs everything here: SCOPING IS NOT HIDING. Nothing
+// below can drop an agent, and everything it does not draw comes back as a
+// count the screen states out loud. The day before this was written, three
+// recency filters composed to an empty dashboard over a state full of work; a
+// presentation layer that can resolve to nothing would be the same failure
+// wearing different clothes.
 
-// Which project the home screen should open on.
+// How many FINISHED lanes one agent contributes to the graph.
 //
-// Order of authority, most specific first:
-//   1. what the viewer picked in this session;
-//   2. what this browser remembered from last time — the only sense in which the
-//      client knows "the viewer's own" project;
-//   3. the projection's nomination (`defaultProjectId`: the project of a live
-//      orchestrator, else the most recently active — see src/registry-overview.js);
-//   4. the first project in the projection's ranking.
-// Every candidate is checked against the projects actually present, so a project
-// that was archived or removed since it was remembered falls through instead of
-// scoping home to nothing. Returns null only when there is genuinely no project.
-export function chooseProjectId(data, { selected = null, remembered = null } = {}) {
+// This is the whole answer to "retired work must not swamp a project page",
+// and it is deliberately not a toggle:
+//   - every agent of the project is drawn, retired or not — nothing is ever
+//     collapsed away, so there is nothing to un-collapse;
+//   - every LIVE lane is drawn, always, however many there are;
+//   - a bounded number of that agent's most recent FINISHED lanes are drawn,
+//     newest first (the projection already sorts them that way);
+//   - the remainder is counted on that agent's own node and in the project
+//     total, so it is stated rather than hidden.
+// The bound is per AGENT, not per project, so one agent with a hundred finished
+// lanes cannot crowd out the agent beside it — which is what "swamping" meant.
+// And because the window is filled with the most recent lanes whether or not
+// anything is running, a project where nothing has run for hours still draws
+// its finished work instead of an empty canvas. That was the bug this screen is
+// living down (docs/audits/2026-09-11-overview-empty.md), and an unconditional
+// collapse would have re-created it from the presentation side.
+export const PROJECT_LANE_WINDOW = 8;
+
+// Find the project a `#/project/<id>` route names.
+//
+// It never falls through to a DIFFERENT project. Home is a welcome now, so
+// there is no "the one project" to fall back to, and silently showing project B
+// under project A's URL would be worse than saying the id is gone. `missing` is
+// true only when the route named something the projection does not carry —
+// which the screen reports, pointing at the left panel.
+export function resolveProject(data, projectId) {
   const projects = (data && Array.isArray(data.projects)) ? data.projects : [];
-  if (!projects.length) return null;
-  const present = (id) => Boolean(id) && projects.some((project) => project.id === id);
-  if (present(selected)) return selected;
-  if (present(remembered)) return remembered;
-  if (present(data.defaultProjectId)) return data.defaultProjectId;
-  return projects[0].id;
+  const id = projectId ? String(projectId) : '';
+  if (!id) return { project: null, missing: false };
+  const project = projects.find((item) => item && item.id === id) || null;
+  return { project, missing: !project };
 }
 
-// How many other projects switching would reach — the number the scope control
-// puts next to the current project's name.
-export function otherProjectCount(data, selectedId) {
-  const projects = (data && Array.isArray(data.projects)) ? data.projects : [];
-  return projects.filter((project) => project.id !== selectedId).length;
-}
-
-// Does this project have live work for the collapse to protect?
-// Uses the projection's own per-project counts, nothing new.
-export function hasLiveWork(project) {
-  if (!project) return false;
-  return (Number(project.liveExecutorCount) || 0) > 0 || (Number(project.liveOrchestratorCount) || 0) > 0;
-}
-
-// Split ONE project's agents into the work to draw and the work to collapse.
+// One project's agents, laid out for the graph.
 //
-// `retired` and `recent` are the projection's own fields, not a second scheme
-// invented here: an orchestrator is retired when it is inactive (resigned or
-// stale) with no live lane left, and a lane is retired when it is terminal and
-// no longer recent. An inactive orchestrator that still has a lane running is
-// NOT retired and is always drawn — that is precisely the row the old projection
-// used to delete.
-//
-// Nothing is discarded: `retiredOrchestratorCount`, `retiredExecutorCount`,
-// `omittedExecutorCount` (the projection's own per-orchestrator window) and
-// their sum `hiddenCount` account for every row not drawn.
-//
-// `showRetired` is deliberately TRI-STATE. true/false are the viewer's own
-// toggle. null (the default) is AUTO, and auto collapses retired work only when
-// there is live work for the collapse to protect. The reason is the bug this
-// screen is still living down: over a state where nothing has run for hours,
-// every row is retired, and an unconditional collapse would draw an empty canvas
-// over a project holding 11 finished lanes — "a state full of work rendering as
-// nothing" again, arrived at from the presentation side instead of the
-// projection side. Retired work must not CROWD OUT live work; with no live work
-// to crowd out, it is simply the work.
-export function partitionProject(project, { showRetired = null } = {}) {
+// Returns EVERY orchestrator the projection carried for the project — none is
+// filtered, sorted away or collapsed. Only the finished-lane window bounds
+// anything, and what it leaves out is counted twice over: per agent
+// (`olderExecutorCount` on the row, so the node can say so) and per project.
+export function projectView(project, { laneWindow = PROJECT_LANE_WINDOW } = {}) {
   const all = (project && Array.isArray(project.orchestrators)) ? project.orchestrators : [];
-  const collapsing = showRetired === null ? hasLiveWork(project) : !showRetired;
-  let retiredOrchestratorCount = 0;
-  let retiredExecutorCount = 0;
-  let omittedExecutorCount = 0;
+  const parsed = Number(laneWindow);
+  const windowSize = Math.max(0, Number.isFinite(parsed) ? parsed : PROJECT_LANE_WINDOW);
 
-  const orchestrators = [];
-  for (const orchestrator of all) {
-    omittedExecutorCount += Number(orchestrator.executorsOmitted) || 0;
+  let shownExecutorCount = 0;
+  let olderExecutorCount = 0;
+  let liveExecutorCount = 0;
+  let totalExecutorCount = 0;
+  let retiredOrchestratorCount = 0;
+
+  const orchestrators = all.map((orchestrator) => {
     const executors = Array.isArray(orchestrator.executors) ? orchestrator.executors : [];
-    if (orchestrator.retired) {
-      retiredOrchestratorCount += 1;
-      // Its lanes are retired with it; count them once, here, so a collapsed
-      // agent never takes its work off the books.
-      retiredExecutorCount += executors.length;
-      if (collapsing) continue;
-      orchestrators.push({ ...orchestrator, executors });
-      continue;
-    }
-    // The counts describe the project, not the current toggle: how much retired
-    // work there IS. What is not drawn right now is hiddenCount, below.
-    retiredExecutorCount += executors.filter((lane) => lane.terminal && !lane.recent).length;
-    const drawn = collapsing ? executors.filter((lane) => !(lane.terminal && !lane.recent)) : executors;
-    orchestrators.push({ ...orchestrator, executors: drawn });
-  }
+    // What the projection itself already left out for this agent
+    // (MAX_EXECUTORS_PER_ORCHESTRATOR in src/registry-overview.js). It is part
+    // of the same number, not a separate one, or the screen would under-report.
+    const beyondProjection = Math.max(0, Number(orchestrator.executorsOmitted) || 0);
+    const live = executors.filter((lane) => !lane.terminal);
+    const finished = executors.filter((lane) => lane.terminal);
+    const drawnFinished = finished.slice(0, windowSize);
+    const older = (finished.length - drawnFinished.length) + beyondProjection;
+
+    if (orchestrator.retired) retiredOrchestratorCount += 1;
+    liveExecutorCount += live.length;
+    totalExecutorCount += executors.length + beyondProjection;
+    shownExecutorCount += live.length + drawnFinished.length;
+    olderExecutorCount += older;
+
+    return {
+      ...orchestrator,
+      // Live first, then the newest finished ones — the projection's own order.
+      executors: [...live, ...drawnFinished],
+      olderExecutorCount: older,
+    };
+  });
 
   return {
     orchestrators,
+    orchestratorCount: orchestrators.length,
     retiredOrchestratorCount,
-    retiredExecutorCount,
-    omittedExecutorCount,
+    liveExecutorCount,
+    shownExecutorCount,
     // Everything the canvas is not drawing right now, as one number the screen
-    // can state out loud.
-    hiddenCount: (collapsing ? retiredOrchestratorCount + retiredExecutorCount : 0) + omittedExecutorCount,
-    // What the caller actually ended up doing, so the toggle can label itself
-    // honestly under AUTO instead of claiming to be collapsed when it is not.
-    collapsingRetired: collapsing,
+    // can state out loud. It is only ever OLDER FINISHED lanes: no agent, and no
+    // running lane, is ever in here.
+    olderExecutorCount,
+    totalExecutorCount,
+    laneWindow: windowSize,
   };
 }

@@ -177,10 +177,16 @@ If you do not want a device to be able to stop your agents, do not pair it.
 
 ## 6. Using the dashboard from the phone
 
-- **Home** is an interactive node canvas of your projects, orchestrators, and
-  executor lanes — pan, zoom, fit, and fullscreen. Three stat cards summarize
-  "Active agents", "Queued agents", and "Idle / complete"; the Live links button
-  opens a project's dev-server URLs over the tailnet.
+- **Home** is a welcome: that Orca is running, which state directory it is
+  serving, how many projects, agents and lanes exist, and how many are running
+  right now. It draws no agent graph — the work is in the projects.
+- **A project** (tap it in the panel on the left) is an interactive node canvas
+  of that project's orchestrators and executor lanes — pan, zoom, fit, and
+  fullscreen. Three stat cards summarize "Active agents", "Queued agents", and
+  "Idle / complete"; the Live links button opens that project's dev-server URLs
+  over the tailnet. Every agent of the project is drawn, and every running lane;
+  older finished lanes past the newest few per agent are counted on the agent's
+  own node rather than drawn. The page is a real URL, so it can be bookmarked.
 - A node's status reads as Running, Spawning, Queued, Waiting, Complete, Idle,
   Failed, or Stopped.
 - A node's `⋯` menu holds the break-glass controls described above.

@@ -280,50 +280,21 @@ body.home-canvas .fence-banner { max-width: none; margin: 0 0 var(--space-3); }
 body.access-gated .fence-banner,
 body.app-offline .fence-banner { display: none; }
 
-/* ---- home scope: which ONE project the canvas is showing ----
-   Home used to draw every project at once (3 projects / 11 orchestrators / 50
-   lanes over the owner's real state). It now shows one, and this row is both the
-   statement of what is on screen and the way to change it. Everything the canvas
-   is not drawing is named here as a count — never dropped in silence. */
+/* ---- project header: which project this PAGE is, and what it is not drawing ----
+   A label, not a control. The dropdown that used to live here duplicated the
+   sidebar and is gone ("thats why we have the panel on the left"), and so is the
+   "hide retired" toggle beside it. What survives is the honest-count contract:
+   the name, what the project HAS, and anything the per-agent lane window did not
+   draw — never dropped in silence. */
 .ov-scope { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; min-width: 0; }
-.ov-scope-btn {
+.ov-scope-title {
   display: inline-flex; align-items: center; gap: 6px; min-width: 0;
-  height: 32px; padding: 0 var(--space-3);
-  font: inherit; font-size: 0.86rem; font-weight: 600; line-height: 1;
-  border: 1px solid var(--line); border-radius: var(--radius-pill);
-  background: var(--panel); color: var(--text); cursor: pointer;
+  font-size: 0.92rem; font-weight: 650; color: var(--text);
 }
-@media (hover: hover) { .ov-scope-btn:hover { border-color: var(--muted); background: var(--panel-soft); } }
 .ov-scope-folder { display: inline-flex; color: var(--muted); flex: 0 0 auto; }
 .ov-scope-folder svg { display: block; }
 .ov-scope-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ov-scope-caret { color: var(--muted); font-size: 0.7rem; flex: 0 0 auto; }
 .ov-scope-note { font-size: 0.76rem; color: var(--muted); min-width: 0; }
-.ov-ctrl.ov-retired-btn { height: 32px; font-size: 0.76rem; font-weight: 550; border-radius: var(--radius-pill); }
-.ov-ctrl.ov-retired-btn.is-on { border-color: var(--accent-blue); color: var(--accent-blue); }
-
-/* The switcher popover: every project, always listed, with its size — mirrors
-   .ov-links so the two canvas popovers read as one thing. */
-.ov-projects {
-  position: absolute; top: var(--space-3); left: var(--space-3); z-index: 8;
-  display: flex; flex-direction: column; gap: 2px; padding: var(--space-2);
-  border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--panel);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.42); min-width: 240px; max-width: min(360px, 80vw);
-  max-height: 60%; overflow-y: auto;
-}
-.ov-projects[hidden] { display: none; }
-.ov-project-row {
-  display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3);
-  padding: var(--space-2) var(--space-3); border: 0; border-radius: var(--radius-sm);
-  background: transparent; color: var(--text); font: inherit; font-size: 0.84rem;
-  text-align: left; cursor: pointer; width: 100%;
-}
-@media (hover: hover) { .ov-project-row:hover { background: var(--panel-soft); } }
-.ov-project-row.is-selected { background: var(--panel-soft); }
-.ov-project-row.is-selected .ov-project-name { font-weight: 650; }
-.ov-project-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ov-project-meta { flex: 0 0 auto; font-size: 0.74rem; color: var(--muted); font-variant-numeric: tabular-nums; }
-.ov-project-meta.is-live { color: var(--accent-blue); }
 
 /* A project with nothing to draw is still a project. This sits IN the canvas and
    names it, instead of the daemon-level "no agents registered" screen — the two
@@ -338,12 +309,49 @@ body.app-offline .fence-banner { display: none; }
 .ov-project-empty .ov-empty-sub { font-size: 0.82rem; color: var(--muted); max-width: 42ch; }
 
 @media (max-width: 880px) {
-  /* The scope row must survive the narrow canvas: the note wraps away before the
-     project name and the retired toggle do, since those are the controls. */
-  /* The fixed drawer button floats over the top-left corner. The scope row is
-     now the FIRST row, so it takes that indent and the stat cards give it back. */
+  /* The fixed drawer button floats over the top-left corner. The project header
+     is the FIRST row, so it takes that indent and the stat cards give it back.
+     The counts wrap away before the project name does. */
   .ov-scope { gap: var(--space-2); padding-left: 2.6rem; flex-wrap: nowrap; overflow-x: auto; }
   .ov-statbar { padding-left: 0; }
   .ov-scope-note { display: none; }
-  .ov-projects { left: var(--space-2); right: var(--space-2); max-width: none; }
+}
+
+
+/* ================= Home: the WELCOME =================
+   Not a dashboard: no graph, no project cards, no second switcher. The daemon,
+   where its state is, what exists, and a pointer at the panel on the left.
+   Reading-column width (body.home-canvas is NOT set on this route); all colour
+   from design tokens (smoke:no-hardcoded-colors). */
+.wel-wrap { display: flex; flex-direction: column; gap: var(--space-5); max-width: 46rem; }
+.wel-hero { display: flex; flex-direction: column; gap: var(--space-2); }
+.wel-mark { width: 44px; height: 44px; border-radius: var(--radius-md); }
+.wel-title { margin: 0; font-size: 1.5rem; font-weight: 680; letter-spacing: -0.01em; color: var(--text); }
+.wel-sub { margin: 0; max-width: 56ch; font-size: 0.92rem; line-height: 1.55; color: var(--muted); }
+.wel-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-3); }
+.wel-stat {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--panel);
+}
+.wel-stat-n { font-size: 1.4rem; font-weight: 650; color: var(--text); font-variant-numeric: tabular-nums; line-height: 1.1; }
+.wel-stat-l { font-size: 0.76rem; color: var(--muted); }
+.wel-line { margin: 0; max-width: 68ch; font-size: 0.92rem; line-height: 1.6; color: var(--text); }
+.wel-line strong { font-weight: 650; }
+.wel-line code { background: var(--panel-soft); padding: 1px 5px; border-radius: var(--radius-xs); font-size: 0.85em; }
+.wel-aside { font-size: 0.8rem; color: var(--muted); }
+.wel-facts {
+  display: grid; grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-2) var(--space-4); margin: 0;
+  padding: var(--space-4); border: 1px solid var(--line-soft);
+  border-radius: var(--radius-md); background: var(--panel-soft);
+}
+.wel-facts dt { font-size: 0.76rem; color: var(--muted); }
+.wel-facts dd { margin: 0; min-width: 0; font-size: 0.8rem; color: var(--text); overflow-wrap: anywhere; }
+.wel-facts dd code { font-family: var(--mono); font-size: 0.78rem; }
+
+@media (max-width: 880px) {
+  .wel-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wel-facts { grid-template-columns: minmax(0, 1fr); gap: 2px var(--space-3); }
+  .wel-facts dt { margin-top: var(--space-2); }
 }

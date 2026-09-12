@@ -130,7 +130,11 @@ await page.addInitScript(() => {
   };
 });
 
-await page.goto(`${base}/`, { waitUntil: 'domcontentloaded' });
+// The canvas lives on a PROJECT page (`#/project/<id>`); `/` is the welcome and
+// draws no graph at all. Ask the projection which project the seed created
+// rather than guessing its id.
+const seededProjectId = (await fetch(`${base}/api/overview`).then((r) => r.json())).projects[0].id;
+await page.goto(`${base}/#/project/${encodeURIComponent(seededProjectId)}`, { waitUntil: 'domcontentloaded' });
 const EXPECT = LANES + 1;
 await page.waitForFunction((n) => document.querySelectorAll('#ov-canvas .ov-node').length === n, EXPECT, { timeout: 12000 });
 console.log(`[perf] canvas painted ${EXPECT} nodes`);

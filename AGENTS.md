@@ -11,8 +11,10 @@ Read the source before changing behavior; this is a working daemon, not scaffold
 - `src/` — the Node daemon: registry, scheduler, tool-lease auth, HTTP route groups
   (`src/server-routes/`), the MCP tool contract (`src/agent-tools/`), and the
   hand-rolled stdio MCP bridge (`src/mcp-server.js`).
-- `public/` — the dashboard: a static shell plus `public/ui/`. The Home screen is an
-  interactive node-graph canvas of projects, orchestrators, and executor lanes.
+- `public/` — the dashboard: a static shell plus `public/ui/`. Home (`#/`) is a
+  WELCOME — the daemon, where its state is, and what exists; a project page
+  (`#/project/<id>`) is the interactive node-graph canvas of that one project's
+  orchestrators and executor lanes. The left panel is the only project switcher.
 - `test/`, `scripts/` — `node --test` suites and the `smoke:*` gates. Security-relevant
   behavior is proven here, not asserted in prose.
 - `docs/` — public agent skill docs and operator runbooks.

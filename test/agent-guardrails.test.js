@@ -142,7 +142,6 @@ test('removeLaneWorktree refuses a branch with unmerged commits unless force:tru
 test('removeLaneWorktree removes a fully-merged branch without force', async () => {
   await withRegistry(async (registry) => {
     const { repoDir, g } = await makeGitRepo('merged-repo');
-    const baseBranch = g('rev-parse', '--abbrev-ref', 'HEAD').stdout.trim();
     const { orchestrator } = await makeOrchestrator(registry, { cwd: repoDir });
     const lane = registry.createLane(orchestrator.id, {
       title: 'merged', executorType: 'mock', branch: 'donebranch', worktreeMode: 'isolated',
@@ -154,12 +153,13 @@ test('removeLaneWorktree removes a fully-merged branch without force', async () 
     registry.getLane(lane.id).state = 'accepted';
     registry.getLane(lane.id).auditState = 'accepted';
 
-    // Integrate the branch into base, so nothing is unmerged.
-    const merged = await registry.integrateLane(lane.id);
-    assert.equal(merged.integrated, true);
-    assert.equal(merged.baseBranch, baseBranch);
+    // Merge the branch into base with plain git, so nothing is unmerged. This
+    // used to go through registry.integrateLane, which now reclaims the worktree
+    // itself (test/worktree-lifecycle.test.js covers that path) — leaving this
+    // one nothing to discard. Merging by hand keeps the subject the DISCARD
+    // GUARD: a merged, clean worktree does not need force.
+    g('merge', '--no-edit', 'donebranch');
 
-    // Now discard is safe without force (no uncommitted + nothing unmerged).
     const removed = await registry.removeLaneWorktree(lane.id, { approved: true });
     assert.equal(removed.removed, true);
   });
@@ -319,17 +319,40 @@ test('successful mutations carry a nextAction pointing at the next step', async 
   });
 });
 
-test('accepting an isolated lane points nextAction at lane.integrate', async () => {
+test('accepting an isolated lane points nextAction at lane.integrate — when there is something to integrate', async () => {
   await withRegistry(async (registry) => {
     const { repoDir } = await makeGitRepo('accept-integrate-repo');
     const { orchestrator } = await makeOrchestrator(registry, { cwd: repoDir });
     const lane = registry.createLane(orchestrator.id, {
       title: 'iso', executorType: 'mock', branch: 'feat', worktreeMode: 'isolated',
     }, { actor: 'test', approved: true });
+    // Commit inside the worktree: this lane has real work that is not in the
+    // base branch, so accept keeps the worktree and integrate is the next step.
+    const gw = (...args) => spawnSync('git', args, { cwd: lane.worktreePath, encoding: 'utf8' });
+    await fs.writeFile(path.join(lane.worktreePath, 'iso.txt'), 'work');
+    gw('add', 'iso.txt'); gw('commit', '-qm', 'iso work');
     registry.getLane(lane.id).state = 'done';
     const accepted = registry.acceptLaneAudit(lane.id, { actor: 'auditor', findings: ['ok'] });
     assert.equal(accepted.lane.state, 'accepted');
+    assert.equal(accepted.worktreeCleanup.removed, false, 'un-integrated commits are never reclaimed');
     assert.equal(accepted.nextAction?.nextRequiredTool, 'lane.integrate');
+  });
+});
+
+test('an isolated lane with nothing to integrate is not sent to lane.integrate', async () => {
+  await withRegistry(async (registry) => {
+    const { repoDir } = await makeGitRepo('accept-nothing-repo');
+    const { orchestrator } = await makeOrchestrator(registry, { cwd: repoDir });
+    const lane = registry.createLane(orchestrator.id, {
+      title: 'scout', executorType: 'mock', branch: 'scout', worktreeMode: 'isolated',
+    }, { actor: 'test', approved: true });
+    registry.getLane(lane.id).state = 'done';
+    // Nothing committed and nothing edited: accept reclaims the worktree, and
+    // pointing the orchestrator at lane.integrate would be pointing it at a
+    // no-op on a directory that is already gone.
+    const accepted = registry.acceptLaneAudit(lane.id, { actor: 'auditor', findings: ['ok'] });
+    assert.equal(accepted.worktreeCleanup.removed, true);
+    assert.notEqual(accepted.nextAction?.nextRequiredTool, 'lane.integrate');
   });
 });
 

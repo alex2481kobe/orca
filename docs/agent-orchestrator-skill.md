@@ -365,6 +365,15 @@ isolation.
    requires workstation admin auth. `lane.worktree.discard` throws the worktree
    away instead. Lanes that ran directly in the checkout have nothing to merge —
    `lane.integrate` refuses them by design.
+
+   **You do not have to clean up the worktree.** Orca reclaims it itself, on
+   `audit.accept` and again on `lane.integrate`, as soon as it can prove nothing
+   lives only there: a clean tree and no commit missing from the base branch. It
+   never forces and never deletes the lane branch. Anything it cannot prove — a
+   live executor process, uncommitted edits, un-integrated commits, unreadable
+   git — is KEPT, and both calls return a `worktreeCleanup` object saying which
+   and why, naming the tool that resolves it. So `worktreeCleanup.removed: false`
+   on an accept is normal and means "there is still work here only you can land".
 7. **Resign.** When the work is done, call `orchestrator.resign` so Orca stops
    listing you as an active orchestrator for the project.
 

@@ -35,10 +35,10 @@ await fs.mkdir(projDir, { recursive: true });
 const orch = await post('/api/orchestrators', { actor: 'demo', cwd: await fs.realpath(projDir), title: 'Demo orchestrator' });
 await post(`/api/orchestrators/${orch.id}/executors`, { actor: 'demo', approved: true, title: 'Build the thing', executorType: 'mock' });
 
-async function capture(label, { width, height, colorScheme, nav }) {
+async function capture(label, { width, height, colorScheme, nav, hash = '' }) {
   const ctx = await b.newContext({ viewport: { width, height }, colorScheme });
   const p = await ctx.newPage();
-  await p.goto(`${base}/`, { waitUntil: 'domcontentloaded' });
+  await p.goto(`${base}/${hash}`, { waitUntil: 'domcontentloaded' });
   await p.waitForTimeout(900); // let the poll fetch /api/overview + render
   if (nav) {
     // On mobile the drawer is closed; open it first if a reopen control shows.
@@ -57,10 +57,17 @@ async function capture(label, { width, height, colorScheme, nav }) {
   await ctx.close();
 }
 
-// Regression-diff screens (where the dead selectors live: home tree + sidebar + settings).
+// Regression-diff screens: the welcome, a PROJECT page (where the node tree
+// lives now — `/` draws no graph), the sidebar, and settings.
+const projectHash = `#/project/${encodeURIComponent(
+  (await fetch(`${base}/api/overview`).then((r) => r.json())).projects[0].id,
+)}`;
 await capture('home-desktop-dark', { width: 1280, height: 900, colorScheme: 'dark' });
 await capture('home-desktop-light', { width: 1280, height: 900, colorScheme: 'light' });
 await capture('home-mobile-dark', { width: 390, height: 844, colorScheme: 'dark' });
+await capture('project-desktop-dark', { width: 1280, height: 900, colorScheme: 'dark', hash: projectHash });
+await capture('project-desktop-light', { width: 1280, height: 900, colorScheme: 'light', hash: projectHash });
+await capture('project-mobile-dark', { width: 390, height: 844, colorScheme: 'dark', hash: projectHash });
 await capture('settings-desktop-dark', { width: 1280, height: 900, colorScheme: 'dark', nav: 'settings' });
 await capture('settings-desktop-light', { width: 1280, height: 900, colorScheme: 'light', nav: 'settings' });
 

@@ -27,13 +27,40 @@ A lane leaves hot state when:
   (default 14 days), unless its audit is still queued, in progress or escalated, or it still
   holds an un-integrated worktree.
 
-When a lane is archived its artifacts folder moves with it (see *Artifacts follow the lane
-they belong to*, below).
+When a lane is archived its artifacts folder moves with it — **whenever** the lane is
+archived, by the running daemon as well as by `orca gc` (see *Artifacts follow the lane they
+belong to*, below). Until 2026-09-12 only `gc` moved them, so a lane retired at runtime left
+its whole artifacts folder in the hot tree, already unreachable through the API.
 
 An archived lane is still readable with `lane.get`. The response is the lane as it was, with
 the same capped log and event view a hot lane shows, plus
-`archived: { at, reason, file, totalLogs, totalAgentEvents }`. It no longer appears in
-`lane.list`; `orchestrator.status` reports how many of an orchestrator's lanes are archived.
+`archived: { at, reason, file, totalLogs, totalAgentEvents, artifacts }` — `artifacts` names
+the folder its artifacts moved to, since `lane.artifacts.get` cannot reach an archived lane. It
+no longer appears in `lane.list`; `orchestrator.status` reports how many of an orchestrator's
+lanes are archived.
+
+## An isolated lane's worktree is reclaimed when it is finished with
+
+`workspaces/<orchestrator>/worktrees/<lane>` is a full git checkout, and nothing used to
+remove one: 34 of them from July were still on the author's machine. The daemon now reclaims
+one automatically at two moments — when its audit is **accepted**, and when it is
+**integrated** — under a single rule:
+
+> A worktree may only go when nothing lives ONLY there.
+
+So the reclaim refuses, and keeps the folder, when the lane's executor process is still
+alive, when the worktree holds uncommitted changes, when its branch has commits that are not
+in the base branch, when the branch is missing or the base checkout is on a detached HEAD, or
+when git cannot be read at all. "Could not tell" is always a refusal. It never passes
+`force`, and it never deletes the lane branch — so even a reclaimed worktree's commits stay
+reachable in the repository as `refs/heads/<lane branch>`.
+
+A refusal is not silent: the reason is written to the lane's log, recorded on
+`lane.worktreeReclaim`, and returned in the `worktreeCleanup` field of the `audit.accept` /
+`lane.integrate` response, naming `lane.integrate` (to keep the work) or
+`lane.worktree.discard {"force": true}` (to drop it deliberately).
+
+Set `ORCA_AUTO_RECLAIM_WORKTREE=false` to turn the whole thing off.
 
 ## The retention table
 
@@ -55,8 +82,8 @@ Under the state directory:
 | `archive/lanes/<lane>/logs.NNNNNN.jsonl, events.NNNNNN.jsonl` | Journal segments rotated out of a lane that is still hot. | The daemon. | Never while the lane is hot: they are the oldest part of its journal. | Folded into the lane's .json.gz when the lane is archived. |
 | `archive/migrations/<time>-v3-to-v4-<sha>/` | The state.json (and state.json.bak) a v4 daemon found at its first boot, kept byte for byte, plus manifest.json with sizes, sha256 and what was converted. | The daemon at its first v4 boot, or `orca gc --apply` on a v3 state. | Once the migrated state has been checked. | Purged only by `--purge-archive --purge-older-than-days N --apply`. |
 | `archive/legacy/<time>/` | Legacy backups, crashed-write temp files and quarantined corrupt files moved here by gc. | `orca gc --apply`. | Once inspected. | Purged only by `--purge-archive --purge-older-than-days N --apply`. |
-| `archive/artifacts/<orchestrator>/<lane>/` | The artifacts of an archived lane, moved here whole: result.txt (the complete captured report, the only copy — lane.resultText is capped), outcome.txt, transcript.json, terminal.log, stdout.log, stderr.log, mcp-tools.json and screenshots, plus a .orca-archived.json marker recording when and from which lane. | `orca gc --apply`, when it archives the lane. | Once the lane archive it belongs to is no longer needed. Its raw output is not readable through the API from here. | Purged only by `--purge-archive --purge-older-than-days N --apply`, and only once the lane's own archive goes in the same run; result.txt is deleted last. |
-| `workspaces/<orchestrator>/worktrees/<lane>` | The git worktree of an isolated lane. | The daemon, when it creates an isolated lane. | After the lane is integrated, or its work is deliberately discarded. | LISTED, never removed. Remove one with lane__worktree__discard (it refuses uncommitted work unless force:true). |
+| `archive/artifacts/<orchestrator>/<lane>/` | The artifacts of an archived lane, moved here whole: result.txt (the complete captured report, the only copy — lane.resultText is capped), outcome.txt, transcript.json, terminal.log, stdout.log, stderr.log, mcp-tools.json and screenshots, plus a .orca-archived.json marker recording when and from which lane. | The daemon (lane.delete, the terminal-lane cap) and `orca gc --apply`, whenever a lane is archived. | Once the lane archive it belongs to is no longer needed. Its raw output is not readable through the API from here; lane.get on the archived lane names this folder. | Purged only by `--purge-archive --purge-older-than-days N --apply`, and only once the lane's own archive goes in the same run; result.txt is deleted last. |
+| `workspaces/<orchestrator>/worktrees/<lane>` | The git worktree of an isolated lane. | The daemon, when it creates an isolated lane. | The daemon reclaims it itself on audit.accept and on lane.integrate, as soon as it can prove nothing lives only there (clean tree, and no commit missing from the base branch). Anything it cannot prove is KEPT, with the reason on the lane. ORCA_AUTO_RECLAIM_WORKTREE=false turns that off. | LISTED, never removed — gc is for a state directory whose daemon is stopped. Remove one with lane__worktree__discard (it refuses uncommitted work unless force:true). |
 
 Outside the state directory (gc does not sweep it; it follows the lane it belongs to):
 
@@ -72,12 +99,14 @@ and read only when `state.json` is missing or unparsable. With lane streams and 
 lanes out of `state.json`, the backup is a copy of a small file and no longer doubles the
 store.
 
-## Worktrees are listed, never removed
+## `gc` still only *lists* worktrees
 
-A worktree can hold work nobody has integrated, so garbage collection only *lists* stale
-worktrees — those of terminal or merged lanes, and folders no lane points at — with the tool
-that removes each one safely: `lane__worktree__discard` (it refuses uncommitted work unless
-`force: true`), or `lane__integrate` to keep the work first.
+Reclaiming a worktree is the running daemon's job (above), because only the daemon knows
+whether a lane's executor process is still alive. `orca gc` runs against a state directory
+whose daemon is stopped, so it never removes one: it *lists* stale worktrees — those of
+terminal or merged lanes, and folders no lane points at — with the tool that removes each one
+safely: `lane__worktree__discard` (it refuses uncommitted work unless `force: true`), or
+`lane__integrate` to keep the work first.
 
 ## Artifacts follow the lane they belong to
 
@@ -89,12 +118,19 @@ its logs do not depend on it.
 Garbage collection used to report this tree's size and manage nothing in it, which is how
 808 MB accumulated against a 1.2 GB state directory: `stdout.log`, `terminal.log` and
 `transcript.json` run 1-2 MB per lane and no retention rule touched them. **A lane's
-artifacts now follow the same rule its journals do.** When gc archives a lane it MOVES that
-lane's folder to `archive/artifacts/<orchestrator>/<lane>/`, in the same place in the order
-the journals are removed — only after the lane's `.json.gz` has been written, verified and
-committed to `state.json`. A move is a rename, so an interrupted run loses nothing. A hot
-lane's artifacts are never touched, and gc never walks `artifacts/` looking for work: it
-only ever moves the folder of a lane it is archiving anyway.
+artifacts now follow the same rule its journals do.** Whenever a lane is archived — by the
+running daemon on `lane.delete` and at the terminal-lane cap, or by `orca gc --apply` on an
+aged lane — that lane's folder is MOVED to `archive/artifacts/<orchestrator>/<lane>/`, in the
+same place in the order the journals are removed: only after the lane's `.json.gz` has been
+written, verified and committed to `state.json`. Both paths call the same helper
+(`archiveLaneArtifacts` in `src/lane-archive.js`) so they cannot drift. A move is a rename, so
+an interrupted run loses nothing. A hot lane's artifacts are never touched, and nothing walks
+`artifacts/` looking for work: only the folder of a lane being archived anyway is moved.
+
+Until 2026-09-12 only `gc` did this, so a lane retired at runtime left its whole artifacts
+folder behind — already unreachable through the API, because `readArtifactFile` resolves
+through `getLane()` and `getLane` cannot see an archived lane. `lane.get` on an archived lane
+now names the folder its artifacts moved to (`archived.artifacts`).
 
 A marker file, `.orca-archived.json`, is written into the moved folder recording the lane
 id, the orchestrator and when it moved. That is what gives the purge an age to work from,

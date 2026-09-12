@@ -137,16 +137,16 @@ export const RETENTION = Object.freeze([
   {
     path: 'archive/artifacts/<orchestrator>/<lane>/',
     what: 'The artifacts of an archived lane, moved here whole: result.txt (the complete captured report, the only copy — lane.resultText is capped), outcome.txt, transcript.json, terminal.log, stdout.log, stderr.log, mcp-tools.json and screenshots, plus a .orca-archived.json marker recording when and from which lane.',
-    writer: '`orca gc --apply`, when it archives the lane.',
-    safeToDelete: 'Once the lane archive it belongs to is no longer needed. Its raw output is not readable through the API from here.',
+    writer: 'The daemon (lane.delete, the terminal-lane cap) and `orca gc --apply`, whenever a lane is archived.',
+    safeToDelete: 'Once the lane archive it belongs to is no longer needed. Its raw output is not readable through the API from here; lane.get on the archived lane names this folder.',
     gc: 'Purged only by `--purge-archive --purge-older-than-days N --apply`, and only once the lane\'s own archive goes in the same run; result.txt is deleted last.',
   },
   {
     path: 'workspaces/<orchestrator>/worktrees/<lane>',
     what: 'The git worktree of an isolated lane.',
     writer: 'The daemon, when it creates an isolated lane.',
-    safeToDelete: 'After the lane is integrated, or its work is deliberately discarded.',
-    gc: 'LISTED, never removed. Remove one with lane__worktree__discard (it refuses uncommitted work unless force:true).',
+    safeToDelete: 'The daemon reclaims it itself on audit.accept and on lane.integrate, as soon as it can prove nothing lives only there (clean tree, and no commit missing from the base branch). Anything it cannot prove is KEPT, with the reason on the lane. ORCA_AUTO_RECLAIM_WORKTREE=false turns that off.',
+    gc: 'LISTED, never removed — gc is for a state directory whose daemon is stopped. Remove one with lane__worktree__discard (it refuses uncommitted work unless force:true).',
   },
 ]);
 
