@@ -1,6 +1,6 @@
 artifacts/
 .orca/
-node_modules/
+node_modules
 *.log
 *.log.*
 npm-debug.log*

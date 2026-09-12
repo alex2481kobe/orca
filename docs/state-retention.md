@@ -58,7 +58,7 @@ Outside the state directory (not managed by `orca gc`):
 
 | path | what it is | who writes it | safe to delete when | what `orca gc` does |
 | --- | --- | --- | --- | --- |
-| `<daemon cwd>/artifacts/<orchestrator>/<lane>/` | Per-lane artifacts: outcome.txt, transcript.json, terminal.log, stdout.log, stderr.log, mcp-tools.json, and captured screenshots. lane.terminal.tail, the live lane stream, lane.artifacts.list and lane.artifacts.get read them. | The daemon and the executors it runs. | When the lane's raw output and evidence are no longer needed. The lane record and its logs do not depend on them. | Size reported only. |
+| `<daemon cwd>/artifacts/<orchestrator>/<lane>/` | Per-lane artifacts: outcome.txt, result.txt (the complete captured report for that lane, whole even when lane.resultText was capped), transcript.json, terminal.log, stdout.log, stderr.log, mcp-tools.json, and captured screenshots. lane.terminal.tail, the live lane stream, lane.artifacts.list and lane.artifacts.get read them. | The daemon and the executors it runs. | When the lane's raw output and evidence are no longer needed. The lane record and its logs do not depend on them. | Size reported only. |
 <!-- retention-table:end -->
 
 ## Backups

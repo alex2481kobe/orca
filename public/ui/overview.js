@@ -159,9 +159,16 @@ function buildForest(projects) {
   projects.forEach((p) => {
     (p.orchestrators || []).forEach((o) => {
       const ui = orchUi(o);
+      // The projection bounds how many retired executors it sends and reports the
+      // rest as executorsOmitted; say so on the node rather than quietly showing
+      // a short list (see src/registry-overview.js).
+      const omitted = Number(o.executorsOmitted) || 0;
+      const sub = omitted
+        ? `${o.focus || 'Orchestrator'} · ${omitted} older lane${omitted === 1 ? '' : 's'} not shown`
+        : (o.focus || 'Orchestrator');
       roots.push({
         id: o.id, kind: 'orchestrator', title: o.title || 'Orchestrator',
-        sub: o.focus || 'Orchestrator', cli: o.actor || '', ui, startedAt: null, terminal: false,
+        sub, cli: o.actor || '', ui, startedAt: null, terminal: false,
         children: (o.executors || []).map((e) => {
           const eui = laneUi(e);
           return {
