@@ -124,7 +124,11 @@ refuses to touch it while a daemon owns it. See [docs/state-retention.md](docs/s
   `status` find it by its instance lock and its port, never by process name,
   from any directory. A second `start` reports the running daemon and changes
   nothing. Stopping Orca stops the executors it runs, so `stop` refuses while any
-  are running unless you pass `--force`.
+  are running unless you pass `--force`. The lock records the **machine** that
+  took it — a stable machine id, not the hostname, which macOS changes with the
+  network — so a rename never strands the daemon. When Orca still cannot verify a
+  lock it says what this machine can see about the owner's pid, `status` calls it
+  `unreachable-by-lock` rather than stopped, and `stop --force` is the way out.
 - **Not set up yet?** With no roots, Orca still runs and answers, but it
   registers no agent and launches no executor. The dashboard, `doctor`, `start`
   and every refused tool call name the setup command.

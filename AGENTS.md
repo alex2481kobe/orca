@@ -51,9 +51,17 @@ Roles are exactly four: `orchestrator`, `executor`, `auditor`, `dashboard`
   `orca-cli.js start|stop|status` find the daemon by that lock and its port,
   never by process name, and `start` runs it detached so it outlives the session
   that ran it. A stale lock is taken over only when its owner has exited or its
-  pid now belongs to a process with a different start time; when Orca cannot
-  prove the owner is gone, it refuses and names the file to delete. The lock only
-  defends state a *running* daemon owns. Importing `src/server.js`, as tests do,
+  pid now belongs to a process with a different start time — and only when THIS
+  machine took it, judged by a stable machine identity (`src/machine-identity.js`:
+  the macOS platform UUID, `/etc/machine-id`, else a UUID file in the config
+  dir), never by hostname, which macOS changes with the network. When Orca cannot
+  prove the owner is gone it refuses, says what this machine can see about the
+  recorded pid, and points at `orca-cli.js stop --force` — never at deleting a
+  lock a live daemon may still hold. `--force` is the break-glass: it stops the
+  owner when the pid matches, clears the lock without signaling anything when the
+  pid is absent or reused, and still refuses when the pid cannot be checked at
+  all. `status` reports such a lock as `unreachable-by-lock`, never as stopped.
+  The lock only defends state a *running* daemon owns. Importing `src/server.js`, as tests do,
   keeps `<cwd>/.orca` state and never reads the user's config; over a stopped
   daemon's `.orca/` it opens that state and runs interrupted-lane recovery on it.
   So develop in a separate worktree or clone, keep tests and smokes on their own

@@ -7,17 +7,35 @@
 // daemon to launchd instead, so it also starts at login and comes back after a
 // crash.
 //
-// A running daemon is found by its instance lock (src/instance-lock.js: a pid
-// AND that pid's start time) and its port, never by matching process names.
-// Nothing here signals a process it cannot prove owns the state directory, and
-// nothing stops running executors without saying so first.
+// A running daemon is found by its instance lock (src/instance-lock.js: a pid,
+// that pid's start time, and the machine that took it) and its port, never by
+// matching process names. Nothing here signals a process it cannot prove owns
+// the state directory, and nothing stops running executors without saying so
+// first.
+//
+// `stop --force` is the one break-glass path. A lock the inspector cannot judge
+// — taken on another machine, or by an older Orca under a hostname this host no
+// longer answers to — otherwise leaves the daemon unstoppable AND unreplaceable
+// through its own CLI, which is what happened on 2026-09-12
+// (docs/audits/2026-09-12-hostname-strands-the-daemon.md). --force acts on what
+// this machine can actually check about the recorded pid, and says which of the
+// four branches it took: signal the owner, refuse to signal a reused pid and
+// clear the lock, clear a lock whose pid is absent, or refuse outright because
+// the pid cannot be checked at all. It never deletes: a lock it clears is
+// renamed beside itself, so the evidence survives.
 
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { inspectInstanceLock, probeProcess } from './instance-lock.js';
+import {
+  INSTANCE_LOCK_FILE,
+  inspectInstanceLock,
+  probeProcess,
+  probeProcessCommand,
+} from './instance-lock.js';
+import { describeMachine } from './machine-identity.js';
 import {
   ORCA_DIR,
   SERVER_PATH,
@@ -112,7 +130,16 @@ function inspectDaemon(ctx) {
   try {
     lock = inspectInstanceLock(ctx.state.dir);
   } catch (error) {
-    lock = { held: true, reason: 'unreadable', message: `[orca] ${ctx.state.dir} cannot be inspected: ${error.message}` };
+    const detail = `${ctx.state.dir} cannot be inspected: ${error.message}`;
+    lock = {
+      held: true,
+      reason: 'unreadable',
+      detail,
+      remedy: [],
+      owner: null,
+      identity: null,
+      message: `[orca] ${detail}`,
+    };
   }
   const holder = lock.holder || null;
   const url = lock.held && holder?.listen?.port ? urlFor(holder.listen.host, holder.listen.port) : null;
@@ -443,6 +470,110 @@ async function waitForRelease(ctx, waitMs) {
   return false;
 }
 
+// Does this pid belong to an Orca daemon? Only ever asked about a pid the LOCK
+// already named, and only to describe it or to decide whether signaling it is
+// defensible — never to go looking for Orca, which is the lock's job.
+function isOrcaDaemonCommand(command) {
+  if (!command) return false;
+  return command.includes(SERVER_PATH) || /(^|[\s/])src\/server\.js(\s|$)/.test(command);
+}
+
+// Move a lock aside instead of deleting it: if the operator's --force was wrong,
+// the file is still there to show what was claimed and by whom. -> the new path,
+// 'gone' when it had already been released, or null when it could not be moved.
+function setAsideLock(lockPath) {
+  const moved = `${lockPath}.cleared-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+  try {
+    fs.renameSync(lockPath, moved);
+    return moved;
+  } catch (error) {
+    return error?.code === 'ENOENT' ? 'gone' : null;
+  }
+}
+
+function reportCleared(lockPath, out) {
+  const moved = setAsideLock(lockPath);
+  if (moved === 'gone') {
+    out.log('  The lock was already released while this command ran; nothing to clear.');
+    return true;
+  }
+  if (!moved) {
+    out.err(`  The lock at ${lockPath} could not be moved aside. Nothing else was changed.`);
+    return false;
+  }
+  out.log(`  The lock was moved to ${moved} (not deleted), so \`start\` can take the state directory again.`);
+  return true;
+}
+
+// --force, on a lock inspectInstanceLock refused to judge. The operator has said
+// to act, so act on the evidence THIS machine has about the recorded pid, and
+// name the branch. The one thing --force still will not do is guess: a pid it
+// cannot check at all is still a refusal, because the alternative is a second
+// daemon on live state.
+async function forceResolveLock(ctx, daemon, service, flags, out) {
+  const lockPath = daemon.lock.lockPath || path.join(ctx.state.dir, INSTANCE_LOCK_FILE);
+  const { holder } = daemon;
+  out.log(`--force on a lock this machine cannot verify: ${daemon.lock.detail || daemon.lock.reason}`);
+
+  if (!holder) {
+    out.log(`  ${lockPath} cannot be read as an Orca lock, so no pid can be checked and nothing was signaled.`);
+    return reportCleared(lockPath, out) ? 0 : 1;
+  }
+
+  const proc = probeProcess(holder.pid);
+  const command = proc.state === 'alive' ? probeProcessCommand(holder.pid) : null;
+  const matches = proc.state === 'alive' && Boolean(holder.processStart) && proc.start === holder.processStart;
+  const orca = isOrcaDaemonCommand(command);
+
+  if (proc.state === 'unknown') {
+    out.err([
+      `  pid ${holder.pid} cannot be checked from this machine, so --force will not act: it cannot tell a dead owner from a live one on another machine, and clearing a live daemon's lock puts a second daemon on this state.`,
+      `  If ${ctx.state.dir} is shared with "${holder.hostname}", stop the daemon there: ${fixCommands.stop()}`,
+      `  If you are certain nothing runs there, move ${lockPath} aside by hand and start again.`,
+    ].join('\n'));
+    return 1;
+  }
+
+  if (proc.state === 'gone') {
+    out.log(`  pid ${holder.pid} is not running on this machine, so nothing was signaled.`);
+    return reportCleared(lockPath, out) ? 0 : 1;
+  }
+
+  // Alive here. Either it is the owner the lock recorded, or the pid was reused
+  // and signaling it would kill a stranger.
+  if (!matches && !(orca && !holder.processStart)) {
+    out.log(`  pid ${holder.pid} is running on this machine but is NOT the lock's owner: it started ${proc.start} UTC, not ${holder.processStart || '(the lock records no start time)'}${command ? `, and it is running: ${command}` : ''}. No signal was sent.`);
+    return reportCleared(lockPath, out) ? 0 : 1;
+  }
+
+  out.log(matches
+    ? `  pid ${holder.pid} is running on this machine and started exactly when the lock records (${proc.start} UTC): it is this state directory's daemon.${orca ? ' Its command line is an Orca daemon.' : ''} Stopping it.`
+    : `  pid ${holder.pid} is running on this machine, the lock records no start time to compare, and its command line is an Orca daemon (${command}). Stopping it.`);
+
+  if (service.loaded) {
+    // Unloading is the only stop KeepAlive respects; a signal alone is a restart.
+    const result = launchctl(['bootout', serviceTarget()]);
+    if (result.status !== 0) {
+      out.err(`launchctl could not unload ${SERVICE_LABEL} (exit ${result.status}): ${String(result.stderr || result.stdout || '').trim()}`);
+      return 1;
+    }
+  } else {
+    try {
+      process.kill(holder.pid, 'SIGTERM');
+    } catch (error) {
+      out.err(`  Could not signal pid ${holder.pid}: ${error.message}`);
+      return 1;
+    }
+  }
+  const waitMs = waitSeconds(flags, DEFAULT_STOP_WAIT_S) * 1000;
+  if (!(await waitForRelease(ctx, waitMs))) {
+    out.err(`Orca is still stopping after ${waitMs / 1000} s (it stops its executors and saves its state first). Check it with: ${fixCommands.status()}`);
+    return 1;
+  }
+  out.log(`Orca stopped (pid ${holder.pid}).${service.loaded ? ` The ${SERVICE_LABEL} LaunchAgent is unloaded; \`start\` loads it again.` : ''}`);
+  return 0;
+}
+
 export async function stop(flags, out) {
   const ctx = lifecycleContext(flags);
   const daemon = inspectDaemon(ctx);
@@ -458,8 +589,14 @@ export async function stop(flags, out) {
     return 0;
   }
   if (daemon.lock.held && !daemon.running) {
-    out.err(daemon.lock.message);
-    return 1;
+    // The lock is held by something this machine cannot verify. Without --force
+    // that is a refusal, and the refusal now names --force as the way out; with
+    // --force, act on the evidence and say what was done.
+    if (!flags.force) {
+      out.err(daemon.lock.message);
+      return 1;
+    }
+    return forceResolveLock(ctx, daemon, service, flags, out);
   }
   if (await refuseIfExecutorsRunning(daemon.url, ctx, flags, out)) return 1;
 
@@ -504,13 +641,19 @@ export async function status(flags, out) {
   if (daemon.running) {
     state = daemon.url && await probeHealth(daemon.url) === 'ok' ? 'running' : 'starting';
   } else if (daemon.lock.held) {
-    state = 'unknown';
+    // A lock is held and this command cannot verify its owner. The daemon is
+    // NOT known to be stopped: reporting nothing, or a bare "unknown", reads as
+    // "nothing runs" and sends an operator off to delete a lock a live daemon
+    // may still hold. Say what is actually true — the state directory is owned,
+    // and this machine cannot reach past the lock to confirm by whom.
+    state = 'unreachable-by-lock';
   } else {
     url = urlFor(ctx.host, ctx.port);
     const health = await probeHealth(url);
     state = health === 'ok' || health === 'starting' ? 'other-state-dir' : (health === 'not-orca' ? 'port-in-use' : 'stopped');
     if (state === 'stopped') url = null;
   }
+  const locked = state === 'unreachable-by-lock';
   const report = {
     state,
     pid: daemon.running ? daemon.holder.pid : null,
@@ -522,6 +665,23 @@ export async function status(flags, out) {
     fence: { status: ctx.fence.status, source: ctx.fence.source, roots: ctx.fence.roots, summary: ctx.fence.summary, fix: ctx.fence.fix, warnings: ctx.fence.warnings },
     service,
     apiTokenInEnvironment: Boolean(ctx.env.ORCA_API_TOKEN),
+    machine: describeMachine(daemon.lock.identity, os.hostname()),
+    lock: locked
+      ? {
+        held: true,
+        reason: daemon.lock.reason,
+        ownerPid: daemon.holder?.pid ?? null,
+        ownerHostname: daemon.holder?.hostname ?? null,
+        ownerMachine: daemon.holder?.machine ?? null,
+        ownerProcessStart: daemon.holder?.processStart ?? null,
+        ownerListen: daemon.holder?.listen ?? null,
+        // What the owner's pid looks like from HERE, which is the whole reason
+        // this state exists: 'alive' | 'gone' | 'unknown'.
+        ownerPidOnThisMachine: daemon.lock.owner?.state ?? 'unknown',
+        detail: daemon.lock.detail ?? null,
+        remedy: daemon.lock.remedy ?? [],
+      }
+      : { held: Boolean(daemon.lock.held), reason: daemon.lock.reason ?? null },
   };
   if (flags.json) {
     out.log(JSON.stringify(report, null, 2));
@@ -529,12 +689,17 @@ export async function status(flags, out) {
     const headline = {
       running: `Orca is running: pid ${report.pid}, ${url}.`,
       starting: `Orca is starting: pid ${report.pid} owns the state directory but is not answering yet.`,
-      unknown: daemon.lock.message,
+      'unreachable-by-lock': `Orca is unreachable-by-lock: ${daemon.holder ? `pid ${daemon.holder.pid}` : 'something'} owns ${ctx.state.dir} and this command cannot verify it. It is NOT known to be stopped.`,
       'other-state-dir': `Orca is not running on ${ctx.state.dir}, but an Orca daemon with another state directory answers at ${url}.`,
       'port-in-use': `Orca is not running, and something that is not Orca holds ${url}.`,
       stopped: `Orca is not running. Start it with: ${fixCommands.start()}`,
     }[state];
     out.log(headline);
+    if (locked) {
+      out.log(`  lock     ${report.lock.detail}`);
+      for (const line of report.lock.remedy) out.log(`           ${line}`);
+      out.log(`  machine  this one is ${report.machine}`);
+    }
     out.log(`  state    ${stateLine(ctx)}`);
     out.log(`  config   ${ctx.configPath}${ctx.configError ? ` (${ctx.configError})` : ''}`);
     out.log(`  log      ${ctx.logFile}`);

@@ -135,19 +135,23 @@ test('instance lock: a live pid whose start time matches IS the owner — refuse
   });
 });
 
-test('instance lock: anything that cannot be verified fails safe — refused, lock untouched', async () => {
+test("instance lock: anything that cannot be verified fails safe — refused, lock untouched, and never told to delete a live daemon's lock", async () => {
   const deadPid = await exitedPid();
   await withSleeper(async (sleeper) => {
     const cases = [
-      ['unreadable', (stateDir) => { fs.mkdirSync(stateDir, { recursive: true }); fs.writeFileSync(path.join(stateDir, INSTANCE_LOCK_FILE), '{"schema":'); }, {}],
-      ['unreadable', (stateDir) => { fs.mkdirSync(stateDir, { recursive: true }); fs.writeFileSync(path.join(stateDir, INSTANCE_LOCK_FILE), ''); }, {}],
-      ['other-host', (stateDir) => writeForeignLock(stateDir, { pid: deadPid, processStart: EPOCH_START, hostname: 'some-other-host' }), {}],
-      ['unverifiable', (stateDir) => writeForeignLock(stateDir, { pid: sleeper.pid, processStart: null }), {}],
+      ['unreadable', (stateDir) => { fs.mkdirSync(stateDir, { recursive: true }); fs.writeFileSync(path.join(stateDir, INSTANCE_LOCK_FILE), '{"schema":'); }, {}, /move it aside/],
+      ['unreadable', (stateDir) => { fs.mkdirSync(stateDir, { recursive: true }); fs.writeFileSync(path.join(stateDir, INSTANCE_LOCK_FILE), ''); }, {}, /move it aside/],
+      // A hostname is a label, not an identity. A lock carrying only a hostname
+      // was written before machine identity existed, so a mismatch is not proof
+      // of another machine. It is still refused — but with the remedy the pid
+      // actually supports, not "delete this file".
+      ['legacy-other-host', (stateDir) => writeForeignLock(stateDir, { pid: deadPid, processStart: EPOCH_START, hostname: 'some-other-host' }), {}, /is not running on this machine/],
+      ['unverifiable', (stateDir) => writeForeignLock(stateDir, { pid: sleeper.pid, processStart: null }), {}, /must not be signaled/],
       // A platform where this process cannot read even its own start time must
       // never declare anyone's lock stale — not even a dead pid's.
-      ['unverifiable', (stateDir) => writeForeignLock(stateDir, { pid: deadPid, processStart: EPOCH_START }), { probe: () => ({ state: 'unknown', start: null }) }],
+      ['unverifiable', (stateDir) => writeForeignLock(stateDir, { pid: deadPid, processStart: EPOCH_START }), { probe: () => ({ state: 'unknown', start: null }) }, /cannot be checked from here/],
     ];
-    for (const [expected, arrange, options] of cases) {
+    for (const [expected, arrange, options, remedy] of cases) {
       await withStateDir(async ({ stateDir, lockPath }) => {
         arrange(stateDir);
         const before = fs.readFileSync(lockPath, 'utf8');
@@ -155,7 +159,12 @@ test('instance lock: anything that cannot be verified fails safe — refused, lo
         assert.equal(lock.acquired, false, `${expected}: must refuse`);
         assert.equal(lock.reason, expected);
         assert.equal(fs.readFileSync(lockPath, 'utf8'), before, `${expected}: lock untouched`);
-        assert.match(lock.message, /delete .*daemon\.lock/, `${expected}: tells the operator the manual remedy`);
+        assert.match(lock.message, remedy, `${expected}: says what this machine can see about the pid`);
+        assert.doesNotMatch(
+          lock.message,
+          /delete .*daemon\.lock and start again/,
+          `${expected}: must not advise deleting a lock a live daemon may hold`,
+        );
       });
     }
     assert.equal(sleeper.exit(), null);

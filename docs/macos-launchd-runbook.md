@@ -121,10 +121,37 @@ seconds until the other daemon stops, and each refusal is written to the log.
 
 A daemon that could not clean up (`kill -9`, a power loss) leaves its lock
 behind. The next start takes it over when the owner's pid no longer exists, or
-now belongs to a process that started at a different time. When Orca cannot
-prove the owner is gone (the lock cannot be read, it was written under a
-different hostname, or the owner's start time cannot be checked), the start is
-refused and names the file to delete.
+now belongs to a process that started at a different time.
+
+A pid can only be checked in the kernel that issued it, and a state directory can
+sit on shared storage, so the lock also records **which machine took it** — the
+macOS platform UUID (`ioreg -rd1 -c IOPlatformExpertDevice`, `IOPlatformUUID`),
+`/etc/machine-id` on Linux, else a UUID file in the Orca config dir. It records
+the hostname too, but only as a label. `os.hostname()` follows the network on
+macOS: the same Mac answers `Alexs-Mac-mini.local` on one network and `Mac.lan`
+on the next, and a lock keyed on it stranded a live daemon
+(`docs/audits/2026-09-12-hostname-strands-the-daemon.md`).
+
+When Orca cannot prove the owner is gone — the lock cannot be read, it was taken
+on another machine, this machine's own identity cannot be determined, or the
+owner's start time cannot be checked — the start is refused, and the refusal says
+what **this** machine can see about the recorded pid:
+
+- **the pid is alive here and matches the lock** — that is the daemon, still
+  running. Stop it: `node src/orca-cli.js stop --force`.
+- **the pid is absent here** — nothing to signal; `stop --force` clears the lock
+  (it renames it to `daemon.lock.cleared-<timestamp>` rather than deleting it).
+- **the pid cannot be checked at all** — Orca says so and names the machine the
+  lock came from; run `stop` there. `--force` refuses in this case, because
+  clearing a live remote daemon's lock is how two daemons end up on one state.
+
+`stop --force` also covers the pid-was-reused case: it never signals a process
+whose start time does not match the lock, it says what that pid is actually
+running, and it clears the lock instead.
+
+`orca-cli.js status` reports a lock it cannot verify as **unreachable-by-lock**,
+with the owner's pid and whether that pid is alive on this machine — it never
+reports such a state directory as stopped.
 
 ## An install from before the per-user state directory
 

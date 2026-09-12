@@ -11,7 +11,13 @@
 //       The daemon's lifecycle (src/cli-lifecycle.js). One daemon per machine,
 //       owned by no agent session: start runs it detached, stop signals only the
 //       process its instance lock proves owns the state, and refuses while
-//       executors are running unless --force.
+//       executors are running unless --force. --force is also the break-glass
+//       for a lock this machine cannot verify (one another machine took, or one
+//       an older Orca took under a hostname this host no longer answers to): it
+//       acts on what it can actually check about the recorded pid and says which
+//       branch it took, and it still refuses when the pid cannot be checked at
+//       all. `status` reports such a lock as unreachable-by-lock, never as
+//       stopped.
 //
 //   service install [--dry-run] [--no-load] [--replace] | service uninstall
 //       A per-user macOS LaunchAgent for the same daemon: start at login, restart
@@ -506,7 +512,19 @@ async function doctor(flags) {
         fix: `${fixCommands.setup(['<your roots>'])} --state-dir ${shellQuote(facts.stateDir)}   (or set ORCA_STATE_DIR)`,
       });
     } else {
-      add('state', { status: 'pass', summary: `State in ${local.state.dir} (${label}); ${owner?.held && owner.reason === 'running' ? `owned by the running daemon, pid ${owner.holder.pid}` : 'no daemon owns it right now'}.` });
+      // "No daemon owns it" must not be said about a lock this machine merely
+      // could not verify: that is the same lie `status` used to tell.
+      const unverified = Boolean(owner?.held) && owner.reason !== 'running';
+      const ownership = owner?.held
+        ? (owner.reason === 'running'
+          ? `owned by the running daemon, pid ${owner.holder.pid}`
+          : `held by pid ${owner.holder?.pid ?? '?'}, and this machine cannot verify it (${owner.reason})`)
+        : 'no daemon owns it right now';
+      add('state', {
+        status: unverified ? 'warn' : 'pass',
+        summary: `State in ${local.state.dir} (${label}); ${ownership}.`,
+        ...(unverified ? { fix: fixCommands.status() } : {}),
+      });
     }
   }
 

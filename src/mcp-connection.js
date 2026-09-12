@@ -56,6 +56,12 @@ export const fixCommands = {
   start: () => cli('start'),
   status: () => cli('status'),
   stop: () => cli('stop'),
+  // The break-glass stop: it acts on a lock this machine cannot otherwise
+  // judge, using what it CAN check about the recorded pid, and says which
+  // branch it took. Every "the lock is in a state I cannot judge" message points
+  // at it, so no message has to tell anyone to delete a lock file a live daemon
+  // may still be holding.
+  stopForce: () => cli('stop --force'),
   setup: (roots = null) => cli(`setup --roots ${Array.isArray(roots) && roots.length ? shellQuote(roots.join(',')) : '<dir>[,<dir>...]'}`),
   doctor: () => `${shellQuote(process.execPath)} ${shellQuote(CLI_PATH)} doctor`,
   connect: (client = 'claude', extra = '') => `${shellQuote(process.execPath)} ${shellQuote(CLI_PATH)} connect ${client}${extra ? ` ${extra}` : ''}`,
