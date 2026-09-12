@@ -19,6 +19,17 @@ function mockRegistry(root, liveLeases) {
       assertFenceConfigured() { return { roots: this.getApprovedRepoRoots() }; },
       _leaseActiveById: (id) => ({ active: liveLeases.has(id) }),
       getStreamRevision: () => 7,
+      // The registration path now WRITES — that it did not was the bug — leaves an
+      // audit trail, and gives the container its directories. This mock is the
+      // mixin alone, so it RECORDS those calls rather than pretending they do not
+      // happen; test/registration-persistence.test.js proves the real thing
+      // against a real state directory.
+      persists: 0,
+      auditEvents: [],
+      storageEnsured: [],
+      persistState() { this.persists += 1; },
+      recordAudit(event) { this.auditEvents.unshift(event); this.persistState(); return event; },
+      ensureOrchestratorStorage(orchestrator) { this.storageEnsured.push(orchestrator.id); },
     },
     agentMethods,
     overviewMethods,

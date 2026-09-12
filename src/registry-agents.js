@@ -47,6 +47,17 @@ function setOrchestratorCapacity(orchestrator, capacity) {
   orchestrator.laneConcurrencyLimit = capacity;
 }
 
+// What a re-registration on the same lease actually CHANGED. An agent is told to
+// re-register with the same cwd to refresh its title/focus line, so most refreshes
+// change nothing; auditing those would evict real history from the 200-entry ring.
+function describeRegistrationChange(orchestrator, { title, focus, capacity }) {
+  const changed = [];
+  if (title !== null && orchestrator.title !== title) changed.push('title');
+  if (focus !== null && orchestrator.focus !== focus) changed.push('focus');
+  if (capacity !== undefined && resolveOrchestratorCapacity(orchestrator) !== capacity) changed.push('capacity');
+  return changed;
+}
+
 export const agentMethods = {
   async _findOrCreateProject(cwd) {
     if (!Array.isArray(this.projects)) this.projects = [];
@@ -90,6 +101,63 @@ export const agentMethods = {
     return project;
   },
 
+  // THE ONE EXIT from registerOrchestrator. Every path that returns an
+  // orchestrator goes through it, because every one of them mutated state that
+  // has to reach disk.
+  //
+  // Before 2026-09-12 none of them did: registerOrchestrator created the project
+  // record and the orchestrator record, pushed both onto the in-memory arrays,
+  // and returned — never calling persistState. /api/health then truthfully
+  // reported {"projects":1,"orchestrators":1} while state.json still said zero,
+  // and the registration was gone at the next restart. It was INTERMITTENT, not
+  // total: persistState is debounced and snapshots at FLUSH time, so a write some
+  // other call had already scheduled would happen to carry the new record along.
+  // On a quiet daemon (the shape the owner hit — connect, then register) there
+  // was no such write, and the record was simply lost.
+  //
+  // The write also bumps the SSE stream revision, which is what makes a title or
+  // a new agent appear on the dashboard without a restart.
+  _commitOrchestratorRegistration(orchestrator, project, { actor, outcome, changed = [] } = {}) {
+    // A container's own storage. ensureSessionWorkspaces() does this for the
+    // whole store on restore, which meant a brand-new container had no
+    // directories until the next restart — and it never survived one.
+    this.ensureOrchestratorStorage(orchestrator);
+    // No audit event for a refresh that changed nothing: an agent is told to
+    // re-register to keep its title current, and auditing every one of those
+    // would push real history out of the 200-entry ring.
+    if (outcome) {
+      const summaries = {
+        registered: `Orchestrator "${orchestrator.title || orchestrator.actor}" registered for ${project.name}`,
+        refreshed: `Orchestrator "${orchestrator.title || orchestrator.actor}" updated ${changed.join(', ')}`,
+        reclaimed: `Orchestrator "${orchestrator.title || orchestrator.actor}" reclaimed a stale container in ${project.name}`,
+        takeover: `Orchestrator "${orchestrator.title || orchestrator.actor}" taken over in ${project.name}`,
+      };
+      this.recordAudit({
+        type: 'orchestrator_registered',
+        actor: actor || orchestrator.actor || 'orchestrator',
+        projectId: project.id,
+        sessionId: orchestrator.id,
+        summary: summaries[outcome] || summaries.registered,
+        // leaseId is an identifier, never the lease TOKEN — the token is only
+        // ever held as a hash (registry-tool-leases.js) and never audited.
+        evidence: {
+          orchestratorId: orchestrator.id,
+          projectId: project.id,
+          cwd: project.cwd,
+          outcome,
+          source: orchestrator.source || 'mcp',
+          leaseId: orchestrator.leaseId,
+          ...(changed.length ? { changed } : {}),
+        },
+        status: 'passed',
+      });
+    }
+    // recordAudit persists too, but this is the guarantee the caller is owed and
+    // it must not depend on whether an audit event was worth writing.
+    this.persistState();
+    return orchestrator;
+  },
+
   async registerOrchestrator({
     cwd,
     actor,
@@ -130,7 +198,7 @@ export const agentMethods = {
         setOrchestratorCapacity(orchestrator, requestedCapacity({ approvedCapacity, laneConcurrencyLimit }));
       }
       project.lastActivityAt = now;
-      return orchestrator;
+      return this._commitOrchestratorRegistration(orchestrator, project, { actor, outcome: 'takeover' });
     }
 
     // Folded-in orchestrator.update: re-registering with the same cwd on a lease
@@ -146,15 +214,25 @@ export const agentMethods = {
       && !item.resignedAt);
     if (owned) {
       const now = nowIso();
+      const refreshCapacity = (approvedCapacity !== undefined || laneConcurrencyLimit !== undefined)
+        ? requestedCapacity({ approvedCapacity, laneConcurrencyLimit })
+        : undefined;
+      const changed = describeRegistrationChange(owned, { title, focus, capacity: refreshCapacity });
       if (title !== null && owned.title !== title) owned.titleUpdatedAt = now;
       if (title !== null) owned.title = title;
       if (focus !== null) owned.focus = focus;
-      if (approvedCapacity !== undefined || laneConcurrencyLimit !== undefined) {
-        setOrchestratorCapacity(owned, requestedCapacity({ approvedCapacity, laneConcurrencyLimit }));
+      if (refreshCapacity !== undefined) {
+        setOrchestratorCapacity(owned, refreshCapacity);
       }
       owned.lastSeenAt = now;
       project.lastActivityAt = now;
-      return owned;
+      // A no-op refresh still has to WRITE (lastSeenAt is liveness) but earns no
+      // audit event — hence outcome only when something actually changed.
+      return this._commitOrchestratorRegistration(owned, project, {
+        actor,
+        outcome: changed.length ? 'refreshed' : null,
+        changed,
+      });
     }
 
     const reusable = this.orchestrators
@@ -182,7 +260,8 @@ export const agentMethods = {
       if (approvedCapacity !== undefined || laneConcurrencyLimit !== undefined) {
         setOrchestratorCapacity(reusable, requestedCapacity({ approvedCapacity, laneConcurrencyLimit }));
       }
-      return reusable;
+      project.lastActivityAt = reusable.lastSeenAt;
+      return this._commitOrchestratorRegistration(reusable, project, { actor, outcome: 'reclaimed' });
     }
 
     const now = nowIso();
@@ -207,7 +286,7 @@ export const agentMethods = {
     };
     this.orchestrators.push(orchestrator);
     project.lastActivityAt = now;
-    return orchestrator;
+    return this._commitOrchestratorRegistration(orchestrator, project, { actor, outcome: 'registered' });
   },
 
   updateOrchestrator(orchestratorId, { title, focus, approvedCapacity, laneConcurrencyLimit, spawnPolicy } = {}, { leaseId } = {}) {
@@ -244,6 +323,10 @@ export const agentMethods = {
     orchestrator.lastSeenAt = now;
     const project = this.projects.find((item) => item.id === orchestrator.projectId);
     if (project) project.lastActivityAt = now;
+    // Same rule as the register path: a title/focus/capacity change that only
+    // lives in memory is lost at the next restart, and never reaches the SSE
+    // revision the dashboard diffs.
+    this.persistState();
     return orchestrator;
   },
 
@@ -258,9 +341,20 @@ export const agentMethods = {
     }
 
     orchestrator.resignedAt = nowIso();
+    // A resignation that does not reach disk brings the orchestrator back owning
+    // work it walked away from, and blocks the takeover that was the point of it.
+    this.persistState();
     return orchestrator;
   },
 
+  // NOT persisted, deliberately. lastSeenAt is pure liveness and this is the
+  // hottest orchestrator path there is: orchestrator.status polls it, and so does
+  // the ownership check on every mutating tool call. Writing the whole state file
+  // on each would be the write amplification appendLaneLog's `persist: false`
+  // default already avoids. The cost of leaving it out is bounded and self-
+  // healing: after a restart a live agent reads stale for at most one poll, then
+  // its next register/update/mutation writes a fresh lastSeenAt. Every change
+  // that is not liveness — register, update, resign — does persist.
   touchOrchestrator(orchestratorId, { leaseId } = {}) {
     if (!Array.isArray(this.orchestrators)) this.orchestrators = [];
     if (!Array.isArray(this.projects)) this.projects = [];

@@ -72,13 +72,23 @@ export const workspaceMethods = {
         orchestrator.spawnPolicy = normalizedSpawn;
         migrated = true;
       }
-      ensureDirectorySync(path.join(this.artifactRoot, orchestrator.id));
-      ensureDirectorySync(path.join(this.workspacesRoot, orchestrator.id));
+      this.ensureOrchestratorStorage(orchestrator);
     }
 
     if (migrated) {
       this.persistState().catch(() => {});
     }
+  },
+
+  // ONE container's on-disk storage. ensureSessionWorkspaces() sweeps the whole
+  // store on restore; registerOrchestrator calls this for the record it just
+  // created, so a container has its directories from the moment it exists. They
+  // used to appear only at the NEXT restart — which, while the registration
+  // itself never reached disk, never came for that record at all.
+  ensureOrchestratorStorage(orchestrator) {
+    if (!orchestrator || !orchestrator.id) return;
+    ensureDirectorySync(path.join(this.artifactRoot, orchestrator.id));
+    ensureDirectorySync(path.join(this.workspacesRoot, orchestrator.id));
   },
 
   getSessionWorktreeRoot(session) {
