@@ -80,7 +80,22 @@ That one command does three things, and prints what it did:
    afterwards.
 
 Then check everything with `node src/orca-cli.js doctor`; every failed check
-prints its fix.
+prints its fix, and its warnings are worth reading once.
+
+**One thing `doctor` warns about that is worth fixing now.** `--connect` writes
+the path of *this machine's* Node into your client's MCP config, and
+`service install` writes it into a LaunchAgent that starts Orca at every login.
+If that Node lives inside another tool's directory (`~/.codex`, `~/.claude`) or
+inside one installed version (`.../node-versions/v24.14.1/...`), it can be
+upgraded or deleted out from under you, and what breaks is the file Orca wrote,
+at login, with nothing watching. Orca does not install or manage Node; it names
+the risk and the fix. Point both at a Node you maintain:
+
+```bash
+node src/orca-cli.js doctor --node /opt/homebrew/bin/node   # check one before you use it
+node src/orca-cli.js connect claude --node /opt/homebrew/bin/node
+node src/orca-cli.js service install --node /opt/homebrew/bin/node --replace
+```
 
 ### Running Orca
 
@@ -90,7 +105,11 @@ node src/orca-cli.js start             # reports a running daemon and changes no
 node src/orca-cli.js stop              # refuses while executors run; --force stops them too
 node src/orca-cli.js logs              # the daemon's log (<state dir>/logs/daemon.log)
 node src/orca-cli.js service install   # macOS: also start at login, restart after a crash
+node src/orca-cli.js gc                # what state retention would archive (dry run; --apply to do it)
 ```
+
+`gc` acts on the same state directory `start`, `stop` and `status` do, and
+refuses to touch it while a daemon owns it. See [docs/state-retention.md](docs/state-retention.md).
 
 - **One daemon per machine, shared by every agent.** `start`, `stop` and
   `status` find it by its instance lock and its port, never by process name,

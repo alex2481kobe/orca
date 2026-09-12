@@ -516,3 +516,43 @@ test('no lifecycle code finds Orca by scanning process names', async () => {
   assert.match(lock, /inspectInstanceLock/, 'detection reads the instance lock');
   assert.match(lock, /processStart/, 'and proves the pid by its start time before signalling it');
 });
+
+// A LaunchAgent starts Orca at every login for as long as it is installed, with
+// no session watching it. The Node it names therefore has to outlive a Node
+// upgrade, and if it belongs to another tool the operator has to be told while
+// they can still choose otherwise — Orca installs and manages no toolchain.
+test('service install writes a Node that survives an upgrade, and says so when the Node belongs to another tool', { timeout: 60_000 }, async () => {
+  const dirs = await makeFixture('service-node');
+  try {
+    // A version manager's default alias: a stable path that follows upgrades.
+    const alias = path.join(dirs.bin, 'node');
+    await fs.symlink(process.execPath, alias);
+    const env = childEnv(dirs, {
+      PORT: String(await freePort()),
+      ORCA_REPO_ROOTS: dirs.project,
+      PATH: [dirs.bin, '/usr/bin', '/bin'].join(path.delimiter),
+    });
+
+    let run = await runCli(['service', 'install', '--dry-run'], { env, cwd: ROOT });
+    assert.equal(run.code, 0, run.all);
+    assert.ok(run.stdout.includes(`<string>${alias}</string>`), `the plist names the stable alias, not one installed version:\n${run.stdout}`);
+    assert.equal(run.stdout.includes(`<string>${process.execPath}</string>`), false,
+      'a path naming one installed Node version goes away with that version');
+
+    // The same command, pointed at a Node inside another tool's directory.
+    const foreign = path.join(dirs.home, '.codex', 'bin', 'node');
+    await fs.mkdir(path.dirname(foreign), { recursive: true });
+    await fs.symlink(process.execPath, foreign);
+    run = await runCli(['service', 'install', '--dry-run', '--node', foreign], { env, cwd: ROOT });
+    assert.equal(run.code, 0, run.all);
+    assert.match(run.stdout, /WARNING: .*Codex's private directory/, run.all);
+    assert.match(run.stdout, /launchd starts this at every login with nothing watching/, run.all);
+    assert.match(run.stdout, /--node <a Node you maintain> --replace/, run.all);
+    // It warns; it does not refuse. A workstation whose only Node comes from a
+    // version manager must still be one command from working.
+    assert.ok(run.stdout.includes(`<string>${foreign}</string>`), 'the operator still gets the plist they asked for');
+    assert.equal(fsSync.existsSync(path.join(dirs.home, 'Library')), false, 'a dry run writes nothing under HOME/Library');
+  } finally {
+    await cleanup(dirs, childEnv(dirs));
+  }
+});

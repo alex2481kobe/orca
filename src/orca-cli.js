@@ -368,11 +368,16 @@ async function doctor(flags) {
   if (proposed !== null && !proposed.trim()) {
     add('node', { status: 'fail', summary: '--node needs a path.', fix: `${CLI} doctor --node /path/to/node` });
   } else {
-    const candidate = proposed ? path.resolve(proposed.trim()) : (() => {
+    // Both paths that get written down: what connect/service install choose, and
+    // this process's own Node. They are normally the same; if they ever diverge,
+    // reporting only one would hide the worse of the two.
+    const chosen = (() => {
       try { return resolveMcpLauncher({}).runtime.nodePath; } catch { return process.execPath; }
     })();
+    const candidates = proposed ? [path.resolve(proposed.trim())] : [...new Set([chosen, process.execPath])];
+    const candidate = candidates[0];
     const who = proposed ? `The Node you asked about, ${candidate},` : `The Node connect and service install would write down, ${candidate},`;
-    const notes = nodeRuntimeWarnings(candidate);
+    const notes = [...new Set(candidates.flatMap((item) => nodeRuntimeWarnings(item)))];
     add('node', notes.length
       ? {
         status: 'warn',

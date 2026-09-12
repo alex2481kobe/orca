@@ -118,6 +118,19 @@ The flow, from your side:
 8. **Anything else fails:** the error names the one command that fixes it.
    `node /absolute/path/to/orca/src/orca-cli.js doctor` checks everything
    read-only and prints the fix for each failed check.
+9. **`doctor` warnings are for your human, not for you.** A `warn` line is not
+   blocking you now; it is something only an operator can settle on the
+   workstation. Report it and the `fix` it prints; do not run the fix yourself.
+   The three you will see:
+   - `node` — the Node that `connect` and `service install` write into files
+     Orca does not own (a client's MCP config, a LaunchAgent that runs at every
+     login) belongs to another tool or to one installed version. Orca keeps
+     working; those files break later, unattended. The fix names a Node the
+     human maintains.
+   - `fence` — the roots cover the whole home directory. Acknowledged, but every
+     folder under it is in scope.
+   - `api-token` — no `ORCA_API_TOKEN`, so every local process is admin and your
+     role scoping is advisory.
 
 What the errors mean:
 
