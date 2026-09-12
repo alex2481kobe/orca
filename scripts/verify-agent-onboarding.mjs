@@ -202,17 +202,61 @@ step('fleet.emergency_stop reachable', stopped);
 // turns that bootstrap off — so the same command 401s and a first adopter cannot
 // start the loop. The documented answer is the admin-gated bootstrap endpoint,
 // which mints a SCOPED lease (never handing the agent the API token). Prove it.
+//
+// This is a SECOND DAEMON, and it gets its own state directory and its own
+// process. It used to re-import src/server.js under a cache-busting query and
+// call startServer again against the state directory phase 1 already owned,
+// which Stage 1's exclusive instance lock correctly refuses — the verifier was
+// wrong, not the lock. Two daemons never share a state directory, so the fix is
+// a real second installation rather than a second listener over the first one's
+// state. Running it as a child process also matches what an adopter does and
+// keeps phase 2 off phase 1's module singletons: the cache-busted import gave
+// server.js a fresh module but its imports (registry.js and the rest) resolved
+// to the same URLs, so the two "separate" servers shared a registry.
 const phase2Token = 'onboarding-proof-api-token';
-process.env.ORCA_API_TOKEN = phase2Token;
-const sm2 = await import(`../src/server.js?onboarding-token-phase=${Date.now()}`);
-const server2 = await sm2.startServer(0, '127.0.0.1');
-const port2 = server2.address().port;
-const base2 = `http://127.0.0.1:${port2}`;
+const realTemp2 = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'orca-onboarding-token-')));
+const workDir2 = await fs.realpath(await (async () => {
+  const d = path.join(realTemp2, 'Demo Project');
+  await fs.mkdir(d, { recursive: true });
+  return d;
+})());
+const daemon2 = spawn('node', [path.join(repoDir, 'src', 'server.js')], {
+  env: {
+    ...process.env,
+    PORT: '0',
+    ORCA_HOST: '127.0.0.1',
+    ORCA_STATE_DIR: path.join(realTemp2, '.orca'),
+    ORCA_REPO_ROOTS: realTemp2,
+    ORCA_API_TOKEN: phase2Token,
+    ORCA_CREDENTIAL_BACKEND: 'memory',
+    ORCA_RATE_LIMIT_DISABLED: 'true',
+  },
+  stdio: ['ignore', 'pipe', 'pipe'],
+});
+// Take the port from the daemon's own startup line rather than reserving one
+// here: a port this process binds and releases can be taken again before the
+// child gets it.
+const base2 = await new Promise((resolve, reject) => {
+  let out = '';
+  const fail = setTimeout(() => reject(new Error(`phase 2 daemon did not report a listening URL:\n${out}`)), 30000);
+  const scan = (chunk) => {
+    out += chunk;
+    const found = out.match(/listening at (http:\/\/\S+)/i);
+    if (found) { clearTimeout(fail); resolve(found[1].replace(/\/$/, '')); }
+  };
+  daemon2.stdout.on('data', scan);
+  daemon2.stderr.on('data', scan);
+  daemon2.once('exit', (code) => { clearTimeout(fail); reject(new Error(`phase 2 daemon exited with ${code}:\n${out}`)); });
+});
+// The API token stays OUT of this process's environment and out of the bridge's.
+// The whole point of phase 2 is that the agent never holds it: the bridge must
+// authenticate with the minted lease alone, and a token leaking into its env
+// would let an unauthenticated wiring pass.
 
 const bareRes = await fetch(`${base2}/api/orchestrators`, {
   method: 'POST',
   headers: { 'content-type': 'application/json' },
-  body: JSON.stringify({ cwd: workDir, title: 'no auth', actor: 'claude' }),
+  body: JSON.stringify({ cwd: workDir2, title: 'no auth', actor: 'claude' }),
 });
 step('tokenized: the bare wiring is correctly refused', bareRes.status === 401, `${bareRes.status}`);
 
@@ -259,18 +303,18 @@ const r2 = (method, params) => new Promise((resolve) => {
 await r2('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'onboarding-proof-token', version: '1' } });
 const reg2 = await r2('tools/call', {
   name: 'orchestrator__register',
-  arguments: { body: { cwd: workDir, title: 'Tokenized onboarding proof', actor: 'claude' } },
+  arguments: { body: { cwd: workDir2, title: 'Tokenized onboarding proof', actor: 'claude' } },
 });
 const reg2Text = reg2?.result?.content?.[0]?.text ?? '';
 let reg2Id = '';
 try { reg2Id = JSON.parse(reg2Text)?.id || ''; } catch { /* non-JSON error text */ }
 step('tokenized: orchestrator.register works with the minted lease', Boolean(reg2Id), reg2Id || reg2Text.slice(0, 140));
 c2.kill();
-if (sm2.stopServer) await sm2.stopServer();
-await new Promise((r) => server2.close(r));
+daemon2.kill();
 
 console.log(`\n[onboarding] ${failed ? 'FAILED' : 'OK'} — a new agent can wire Orca with the documented command and run the loop.`);
 if (sm.stopServer) await sm.stopServer();
 await new Promise((r) => server.close(r));
 await fs.rm(realTemp, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
+await fs.rm(realTemp2, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
 if (failed) process.exit(1);
