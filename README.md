@@ -82,6 +82,15 @@ That one command does three things, and prints what it did:
 Then check everything with `node src/orca-cli.js doctor`; every failed check
 prints its fix, and its warnings are worth reading once.
 
+The whole path above — clone, setup, register, spawn, audit, stop — is written
+out with its real output in
+[docs/adopter-acceptance.md](docs/adopter-acceptance.md), and
+`npm run smoke:adopter-acceptance` runs it. Two things that page tells you and
+this one does not: `setup` takes its port from `PORT` (there is no `--port` on
+`setup`, so use `PORT=8730 … setup …` when 3000 is taken), and `doctor`'s
+`target` check is the one that confirms it is describing the daemon you actually
+manage.
+
 **One thing `doctor` warns about that is worth fixing now.** `--connect` writes
 the path of *this machine's* Node into your client's MCP config, and
 `service install` writes it into a LaunchAgent that starts Orca at every login.
