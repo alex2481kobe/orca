@@ -3,6 +3,7 @@
 
 import { FENCE_STATUS } from './fence.js';
 import { LANE_STATES, isRunningLaneState, isLiveLaneState } from './worker-contract.js';
+import { laneEvidenceRef } from './audit-evidence.js';
 import { nowIso } from './registry-utils.js';
 import { createExecutorAdapter } from './executor-factory.js';
 import { normalizeSpawnPolicy, resolveOrchestratorCapacity } from './registry-lane-config.js';
@@ -159,6 +160,7 @@ export const schedulerMethods = {
 
   stopScheduler() {
     this._schedulerRunning = false;
+    this._flushLaneJournals?.();
     // Wake the current heartbeat sleep so the loop checks the flag and exits now.
     this._wakeScheduler?.();
     if (this._persistTimer) {
@@ -191,6 +193,9 @@ export const schedulerMethods = {
       try { await this._schedulerLoopDone; } catch { /* loop errors are non-fatal at teardown */ }
       this._schedulerLoopDone = null;
     }
+    // Lane journal appends are synchronous; write any still waiting on their
+    // debounce before the state directory can go away.
+    this._flushLaneJournals?.();
     // A pending debounce timer holds an untracked write; force it into
     // _pendingWrites first so its in-flight fs.mkdir can't escape the drain
     // and resolve during process teardown (the AfterMkdirp crash).
@@ -271,7 +276,7 @@ export const schedulerMethods = {
           sessionId: containerId,
           laneId: lane.id,
           summary: `Lane ${lane.title} started`,
-          evidence: { lane },
+          evidence: laneEvidenceRef(lane),
           status: 'passed',
         });
 

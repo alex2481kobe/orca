@@ -11,11 +11,17 @@ import { defaultPolicy } from './registry-policy.js';
 import { normalizeAgentQueueForRestore } from './registry-agent-queue.js';
 import { readJsonFileWithRecoverySync } from './state-store/recovery.js';
 import { writeJsonFileAtomic } from './state-store/io.js';
+import { STATE_FORMAT_VERSION } from './state-paths.js';
+import { migrateStateToV4, needsV4Migration } from './state-migrate.js';
+
+// v3 and v4 share the orchestrator-only model. v4 moves lane streams to journal
+// files; a v3 lane's inline streams are journaled on the first persist.
+const CURRENT_MODEL_VERSIONS = [3, STATE_FORMAT_VERSION];
 
 export const persistenceMethods = {
   restoreFromDisk() {
     const fallback = {
-      version: 3,
+      version: STATE_FORMAT_VERSION,
       projects: [],
       lanes: [],
       tasks: [],
@@ -30,13 +36,15 @@ export const persistenceMethods = {
     let migratedFromV1 = false;
     let migratedFromV2 = false;
     let migrationBackupPath = null;
+    let migratedToV4 = null;
     try {
       let parsed = recovered.data || fallback;
+      const originalVersion = parsed?.version ?? null;
       // Persisted-state migration. v3 is the orchestrator-only model (no session
       // container). Back up before any migration (never silently delete), then
       // persist the migrated store immediately so it STICKS (writes are otherwise
       // debounced+unref'd; a crash right after would re-migrate on every restart).
-      if (parsed && parsed.version !== 3) {
+      if (parsed && !CURRENT_MODEL_VERSIONS.includes(parsed.version)) {
         if (parsed.version === 2) {
           // v2 -> v3: the session container is removed and the orchestrator record
           // is the only container. Carry over projects/orchestrators + lanes that
@@ -69,9 +77,24 @@ export const persistenceMethods = {
           }
           parsed = { ...fallback, version: 3 };
         }
+        // No intermediate v3 write: the v4 migration below writes the final
+        // state, and keeps the file it replaces byte for byte.
+      }
+      // v3 -> v4 (state-migrate.js): lane streams to journals, audit evidence to
+      // references, evidence-only lanes to archives; the original is kept under
+      // archive/migrations/. If it fails, state is NOT opened and nothing is
+      // written: persisting now would overwrite the original without its copy.
+      if (needsV4Migration(parsed) && recovered.status?.source !== 'fallback') {
         try {
-          fsSync.writeFileSync(this.stateFile, JSON.stringify({ ...parsed, savedAt: nowIso() }));
-        } catch { /* best-effort; the debounced write will catch up */ }
+          const migration = migrateStateToV4({ stateDir: this.storageDir, parsed, from: originalVersion ?? 3 });
+          parsed = migration.state;
+          migratedToV4 = migration.report;
+        } catch (error) {
+          this._persistBlocked = true;
+          const failure = new Error(`State migration to v${STATE_FORMAT_VERSION} failed: ${error?.message || error}. ${this.stateFile} was left as it was; fix the cause (disk space, permissions) and start again.`);
+          failure.orcaMigrationFailed = true;
+          throw failure;
+        }
       }
       this.projects = safeArray(parsed.projects).map((project) => ({
         ...project,
@@ -80,6 +103,7 @@ export const persistenceMethods = {
       this.orchestrators = safeArray(parsed.orchestrators);
       this.lanes = safeArray(parsed.lanes);
       this.auditEvents = safeArray(parsed.auditEvents, []).slice(0, 200);
+      this.archivedLanes = safeArray(parsed.archivedLanes).filter((entry) => entry && typeof entry.id === 'string');
       // Never let persisted (potentially tampered) state weaken an approval
       // gate. Start from the hardcoded defaults; for known actions the default
       // `requiresApproval` and `risk` always win. Disk may only carry custom
@@ -110,18 +134,35 @@ export const persistenceMethods = {
       if (Array.isArray(parsed.agentQueue)) {
         this.agentQueue = normalizeAgentQueueForRestore(parsed.agentQueue);
       }
-      if (migratedFromV1 || migratedFromV2) {
-        const from = migratedFromV2 ? 2 : 1;
+      if (migratedFromV1 || migratedFromV2 || migratedToV4) {
+        const from = migratedFromV2 ? 2 : (migratedFromV1 ? 1 : (migratedToV4?.from ?? 3));
+        const steps = [
+          migratedFromV2 ? `v2 -> v3 (session container removed; previous state backed up to ${migrationBackupPath})` : null,
+          migratedFromV1 ? `v1 -> v3 (fresh start; previous state backed up to ${migrationBackupPath})` : null,
+          migratedToV4 ? `v3 -> v${STATE_FORMAT_VERSION} (lane logs to journals, audit evidence to references; original kept in ${migratedToV4.archivePath})` : null,
+        ].filter(Boolean);
         this.auditEvents.unshift({
           id: randomUUID(),
           type: 'registry_state_migrated',
           actor: 'system',
           status: 'passed',
-          summary: migratedFromV2
-            ? `Migrated state v2 -> v3 (session container removed); previous state backed up to ${migrationBackupPath}`
-            : `Migrated state v1 -> v3 (fresh start); previous state backed up to ${migrationBackupPath}`,
+          summary: `Migrated state ${steps.join('; then ')}`,
           createdAt: nowIso(),
-          evidence: { from, to: 3, backupPath: migrationBackupPath },
+          evidence: {
+            from,
+            to: STATE_FORMAT_VERSION,
+            backupPath: migrationBackupPath,
+            archivePath: migratedToV4?.archivePath || null,
+            converted: migratedToV4 ? {
+              lanes: migratedToV4.lanes,
+              logEntries: migratedToV4.logEntries,
+              agentEventEntries: migratedToV4.agentEventEntries,
+              evidenceRefs: migratedToV4.evidenceRefs,
+              evidenceOnlyLanesArchived: migratedToV4.evidenceOnlyLanesArchived,
+              originalBytes: migratedToV4.originalBytes,
+              stateBytes: migratedToV4.stateBytes,
+            } : null,
+          },
         });
       }
       this.ensureSessionWorkspaces();
@@ -147,6 +188,7 @@ export const persistenceMethods = {
         this.auditEvents = this.auditEvents.slice(0, 200);
       }
     } catch (error) {
+      if (error?.orcaMigrationFailed) throw error;
       if (error.code !== 'ENOENT') {
         console.error('Failed to restore persisted Orca state:', error);
       }
@@ -197,12 +239,17 @@ export const persistenceMethods = {
     // freshly enqueued agent event. Serializing on _writeChain guarantees the
     // last-ISSUED (freshest) snapshot is the last to hit disk.
     const snapshot = this.snapshotState();
+    // Resolves true once this snapshot is on disk, false if the write failed.
     const write = (this._writeChain || Promise.resolve()).then(async () => {
+      // A failed migration must never be followed by a write over the original.
+      if (this._persistBlocked) return false;
       try {
         await fs.mkdir(this.storageDir, { recursive: true });
         await writeJsonFileAtomic(this.stateFile, snapshot, { forceBackup });
+        return true;
       } catch (error) {
         console.error('Persist failed:', error);
+        return false;
       }
     });
     this._writeChain = write;
@@ -211,14 +258,19 @@ export const persistenceMethods = {
   },
 
   snapshotState() {
+    // Journal every new log line and agent event FIRST: the snapshot below drops
+    // lane streams, so they must already be on disk (a lane whose append failed
+    // keeps its streams inline instead).
+    const failedJournalLaneIds = this._flushLaneJournals();
     return {
-      version: 3,
+      version: STATE_FORMAT_VERSION,
       savedAt: nowIso(),
       policies: this.policies,
       projects: this.projects,
       orchestrators: this.orchestrators,
-      lanes: this.lanes,
+      lanes: this.lanes.map((lane) => this._laneForSnapshot(lane, failedJournalLaneIds)),
       auditEvents: this.auditEvents,
+      archivedLanes: this.archivedLanes || [],
       toolLeases: this.toolLeases,
       agentQueue: normalizeAgentQueueForRestore(this.agentQueue),
     };

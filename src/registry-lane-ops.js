@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { LANE_STATES, isLiveLaneState } from './worker-contract.js';
+import { laneEvidenceRef } from './audit-evidence.js';
 import { nowIso, clonePayload, safeArray } from './registry-utils.js';
 import { removeLaneWorktree, mergeLaneBranch, worktreeCleanliness } from './worktree-manager.js';
 import { validateNetworkUrl } from './url-policy.js';
@@ -71,7 +72,12 @@ export const laneOpsMethods = {
     if (typeof this.removeLaneWorktree === 'function') {
       try { await this.removeLaneWorktree(lane.id, { actor, approved: true, removeBranch: false }); } catch { /* best effort */ }
     }
-    this.lanes = (this.lanes || []).filter((entry) => entry.id !== lane.id);
+    // The record and its logs move to the lane's archive; lane.get still finds
+    // them there until the archive is purged.
+    const { retired, skipped } = this.retireLanes([lane], { reason: `deleted by ${String(actor || 'dashboard').slice(0, 120)}` });
+    if (!retired.length) {
+      throw { status: 500, message: `Could not archive lane ${lane.id} (${skipped[0]?.reason || 'unknown error'}); it was not deleted.` };
+    }
     const session = this.getSession(lane.sessionId);
     const thread = session?.orchestratorThread;
     if (thread && typeof thread === 'object') {
@@ -89,10 +95,11 @@ export const laneOpsMethods = {
       sessionId: lane.sessionId,
       laneId: lane.id,
       summary: `Lane "${lane.title}" deleted`,
+      evidence: { ...laneEvidenceRef(lane), archivedTo: retired[0].file },
       status: 'passed',
     });
     this.persistState();
-    return { deleted: true, id: lane.id };
+    return { deleted: true, id: lane.id, archivedTo: retired[0].file };
   },
 
   submitLane(laneLocator, { actor = 'executor', summary = '', changedFiles = [], handoff = '' } = {}) {
@@ -134,7 +141,7 @@ export const laneOpsMethods = {
     this.persistState();
     // Guide the agent to the next step (audit.queue_one) so a successful submit
     // doesn't force a separate status round-trip.
-    return { lane: clonePayload(lane), nextAction: this._laneNextAction(lane) };
+    return { lane: clonePayload(this.laneForRead(lane)), nextAction: this._laneNextAction(lane) };
   },
 
   // --- Permission-approval relay (Codex-app-style approval loop) -----------
@@ -176,7 +183,7 @@ export const laneOpsMethods = {
       evidence: { approval },
     });
     this.persistState();
-    return { lane: clonePayload(lane), approval: clonePayload(approval) };
+    return { lane: clonePayload(this.laneForRead(lane)), approval: clonePayload(approval) };
   },
 
   decideLaneApproval(laneLocator, approvalId, { decision, actor = 'dashboard' } = {}) {
@@ -211,7 +218,7 @@ export const laneOpsMethods = {
       evidence: { approval },
     });
     this.persistState();
-    return { lane: clonePayload(lane), approval: clonePayload(approval) };
+    return { lane: clonePayload(this.laneForRead(lane)), approval: clonePayload(approval) };
   },
 
   getLaneApprovals(laneLocator) {
@@ -325,7 +332,7 @@ export const laneOpsMethods = {
       },
     });
     this.persistState();
-    return clonePayload(lane);
+    return clonePayload(this.laneForRead(lane));
   },
 
   async stopLane(laneLocator, context = {}) {
@@ -355,7 +362,7 @@ export const laneOpsMethods = {
       }
       this.laneRuntimeEnv?.delete(String(lane.id));
       this.persistState();
-      return clonePayload(lane);
+      return clonePayload(this.laneForRead(lane));
     }
 
     const executor = this.getExecutorForLane(lane);
@@ -383,7 +390,7 @@ export const laneOpsMethods = {
         sessionId: lane.sessionId,
         laneId: lane.id,
         summary: `Lane ${lane.title} stopped`,
-        evidence: { lane },
+        evidence: laneEvidenceRef(lane),
         status: 'passed',
       });
       // Mirror markLaneStopped's durable orchestrator wakeup so this fallback stop
@@ -417,7 +424,7 @@ export const laneOpsMethods = {
     }
     this.laneRuntimeEnv?.delete(String(lane.id));
     this.persistState();
-    return clonePayload(lane);
+    return clonePayload(this.laneForRead(lane));
   },
 
   retryLane(laneLocator, context = {}) {
@@ -483,11 +490,11 @@ export const laneOpsMethods = {
       sessionId: lane.sessionId,
       laneId: lane.id,
       summary: `Retry requested for lane ${lane.title}`,
-      evidence: { lane },
+      evidence: laneEvidenceRef(lane),
       status: 'passed',
     });
     this.persistState();
-    return clonePayload(lane);
+    return clonePayload(this.laneForRead(lane));
   },
 
 
@@ -526,7 +533,7 @@ export const laneOpsMethods = {
         },
       });
     }
-    return { lane: clonePayload(lane), result };
+    return { lane: clonePayload(this.laneForRead(lane)), result };
   },
 
   resizeLaneTerminal(laneLocator, { cols, rows, actor = 'dashboard' } = {}) {
@@ -553,7 +560,7 @@ export const laneOpsMethods = {
       status: 'passed',
       evidence: { laneId: lane.id, cols: result.cols, rows: result.rows },
     });
-    return { lane: clonePayload(lane), result };
+    return { lane: clonePayload(this.laneForRead(lane)), result };
   },
 
   async touchHeartbeat(laneLocator, context = {}) {
@@ -565,12 +572,12 @@ export const laneOpsMethods = {
     const executor = this.getExecutorForLane(lane);
     const updated = executor.touchHeartbeat(lane.id, context.actor || 'mock-worker');
     if (!updated) {
-      return clonePayload(lane);
+      return clonePayload(this.laneForRead(lane));
     }
     const beatAt = nowIso();
     lane.heartbeatAt = beatAt;
     lane.lastActivityAt = beatAt; // a heartbeat is liveness → resets idle-shutdown
-    return clonePayload(lane);
+    return clonePayload(this.laneForRead(lane));
   },
 
   async listArtifactFiles(laneLocator) {
@@ -737,6 +744,7 @@ export const laneOpsMethods = {
         nextAction: recoverable ? this._laneNextAction(lane, 'lane.integrate') : null,
       };
     }
+    const removedWorktreePath = lane.worktreePath;
     lane.worktreePath = '';
     this.recordAudit({
       type: 'lane_worktree_removed',
@@ -745,7 +753,13 @@ export const laneOpsMethods = {
       sessionId: lane.sessionId,
       laneId: lane.id,
       summary: `Worktree ${force ? 'force-' : ''}removed for lane ${lane.title}`,
-      evidence: { lane, branchRemoved: result.branchRemoved, force: Boolean(force) },
+      evidence: {
+        ...laneEvidenceRef(lane),
+        worktreePath: removedWorktreePath,
+        branch: lane.branch || null,
+        branchRemoved: result.branchRemoved,
+        force: Boolean(force),
+      },
       status: 'passed',
     });
     this.persistState();

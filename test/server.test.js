@@ -2443,8 +2443,21 @@ test('DELETE /api/lanes/{id} refuses a running lane and succeeds on a terminal o
     });
     assert.equal(deleted.status, 200, JSON.stringify(deleted.body));
     assert.equal(deleted.body.deleted, true);
-    const gone = await server.requestJson(`/api/lanes/${laneId}`, { method: 'GET', headers: { 'x-orca-token': token } });
-    assert.equal(gone.status, 404);
+    // Deleted means out of hot state, not destroyed: lane.get reads the lane from
+    // its archive (marked archived), lane.list no longer lists it, and nothing can
+    // act on it any more.
+    const archived = await server.requestJson(`/api/lanes/${laneId}`, { method: 'GET', headers: { 'x-orca-token': token } });
+    assert.equal(archived.status, 200, JSON.stringify(archived.body));
+    assert.equal(archived.body.id, laneId);
+    assert.match(archived.body.archived.reason, /^deleted by /);
+    const listed = await server.requestJson(`/api/orchestrators/${orchestrator.body.id}/lanes`, { method: 'GET', headers: { 'x-orca-token': token } });
+    assert.equal(listed.body.some((lane) => lane.id === laneId), false);
+    const retried = await server.requestJson(`/api/lanes/${laneId}/retry`, {
+      method: 'POST',
+      headers: { 'x-orca-token': token },
+      body: { actor: 'dashboard' },
+    });
+    assert.equal(retried.status, 404);
   } finally {
     await server.stop();
   }

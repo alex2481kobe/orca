@@ -242,7 +242,7 @@ export const auditMethods = {
         id: existing.id,
         queueId: existing.id,
         event: clonePayload(existing),
-        lane: clonePayload(lane),
+        lane: clonePayload(this.laneForRead(lane)),
         alreadyQueued: true,
       };
     }
@@ -260,7 +260,7 @@ export const auditMethods = {
         laneSnapshot: {
           title: lane.title,
           state: lane.state,
-          logs: lane.logs.length,
+          logs: this.laneStreamCounts(lane).logs,
         },
       },
       status: 'pending',
@@ -268,7 +268,7 @@ export const auditMethods = {
     });
     this.persistState();
     const event = this.auditEvents.find((item) => item.id === queueId) || null;
-    return { id: queueId, queueId, event: event ? clonePayload(event) : null, lane: clonePayload(lane) };
+    return { id: queueId, queueId, event: event ? clonePayload(event) : null, lane: clonePayload(this.laneForRead(lane)) };
   },
 
   laneHasCapturedEvidence(lane) {
@@ -383,7 +383,7 @@ export const auditMethods = {
     // After accept, an isolated lane's work still needs merging back — point the
     // agent at lane.integrate; other lanes are done in place.
     const nextTool = lane.worktreeMode === 'isolated' ? 'lane.integrate' : null;
-    return { lane: clonePayload(lane), audit: clonePayload(record), nextAction: this._auditNextAction(lane, nextTool) };
+    return { lane: clonePayload(this.laneForRead(lane)), audit: clonePayload(record), nextAction: this._auditNextAction(lane, nextTool) };
   },
 
   requestLaneFix(laneLocator, {
@@ -435,7 +435,7 @@ export const auditMethods = {
     const nextTool = escalated
       ? 'orchestrator.status'
       : (record.fixRouting === 'new-agent' ? 'executor.spawn' : 'lane.retry');
-    return { lane: clonePayload(lane), audit: clonePayload(record), nextAction: this._auditNextAction(lane, nextTool) };
+    return { lane: clonePayload(this.laneForRead(lane)), audit: clonePayload(record), nextAction: this._auditNextAction(lane, nextTool) };
   },
 
   blockLaneAudit(laneLocator, {
@@ -469,6 +469,6 @@ export const auditMethods = {
       evidence: record,
     });
     this.persistState();
-    return { lane: clonePayload(lane), audit: clonePayload(record) };
+    return { lane: clonePayload(this.laneForRead(lane)), audit: clonePayload(record) };
   },
 };

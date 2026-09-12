@@ -4,6 +4,7 @@
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { LANE_STATES } from './worker-contract.js';
+import { laneEvidenceRef } from './audit-evidence.js';
 import {
   nowIso,
   clonePayload,
@@ -402,7 +403,7 @@ export const laneCreateMethods = {
         sessionId: session.id,
         laneId: lane.id,
         summary: `Lane "${lane.title}" queued`,
-        evidence: { lane },
+        evidence: laneEvidenceRef(lane),
         status: 'passed',
       });
       if (taskPromptTruncated) {

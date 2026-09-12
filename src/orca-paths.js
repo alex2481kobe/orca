@@ -109,6 +109,15 @@ export function resolveStateDir({ env = process.env, home = os.homedir(), config
   return { dir: defaultStateDir({ env, home }), source: 'default' };
 }
 
+// The only cwd-derived state directory left in Orca, and it is never the
+// daemon's: a registry constructed with no `stateDir` (tests, and code that
+// embeds OrcaRegistry in its own process) keeps state under the directory it
+// runs in. The daemon, the CLI and `gc` all go through resolveStateDir() above,
+// so nothing a user starts decides its state directory by cwd.
+export function embeddedStateDir(cwd = process.cwd()) {
+  return path.join(cwd, '.orca');
+}
+
 export const STATE_SOURCE_LABELS = {
   ORCA_STATE_DIR: 'from ORCA_STATE_DIR',
   config: 'from the Orca config file',

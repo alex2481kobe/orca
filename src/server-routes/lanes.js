@@ -82,11 +82,17 @@ export async function handleLaneRoutes(ctx, req, res, method, parts) {
   } = ctx;
     const lane = registry.getLane(parts[2]);
     if (!lane) {
+      // A lane retired to the archive is still readable (and only readable).
+      if (parts.length === 3 && method === 'GET') {
+        const archived = registry.readArchivedLane(parts[2], { lease: req._toolLease || null });
+        if (archived) return sendJson(res, archived.status, archived.body);
+      }
       return sendJson(res, 404, { error: 'Lane not found.' });
     }
 
     if (parts.length === 3 && method === 'GET') {
-      return sendJson(res, 200, lane);
+      // Full lane, streams included: a restored lane's come from its journal.
+      return sendJson(res, 200, registry.laneForRead(lane));
     }
 
     if (parts.length === 4 && parts[3] === 'terminal-tail' && method === 'GET') {

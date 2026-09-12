@@ -32,7 +32,16 @@
 //       carries a refresh credential, so the client reconnects by itself from then
 //       on. --print only prints the command.
 //
-// doctor and connect never start, stop or signal Orca.
+//   gc [--apply] [--older-than-days N] [--purge-archive --purge-older-than-days N]
+//      [--state-dir DIR] [--json]
+//       State retention (src/orca-gc-cli.js, docs/state-retention.md). A dry run
+//       unless --apply; --apply only MOVES into the state directory's archive/,
+//       refuses while a daemon owns the state directory, and holds its lock
+//       while it works. Deleting from the archive needs --purge-archive AND an age.
+//       It acts on the same state directory start/stop/status do.
+//
+// doctor, connect and gc never start, stop or signal Orca; start, stop, status,
+// logs and service are the only commands that do.
 
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -53,6 +62,7 @@ import {
 } from './cli-lifecycle.js';
 import { setup } from './cli-setup.js';
 import { resolveApiToken } from './api-token.js';
+import { GC_BOOLEAN_FLAGS, GC_USAGE, runGcCommand } from './orca-gc-cli.js';
 import {
   DEFAULT_BASE_URL,
   LEASE_HEADER,
@@ -74,12 +84,13 @@ const USAGE = `Usage:
   ${CLI} service install [--dry-run] [--no-load] [--replace] [--token-file PATH] [--node PATH] [--port N]
   ${CLI} service uninstall [--force]
   ${CLI} doctor [--json] [--url URL]
-  ${CLI} connect <claude|codex> [--actor NAME] [--url URL] [--node PATH] [--print]`;
+  ${CLI} connect <claude|codex> [--actor NAME] [--url URL] [--node PATH] [--print]
+  ${CLI} ${GC_USAGE}`;
 
 const CLIENT_LABELS = { claude: 'Claude Code', codex: 'Codex' };
 const HTTP_TIMEOUT_MS = 5000;
 
-const BOOLEAN_FLAGS = new Set(['json', 'print', 'force', 'dry-run', 'allow-home-root', 'no-start', 'no-load', 'replace']);
+const BOOLEAN_FLAGS = new Set(['json', 'print', 'force', 'dry-run', 'allow-home-root', 'no-start', 'no-load', 'replace', ...GC_BOOLEAN_FLAGS]);
 // May repeat; each value may also be a comma-separated list.
 const LIST_FLAGS = new Set(['roots', 'connect']);
 
@@ -560,6 +571,7 @@ const COMMANDS = {
     out.err(`service needs install or uninstall.\n${USAGE}`);
     return 2;
   },
+  gc: () => runGcCommand(flags),
 };
 if (!command) {
   process.stdout.write(`${USAGE}\n`);

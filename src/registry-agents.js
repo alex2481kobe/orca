@@ -409,6 +409,9 @@ export const agentMethods = {
       capacity: envelope.capacity,
       nextRequiredTool: envelope.nextRequiredTool,
       lanes,
+      // Lanes of this orchestrator retired to the archive: not in `lanes`, still
+      // readable one by one with lane.get.
+      archivedLanes: (this.archivedLanes || []).filter((entry) => entry.sessionId === orch.id).length,
       tree,
     });
   },

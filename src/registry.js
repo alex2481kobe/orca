@@ -1,4 +1,4 @@
-import { artifactDirFor } from './orca-paths.js';
+import { artifactDirFor, embeddedStateDir } from './orca-paths.js';
 import fsSync from 'node:fs';
 import path from 'node:path';
 import { toolLeaseMethods } from './registry-tool-leases.js';
@@ -19,6 +19,7 @@ import { artifactMethods } from './registry-artifacts.js';
 import { agentMethods } from './registry-agents.js';
 import { overviewMethods } from './registry-overview.js';
 import { lifecycleMethods } from './registry-lifecycle.js';
+import { laneJournalMethods } from './registry-lane-journal.js';
 import {
   parseBooleanEnv,
   clonePayload,
@@ -54,9 +55,12 @@ export class OrcaRegistry {
     this.orchestrators = [];
     this.lanes = [];
     this.auditEvents = [];
+    // Lanes retired to archive/lanes/ (lane-archive.js): the small index lane.get
+    // uses to find and scope them.
+    this.archivedLanes = [];
     this.toolLeases = [];
     this.agentQueue = [];
-    this.storageDir = stateDir ? path.resolve(stateDir) : path.join(process.cwd(), '.orca');
+    this.storageDir = stateDir ? path.resolve(stateDir) : embeddedStateDir();
     this.artifactRoot = artifactDirFor(this.storageDir);
     this.workspacesRoot = path.join(this.storageDir, 'workspaces');
     this.stateFile = path.join(this.storageDir, 'state.json');
@@ -83,6 +87,11 @@ export class OrcaRegistry {
     this.stateLoadStatus = null;
     this._starting = true;
     this._pendingWrites = new Set();
+    // Lane journal bookkeeping (registry-lane-journal.js): entries already on
+    // disk, the debounced append timer, and restored lanes' preview tails.
+    this._journaled = new WeakSet();
+    this._journalTimer = null;
+    this._laneTailCache = new Map();
     this.laneRuntimeEnv = new Map();
     // CLI executors may run a lane in the session's vetted repoRoot (a fence root)
     // or in a per-lane git worktree under workspacesRoot. Those are the only
@@ -140,7 +149,7 @@ export class OrcaRegistry {
     if (!session) {
       throw { status: 404, message: 'Session not found.' };
     }
-    return clonePayload(this.lanes.filter((lane) => lane.sessionId === session.id));
+    return clonePayload(this.lanes.filter((lane) => lane.sessionId === session.id).map((lane) => this.laneForRead(lane)));
   }
 
   // Lightweight lane list for the dashboard poll: drops `logs` entirely (no list
@@ -160,12 +169,12 @@ export class OrcaRegistry {
       .filter((lane) => lane.sessionId === session.id)
       .map((lane) => {
         const { logs, agentEvents, ...rest } = lane;
-        const events = Array.isArray(agentEvents) ? agentEvents : [];
+        const counts = this.laneStreamCounts(lane);
         return clonePayload({
           ...rest,
-          agentEvents: events.slice(-TAIL),
-          agentEventCount: events.length,
-          logCount: Array.isArray(logs) ? logs.length : 0,
+          agentEvents: this.laneAgentEventTail(lane, TAIL),
+          agentEventCount: counts.agentEvents,
+          logCount: counts.logs,
         });
       });
   }
@@ -193,6 +202,7 @@ Object.assign(OrcaRegistry.prototype, laneCreateMethods);
 Object.assign(OrcaRegistry.prototype, schedulerMethods);
 Object.assign(OrcaRegistry.prototype, workspaceMethods);
 Object.assign(OrcaRegistry.prototype, auditLogMethods);
+Object.assign(OrcaRegistry.prototype, laneJournalMethods);
 Object.assign(OrcaRegistry.prototype, persistenceMethods);
 Object.assign(OrcaRegistry.prototype, artifactMethods);
 Object.assign(OrcaRegistry.prototype, lifecycleMethods);

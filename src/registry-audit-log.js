@@ -3,9 +3,9 @@
 
 import { randomUUID } from 'node:crypto';
 import { nowIso, clonePayload } from './registry-utils.js';
+import { compactAuditEvidence } from './audit-evidence.js';
 
-const MAX_LANE_LOG_ENTRIES = 2000;
-const MAX_AGENT_EVENT_ENTRIES = 3000;
+import { MAX_AGENT_EVENT_ENTRIES, MAX_LANE_LOG_ENTRIES } from './registry-lane-journal.js';
 
 function isOrchestratorStartStub(value) {
   return /^Started\s+.+\s+orchestrator lane\s+"/i.test(String(value || '').trim());
@@ -76,9 +76,8 @@ function promoteOrchestratorThreadOutput(registry, lane, agentEvent, now) {
 export const auditLogMethods = {
   appendLaneLog(lane, message, { persist = false } = {}) {
     if (!lane || !message) return;
-    if (!Array.isArray(lane.logs)) {
-      lane.logs = [];
-    }
+    // A lane restored from disk loads its journal before it grows.
+    this.ensureLaneStreams(lane);
     lane.logs.push({
       at: nowIso(),
       message,
@@ -86,10 +85,14 @@ export const auditLogMethods = {
     // Cap per-lane log growth so a chatty/long-running lane can't grow state.json
     // (and every transcript write) without bound.
     if (lane.logs.length > MAX_LANE_LOG_ENTRIES) {
+      // The cap bounds memory, not the record: journal a line before the cap can
+      // drop it, even when more than the cap arrives between debounced flushes.
+      if (!this._journaled.has(lane.logs[0])) this._flushLaneJournals();
       lane.logs = lane.logs.slice(-MAX_LANE_LOG_ENTRIES);
     }
     lane.updatedAt = nowIso();
     this._streamRevision = (this._streamRevision || 0) + 1;
+    this._scheduleJournalFlush();
     if (!this._starting && persist) {
       this.persistState();
     }
@@ -97,9 +100,7 @@ export const auditLogMethods = {
 
   appendLaneAgentEvent(lane, agentEvent, { persist = false } = {}) {
     if (!lane || !agentEvent || typeof agentEvent !== 'object') return;
-    if (!Array.isArray(lane.agentEvents)) {
-      lane.agentEvents = [];
-    }
+    this.ensureLaneStreams(lane);
     const now = nowIso();
     // Any agent output/tool activity keeps the lane's idle-shutdown clock fresh.
     lane.lastActivityAt = now;
@@ -120,6 +121,7 @@ export const auditLogMethods = {
       ...(usage ? { usage } : {}),
     });
     if (lane.agentEvents.length > MAX_AGENT_EVENT_ENTRIES) {
+      if (!this._journaled.has(lane.agentEvents[0])) this._flushLaneJournals();
       lane.agentEvents = lane.agentEvents.slice(-MAX_AGENT_EVENT_ENTRIES);
     }
     // Promote the agent's final assistant message (parsed from the executor's
@@ -136,6 +138,7 @@ export const auditLogMethods = {
     promoteOrchestratorThreadOutput(this, lane, agentEvent, now);
     lane.updatedAt = now;
     this._streamRevision = (this._streamRevision || 0) + 1;
+    this._scheduleJournalFlush();
     if (!this._starting && persist) {
       this.persistState();
     }
@@ -149,6 +152,8 @@ export const auditLogMethods = {
       followUpQueued: event.followUpQueued || false,
       ...event,
     };
+    // Evidence references a lane; it never embeds one (see audit-evidence.js).
+    if (record.evidence) record.evidence = compactAuditEvidence(record.evidence);
     this.auditEvents.unshift(record);
     if (this.auditEvents.length > 200) {
       this.auditEvents.pop();

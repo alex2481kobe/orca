@@ -119,7 +119,7 @@ export const TOOL_DEFINITIONS = [
     route: '/api/lanes/{laneId}',
     implemented: true,
     mutating: true,
-    summary: 'Permanently delete a terminal lane (done/failed/stopped/accepted/blocked) and its worktree. Refuses a live lane.',
+    summary: 'Delete a terminal lane (done/failed/stopped/accepted/blocked) and its worktree. The lane record and its logs move to the state archive, where lane.get still reads them until the archive is purged. Refuses a live lane.',
   },
   {
     id: 'lane.controls.update',
