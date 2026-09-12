@@ -244,8 +244,13 @@ export const laneCreateMethods = {
     // that would land in a tree another orchestrator's writer already holds is.
     if (!isReadOnlyLane && wouldRunDirectAlone && foreignTreeHolders.length) {
       const holder = foreignTreeHolders[0];
+      // These holders are never in the caller's own container, so always name an
+      // owner. If the record is gone (an orphaned lane), name the id it points at
+      // rather than falling back to the same-container wording, which would read
+      // as though the caller already held the tree itself.
       const holderOrchestrator = (this.orchestrators || [])
-        .find((item) => item.id === holder.sessionId) || null;
+        .find((item) => item.id === holder.sessionId)
+        || (holder.sessionId ? { id: holder.sessionId, title: null, actor: null } : null);
       throw {
         status: 409,
         message: describeTreeConflict({
