@@ -6,6 +6,7 @@
 // into outcome.txt and transcript.json, so the complete text survived only inside
 // the raw stdout.log. An orchestrator reading lane.get could not tell.
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -152,6 +153,65 @@ test('outcome.txt and transcript.json say the result was cut and name the artifa
     } finally {
       registry.stopScheduler();
       await registry.drainPendingWrites();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WHERE result.txt lands.
+//
+// Every reader of a lane artifact resolves through `registry.artifactRoot`
+// (registry-artifacts.js getArtifactFile, registry-lane-ops.js listArtifactFiles
+// / readArtifactFile, gc's laneArtifactDir). writeLaneResultArtifact wrote to
+// `process.cwd()/artifacts/…` instead. Those two agree only when the daemon's
+// cwd happens to be the parent of its `.orca`, which is the shape every test
+// above sets up — so the divergence was invisible. With a state dir anywhere
+// else (ORCA_STATE_DIR, the per-user default, a config `stateDir`) result.txt —
+// the ONLY complete copy of a report the cap cut — landed where nothing looks.
+//
+// This test pins the state dir AWAY from the cwd, which is what makes it fail
+// against the old code.
+// ---------------------------------------------------------------------------
+test('result.txt is written under the registry artifact root, not the daemon cwd', async () => {
+  await inTempDir(async (cwdDir) => {
+    const stateHome = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), 'orca-state-')));
+    const registry = new OrcaRegistry({
+      autoCompleteMs: 60 * 60 * 1000,
+      autoAudit: false,
+      stateDir: path.join(stateHome, '.orca'),
+    });
+    registry.stopScheduler();
+    try {
+      assert.notEqual(
+        path.resolve(registry.artifactRoot),
+        path.resolve(cwdDir, 'artifacts'),
+        'the fixture must actually separate the artifact root from the cwd, or it proves nothing',
+      );
+      const report = body(HUGE * 2);
+      const lane = await laneWithResult(registry, report);
+      await registry.drainPendingWrites();
+
+      // Where the readers look.
+      const underRoot = path.join(registry.artifactRoot, lane.sessionId, lane.id, LANE_RESULT_ARTIFACT);
+      assert.equal(
+        (await fsp.readFile(underRoot, 'utf8')).trimEnd(),
+        report,
+        'the whole report must be under registry.artifactRoot — that is the only place lane.artifacts.get can reach',
+      );
+      // And nothing was left in the daemon's working directory.
+      assert.equal(
+        fs.existsSync(path.join(cwdDir, 'artifacts', lane.sessionId, lane.id, LANE_RESULT_ARTIFACT)),
+        false,
+        'writing beside the cwd strands the only complete copy of the report',
+      );
+
+      // The artifact reader agrees — the end-to-end statement of the same fact.
+      const fetched = await registry.readArtifactFile(lane.id, LANE_RESULT_ARTIFACT);
+      assert.equal(fetched.content.trimEnd(), report);
+    } finally {
+      registry.stopScheduler();
+      await registry.drainPendingWrites();
+      await fsp.rm(stateHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
     }
   });
 });

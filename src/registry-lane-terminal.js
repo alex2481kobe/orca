@@ -227,10 +227,20 @@ export const laneTerminalMethods = {
   // lane.resultText is capped for hot state; this file never is, so a truncated
   // resultText has somewhere real to point at. Written when the result is
   // captured, so it exists even for a lane that never reaches writeLaneArtifacts.
+  //
+  // `this.artifactRoot` — NOT process.cwd(). This wrote to `<cwd>/artifacts/…`
+  // until 2026-09-12 while every reader (registry-artifacts.js getArtifactFile,
+  // listArtifactFiles / readArtifactFile below, writeLaneArtifacts, gc's
+  // laneArtifactDir) resolves through the artifact root. The two agree ONLY when
+  // the daemon's working directory happens to be the parent of its `.orca`. With
+  // a state dir anywhere else — ORCA_STATE_DIR, a config `stateDir`, the per-user
+  // default — result.txt, the only complete copy of a report the 32,000-char cap
+  // cut, landed where nothing looks and lane.artifacts.get answered 404 while
+  // lane.resultText pointed the orchestrator straight at it.
   async writeLaneResultArtifact(lane, fullText) {
     const text = String(fullText ?? '');
     if (!lane || !lane.sessionId || !lane.id || !text) return null;
-    const laneArtifactDir = path.join(process.cwd(), 'artifacts', String(lane.sessionId), String(lane.id));
+    const laneArtifactDir = path.join(this.artifactRoot, String(lane.sessionId), String(lane.id));
     await fs.mkdir(laneArtifactDir, { recursive: true });
     const file = path.join(laneArtifactDir, LANE_RESULT_ARTIFACT);
     await fs.writeFile(file, text.endsWith('\n') ? text : `${text}\n`);
