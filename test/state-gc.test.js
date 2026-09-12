@@ -8,7 +8,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { appendJournalEntries, readJournalAll } from '../src/lane-journal.js';
 import { archiveLane, readLaneArchive } from '../src/lane-archive.js';
-import { applyGc, ARCHIVED_ARTIFACTS_MARKER, planGc, renderRetentionMarkdown, RETENTION } from '../src/state-gc.js';
+import { applyGc, ARCHIVED_ARTIFACTS_MARKER, formatGcPlan, planGc, renderRetentionMarkdown, RETENTION } from '../src/state-gc.js';
 import { laneJournalDir, statePaths } from '../src/state-paths.js';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -345,4 +345,35 @@ test('the retention doc covers artifacts as gc actually treats them', () => {
   assert.equal(/Size reported only\./.test(renderRetentionMarkdown()), false,
     'artifacts are managed now; the table must not still say gc only reports their size');
   assert.match(renderRetentionMarkdown(), /result\.txt/);
+});
+
+// ---------------------------------------------------------------------------
+// What gc did NOT do, and why. The PLAN already names what gc is leaving alone
+// (keep-lane, list-worktree, list-orphan-worktree). The APPLY phase can also
+// decline after the plan was made — a folder that vanished, an unwritable
+// archive, a purge whose lane archive is still on disk — and until now the only
+// thing a run printed was "done: N change(s) made", where N being smaller than
+// the plan said nothing at all.
+// ---------------------------------------------------------------------------
+
+test('gc apply reports what it declined to do, not just how many changes it made', () => {
+  const plan = {
+    stateDir: '/tmp/example/.orca',
+    generatedAt: new Date(NOW).toISOString(),
+    olderThanDays: 14,
+    actions: [
+      { kind: 'archive-lane', laneId: 'a', title: 'A', reason: 'terminal and old.' },
+      { kind: 'archive-artifacts', laneId: 'b', bytes: 2048, hasResult: true, reason: 'its lane is being archived.' },
+    ],
+    sizes: { stateJson: 1, stateJsonBak: 1, lanes: 1, archive: 1 },
+  };
+  const results = [
+    { kind: 'archive-lane', laneId: 'a', file: 'archive/lanes/a/lane-1.json.gz' },
+    { kind: 'keep-artifacts', laneId: 'b', bytes: 2048, reason: 'the lane artifacts folder could not be read' },
+  ];
+  const text = formatGcPlan(plan, { apply: true, results });
+  assert.match(text, /done: 1 change\(s\) made\./, 'a declined action is not counted as a change');
+  assert.match(text, /NOT done: artifacts of lane b left in place: the lane artifacts folder could not be read/);
+  // With nothing declined the line does not appear at all.
+  assert.doesNotMatch(formatGcPlan(plan, { apply: true, results: [results[0]] }), /NOT done/);
 });
