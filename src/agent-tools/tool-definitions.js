@@ -80,7 +80,7 @@ export const TOOL_DEFINITIONS = [
     route: '/api/lanes/{laneId}',
     implemented: true,
     mutating: false,
-    summary: 'Read one lane in full: logs, agent events, changed files, the captured result (resultText), and processMeta — use this to see WHY a lane failed or what it produced.',
+    summary: 'Read one lane in full: logs, agent events, changed files, the captured result (resultText), and processMeta — use this to see WHY a lane failed or what it produced. A long result is CAPPED in `resultText`: check `resultTruncated`, and when it is true read `resultFullLength` for the true size and fetch the whole text from the `result.txt` artifact named by `resultArtifact` (lane.artifacts.get) — reading a truncated `resultText` as the complete result silently loses the end of the report.',
   },
   {
     id: 'lane.submit',
